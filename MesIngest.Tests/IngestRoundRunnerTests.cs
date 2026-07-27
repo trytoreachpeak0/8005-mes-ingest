@@ -257,6 +257,44 @@ public class IngestRoundRunnerTests
         Assert.Equal("FAILURE", store.GetLatestPollHealth()!.Outcome);
     }
 
+    [Fact]
+    public async Task Failed_round_does_not_rewrite_projection_store()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new CountingReplaceStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 1,
+            },
+        ]));
+        store.ReplaceCount = 0;
+
+        var runner = new IngestRoundRunner(
+            new FixedMesSnapshotSource(MesSnapshotOutcome.Failure()),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator("new")),
+            store,
+            Baseline,
+            clock: () => now.AddMinutes(1));
+
+        await runner.RunOnceAsync();
+
+        Assert.Equal(0, store.ReplaceCount);
+        Assert.Equal("POLL_FAILURE", Assert.Single(store.ListAlerts()).Code);
+        Assert.Equal("FAILURE", store.GetLatestPollHealth()!.Outcome);
+    }
+
     private sealed class QueueMesSnapshotSource : IMesSnapshotSource
     {
         private readonly Queue<MesSnapshotOutcome> _outcomes;
@@ -277,5 +315,36 @@ public class IngestRoundRunnerTests
             await Task.Delay(Timeout.Infinite, cancellationToken);
             return MesSnapshotOutcome.Success([]);
         }
+    }
+
+    private sealed class CountingReplaceStore : ITransportDemandStore
+    {
+        private readonly InMemoryTransportDemandStore _inner = new();
+        public int ReplaceCount { get; set; }
+
+        public ProjectionState GetState() => _inner.GetState();
+
+        public void ReplaceState(ProjectionState state)
+        {
+            ReplaceCount++;
+            _inner.ReplaceState(state);
+        }
+
+        public TransportDemand? GetById(string demandId) => _inner.GetById(demandId);
+
+        public IReadOnlyList<TransportDemand> List(
+            DemandStatus? status = null,
+            string? taskType = null,
+            string? sublot = null,
+            string? demandId = null) =>
+            _inner.List(status, taskType, sublot, demandId);
+
+        public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _inner.AppendAlerts(alerts);
+
+        public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) => _inner.ListAlerts(limit);
+
+        public void SetLatestPollHealth(PollHealth health) => _inner.SetLatestPollHealth(health);
+
+        public PollHealth? GetLatestPollHealth() => _inner.GetLatestPollHealth();
     }
 }

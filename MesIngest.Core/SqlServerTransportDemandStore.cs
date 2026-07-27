@@ -53,10 +53,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     """
                     INSERT INTO dbo.TransportDemands
                     (DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
-                     MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode)
+                     MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt)
                     VALUES
                     (@DemandId, @TaskType, @Sublot, @Area, @Eqp, @Step, @Dates, @Package, @Status,
-                     @MesLastSeenAt, @DisappearCount, @LocationRisk, @LocationRiskCode);
+                     @MesLastSeenAt, @DisappearCount, @LocationRisk, @LocationRiskCode, @CreatedAt, @GoneAt);
                     """,
                     conn,
                     tx);
@@ -73,6 +73,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 insert.Parameters.AddWithValue("@DisappearCount", demand.DisappearCount);
                 insert.Parameters.AddWithValue("@LocationRisk", demand.LocationRisk);
                 insert.Parameters.AddWithValue("@LocationRiskCode", (object?)demand.LocationRiskCode ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@CreatedAt", demand.CreatedAt == default ? demand.MesLastSeenAt : demand.CreatedAt);
+                insert.Parameters.AddWithValue("@GoneAt", (object?)demand.GoneAt ?? DBNull.Value);
                 insert.ExecuteNonQuery();
             }
 
@@ -106,7 +108,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             using var cmd = new SqlCommand(
                 """
                 SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
-                       MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode
+                       MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
                 FROM dbo.TransportDemands
                 WHERE DemandId = @DemandId;
                 """,
@@ -117,26 +119,63 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         }
     }
 
-    public IReadOnlyList<TransportDemand> List(DemandStatus? status = null)
+    public IReadOnlyList<TransportDemand> List(
+        DemandStatus? status = null,
+        string? taskType = null,
+        string? sublot = null,
+        string? demandId = null)
     {
         lock (_gate)
         {
             using var conn = Open();
-            if (status is null)
+            var sql = """
+                SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
+                       MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
+                FROM dbo.TransportDemands
+                WHERE 1 = 1
+                """;
+            if (status is not null)
             {
-                return LoadDemands(conn);
+                sql += " AND Status = @Status";
             }
 
-            using var cmd = new SqlCommand(
-                """
-                SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
-                       MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode
-                FROM dbo.TransportDemands
-                WHERE Status = @Status
-                ORDER BY DemandId;
-                """,
-                conn);
-            cmd.Parameters.AddWithValue("@Status", ToStatusText(status.Value));
+            if (!string.IsNullOrWhiteSpace(taskType))
+            {
+                sql += " AND TaskType = @TaskType";
+            }
+
+            if (!string.IsNullOrWhiteSpace(sublot))
+            {
+                sql += " AND Sublot = @Sublot";
+            }
+
+            if (!string.IsNullOrWhiteSpace(demandId))
+            {
+                sql += " AND DemandId = @DemandId";
+            }
+
+            sql += " ORDER BY DemandId;";
+            using var cmd = new SqlCommand(sql, conn);
+            if (status is not null)
+            {
+                cmd.Parameters.AddWithValue("@Status", ToStatusText(status.Value));
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskType))
+            {
+                cmd.Parameters.AddWithValue("@TaskType", taskType);
+            }
+
+            if (!string.IsNullOrWhiteSpace(sublot))
+            {
+                cmd.Parameters.AddWithValue("@Sublot", sublot);
+            }
+
+            if (!string.IsNullOrWhiteSpace(demandId))
+            {
+                cmd.Parameters.AddWithValue("@DemandId", demandId);
+            }
+
             return ReadDemands(cmd);
         }
     }
@@ -153,12 +192,13 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         {
             using var conn = Open();
             using var tx = conn.BeginTransaction();
+            var stamped = DateTimeOffset.Now;
             foreach (var alert in alerts)
             {
                 using var insert = new SqlCommand(
                     """
-                    INSERT INTO dbo.IngestAlerts (Code, TaskType, Sublot, DemandId, Message)
-                    VALUES (@Code, @TaskType, @Sublot, @DemandId, @Message);
+                    INSERT INTO dbo.IngestAlerts (Code, TaskType, Sublot, DemandId, Message, CreatedAt)
+                    VALUES (@Code, @TaskType, @Sublot, @DemandId, @Message, @CreatedAt);
                     """,
                     conn,
                     tx);
@@ -167,6 +207,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 insert.Parameters.AddWithValue("@Sublot", (object?)alert.Sublot ?? DBNull.Value);
                 insert.Parameters.AddWithValue("@DemandId", (object?)alert.DemandId ?? DBNull.Value);
                 insert.Parameters.AddWithValue("@Message", (object?)alert.Message ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@CreatedAt", alert.CreatedAt ?? stamped);
                 insert.ExecuteNonQuery();
             }
 
@@ -174,18 +215,20 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         }
     }
 
-    public IReadOnlyList<IngestAlert> ListAlerts()
+    public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null)
     {
         lock (_gate)
         {
             using var conn = Open();
+            var take = Math.Max(1, limit ?? InMemoryTransportDemandStore.DefaultAlertLimit);
             using var cmd = new SqlCommand(
                 """
-                SELECT Code, TaskType, Sublot, DemandId, Message
+                SELECT TOP (@Limit) Code, TaskType, Sublot, DemandId, Message, CreatedAt
                 FROM dbo.IngestAlerts
-                ORDER BY Id;
+                ORDER BY CreatedAt DESC, Id DESC;
                 """,
                 conn);
+            cmd.Parameters.AddWithValue("@Limit", take);
             using var reader = cmd.ExecuteReader();
             var list = new List<IngestAlert>();
             while (reader.Read())
@@ -195,7 +238,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     TaskType: reader.IsDBNull(1) ? null : reader.GetString(1),
                     Sublot: reader.IsDBNull(2) ? null : reader.GetString(2),
                     DemandId: reader.IsDBNull(3) ? null : reader.GetString(3),
-                    Message: reader.IsDBNull(4) ? null : reader.GetString(4)));
+                    Message: reader.IsDBNull(4) ? null : reader.GetString(4),
+                    CreatedAt: reader.GetDateTimeOffset(5)));
             }
 
             return list;
@@ -283,9 +327,17 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     MesLastSeenAt DATETIMEOFFSET NOT NULL,
                     DisappearCount INT NOT NULL,
                     LocationRisk BIT NOT NULL,
-                    LocationRiskCode NVARCHAR(64) NULL
+                    LocationRiskCode NVARCHAR(64) NULL,
+                    CreatedAt DATETIMEOFFSET NOT NULL,
+                    GoneAt DATETIMEOFFSET NULL
                 );
             ');
+
+            IF COL_LENGTH(N'dbo.TransportDemands', N'CreatedAt') IS NULL
+            EXEC(N'ALTER TABLE dbo.TransportDemands ADD CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_TransportDemands_CreatedAt DEFAULT (SYSDATETIMEOFFSET());');
+
+            IF COL_LENGTH(N'dbo.TransportDemands', N'GoneAt') IS NULL
+            EXEC(N'ALTER TABLE dbo.TransportDemands ADD GoneAt DATETIMEOFFSET NULL;');
 
             IF OBJECT_ID(N'dbo.TaskTypePauses', N'U') IS NULL
             EXEC(N'
@@ -312,6 +364,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 );
             ');
 
+            IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.IngestAlerts', N'CreatedAt') IS NULL
+            EXEC(N'ALTER TABLE dbo.IngestAlerts ADD CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_CreatedAt DEFAULT (SYSDATETIMEOFFSET());');
+
             IF OBJECT_ID(N'dbo.PollHealth', N'U') IS NULL
             EXEC(N'
                 CREATE TABLE dbo.PollHealth
@@ -335,7 +391,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         using var cmd = new SqlCommand(
             """
             SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
-                   MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode
+                   MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
             FROM dbo.TransportDemands
             ORDER BY DemandId;
             """,
@@ -394,6 +450,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             DisappearCount = reader.GetInt32(10),
             LocationRisk = reader.GetBoolean(11),
             LocationRiskCode = reader.IsDBNull(12) ? null : reader.GetString(12),
+            CreatedAt = reader.GetDateTimeOffset(13),
+            GoneAt = reader.IsDBNull(14) ? null : reader.GetDateTimeOffset(14),
         };
 
     private static string ToStatusText(DemandStatus status) =>

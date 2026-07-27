@@ -36,13 +36,11 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
             .Select((name, i) => (name, i))
             .ToDictionary(x => x.name, x => x.i, StringComparer.OrdinalIgnoreCase);
 
-        RequireColumn(index, "TASK_TYPE");
-        RequireColumn(index, "SUBLOT");
-        RequireColumn(index, "AREA");
-        RequireColumn(index, "EQP");
-        RequireColumn(index, "STEP");
-        RequireColumn(index, "DATES");
-        RequireColumn(index, "PACKAGE");
+        string[] required = ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"];
+        if (required.Any(name => !index.ContainsKey(name)))
+        {
+            return MesSnapshotOutcome.Incomplete();
+        }
 
         var rows = new List<MesSnapshotRow>();
         for (var lineNumber = 1; lineNumber < lines.Length; lineNumber++)
@@ -65,14 +63,6 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
         }
 
         return MesSnapshotOutcome.Success(rows);
-    }
-
-    private static void RequireColumn(Dictionary<string, int> index, string name)
-    {
-        if (!index.ContainsKey(name))
-        {
-            throw new InvalidDataException($"CSV missing required column '{name}'.");
-        }
     }
 
     private static string? EmptyToNull(string value) =>

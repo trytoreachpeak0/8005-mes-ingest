@@ -85,4 +85,33 @@ public class SingleFlightPollLoopTests
 
         Assert.Equal(1, rounds);
     }
+
+    [Fact]
+    public async Task Round_exception_does_not_stop_the_loop()
+    {
+        var rounds = 0;
+        using var cts = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                var n = Interlocked.Increment(ref rounds);
+                if (n == 1)
+                {
+                    throw new InvalidOperationException("store unavailable");
+                }
+
+                if (n >= 3)
+                {
+                    cts.Cancel();
+                }
+
+                return Task.CompletedTask;
+            },
+            delay: async (_, ct) => await Task.Yield(),
+            postPollDelay: TimeSpan.FromMilliseconds(1),
+            cancellationToken: cts.Token);
+
+        Assert.Equal(3, rounds);
+    }
 }

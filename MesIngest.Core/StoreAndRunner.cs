@@ -13,15 +13,21 @@ public interface ITransportDemandStore
     ProjectionState GetState();
     void ReplaceState(ProjectionState state);
     TransportDemand? GetById(string demandId);
-    IReadOnlyList<TransportDemand> List(DemandStatus? status = null);
+    IReadOnlyList<TransportDemand> List(
+        DemandStatus? status = null,
+        string? taskType = null,
+        string? sublot = null,
+        string? demandId = null);
     void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
-    IReadOnlyList<IngestAlert> ListAlerts();
+    IReadOnlyList<IngestAlert> ListAlerts(int? limit = null);
     void SetLatestPollHealth(PollHealth health);
     PollHealth? GetLatestPollHealth();
 }
 
 public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 {
+    public const int DefaultAlertLimit = 100;
+
     private ProjectionState _state = ProjectionState.Empty;
     private readonly List<IngestAlert> _alerts = new();
     private PollHealth? _latestPollHealth;
@@ -33,14 +39,55 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     public TransportDemand? GetById(string demandId) =>
         _state.Demands.FirstOrDefault(d => d.DemandId == demandId);
 
-    public IReadOnlyList<TransportDemand> List(DemandStatus? status = null) =>
-        status is null
-            ? _state.Demands
-            : _state.Demands.Where(d => d.Status == status).ToList();
+    public IReadOnlyList<TransportDemand> List(
+        DemandStatus? status = null,
+        string? taskType = null,
+        string? sublot = null,
+        string? demandId = null)
+    {
+        IEnumerable<TransportDemand> query = _state.Demands;
+        if (status is not null)
+        {
+            query = query.Where(d => d.Status == status);
+        }
 
-    public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _alerts.AddRange(alerts);
+        if (!string.IsNullOrWhiteSpace(taskType))
+        {
+            query = query.Where(d => string.Equals(d.TaskType, taskType, StringComparison.Ordinal));
+        }
 
-    public IReadOnlyList<IngestAlert> ListAlerts() => _alerts.ToList();
+        if (!string.IsNullOrWhiteSpace(sublot))
+        {
+            query = query.Where(d => string.Equals(d.Sublot, sublot, StringComparison.Ordinal));
+        }
+
+        if (!string.IsNullOrWhiteSpace(demandId))
+        {
+            query = query.Where(d => string.Equals(d.DemandId, demandId, StringComparison.Ordinal));
+        }
+
+        return query.ToList();
+    }
+
+    public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
+    {
+        var stamped = DateTimeOffset.Now;
+        foreach (var alert in alerts)
+        {
+            _alerts.Add(alert.CreatedAt is null ? alert with { CreatedAt = stamped } : alert);
+        }
+    }
+
+    public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null)
+    {
+        var take = Math.Max(1, limit ?? DefaultAlertLimit);
+        // Newest first: reverse append order (CreatedAt may collide within a batch).
+        return _alerts
+            .AsEnumerable()
+            .Reverse()
+            .Take(take)
+            .ToList();
+    }
 
     public void SetLatestPollHealth(PollHealth health) => _latestPollHealth = health;
 
@@ -55,6 +102,7 @@ public sealed class IngestRoundRunner
     private readonly DateTimeOffset _goLiveBaseline;
     private readonly int _disappearThreshold;
     private readonly int _zeroDropEnterThreshold;
+    private readonly int _zeroDropClearStreak;
     private readonly TimeSpan _queryTimeout;
     private readonly Func<DateTimeOffset> _clock;
     private RestartRecoveryPhase _nextPhase = RestartRecoveryPhase.BarrierRound;
@@ -67,6 +115,7 @@ public sealed class IngestRoundRunner
         DateTimeOffset goLiveBaseline,
         int disappearThreshold = 2,
         int zeroDropEnterThreshold = 10,
+        int zeroDropClearStreak = TransportDemandReconciler.DefaultZeroDropClearStreak,
         TimeSpan? queryTimeout = null,
         Func<DateTimeOffset>? clock = null)
     {
@@ -76,6 +125,7 @@ public sealed class IngestRoundRunner
         _goLiveBaseline = goLiveBaseline;
         _disappearThreshold = disappearThreshold;
         _zeroDropEnterThreshold = zeroDropEnterThreshold;
+        _zeroDropClearStreak = zeroDropClearStreak;
         _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(30);
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
@@ -93,12 +143,17 @@ public sealed class IngestRoundRunner
             _goLiveBaseline,
             _disappearThreshold,
             _zeroDropEnterThreshold,
+            _zeroDropClearStreak,
             restartRecovery: restartRecovery);
         sw.Stop();
         var endedAt = _clock();
 
-        _store.ReplaceState(result.State);
-        if (snapshot.Kind == SnapshotOutcomeKind.Failure)
+        if (snapshot.Kind == SnapshotOutcomeKind.Success)
+        {
+            _store.ReplaceState(result.State);
+            _store.AppendAlerts(result.Alerts);
+        }
+        else if (snapshot.Kind == SnapshotOutcomeKind.Failure)
         {
             _store.AppendAlerts(
             [
@@ -115,10 +170,6 @@ public sealed class IngestRoundRunner
                     Code: "POLL_INCOMPLETE",
                     Message: "MES snapshot round incomplete; projection left unchanged."),
             ]);
-        }
-        else
-        {
-            _store.AppendAlerts(result.Alerts);
         }
 
         _store.SetLatestPollHealth(new PollHealth(

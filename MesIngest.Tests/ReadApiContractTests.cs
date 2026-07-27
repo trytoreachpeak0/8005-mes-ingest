@@ -149,6 +149,18 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var bad = await client.GetAsync("/api/demands?status=PENDING");
             Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
+
+            var byType = await client.GetFromJsonAsync<JsonElement>("/api/demands?taskType=DIE_TO_OVEN");
+            Assert.Equal(1, byType.GetArrayLength());
+            Assert.Equal("gone-1", byType[0].GetProperty("demandId").GetString());
+
+            var bySublot = await client.GetFromJsonAsync<JsonElement>("/api/demands?sublot=Q-VISIBLE");
+            Assert.Equal(1, bySublot.GetArrayLength());
+            Assert.Equal("visible-1", bySublot[0].GetProperty("demandId").GetString());
+
+            var byDemandId = await client.GetFromJsonAsync<JsonElement>("/api/demands?demandId=gone-1");
+            Assert.Equal(1, byDemandId.GetArrayLength());
+            Assert.Equal("GONE", byDemandId[0].GetProperty("status").GetString());
         }
         finally
         {
@@ -341,10 +353,22 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
             Assert.Equal(JsonValueKind.Array, alerts.ValueKind);
             Assert.Equal(2, alerts.GetArrayLength());
-            Assert.Equal("FIELD_DRIFT", alerts[0].GetProperty("code").GetString());
-            Assert.Equal("d1", alerts[0].GetProperty("demandId").GetString());
-            Assert.Equal("DUPLICATE_RECONCILE_KEY", alerts[1].GetProperty("code").GetString());
-            Assert.Equal("Q2", alerts[1].GetProperty("sublot").GetString());
+            var codes = alerts.EnumerateArray().Select(a => a.GetProperty("code").GetString()).ToHashSet();
+            Assert.Contains("FIELD_DRIFT", codes);
+            Assert.Contains("DUPLICATE_RECONCILE_KEY", codes);
+            Assert.All(alerts.EnumerateArray(), a =>
+            {
+                Assert.True(a.TryGetProperty("createdAt", out var created));
+                Assert.NotEqual(JsonValueKind.Null, created.ValueKind);
+            });
+
+            store.AppendAlerts(
+            [
+                new IngestAlert(Code: "PAUSED_ZERO_DROP", TaskType: "DIE_TO_OVEN", Message: "paused"),
+            ]);
+            var limited = await client.GetFromJsonAsync<JsonElement>("/api/alerts?limit=2");
+            Assert.Equal(2, limited.GetArrayLength());
+            Assert.Equal("PAUSED_ZERO_DROP", limited[0].GetProperty("code").GetString());
         }
         finally
         {

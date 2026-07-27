@@ -121,12 +121,12 @@ public sealed class TransportDemandReconciler
             else
             {
                 var disappearCount = demand.DisappearCount + 1;
+                var gone = disappearCount >= disappearThreshold;
                 next.Add(demand with
                 {
                     DisappearCount = disappearCount,
-                    Status = disappearCount >= disappearThreshold
-                        ? DemandStatus.Gone
-                        : DemandStatus.Visible,
+                    Status = gone ? DemandStatus.Gone : DemandStatus.Visible,
+                    GoneAt = gone ? now : demand.GoneAt,
                 });
             }
         }
@@ -166,6 +166,8 @@ public sealed class TransportDemandReconciler
                 DisappearCount = 0,
                 LocationRisk = locationRisk,
                 LocationRiskCode = locationRiskCode,
+                CreatedAt = now,
+                GoneAt = null,
             });
 
             if (goneKeys.Contains(key))
@@ -201,7 +203,11 @@ public sealed class TransportDemandReconciler
 
             if (byType.TryGetValue(taskType, out var prior))
             {
-                byType[taskType] = prior with { LastHealthyNonZeroCount = count };
+                // Never demote a persisted healthy baseline across restart (Story 20).
+                if (count > prior.LastHealthyNonZeroCount)
+                {
+                    byType[taskType] = prior with { LastHealthyNonZeroCount = count };
+                }
             }
             else
             {
@@ -244,7 +250,15 @@ public sealed class TransportDemandReconciler
 
             if (count > 0)
             {
-                if (!isBarrierRound || paused)
+                // Barrier round must not demote a persisted healthy baseline (Story 20).
+                if (isBarrierRound)
+                {
+                    if (count > lastHealthy)
+                    {
+                        lastHealthy = count;
+                    }
+                }
+                else
                 {
                     lastHealthy = count;
                 }

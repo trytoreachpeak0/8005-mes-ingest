@@ -24,6 +24,11 @@ public static class SingleFlightPollLoop
             {
                 break;
             }
+            catch (Exception)
+            {
+                // Bad rounds (store outage, unexpected faults) must not stop continuous poll.
+                // Health/alerts are the caller's responsibility inside runRound when possible.
+            }
 
             try
             {

@@ -38,7 +38,18 @@ public sealed class PollHostedService : BackgroundService
             _options.QueryTimeoutSeconds);
 
         await SingleFlightPollLoop.RunAsync(
-            runRound: ct => _runner.RunOnceAsync(ct),
+            runRound: async ct =>
+            {
+                try
+                {
+                    await _runner.RunOnceAsync(ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogError(ex, "Ingest round failed; continuing single-flight poll loop.");
+                    throw;
+                }
+            },
             postPollDelay: delay,
             cancellationToken: stoppingToken);
     }

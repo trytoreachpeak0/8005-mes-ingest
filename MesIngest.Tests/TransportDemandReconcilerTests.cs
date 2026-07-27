@@ -41,6 +41,8 @@ public class TransportDemandReconcilerTests
         Assert.Equal("TO-247APlus-4L", demand.Package);
         Assert.Equal(Now, demand.MesLastSeenAt);
         Assert.Equal(0, demand.DisappearCount);
+        Assert.Equal(Now, demand.CreatedAt);
+        Assert.Null(demand.GoneAt);
     }
 
     [Fact]
@@ -388,6 +390,7 @@ public class TransportDemandReconcilerTests
         Assert.Equal(DemandStatus.Gone, gone.Status);
         Assert.Equal(2, gone.DisappearCount);
         Assert.Equal("d1", gone.DemandId);
+        Assert.Equal(Now.AddMinutes(2), gone.GoneAt);
     }
 
     [Fact]
@@ -1186,7 +1189,7 @@ public class TransportDemandReconcilerTests
         var pause1 = Assert.Single(afterBarrier.State.TaskTypePauses);
         Assert.True(pause1.PausedZeroDrop);
         Assert.Equal(1, pause1.RecoveryStreak);
-        Assert.Equal(1, pause1.LastHealthyNonZeroCount);
+        Assert.Equal(12, pause1.LastHealthyNonZeroCount);
 
         var afterSecond = reconciler.Reconcile(
             afterBarrier.State,
@@ -1202,16 +1205,16 @@ public class TransportDemandReconcilerTests
     }
 
     [Fact]
-    public void Restart_post_barrier_adopts_nonzero_barrier_baseline_before_zero_drop_check()
+    public void Restart_post_barrier_preserves_persisted_healthy_baseline_when_barrier_count_is_lower()
     {
         var prior = new ProjectionState(
             Array.Empty<TransportDemand>(),
             [
-                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: false, LastHealthyNonZeroCount: 20, RecoveryStreak: 0),
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: false, LastHealthyNonZeroCount: 50, RecoveryStreak: 0),
             ]);
 
         var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
-        // Barrier saw 5 rows (below enter threshold); second round is 0 — must not pause from stale 20.
+        // Barrier saw only 3; must not demote persisted healthy baseline of 50.
         var result = reconciler.Reconcile(
             prior,
             MesSnapshotOutcome.Success([]),
@@ -1219,11 +1222,48 @@ public class TransportDemandReconcilerTests
             Baseline,
             zeroDropEnterThreshold: 10,
             restartRecovery: RestartRecovery.PostBarrierRound(
-                new Dictionary<string, int>(StringComparer.Ordinal) { ["DIE_TO_OVEN"] = 5 }));
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["DIE_TO_OVEN"] = 3 }));
 
         var pause = Assert.Single(result.State.TaskTypePauses);
-        Assert.False(pause.PausedZeroDrop);
-        Assert.Equal(5, pause.LastHealthyNonZeroCount);
+        Assert.True(pause.PausedZeroDrop);
+        Assert.Equal(50, pause.LastHealthyNonZeroCount);
+    }
+
+    [Fact]
+    public void Restart_post_barrier_seeds_or_raises_healthy_baseline_from_barrier_count()
+    {
+        var prior = new ProjectionState(
+            Array.Empty<TransportDemand>(),
+            [
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: false, LastHealthyNonZeroCount: 5, RecoveryStreak: 0),
+            ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var raised = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10,
+            restartRecovery: RestartRecovery.PostBarrierRound(
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["DIE_TO_OVEN"] = 12 }));
+
+        Assert.Equal(12, Assert.Single(raised.State.TaskTypePauses).LastHealthyNonZeroCount);
+        Assert.True(Assert.Single(raised.State.TaskTypePauses).PausedZeroDrop);
+
+        var seeded = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([]),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10,
+            restartRecovery: RestartRecovery.PostBarrierRound(
+                new Dictionary<string, int>(StringComparer.Ordinal) { ["WIRE_TO_GATE"] = 4 }));
+
+        var seededPause = Assert.Single(seeded.State.TaskTypePauses);
+        Assert.Equal("WIRE_TO_GATE", seededPause.TaskType);
+        Assert.Equal(4, seededPause.LastHealthyNonZeroCount);
+        Assert.False(seededPause.PausedZeroDrop);
     }
 
     private static MesSnapshotRow Row(

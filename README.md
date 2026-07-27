@@ -45,7 +45,7 @@ SQL Server round-trip smokes run when LocalDB is available, or when `MES_INGEST_
 
 ## Ticket 06 — restart recovery barrier
 
-After process start, the first *successful* full poll may create/refresh VISIBLE demands but does not increment disappear counts or mark GONE, and does not enter `PAUSED_ZERO_DROP` on a zero count (persisted last-healthy is kept when count is 0). From the second successful poll, normal disappear/GONE and zero-drop rules resume; barrier-round per-type counts are adopted as the recovery baseline for that second poll. Failed/incomplete rounds do not consume the barrier.
+After process start, the first *successful* full poll may create/refresh VISIBLE demands but does not increment disappear counts or mark GONE, and does not enter `PAUSED_ZERO_DROP` on a zero count (persisted last-healthy is kept when count is 0). From the second successful poll, normal disappear/GONE and zero-drop rules resume. Barrier-round per-type counts may *raise* (or seed) the persisted last-healthy baseline, but never demote it — so zero-drop protection survives service recycle. Failed/incomplete rounds do not consume the barrier.
 
 ## Ticket 07 — Windows Service continuous single-flight poll
 

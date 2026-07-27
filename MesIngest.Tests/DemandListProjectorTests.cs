@@ -23,7 +23,9 @@ public class DemandListProjectorTests
             MesLastSeenAt: lastSeen,
             DisappearCount: 0,
             LocationRisk: false,
-            LocationRiskCode: null);
+            LocationRiskCode: null,
+            CreatedAt: lastSeen,
+            GoneAt: null);
 
     [Fact]
     public void Filters_by_task_type_sublot_and_status_case_insensitive_contains()

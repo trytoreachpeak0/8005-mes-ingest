@@ -32,6 +32,7 @@ public class SqlServerTransportDemandStoreTests
                     MesLastSeenAt = now,
                     DisappearCount = 0,
                     LocationRisk = false,
+                    CreatedAt = now.AddHours(-2),
                 },
                 new TransportDemand
                 {
@@ -48,6 +49,8 @@ public class SqlServerTransportDemandStoreTests
                     DisappearCount = 2,
                     LocationRisk = true,
                     LocationRiskCode = "AREA_EMPTY",
+                    CreatedAt = now.AddHours(-3),
+                    GoneAt = now.AddMinutes(-15),
                 },
             ],
             [
@@ -70,6 +73,8 @@ public class SqlServerTransportDemandStoreTests
         Assert.Equal("PKG-V", visible.Package);
         Assert.Equal(0, visible.DisappearCount);
         Assert.False(visible.LocationRisk);
+        Assert.Equal(now.AddHours(-2), visible.CreatedAt);
+        Assert.Null(visible.GoneAt);
 
         var gone = Assert.Single(reloaded.Demands, d => d.DemandId == "d-gone");
         Assert.Equal(DemandStatus.Gone, gone.Status);
@@ -77,6 +82,8 @@ public class SqlServerTransportDemandStoreTests
         Assert.True(gone.LocationRisk);
         Assert.Equal("AREA_EMPTY", gone.LocationRiskCode);
         Assert.Null(gone.Area);
+        Assert.Equal(now.AddHours(-3), gone.CreatedAt);
+        Assert.Equal(now.AddMinutes(-15), gone.GoneAt);
 
         var pause = Assert.Single(reloaded.TaskTypePauses);
         Assert.Equal("DIE_TO_OVEN", pause.TaskType);
@@ -123,10 +130,10 @@ public class SqlServerTransportDemandStoreTests
         var reader = new SqlServerTransportDemandStore(cs);
         var alerts = reader.ListAlerts();
         Assert.Equal(2, alerts.Count);
-        Assert.Equal("FIELD_DRIFT", alerts[0].Code);
-        Assert.Equal("d1", alerts[0].DemandId);
-        Assert.Equal("PAUSED_ZERO_DROP", alerts[1].Code);
-        Assert.Equal("DIE_TO_OVEN", alerts[1].TaskType);
+        Assert.Contains(alerts, a => a.Code == "FIELD_DRIFT" && a.DemandId == "d1");
+        Assert.Contains(alerts, a => a.Code == "PAUSED_ZERO_DROP" && a.TaskType == "DIE_TO_OVEN");
+        Assert.All(alerts, a => Assert.NotNull(a.CreatedAt));
+        Assert.Equal("PAUSED_ZERO_DROP", alerts[0].Code);
 
         var health = reader.GetLatestPollHealth();
         Assert.NotNull(health);

@@ -80,6 +80,7 @@
                       HeadersVisibility="Column">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" />
+                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt}" Width="160" />
                     <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" />
                     <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" />
                     <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" />
@@ -101,6 +102,8 @@
                     <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" />
                     <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" />
                     <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt}" Width="160" />
+                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt}" Width="160" />
+                    <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt}" Width="160" />
                     <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" />
                     <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" />
                     <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" />

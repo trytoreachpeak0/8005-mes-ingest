@@ -71,6 +71,11 @@ public sealed class MesIngestHostOptions
     public int ZeroDropEnterThreshold { get; set; } = 10;
 
     /// <summary>
+    /// Consecutive successful non-zero rounds required to clear PAUSED_ZERO_DROP.
+    /// </summary>
+    public int ZeroDropClearStreak { get; set; } = TransportDemandReconciler.DefaultZeroDropClearStreak;
+
+    /// <summary>
     /// Kestrel listen URLs. Default is localhost-only. Binding beyond localhost requires SharedSecret.
     /// </summary>
     public string Urls { get; set; } = "http://127.0.0.1:5088";

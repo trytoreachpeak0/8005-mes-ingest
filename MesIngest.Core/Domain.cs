@@ -58,6 +58,8 @@ public sealed record TransportDemand
     public int DisappearCount { get; init; }
     public bool LocationRisk { get; init; }
     public string? LocationRiskCode { get; init; }
+    public DateTimeOffset CreatedAt { get; init; }
+    public DateTimeOffset? GoneAt { get; init; }
 }
 
 public sealed record TaskTypePauseState(
@@ -99,7 +101,8 @@ public sealed record IngestAlert(
     string? TaskType = null,
     string? Sublot = null,
     string? DemandId = null,
-    string? Message = null);
+    string? Message = null,
+    DateTimeOffset? CreatedAt = null);
 
 /// <summary>
 /// Process-start recovery semantics (business model §6.4).

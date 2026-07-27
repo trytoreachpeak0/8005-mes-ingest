@@ -17,9 +17,6 @@ WebApplicationBuilder builder = WindowsServiceHelpers.IsWindowsService()
 builder.Host.UseWindowsService();
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
-builder.Services.Configure<MesIngestHostOptions>(
-    builder.Configuration.GetSection(MesIngestHostOptions.SectionName));
-
 var configured = new MesIngestHostOptions();
 builder.Configuration.GetSection(MesIngestHostOptions.SectionName).Bind(configured);
 SharedSecretAuth.ValidateStartup(configured, builder.Configuration);
@@ -58,6 +55,7 @@ builder.Services.AddSingleton(sp =>
         options.GoLiveBaseline,
         disappearThreshold: options.DisappearThreshold,
         zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
+        zeroDropClearStreak: options.ZeroDropClearStreak,
         queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)));
 });
 
@@ -120,7 +118,12 @@ if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
     await runner.RunOnceAsync();
 }
 
-app.MapGet("/api/demands", (ITransportDemandStore store, string? status) =>
+app.MapGet("/api/demands", (
+    ITransportDemandStore store,
+    string? status,
+    string? taskType,
+    string? sublot,
+    string? demandId) =>
 {
     DemandStatus? parsed = null;
     if (!string.IsNullOrWhiteSpace(status))
@@ -133,7 +136,7 @@ app.MapGet("/api/demands", (ITransportDemandStore store, string? status) =>
         parsed = value;
     }
 
-    var items = store.List(parsed).Select(DemandDto.From).ToList();
+    var items = store.List(parsed, taskType, sublot, demandId).Select(DemandDto.From).ToList();
     return Results.Ok(items);
 });
 
@@ -143,9 +146,9 @@ app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore st
     return demand is null ? Results.NotFound() : Results.Ok(DemandDto.From(demand));
 });
 
-app.MapGet("/api/alerts", (ITransportDemandStore store) =>
+app.MapGet("/api/alerts", (ITransportDemandStore store, int? limit) =>
 {
-    var items = store.ListAlerts().Select(AlertDto.From).ToList();
+    var items = store.ListAlerts(limit).Select(AlertDto.From).ToList();
     return Results.Ok(items);
 });
 
@@ -218,7 +221,9 @@ internal sealed record DemandDto(
     DateTimeOffset MesLastSeenAt,
     int DisappearCount,
     bool LocationRisk,
-    string? LocationRiskCode)
+    string? LocationRiskCode,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? GoneAt)
 {
     public static DemandDto From(TransportDemand d) => new(
         d.DemandId,
@@ -233,7 +238,9 @@ internal sealed record DemandDto(
         d.MesLastSeenAt,
         d.DisappearCount,
         d.LocationRisk,
-        d.LocationRiskCode);
+        d.LocationRiskCode,
+        d.CreatedAt,
+        d.GoneAt);
 }
 
 internal sealed record AlertDto(
@@ -241,14 +248,16 @@ internal sealed record AlertDto(
     string? TaskType,
     string? Sublot,
     string? DemandId,
-    string? Message)
+    string? Message,
+    DateTimeOffset? CreatedAt)
 {
     public static AlertDto From(IngestAlert a) => new(
         a.Code,
         a.TaskType,
         a.Sublot,
         a.DemandId,
-        a.Message);
+        a.Message,
+        a.CreatedAt);
 }
 
 internal sealed record TaskTypePauseDto(

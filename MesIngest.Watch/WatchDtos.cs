@@ -13,14 +13,17 @@ internal sealed record WatchDemandDto(
     DateTimeOffset MesLastSeenAt,
     int DisappearCount,
     bool LocationRisk,
-    string? LocationRiskCode);
+    string? LocationRiskCode,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? GoneAt);
 
 internal sealed record WatchAlertDto(
     string Code,
     string? TaskType,
     string? Sublot,
     string? DemandId,
-    string? Message);
+    string? Message,
+    DateTimeOffset? CreatedAt);
 
 internal sealed record WatchTaskTypePauseDto(
     string TaskType,
