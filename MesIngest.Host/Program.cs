@@ -2,6 +2,8 @@ using System.Text.Json.Serialization;
 using MesIngest.Core;
 using MesIngest.Host;
 
+var probeOracle = args.Any(a => string.Equals(a, "--probe-oracle", StringComparison.OrdinalIgnoreCase));
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
@@ -28,13 +30,8 @@ builder.Services.AddSingleton<ITransportDemandStore>(sp =>
 builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
 {
     var options = sp.GetRequiredService<MesIngestHostOptions>();
-    if (string.IsNullOrWhiteSpace(options.SnapshotCsvPath))
-    {
-        throw new InvalidOperationException(
-            "MesIngest:SnapshotCsvPath is required for file snapshot mode.");
-    }
-
-    return new CsvFileMesSnapshotSource(options.SnapshotCsvPath);
+    var contentRoot = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
+    return CreateSnapshotSource(options, contentRoot);
 });
 builder.Services.AddSingleton(sp =>
 {
@@ -48,7 +45,11 @@ builder.Services.AddSingleton(sp =>
         zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
         queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)));
 });
-builder.Services.AddHostedService<PollHostedService>();
+
+if (!probeOracle)
+{
+    builder.Services.AddHostedService<PollHostedService>();
+}
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -57,6 +58,32 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+
+if (probeOracle)
+{
+    var options = app.Services.GetRequiredService<MesIngestHostOptions>();
+    if (!options.IsOracleSnapshotSource())
+    {
+        Console.Error.WriteLine(
+            "MesIngest:SnapshotSource must be Oracle for --probe-oracle.");
+        return 2;
+    }
+
+    var source = app.Services.GetRequiredService<IMesSnapshotSource>();
+    bool? instantClientOnPath = null;
+    if (source is OracleMesSnapshotSource oracle)
+    {
+        oracle.EnsureInitialized();
+        instantClientOnPath = oracle.InstantClientOnPath;
+    }
+
+    var exitCode = await OracleProbe.RunAsync(
+        source,
+        Console.Out,
+        options.ParseOracleMode(),
+        instantClientOnPath);
+    return exitCode;
+}
 
 if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
 {
@@ -105,6 +132,31 @@ app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
 });
 
 app.Run();
+return 0;
+
+static IMesSnapshotSource CreateSnapshotSource(MesIngestHostOptions options, string contentRoot)
+{
+    if (options.IsOracleSnapshotSource())
+    {
+        var oracleOptions = options.ToOracleSnapshotOptions(contentRoot);
+        if (!File.Exists(oracleOptions.QuerySqlPath))
+        {
+            throw new FileNotFoundException(
+                "Published MES_TASK_UNION SQL not found. Build/publish should copy mes/queries/mes-task-union beside the host.",
+                oracleOptions.QuerySqlPath);
+        }
+
+        return new OracleMesSnapshotSource(oracleOptions);
+    }
+
+    if (string.IsNullOrWhiteSpace(options.SnapshotCsvPath))
+    {
+        throw new InvalidOperationException(
+            "MesIngest:SnapshotCsvPath is required for File snapshot mode.");
+    }
+
+    return new CsvFileMesSnapshotSource(options.SnapshotCsvPath);
+}
 
 static bool TryParseStatus(string raw, out DemandStatus status)
 {

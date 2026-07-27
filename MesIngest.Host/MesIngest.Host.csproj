@@ -5,6 +5,15 @@
     <ProjectReference Include="..\MesIngest.Core\MesIngest.Core.csproj" />
   </ItemGroup>
 
+  <!-- Official MES query manuscript from repo; no divergent SQL fork in csharp tree. -->
+  <ItemGroup>
+    <Content Include="..\..\..\queries\mes-task-union\**\*">
+      <Link>queries\mes-task-union\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>

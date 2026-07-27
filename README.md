@@ -60,10 +60,33 @@ dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 
 One-shot startup remains available via `MesIngest__RunOneShotOnStartup=true` (and/or `ContinuousPollEnabled=false`) for short demos and tests. Service install packaging is ticket 10.
 
+## Ticket 08 — Oracle production source + probe
+
+Production snapshot mode runs the official `MES_TASK_UNION` SQL from the published `queries/` folder (copied from `mes/queries/mes-task-union` at build/publish — no divergent SQL fork in the csharp tree). Driver is `Oracle.ManagedDataAccess.Core` (managed). Default mode is **Thin**; `OracleMode=Thick` prepends Instant Client (`OracleInstantClientDir` or `ORACLE_CLIENT_LIB_DIR`) onto `PATH` for plant 11g / TNS practice without changing business code — it does not switch to an unmanaged OCI driver. Credentials stay in `appsettings.Local.json` / env — never commit them. `QueryTimeoutSeconds` bounds both the poll CancelAfter and ODP.NET `CommandTimeout`.
+
+```powershell
+Copy-Item MesIngest.Host\appsettings.Local.json.example MesIngest.Host\appsettings.Local.json
+# edit OracleUser / OraclePassword / OracleDataSource; use Thick + Instant Client on plant 11g if Thin fails
+
+dotnet run --project MesIngest.Host -- --probe-oracle
+# exit 0 = query success; non-zero = failure. Output has no password.
+```
+
+Continuous Oracle poll (after probe succeeds):
+
+```powershell
+$env:MesIngest__SnapshotSource = "Oracle"
+# Local.json supplies credentials; ContinuousPollEnabled=true from appsettings.json
+dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
+```
+
+This ticket ships factory-ready connectivity capability; it does **not** claim the plant link has already been verified (that is ticket 11).
+
 ## Tests
+
 
 ```powershell
 dotnet test
 ```
 
-Formal seams: `TransportDemandReconciler`, read-only HTTP. Supporting: `SingleFlightPollLoop`, SQL Server store persistence smoke (env available).
+Formal seams: `TransportDemandReconciler`, read-only HTTP. Supporting: `SingleFlightPollLoop`, SQL Server store persistence smoke (env available), Oracle source/probe (fake executor; no CI plant Oracle).

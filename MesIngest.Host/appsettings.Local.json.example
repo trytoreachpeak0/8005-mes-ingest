@@ -1,5 +1,11 @@
 {
   "MesIngest": {
-    "SqlServerConnectionString": "Server=(localdb)\\MSSQLLocalDB;Database=MesIngest;Trusted_Connection=True;TrustServerCertificate=True"
+    "SqlServerConnectionString": "Server=(localdb)\\MSSQLLocalDB;Database=MesIngest;Trusted_Connection=True;TrustServerCertificate=True",
+    "SnapshotSource": "Oracle",
+    "OracleUser": "<ORACLE_USERNAME>",
+    "OraclePassword": "<MES_PASSWORD_FROM_SECRET_STORE>",
+    "OracleDataSource": "<HOST>:<PORT>/<SERVICE_NAME>",
+    "OracleMode": "Thin",
+    "OracleInstantClientDir": ""
   }
 }
