@@ -176,6 +176,40 @@ public class TransportDemandReconcilerTests
         Assert.Equal("焊线", demand.Step);
         Assert.Equal(first.Dates, demand.Dates);
         Assert.Equal("PKG-ORIGINAL", demand.Package);
+
+        var alert = Assert.Single(afterSecond.Alerts);
+        Assert.Equal("FIELD_DRIFT", alert.Code);
+        Assert.Equal("DIE_TO_WIRE_STAGING", alert.TaskType);
+        Assert.Equal("Q26079458-1", alert.Sublot);
+        Assert.Equal("d1", alert.DemandId);
+    }
+
+    [Fact]
+    public void Still_visible_unchanged_fields_do_not_raise_field_drift_alert()
+    {
+        var row = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q26079458-1",
+            "N09-01",
+            "EQP-ORIGINAL",
+            "焊线",
+            Baseline.AddHours(1),
+            "PKG-ORIGINAL");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1"));
+        var afterFirst = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([row]),
+            Now,
+            Baseline);
+        var afterSecond = reconciler.Reconcile(
+            afterFirst.State,
+            MesSnapshotOutcome.Success([row]),
+            Now.AddMinutes(1),
+            Baseline);
+
+        Assert.Empty(afterSecond.Alerts);
+        Assert.Equal(Now.AddMinutes(1), Assert.Single(afterSecond.State.Demands).MesLastSeenAt);
     }
 
     [Fact]
@@ -442,6 +476,185 @@ public class TransportDemandReconcilerTests
         Assert.Equal("STAGING_TO_WIRE", alert.TaskType);
         Assert.Equal("Q400-1", alert.Sublot);
         Assert.Equal("new-id", alert.DemandId);
+    }
+
+    [Fact]
+    public void Duplicate_reconcile_key_in_successful_snapshot_blocks_create_and_raises_alert()
+    {
+        var a = Row(
+            "DIE_TO_OVEN",
+            "Q-DUP-1",
+            "N01-01",
+            "EQ1",
+            "烘箱",
+            Baseline.AddHours(1),
+            "PKG-A");
+        var b = Row(
+            "DIE_TO_OVEN",
+            "Q-DUP-1",
+            "N01-02",
+            "EQ2",
+            "烘箱",
+            Baseline.AddHours(2),
+            "PKG-B");
+        var ok = Row(
+            "WIRE_TO_GATE",
+            "Q-OK-1",
+            "N02-02",
+            "EQ3",
+            "关卡",
+            Baseline.AddHours(1),
+            "PKG-OK");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("ok-id", "should-not-use"));
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([a, b, ok]),
+            Now,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal("ok-id", demand.DemandId);
+        Assert.Equal("Q-OK-1", demand.Sublot);
+
+        var alert = Assert.Single(result.Alerts);
+        Assert.Equal("DUPLICATE_RECONCILE_KEY", alert.Code);
+        Assert.Equal("DIE_TO_OVEN", alert.TaskType);
+        Assert.Equal("Q-DUP-1", alert.Sublot);
+    }
+
+    [Fact]
+    public void Duplicate_reconcile_key_blocks_update_of_existing_visible_without_disappear()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q-DUP-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG-A",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 0,
+            },
+        ]);
+        var a = Row(
+            "DIE_TO_OVEN",
+            "Q-DUP-1",
+            "N01-01",
+            "EQ1",
+            "烘箱",
+            Baseline.AddHours(1),
+            "PKG-A");
+        var b = Row(
+            "DIE_TO_OVEN",
+            "Q-DUP-1",
+            "N99-99",
+            "EQ9",
+            "烘箱",
+            Baseline.AddHours(3),
+            "PKG-B");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([a, b]),
+            Now.AddMinutes(5),
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal("d1", demand.DemandId);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal(Now, demand.MesLastSeenAt);
+        Assert.Equal(0, demand.DisappearCount);
+        Assert.Equal("EQ1", demand.Eqp);
+        Assert.Equal("PKG-A", demand.Package);
+
+        var alert = Assert.Single(result.Alerts);
+        Assert.Equal("DUPLICATE_RECONCILE_KEY", alert.Code);
+        Assert.Equal("d1", alert.DemandId);
+        Assert.DoesNotContain(result.Alerts, x => x.Code == "FIELD_DRIFT");
+    }
+
+    [Fact]
+    public void Empty_area_still_creates_visible_demand_with_location_risk_signal()
+    {
+        var row = Row(
+            "DIE_TO_OVEN",
+            "Q-AREA-EMPTY",
+            area: null,
+            eqp: "EQ1",
+            step: "烘箱",
+            dates: Baseline.AddHours(1),
+            package: "PKG");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1"));
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([row]),
+            Now,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Null(demand.Area);
+        Assert.True(demand.LocationRisk);
+        Assert.Equal("AREA_EMPTY", demand.LocationRiskCode);
+    }
+
+    [Fact]
+    public void Unparseable_area_still_creates_visible_demand_with_location_risk_signal()
+    {
+        var row = Row(
+            "DIE_TO_OVEN",
+            "Q-AREA-BAD",
+            area: "N",
+            eqp: "EQ1",
+            step: "烘箱",
+            dates: Baseline.AddHours(1),
+            package: "PKG");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1"));
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([row]),
+            Now,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal("N", demand.Area);
+        Assert.True(demand.LocationRisk);
+        Assert.Equal("AREA_UNPARSEABLE", demand.LocationRiskCode);
+    }
+
+    [Fact]
+    public void Parseable_area_creates_demand_without_location_risk()
+    {
+        var row = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q-AREA-OK",
+            area: "N09-01",
+            eqp: "EQ1",
+            step: "焊线",
+            dates: Baseline.AddHours(1),
+            package: "PKG");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1"));
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([row]),
+            Now,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal("N09-01", demand.Area);
+        Assert.False(demand.LocationRisk);
+        Assert.Null(demand.LocationRiskCode);
     }
 
     private static MesSnapshotRow Row(

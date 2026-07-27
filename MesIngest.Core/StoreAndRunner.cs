@@ -1,5 +1,13 @@
 namespace MesIngest.Core;
 
+public sealed record PollHealth(
+    DateTimeOffset StartedAt,
+    DateTimeOffset EndedAt,
+    double DurationMs,
+    int RowCount,
+    bool Success,
+    string Outcome);
+
 public interface ITransportDemandStore
 {
     ProjectionState GetState();
@@ -8,12 +16,15 @@ public interface ITransportDemandStore
     IReadOnlyList<TransportDemand> List(DemandStatus? status = null);
     void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
     IReadOnlyList<IngestAlert> ListAlerts();
+    void SetLatestPollHealth(PollHealth health);
+    PollHealth? GetLatestPollHealth();
 }
 
 public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 {
     private ProjectionState _state = ProjectionState.Empty;
     private readonly List<IngestAlert> _alerts = new();
+    private PollHealth? _latestPollHealth;
 
     public ProjectionState GetState() => _state;
 
@@ -30,6 +41,10 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _alerts.AddRange(alerts);
 
     public IReadOnlyList<IngestAlert> ListAlerts() => _alerts.ToList();
+
+    public void SetLatestPollHealth(PollHealth health) => _latestPollHealth = health;
+
+    public PollHealth? GetLatestPollHealth() => _latestPollHealth;
 }
 
 public sealed class IngestRoundRunner
@@ -59,6 +74,8 @@ public sealed class IngestRoundRunner
 
     public async Task<ProjectionState> RunOnceAsync(CancellationToken cancellationToken = default)
     {
+        var startedAt = _clock();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var snapshot = await _source.ReadAsync(cancellationToken);
         var result = _reconciler.Reconcile(
             _store.GetState(),
@@ -66,8 +83,24 @@ public sealed class IngestRoundRunner
             _clock(),
             _goLiveBaseline,
             _disappearThreshold);
+        sw.Stop();
+        var endedAt = _clock();
+
         _store.ReplaceState(result.State);
         _store.AppendAlerts(result.Alerts);
+        _store.SetLatestPollHealth(new PollHealth(
+            StartedAt: startedAt,
+            EndedAt: endedAt,
+            DurationMs: sw.Elapsed.TotalMilliseconds,
+            RowCount: snapshot.Kind == SnapshotOutcomeKind.Success ? snapshot.Rows.Count : 0,
+            Success: snapshot.Kind == SnapshotOutcomeKind.Success,
+            Outcome: snapshot.Kind switch
+            {
+                SnapshotOutcomeKind.Success => "SUCCESS",
+                SnapshotOutcomeKind.Failure => "FAILURE",
+                SnapshotOutcomeKind.Incomplete => "INCOMPLETE",
+                _ => "UNKNOWN",
+            }));
         return result.State;
     }
 }

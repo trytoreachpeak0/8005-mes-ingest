@@ -73,6 +73,18 @@ app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore st
     return demand is null ? Results.NotFound() : Results.Ok(DemandDto.From(demand));
 });
 
+app.MapGet("/api/alerts", (ITransportDemandStore store) =>
+{
+    var items = store.ListAlerts().Select(AlertDto.From).ToList();
+    return Results.Ok(items);
+});
+
+app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
+{
+    var health = store.GetLatestPollHealth();
+    return health is null ? Results.NotFound() : Results.Ok(PollHealthDto.From(health));
+});
+
 app.Run();
 
 static bool TryParseStatus(string raw, out DemandStatus status)
@@ -104,7 +116,9 @@ internal sealed record DemandDto(
     string? Package,
     string Status,
     DateTimeOffset MesLastSeenAt,
-    int DisappearCount)
+    int DisappearCount,
+    bool LocationRisk,
+    string? LocationRiskCode)
 {
     public static DemandDto From(TransportDemand d) => new(
         d.DemandId,
@@ -117,7 +131,41 @@ internal sealed record DemandDto(
         d.Package,
         d.Status == DemandStatus.Visible ? "VISIBLE" : "GONE",
         d.MesLastSeenAt,
-        d.DisappearCount);
+        d.DisappearCount,
+        d.LocationRisk,
+        d.LocationRiskCode);
+}
+
+internal sealed record AlertDto(
+    string Code,
+    string? TaskType,
+    string? Sublot,
+    string? DemandId,
+    string? Message)
+{
+    public static AlertDto From(IngestAlert a) => new(
+        a.Code,
+        a.TaskType,
+        a.Sublot,
+        a.DemandId,
+        a.Message);
+}
+
+internal sealed record PollHealthDto(
+    DateTimeOffset StartedAt,
+    DateTimeOffset EndedAt,
+    double DurationMs,
+    int RowCount,
+    bool Success,
+    string Outcome)
+{
+    public static PollHealthDto From(PollHealth h) => new(
+        h.StartedAt,
+        h.EndedAt,
+        h.DurationMs,
+        h.RowCount,
+        h.Success,
+        h.Outcome);
 }
 
 public partial class Program;

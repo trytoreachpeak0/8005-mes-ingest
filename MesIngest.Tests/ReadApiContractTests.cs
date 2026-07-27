@@ -290,4 +290,253 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task Alerts_endpoint_lists_recent_ingest_alerts()
+    {
+        var store = new InMemoryTransportDemandStore();
+        store.AppendAlerts(
+        [
+            new IngestAlert(
+                Code: "FIELD_DRIFT",
+                TaskType: "DIE_TO_WIRE_STAGING",
+                Sublot: "Q1",
+                DemandId: "d1",
+                Message: "drift"),
+            new IngestAlert(
+                Code: "DUPLICATE_RECONCILE_KEY",
+                TaskType: "DIE_TO_OVEN",
+                Sublot: "Q2",
+                Message: "dup"),
+        ]);
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                });
+            });
+
+            var client = factory.CreateClient();
+            var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
+            Assert.Equal(JsonValueKind.Array, alerts.ValueKind);
+            Assert.Equal(2, alerts.GetArrayLength());
+            Assert.Equal("FIELD_DRIFT", alerts[0].GetProperty("code").GetString());
+            Assert.Equal("d1", alerts[0].GetProperty("demandId").GetString());
+            Assert.Equal("DUPLICATE_RECONCILE_KEY", alerts[1].GetProperty("code").GetString());
+            Assert.Equal("Q2", alerts[1].GetProperty("sublot").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Poll_health_endpoint_reports_latest_round_after_runner()
+    {
+        var baseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
+        var started = baseline.AddHours(12);
+        var ended = started.AddSeconds(3);
+        var ticks = 0;
+        DateTimeOffset Clock() => ticks++ == 0 ? started : ended;
+
+        var store = new InMemoryTransportDemandStore();
+        var row = new MesSnapshotRow(
+            "WIRE_TO_NITROGEN",
+            "Q-HEALTH-1",
+            "N03-03",
+            "EQ9",
+            "焊线",
+            baseline.AddHours(1),
+            "PKG");
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = baseline,
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                    services.AddSingleton<IMesSnapshotSource>(
+                        new FixedMesSnapshotSource(MesSnapshotOutcome.Success([row])));
+                    services.AddSingleton(sp => new IngestRoundRunner(
+                        sp.GetRequiredService<IMesSnapshotSource>(),
+                        sp.GetRequiredService<TransportDemandReconciler>(),
+                        sp.GetRequiredService<ITransportDemandStore>(),
+                        baseline,
+                        clock: Clock));
+                });
+            });
+
+            var runner = factory.Services.GetRequiredService<IngestRoundRunner>();
+            await runner.RunOnceAsync();
+
+            var client = factory.CreateClient();
+            var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
+            Assert.Equal("SUCCESS", health.GetProperty("outcome").GetString());
+            Assert.True(health.GetProperty("success").GetBoolean());
+            Assert.Equal(1, health.GetProperty("rowCount").GetInt32());
+            Assert.Equal(started, health.GetProperty("startedAt").GetDateTimeOffset());
+            Assert.Equal(ended, health.GetProperty("endedAt").GetDateTimeOffset());
+            Assert.True(health.GetProperty("durationMs").GetDouble() >= 0);
+
+            var demands = await client.GetFromJsonAsync<JsonElement>("/api/demands");
+            Assert.Equal(1, demands.GetArrayLength());
+            Assert.False(demands[0].GetProperty("locationRisk").GetBoolean());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Poll_health_endpoint_reports_failure_outcome()
+    {
+        var baseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
+        var store = new InMemoryTransportDemandStore();
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = baseline,
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                    services.AddSingleton<IMesSnapshotSource>(
+                        new FixedMesSnapshotSource(MesSnapshotOutcome.Failure()));
+                    services.AddSingleton(sp => new IngestRoundRunner(
+                        sp.GetRequiredService<IMesSnapshotSource>(),
+                        sp.GetRequiredService<TransportDemandReconciler>(),
+                        sp.GetRequiredService<ITransportDemandStore>(),
+                        baseline,
+                        clock: () => baseline.AddHours(1)));
+                });
+            });
+
+            await factory.Services.GetRequiredService<IngestRoundRunner>().RunOnceAsync();
+
+            var client = factory.CreateClient();
+            var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
+            Assert.Equal("FAILURE", health.GetProperty("outcome").GetString());
+            Assert.False(health.GetProperty("success").GetBoolean());
+            Assert.Equal(0, health.GetProperty("rowCount").GetInt32());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Demand_list_exposes_location_risk_for_empty_area()
+    {
+        var baseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
+        var now = baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1"));
+        store.ReplaceState(reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success(
+            [
+                new MesSnapshotRow("DIE_TO_OVEN", "Q-EMPTY", null, "EQ1", "烘箱", now, "PKG"),
+            ]),
+            now,
+            baseline).State);
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = baseline,
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                });
+            });
+
+            var client = factory.CreateClient();
+            var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
+            Assert.Equal(1, list.GetArrayLength());
+            Assert.True(list[0].GetProperty("locationRisk").GetBoolean());
+            Assert.Equal("AREA_EMPTY", list[0].GetProperty("locationRiskCode").GetString());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Read_api_has_no_write_command_endpoints()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
+                        RunOneShotOnStartup = false,
+                    });
+                });
+            });
+
+            var client = factory.CreateClient();
+            Assert.True(IsWriteRejected(await client.PostAsync("/api/demands", null)));
+            Assert.True(IsWriteRejected(await client.DeleteAsync("/api/alerts")));
+            Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/api/alerts/clear", null)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/api/demands/d1/suppress", null)).StatusCode);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+
+        static bool IsWriteRejected(HttpResponseMessage response) =>
+            response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed;
+    }
 }

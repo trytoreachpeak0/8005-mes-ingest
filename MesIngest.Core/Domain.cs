@@ -56,6 +56,8 @@ public sealed record TransportDemand
     public required DemandStatus Status { get; init; }
     public required DateTimeOffset MesLastSeenAt { get; init; }
     public int DisappearCount { get; init; }
+    public bool LocationRisk { get; init; }
+    public string? LocationRiskCode { get; init; }
 }
 
 public sealed class ProjectionState
