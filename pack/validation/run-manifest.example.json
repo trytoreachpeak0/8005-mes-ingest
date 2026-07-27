@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "run_id": "run-<UTC_TIMESTAMP>-<random>",
+  "experiment_id": "mes-ingest-factory-validation",
+  "created_at": "<ISO8601_TIMESTAMP>",
+  "status": "completed",
+  "timezone": "Asia/Shanghai",
+  "install": {
+    "version_txt": "VERSION.txt",
+    "host_file_version": "<FROM_VERSION_TXT_OR_FILE_PROPERTIES>"
+  },
+  "environment": {
+    "platform": "<OS_WITHOUT_HOSTNAME>",
+    "oracle_mode_requested": "Thin",
+    "oracle_mode_effective": "<Thin_or_Thick>",
+    "logical_site": "<FACTORY_LOGICAL_NAME_NO_HOST>"
+  },
+  "probe": {
+    "thin": {
+      "attempted": true,
+      "result": "<ok_or_failed>",
+      "log": "probe-thin.txt"
+    },
+    "thick": {
+      "attempted": false,
+      "result": "<ok_or_failed_or_skipped>",
+      "log": "probe-thick.txt"
+    }
+  },
+  "poll_rounds": [
+    {
+      "round": 1,
+      "captured_at": "<ISO8601_TIMESTAMP>",
+      "duration_ms": 0,
+      "row_count": 0,
+      "success": true,
+      "outcome": "SUCCESS",
+      "poll_health_file": "api/poll-health-round-01.json",
+      "demands_visible_file": "api/demands-visible-round-01.json",
+      "alerts_file": "api/alerts-round-01.json"
+    }
+  ],
+  "manual_checks": {
+    "visible_vs_snapshot_spotcheck": false,
+    "alerts_reviewed": false,
+    "wpf_list_and_banners": false,
+    "wpf_closed_service_still_serving": false
+  },
+  "redaction": {
+    "contains_secret_material": false,
+    "contains_filled_local_config": false,
+    "notes": "No appsettings.Local.json; probe logs redacted by Host."
+  },
+  "returned_by": "<OPERATOR>",
+  "returned_at": "<ISO8601_TIMESTAMP>"
+}

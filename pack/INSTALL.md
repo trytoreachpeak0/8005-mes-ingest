@@ -6,13 +6,15 @@
 
 ```
 MesIngest/
-  service/          # Windows Service（MesIngest.Host）自包含发布
-  watch/            # 可选 WPF 盯盘客户端（MesIngest.Watch）
-  queries/          # 正式 MES_TASK_UNION SQL（与仓库原稿一致）
-  templates/        # 填空配置模板（无真实凭证）
-  scripts/          # 安装 / 卸载辅助脚本
-  INSTALL.md        # 本说明
-  VERSION.txt       # 发布版本信息
+  service/                 # Windows Service（MesIngest.Host）自包含发布
+  watch/                   # 可选 WPF 盯盘客户端（MesIngest.Watch）
+  queries/                 # 正式 MES_TASK_UNION SQL（与仓库原稿一致）
+  templates/               # 填空配置模板（无真实凭证）
+  scripts/                 # 安装 / 卸载辅助脚本
+  validation/              # 工厂验证回传模板
+  INSTALL.md               # 本说明
+  FACTORY-VALIDATION.md    # 工厂执行与核验清单
+  VERSION.txt              # 发布版本信息
 ```
 
 ## 配置（凭证不进包）
@@ -84,4 +86,4 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 - `GET /api/alerts`
 - `GET /api/poll-health`
 
-工厂连通验证流程见 ticket 11；本说明只覆盖安装与安全配置。
+工厂连通验证、人工核验与回传约定见同包 [`FACTORY-VALIDATION.md`](FACTORY-VALIDATION.md) 与 `validation/`；本说明只覆盖安装与安全配置。

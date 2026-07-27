@@ -4,7 +4,7 @@
   Publish a self-contained MesIngest install directory for factory copy-deploy.
 
 .PARAMETER OutputDir
-  Root folder that will contain service/, watch/, queries/, templates/, scripts/, INSTALL.md, VERSION.txt.
+  Root folder that will contain service/, watch/, queries/, templates/, scripts/, validation/, INSTALL.md, FACTORY-VALIDATION.md, VERSION.txt.
 
 .PARAMETER Configuration
   Build configuration (default Release).
@@ -34,17 +34,22 @@ $hostProj = Join-Path $csharpRoot "MesIngest.Host\MesIngest.Host.csproj"
 $watchProj = Join-Path $csharpRoot "MesIngest.Watch\MesIngest.Watch.csproj"
 $exampleLocal = Join-Path $csharpRoot "MesIngest.Host\appsettings.Local.json.example"
 $installDoc = Join-Path $PSScriptRoot "INSTALL.md"
+$factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
+$validationSrc = Join-Path $PSScriptRoot "validation"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
 if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exampleLocal" }
+if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
+if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
 
 $serviceDir = Join-Path $OutputDir "service"
 $watchDir = Join-Path $OutputDir "watch"
 $queriesDir = Join-Path $OutputDir "queries"
 $templatesDir = Join-Path $OutputDir "templates"
 $scriptsDir = Join-Path $OutputDir "scripts"
+$validationDir = Join-Path $OutputDir "validation"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 if (Test-Path $serviceDir) { Remove-Item -Recurse -Force $serviceDir }
@@ -93,6 +98,10 @@ New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
 Copy-Item $installService (Join-Path $scriptsDir "install-service.ps1") -Force
 Copy-Item $uninstallService (Join-Path $scriptsDir "uninstall-service.ps1") -Force
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
+Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force
+
+if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
+Copy-Item -Recurse $validationSrc $validationDir
 
 $versionPath = Join-Path $OutputDir "VERSION.txt"
 $hostDll = Join-Path $serviceDir "MesIngest.Host.dll"
@@ -111,4 +120,4 @@ $hostVer = if (Test-Path $hostDll) {
 ) | Set-Content -Path $versionPath -Encoding UTF8
 
 Write-Host "Install package ready: $OutputDir"
-Write-Host "Next: copy folder to plant PC, fill templates/appsettings.Local.json.example into service/, see INSTALL.md"
+Write-Host "Next: copy folder to plant PC, fill templates/appsettings.Local.json.example into service/, see INSTALL.md and FACTORY-VALIDATION.md"

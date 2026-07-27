@@ -115,6 +115,14 @@ Output: `service/` (Host), optional `watch/` (WPF), `queries/`, `templates/` (bl
 
 Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond localhost, set `MesIngest:SharedSecret` and call with `Authorization: Bearer <secret>` (Watch: `MesIngestWatch__SharedSecret`). See `pack/INSTALL.md` for Windows Service install/start/stop/uninstall, logs, version, and troubleshooting.
 
+## Ticket 11 — factory validation pack + feedback loop
+
+Install package also ships `FACTORY-VALIDATION.md` and `validation/` (manifest / execution-log / return checklist / signoff templates).
+
+Plant flow: fill Local config → Thin `--probe-oracle` → on failure switch Thick and retry → start Service → sample multi-round `/api/poll-health` → manually check VISIBLE vs snapshot feel, alerts, WPF banners → close WPF and confirm Service/HTTP still work → return redacted bundle only.
+
+Repo import: copy to `mes/evidence/runs/<run_id>/` per `mes/experiments/definitions/mes-ingest-factory-validation/plan.md`. Do **not** use `meslab import-run` or promote to `samples/`. “验证包已就绪” ≠ “工厂已签字通过”.
+
 ## Tests
 
 
