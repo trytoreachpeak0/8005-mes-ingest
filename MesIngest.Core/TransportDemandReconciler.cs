@@ -41,7 +41,10 @@ public sealed class TransportDemandReconciler
             .Select(kv => kv.Key)
             .ToHashSet();
 
+        // Same go-live gate as create: zero-drop counts must match projected visibility,
+        // so pre-baseline backlog cannot inflate LastHealthy or suppress PAUSED_ZERO_DROP.
         var countsByType = snapshot.Rows
+            .Where(r => r.Dates >= goLiveBaseline)
             .GroupBy(r => r.TaskType)
             .ToDictionary(g => g.Key, g => g.Count());
         var pausePrior = restartRecovery.Phase == RestartRecoveryPhase.PostBarrierRound
