@@ -8,37 +8,7 @@ internal partial class App : Application
     {
         base.OnStartup(e);
 
-        var config = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-            .AddEnvironmentVariables(prefix: "MesIngestWatch__")
-            .Build();
-
-        var options = new WatchOptions();
-        config.GetSection("Watch").Bind(options);
-
-        var baseUrlEnv = Environment.GetEnvironmentVariable("MesIngestWatch__BaseUrl");
-        if (!string.IsNullOrWhiteSpace(baseUrlEnv))
-        {
-            options.BaseUrl = baseUrlEnv;
-        }
-
-        var refreshEnv = Environment.GetEnvironmentVariable("MesIngestWatch__RefreshSeconds");
-        if (int.TryParse(refreshEnv, out var refresh) && refresh > 0)
-        {
-            options.RefreshSeconds = refresh;
-        }
-
-        var secretEnv = Environment.GetEnvironmentVariable("MesIngestWatch__SharedSecret");
-        if (!string.IsNullOrWhiteSpace(secretEnv))
-        {
-            options.SharedSecret = secretEnv;
-        }
-
-        if (options.RefreshSeconds < 1)
-        {
-            options.RefreshSeconds = 2;
-        }
+        var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
 
         var http = new HttpClient
         {

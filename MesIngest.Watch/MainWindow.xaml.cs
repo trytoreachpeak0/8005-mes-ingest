@@ -25,7 +25,7 @@ internal partial class MainWindow : Window
 
         _timer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(Math.Max(1, _options.RefreshSeconds)),
+            Interval = TimeSpan.FromSeconds(_options.RefreshSeconds),
         };
         _timer.Tick += async (_, _) => await RefreshAsync().ConfigureAwait(true);
         Loaded += async (_, _) =>
