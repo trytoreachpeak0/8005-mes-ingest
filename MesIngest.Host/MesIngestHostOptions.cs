@@ -70,7 +70,16 @@ public sealed class MesIngestHostOptions
     /// </summary>
     public int ZeroDropEnterThreshold { get; set; } = 10;
 
+    /// <summary>
+    /// Kestrel listen URLs. Default is localhost-only. Binding beyond localhost requires SharedSecret.
+    /// </summary>
     public string Urls { get; set; } = "http://127.0.0.1:5088";
+
+    /// <summary>
+    /// Shared secret for read-only HTTP when Urls binds beyond localhost.
+    /// Callers send <c>Authorization: Bearer &lt;SharedSecret&gt;</c>. Local/env only — never commit a real value.
+    /// </summary>
+    public string SharedSecret { get; set; } = "";
 
     /// <summary>
     /// SQL Server connection string for durable projection. When empty, Host uses in-memory store

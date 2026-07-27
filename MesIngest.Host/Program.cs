@@ -1,10 +1,19 @@
 using System.Text.Json.Serialization;
 using MesIngest.Core;
 using MesIngest.Host;
+using Microsoft.Extensions.Hosting.WindowsServices;
 
 var probeOracle = args.Any(a => string.Equals(a, "--probe-oracle", StringComparison.OrdinalIgnoreCase));
 
-var builder = WebApplication.CreateBuilder(args);
+// Windows Service cwd is often System32; pin ContentRoot to the published exe directory.
+// Interactive / WebApplicationFactory keep default content-root discovery.
+WebApplicationBuilder builder = WindowsServiceHelpers.IsWindowsService()
+    ? WebApplication.CreateBuilder(new WebApplicationOptions
+    {
+        Args = args,
+        ContentRootPath = AppContext.BaseDirectory,
+    })
+    : WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
@@ -13,6 +22,12 @@ builder.Services.Configure<MesIngestHostOptions>(
 
 var configured = new MesIngestHostOptions();
 builder.Configuration.GetSection(MesIngestHostOptions.SectionName).Bind(configured);
+SharedSecretAuth.ValidateStartup(configured, builder.Configuration);
+if (!string.IsNullOrWhiteSpace(configured.Urls))
+{
+    builder.WebHost.UseUrls(configured.Urls);
+}
+
 builder.Services.AddSingleton(configured);
 
 builder.Services.AddSingleton<IDemandIdAllocator, GuidDemandIdAllocator>();
@@ -58,6 +73,20 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    var options = context.RequestServices.GetRequiredService<MesIngestHostOptions>();
+    var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
+    if (!SharedSecretAuth.IsAuthorized(context.Request, options, configuration))
+    {
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        await context.Response.WriteAsJsonAsync(new { error = "shared secret required" });
+        return;
+    }
+
+    await next();
+});
 
 if (probeOracle)
 {

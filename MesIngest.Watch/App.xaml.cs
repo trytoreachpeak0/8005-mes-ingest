@@ -29,6 +29,12 @@ internal partial class App : Application
             options.RefreshSeconds = refresh;
         }
 
+        var secretEnv = Environment.GetEnvironmentVariable("MesIngestWatch__SharedSecret");
+        if (!string.IsNullOrWhiteSpace(secretEnv))
+        {
+            options.SharedSecret = secretEnv;
+        }
+
         if (options.RefreshSeconds < 1)
         {
             options.RefreshSeconds = 2;
@@ -39,6 +45,11 @@ internal partial class App : Application
             BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/"),
             Timeout = TimeSpan.FromSeconds(15),
         };
+        if (!string.IsNullOrWhiteSpace(options.SharedSecret))
+        {
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
+        }
 
         var client = new MesIngestApiClient(http);
         var window = new MainWindow(client, options);

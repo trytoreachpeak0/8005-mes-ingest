@@ -101,6 +101,20 @@ dotnet run --project MesIngest.Watch
 
 Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, last seen), recent alerts, latest poll health, and prominent banners for query/poll failure and `PAUSED_ZERO_DROP`.
 
+## Ticket 10 — factory install package + secure config
+
+Self-contained install directory for plant copy-deploy:
+
+```powershell
+cd mes/ingest/csharp
+.\pack\Publish-MesIngest.ps1 -OutputDir .\dist\MesIngest
+# optional: -SkipWatch
+```
+
+Output: `service/` (Host), optional `watch/` (WPF), `queries/`, `templates/` (blank Local.json), `scripts/` (install/uninstall), `INSTALL.md`, `VERSION.txt`. Copy the folder to the plant PC; fill `templates/appsettings.Local.json.example` into `service/appsettings.Local.json` (never commit filled credentials).
+
+Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond localhost, set `MesIngest:SharedSecret` and call with `Authorization: Bearer <secret>` (Watch: `MesIngestWatch__SharedSecret`). See `pack/INSTALL.md` for Windows Service install/start/stop/uninstall, logs, version, and troubleshooting.
+
 ## Tests
 
 

@@ -9,6 +9,12 @@ internal sealed class WatchOptions
 {
     public string BaseUrl { get; set; } = "http://127.0.0.1:5088";
     public int RefreshSeconds { get; set; } = 2;
+
+    /// <summary>
+    /// Same value as Host MesIngest:SharedSecret when API is bound beyond localhost.
+    /// Sent as Authorization: Bearer.
+    /// </summary>
+    public string SharedSecret { get; set; } = "";
 }
 
 internal sealed class MesIngestApiClient
