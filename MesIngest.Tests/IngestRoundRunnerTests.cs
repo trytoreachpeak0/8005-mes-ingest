@@ -151,6 +151,112 @@ public class IngestRoundRunnerTests
         Assert.Equal(1, Assert.Single(store.List()).DisappearCount);
     }
 
+    [Fact]
+    public async Task Failed_round_appends_poll_failure_alert_without_mutating_projection()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 1,
+            },
+        ]));
+
+        var runner = new IngestRoundRunner(
+            new FixedMesSnapshotSource(MesSnapshotOutcome.Failure()),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator("new")),
+            store,
+            Baseline,
+            clock: () => now.AddMinutes(1));
+
+        await runner.RunOnceAsync();
+
+        var demand = Assert.Single(store.List());
+        Assert.Equal("d1", demand.DemandId);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal(1, demand.DisappearCount);
+        Assert.Equal(now, demand.MesLastSeenAt);
+
+        var alert = Assert.Single(store.ListAlerts());
+        Assert.Equal("POLL_FAILURE", alert.Code);
+        var health = store.GetLatestPollHealth();
+        Assert.NotNull(health);
+        Assert.False(health!.Success);
+        Assert.Equal("FAILURE", health.Outcome);
+    }
+
+    [Fact]
+    public async Task Incomplete_round_appends_poll_incomplete_alert_without_creating_visible()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        var runner = new IngestRoundRunner(
+            new FixedMesSnapshotSource(MesSnapshotOutcome.Incomplete()),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator("new")),
+            store,
+            Baseline,
+            clock: () => now);
+
+        await runner.RunOnceAsync();
+
+        Assert.Empty(store.List());
+        var alert = Assert.Single(store.ListAlerts());
+        Assert.Equal("POLL_INCOMPLETE", alert.Code);
+        Assert.Equal("INCOMPLETE", store.GetLatestPollHealth()!.Outcome);
+    }
+
+    [Fact]
+    public async Task Query_timeout_is_recorded_as_poll_failure_without_mutating_projection()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 1,
+            },
+        ]));
+
+        var runner = new IngestRoundRunner(
+            new HangingMesSnapshotSource(),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator("new")),
+            store,
+            Baseline,
+            queryTimeout: TimeSpan.FromMilliseconds(30),
+            clock: () => now.AddMinutes(1));
+
+        await runner.RunOnceAsync();
+
+        var demand = Assert.Single(store.List());
+        Assert.Equal(1, demand.DisappearCount);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal("POLL_FAILURE", Assert.Single(store.ListAlerts()).Code);
+        Assert.Equal("FAILURE", store.GetLatestPollHealth()!.Outcome);
+    }
+
     private sealed class QueueMesSnapshotSource : IMesSnapshotSource
     {
         private readonly Queue<MesSnapshotOutcome> _outcomes;
@@ -162,5 +268,14 @@ public class IngestRoundRunnerTests
 
         public Task<MesSnapshotOutcome> ReadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(_outcomes.Dequeue());
+    }
+
+    private sealed class HangingMesSnapshotSource : IMesSnapshotSource
+    {
+        public async Task<MesSnapshotOutcome> ReadAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return MesSnapshotOutcome.Success([]);
+        }
     }
 }

@@ -284,6 +284,14 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.Equal("d1", visible[0].GetProperty("demandId").GetString());
             Assert.Equal(1, visible[0].GetProperty("disappearCount").GetInt32());
             Assert.Equal("VISIBLE", visible[0].GetProperty("status").GetString());
+
+            var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
+            Assert.Equal(1, alerts.GetArrayLength());
+            Assert.Equal("POLL_FAILURE", alerts[0].GetProperty("code").GetString());
+
+            var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
+            Assert.False(health.GetProperty("success").GetBoolean());
+            Assert.Equal("FAILURE", health.GetProperty("outcome").GetString());
         }
         finally
         {

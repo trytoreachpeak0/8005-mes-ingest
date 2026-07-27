@@ -3,6 +3,7 @@ using MesIngest.Core;
 using MesIngest.Host;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseWindowsService();
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.Services.Configure<MesIngestHostOptions>(
@@ -44,8 +45,10 @@ builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<ITransportDemandStore>(),
         options.GoLiveBaseline,
         disappearThreshold: options.DisappearThreshold,
-        zeroDropEnterThreshold: options.ZeroDropEnterThreshold);
+        zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
+        queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)));
 });
+builder.Services.AddHostedService<PollHostedService>();
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {

@@ -55,6 +55,7 @@ public sealed class IngestRoundRunner
     private readonly DateTimeOffset _goLiveBaseline;
     private readonly int _disappearThreshold;
     private readonly int _zeroDropEnterThreshold;
+    private readonly TimeSpan _queryTimeout;
     private readonly Func<DateTimeOffset> _clock;
     private RestartRecoveryPhase _nextPhase = RestartRecoveryPhase.BarrierRound;
     private IReadOnlyDictionary<string, int>? _barrierRoundCountsByType;
@@ -66,6 +67,7 @@ public sealed class IngestRoundRunner
         DateTimeOffset goLiveBaseline,
         int disappearThreshold = 2,
         int zeroDropEnterThreshold = 10,
+        TimeSpan? queryTimeout = null,
         Func<DateTimeOffset>? clock = null)
     {
         _source = source;
@@ -74,6 +76,7 @@ public sealed class IngestRoundRunner
         _goLiveBaseline = goLiveBaseline;
         _disappearThreshold = disappearThreshold;
         _zeroDropEnterThreshold = zeroDropEnterThreshold;
+        _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(30);
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -81,7 +84,7 @@ public sealed class IngestRoundRunner
     {
         var startedAt = _clock();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var snapshot = await _source.ReadAsync(cancellationToken);
+        var snapshot = await ReadSnapshotAsync(cancellationToken);
         var restartRecovery = ResolveRestartRecovery();
         var result = _reconciler.Reconcile(
             _store.GetState(),
@@ -95,7 +98,29 @@ public sealed class IngestRoundRunner
         var endedAt = _clock();
 
         _store.ReplaceState(result.State);
-        _store.AppendAlerts(result.Alerts);
+        if (snapshot.Kind == SnapshotOutcomeKind.Failure)
+        {
+            _store.AppendAlerts(
+            [
+                new IngestAlert(
+                    Code: "POLL_FAILURE",
+                    Message: "MES snapshot round failed; projection left unchanged."),
+            ]);
+        }
+        else if (snapshot.Kind == SnapshotOutcomeKind.Incomplete)
+        {
+            _store.AppendAlerts(
+            [
+                new IngestAlert(
+                    Code: "POLL_INCOMPLETE",
+                    Message: "MES snapshot round incomplete; projection left unchanged."),
+            ]);
+        }
+        else
+        {
+            _store.AppendAlerts(result.Alerts);
+        }
+
         _store.SetLatestPollHealth(new PollHealth(
             StartedAt: startedAt,
             EndedAt: endedAt,
@@ -116,6 +141,28 @@ public sealed class IngestRoundRunner
         }
 
         return result.State;
+    }
+
+    private async Task<MesSnapshotOutcome> ReadSnapshotAsync(CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linked.CancelAfter(_queryTimeout);
+        try
+        {
+            return await _source.ReadAsync(linked.Token);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            return MesSnapshotOutcome.Failure();
+        }
+        catch (Exception)
+        {
+            return MesSnapshotOutcome.Failure();
+        }
     }
 
     private RestartRecovery ResolveRestartRecovery() =>

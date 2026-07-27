@@ -4,14 +4,30 @@ public sealed class MesIngestHostOptions
 {
     public const string SectionName = "MesIngest";
 
-    /// <summary>Path to a recorded MES_TASK_UNION CSV. Required for ticket-01 file mode.</summary>
+    /// <summary>Path to a recorded MES_TASK_UNION CSV. Required for file snapshot mode.</summary>
     public string SnapshotCsvPath { get; set; } = "";
 
     /// <summary>Go-live baseline; rows with DATES earlier are not created as VISIBLE.</summary>
     public DateTimeOffset GoLiveBaseline { get; set; } =
         new(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
 
-    public bool RunOneShotOnStartup { get; set; } = true;
+    /// <summary>
+    /// When true, run one ingest round during host startup (before listening).
+    /// Prefer continuous poll for production; keep one-shot for demos/tests.
+    /// </summary>
+    public bool RunOneShotOnStartup { get; set; }
+
+    /// <summary>
+    /// When true, host a single-flight continuous poll loop (Windows Service / console).
+    /// Class default is false so WebApplicationFactory tests stay quiet; production appsettings enables it.
+    /// </summary>
+    public bool ContinuousPollEnabled { get; set; }
+
+    /// <summary>Seconds to wait after each completed poll round before starting the next.</summary>
+    public int PostPollDelaySeconds { get; set; } = 10;
+
+    /// <summary>Per-round snapshot read timeout in seconds.</summary>
+    public int QueryTimeoutSeconds { get; set; } = 30;
 
     /// <summary>Consecutive successful absences before a VISIBLE demand becomes GONE.</summary>
     public int DisappearThreshold { get; set; } = 2;
