@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -27,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\MesIngest.Core\MesIngest.Core.csproj" />
     <ProjectReference Include="..\MesIngest.Host\MesIngest.Host.csproj" />
+    <ProjectReference Include="..\MesIngest.Watch\MesIngest.Watch.csproj" />
   </ItemGroup>
 
 </Project>

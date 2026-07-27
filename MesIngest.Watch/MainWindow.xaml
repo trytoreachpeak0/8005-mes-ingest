@@ -1,0 +1,114 @@
+﻿<Window x:Class="MesIngest.Watch.MainWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MesIngest Watch"
+        Height="720"
+        Width="1180"
+        MinHeight="480"
+        MinWidth="900">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <Border x:Name="FetchFailureBanner"
+                    Background="#C62828"
+                    Padding="10,8"
+                    Margin="0,0,0,6"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="FetchFailureText"
+                           Foreground="White"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           FontSize="14" />
+            </Border>
+            <Border x:Name="PausedBanner"
+                    Background="#E65100"
+                    Padding="10,8"
+                    Margin="0,0,0,6"
+                    Visibility="Collapsed">
+                <TextBlock x:Name="PausedText"
+                           Foreground="White"
+                           FontWeight="SemiBold"
+                           TextWrapping="Wrap"
+                           FontSize="14" />
+            </Border>
+            <TextBlock x:Name="HealthText"
+                       FontFamily="Consolas"
+                       FontSize="13"
+                       Margin="0,0,0,6"
+                       TextWrapping="Wrap" />
+            <WrapPanel Margin="0,0,0,6">
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                    <TextBlock Text="TASK_TYPE" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox x:Name="FilterTaskType" Width="140" TextChanged="OnFilterChanged" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                    <TextBlock Text="SUBLOT" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox x:Name="FilterSublot" Width="120" TextChanged="OnFilterChanged" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                    <TextBlock Text="status" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="FilterStatus" Width="110" SelectionChanged="OnFilterChanged">
+                        <ComboBoxItem Content="(all)" IsSelected="True" />
+                        <ComboBoxItem Content="VISIBLE" />
+                        <ComboBoxItem Content="GONE" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
+                    <TextBlock Text="sort" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="SortField" Width="140" SelectionChanged="OnFilterChanged">
+                        <ComboBoxItem Content="last seen" Tag="MesLastSeenAt" IsSelected="True" />
+                        <ComboBoxItem Content="TASK_TYPE" Tag="TaskType" />
+                        <ComboBoxItem Content="SUBLOT" Tag="Sublot" />
+                        <ComboBoxItem Content="status" Tag="Status" />
+                    </ComboBox>
+                    <CheckBox x:Name="SortAscending"
+                              Content="asc"
+                              Margin="8,0,0,0"
+                              VerticalAlignment="Center"
+                              Checked="OnFilterChanged"
+                              Unchecked="OnFilterChanged" />
+                </StackPanel>
+                <TextBlock x:Name="RowCountText" VerticalAlignment="Center" Margin="8,0,0,0" />
+            </WrapPanel>
+        </StackPanel>
+
+        <GroupBox Header="Alerts" DockPanel.Dock="Bottom" Height="140" Margin="0,8,0,0">
+            <DataGrid x:Name="AlertsGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      HeadersVisibility="Column">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" />
+                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" />
+                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" />
+                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" />
+                    <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <GroupBox Header="TransportDemands">
+            <DataGrid x:Name="DemandsGrid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      CanUserAddRows="False"
+                      HeadersVisibility="Column"
+                      Sorting="OnDemandsSorting">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" />
+                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" />
+                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" />
+                    <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" />
+                    <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt}" Width="160" />
+                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" />
+                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" />
+                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" />
+                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" />
+                    <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" />
+                    <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+    </DockPanel>
+</Window>

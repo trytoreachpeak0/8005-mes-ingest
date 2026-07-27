@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MesIngest.Host", "MesIngest
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MesIngest.Tests", "MesIngest.Tests\MesIngest.Tests.csproj", "{A0083799-C9C7-47D7-AFC2-E46638A7EF87}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MesIngest.Watch", "MesIngest.Watch\MesIngest.Watch.csproj", "{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -55,6 +57,18 @@ Global
 		{A0083799-C9C7-47D7-AFC2-E46638A7EF87}.Release|x64.Build.0 = Release|Any CPU
 		{A0083799-C9C7-47D7-AFC2-E46638A7EF87}.Release|x86.ActiveCfg = Release|Any CPU
 		{A0083799-C9C7-47D7-AFC2-E46638A7EF87}.Release|x86.Build.0 = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|x64.Build.0 = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Debug|x86.Build.0 = Debug|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|x64.ActiveCfg = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|x64.Build.0 = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|x86.ActiveCfg = Release|Any CPU
+		{C21F9810-0D33-4283-9599-5E1BC8C9A2DE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

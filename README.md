@@ -82,6 +82,25 @@ dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 
 This ticket ships factory-ready connectivity capability; it does **not** claim the plant link has already been verified (that is ticket 11).
 
+## Ticket 09 — WPF watch thin client
+
+WPF is an optional read-only HTTP client. It never hosts the poll loop and never reads SQL Server. Start the Host first, then open Watch against the same base URL (default `http://127.0.0.1:5088`). Closing Watch leaves the Windows Service / Host process polling and serving the API; start Watch again later to reconnect and show the current projection.
+
+```powershell
+# Terminal A — Host (CSV demo)
+$env:MesIngest__SnapshotCsvPath = (Resolve-Path ..\..\samples\mes-task-union\latest.csv).Path
+$env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
+dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
+
+# Terminal B — Watch
+dotnet run --project MesIngest.Watch
+# optional overrides:
+# $env:MesIngestWatch__BaseUrl = "http://127.0.0.1:5088"
+# $env:MesIngestWatch__RefreshSeconds = "2"
+```
+
+Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, last seen), recent alerts, latest poll health, and prominent banners for query/poll failure and `PAUSED_ZERO_DROP`.
+
 ## Tests
 
 
