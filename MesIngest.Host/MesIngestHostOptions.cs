@@ -23,4 +23,10 @@ public sealed class MesIngestHostOptions
     public int ZeroDropEnterThreshold { get; set; } = 10;
 
     public string Urls { get; set; } = "http://127.0.0.1:5088";
+
+    /// <summary>
+    /// SQL Server connection string for durable projection. When empty, Host uses in-memory store
+    /// (tests / local CSV demos). Put real credentials in appsettings.Local.json or env vars — never commit.
+    /// </summary>
+    public string SqlServerConnectionString { get; set; } = "";
 }

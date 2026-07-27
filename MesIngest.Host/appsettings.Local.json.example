@@ -1,0 +1,5 @@
+{
+  "MesIngest": {
+    "SqlServerConnectionString": "Server=(localdb)\\MSSQLLocalDB;Database=MesIngest;Trusted_Connection=True;TrustServerCertificate=True"
+  }
+}

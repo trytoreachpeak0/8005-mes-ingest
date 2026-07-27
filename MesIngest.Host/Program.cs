@@ -3,6 +3,7 @@ using MesIngest.Core;
 using MesIngest.Host;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.Services.Configure<MesIngestHostOptions>(
     builder.Configuration.GetSection(MesIngestHostOptions.SectionName));
@@ -13,7 +14,16 @@ builder.Services.AddSingleton(configured);
 
 builder.Services.AddSingleton<IDemandIdAllocator, GuidDemandIdAllocator>();
 builder.Services.AddSingleton<TransportDemandReconciler>();
-builder.Services.AddSingleton<ITransportDemandStore, InMemoryTransportDemandStore>();
+builder.Services.AddSingleton<ITransportDemandStore>(sp =>
+{
+    var options = sp.GetRequiredService<MesIngestHostOptions>();
+    if (!string.IsNullOrWhiteSpace(options.SqlServerConnectionString))
+    {
+        return new SqlServerTransportDemandStore(options.SqlServerConnectionString);
+    }
+
+    return new InMemoryTransportDemandStore();
+});
 builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
 {
     var options = sp.GetRequiredService<MesIngestHostOptions>();
