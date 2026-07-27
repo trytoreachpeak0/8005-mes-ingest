@@ -657,6 +657,288 @@ public class TransportDemandReconcilerTests
         Assert.Null(demand.LocationRiskCode);
     }
 
+    [Fact]
+    public void Zero_drop_learns_healthy_count_from_successful_round_then_pauses_on_zero()
+    {
+        var rows = Enumerable.Range(1, 10)
+            .Select(i => Row(
+                "DIE_TO_OVEN",
+                $"Q-{i}",
+                "N01-01",
+                "EQ1",
+                "烘箱",
+                Baseline.AddHours(1),
+                "PKG"))
+            .ToList();
+        var ids = Enumerable.Range(1, 10).Select(i => $"d{i}").ToArray();
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator(ids));
+
+        var afterHealthy = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success(rows),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10);
+        Assert.Equal(10, Assert.Single(afterHealthy.State.TaskTypePauses).LastHealthyNonZeroCount);
+        Assert.False(Assert.Single(afterHealthy.State.TaskTypePauses).PausedZeroDrop);
+
+        var afterZero = reconciler.Reconcile(
+            afterHealthy.State,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 2,
+            zeroDropEnterThreshold: 10);
+
+        Assert.True(Assert.Single(afterZero.State.TaskTypePauses).PausedZeroDrop);
+        Assert.All(afterZero.State.Demands, d => Assert.Equal(0, d.DisappearCount));
+        Assert.Equal("PAUSED_ZERO_DROP", Assert.Single(afterZero.Alerts).Code);
+    }
+
+    [Fact]
+    public void Zero_drop_enters_paused_and_does_not_increment_disappear_when_prior_healthy_count_at_threshold()
+    {
+        var priorDemands = Enumerable.Range(1, 10)
+            .Select(i => new TransportDemand
+            {
+                DemandId = $"d{i}",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = $"Q-{i}",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 0,
+            })
+            .ToList();
+        var prior = new ProjectionState(
+            priorDemands,
+            [
+                new TaskTypePauseState(
+                    TaskType: "DIE_TO_OVEN",
+                    PausedZeroDrop: false,
+                    LastHealthyNonZeroCount: 10,
+                    RecoveryStreak: 0),
+            ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 2,
+            zeroDropEnterThreshold: 10);
+
+        Assert.All(result.State.Demands, d =>
+        {
+            Assert.Equal(DemandStatus.Visible, d.Status);
+            Assert.Equal(0, d.DisappearCount);
+        });
+
+        var pause = Assert.Single(result.State.TaskTypePauses, p => p.TaskType == "DIE_TO_OVEN");
+        Assert.True(pause.PausedZeroDrop);
+        Assert.Equal(10, pause.LastHealthyNonZeroCount);
+        Assert.Equal(0, pause.RecoveryStreak);
+
+        var alert = Assert.Single(result.Alerts);
+        Assert.Equal("PAUSED_ZERO_DROP", alert.Code);
+        Assert.Equal("DIE_TO_OVEN", alert.TaskType);
+    }
+
+    [Fact]
+    public void Zero_drop_pause_isolates_to_one_task_type_while_others_still_disappear()
+    {
+        var prior = new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "paused-1",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-PAUSED",
+                    Area = "N01-01",
+                    Eqp = "EQ1",
+                    Step = "烘箱",
+                    Dates = Baseline.AddHours(1),
+                    Package = "PKG",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = Now,
+                    DisappearCount = 0,
+                },
+                new TransportDemand
+                {
+                    DemandId = "other-1",
+                    TaskType = "WIRE_TO_GATE",
+                    Sublot = "Q-OTHER",
+                    Area = "N02-02",
+                    Eqp = "EQ2",
+                    Step = "关卡",
+                    Dates = Baseline.AddHours(1),
+                    Package = "PKG2",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = Now,
+                    DisappearCount = 0,
+                },
+            ],
+            [
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: true, LastHealthyNonZeroCount: 12, RecoveryStreak: 0),
+                new TaskTypePauseState("WIRE_TO_GATE", PausedZeroDrop: false, LastHealthyNonZeroCount: 1, RecoveryStreak: 0),
+            ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 2,
+            zeroDropEnterThreshold: 10);
+
+        var paused = Assert.Single(result.State.Demands, d => d.DemandId == "paused-1");
+        Assert.Equal(DemandStatus.Visible, paused.Status);
+        Assert.Equal(0, paused.DisappearCount);
+
+        var other = Assert.Single(result.State.Demands, d => d.DemandId == "other-1");
+        Assert.Equal(DemandStatus.Visible, other.Status);
+        Assert.Equal(1, other.DisappearCount);
+
+        Assert.DoesNotContain(result.Alerts, a => a.Code == "PAUSED_ZERO_DROP");
+        Assert.True(Assert.Single(result.State.TaskTypePauses, p => p.TaskType == "DIE_TO_OVEN").PausedZeroDrop);
+        Assert.False(Assert.Single(result.State.TaskTypePauses, p => p.TaskType == "WIRE_TO_GATE").PausedZeroDrop);
+    }
+
+    [Fact]
+    public void Zero_drop_below_enter_threshold_still_increments_disappear()
+    {
+        var prior = new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "d1",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-1",
+                    Area = "N01-01",
+                    Eqp = "EQ1",
+                    Step = "烘箱",
+                    Dates = Baseline.AddHours(1),
+                    Package = "PKG",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = Now,
+                    DisappearCount = 0,
+                },
+            ],
+            [
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: false, LastHealthyNonZeroCount: 9, RecoveryStreak: 0),
+            ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 2,
+            zeroDropEnterThreshold: 10);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal(1, demand.DisappearCount);
+        Assert.False(Assert.Single(result.State.TaskTypePauses).PausedZeroDrop);
+        Assert.Empty(result.Alerts);
+    }
+
+    [Fact]
+    public void Zero_drop_clears_after_two_consecutive_successful_non_zero_rounds()
+    {
+        var prior = new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "d1",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-1",
+                    Area = "N01-01",
+                    Eqp = "EQ1",
+                    Step = "烘箱",
+                    Dates = Baseline.AddHours(1),
+                    Package = "PKG",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = Now,
+                    DisappearCount = 0,
+                },
+            ],
+            [
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: true, LastHealthyNonZeroCount: 10, RecoveryStreak: 0),
+            ]);
+        var row = Row(
+            "DIE_TO_OVEN",
+            "Q-1",
+            "N01-01",
+            "EQ1",
+            "烘箱",
+            Baseline.AddHours(1),
+            "PKG");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var afterFirst = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([row]),
+            Now.AddMinutes(1),
+            Baseline,
+            zeroDropEnterThreshold: 10);
+        var pause1 = Assert.Single(afterFirst.State.TaskTypePauses);
+        Assert.True(pause1.PausedZeroDrop);
+        Assert.Equal(1, pause1.RecoveryStreak);
+        Assert.Equal(1, pause1.LastHealthyNonZeroCount);
+
+        var afterSecond = reconciler.Reconcile(
+            afterFirst.State,
+            MesSnapshotOutcome.Success([row]),
+            Now.AddMinutes(2),
+            Baseline,
+            zeroDropEnterThreshold: 10);
+        var pause2 = Assert.Single(afterSecond.State.TaskTypePauses);
+        Assert.False(pause2.PausedZeroDrop);
+        Assert.Equal(0, pause2.RecoveryStreak);
+        Assert.Equal(1, pause2.LastHealthyNonZeroCount);
+
+        // After clear, a zero round below previous healthy threshold of 1 does not re-enter pause.
+        var afterZero = reconciler.Reconcile(
+            afterSecond.State,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(3),
+            Baseline,
+            disappearThreshold: 2,
+            zeroDropEnterThreshold: 10);
+        Assert.False(Assert.Single(afterZero.State.TaskTypePauses).PausedZeroDrop);
+        Assert.Equal(1, Assert.Single(afterZero.State.Demands).DisappearCount);
+    }
+
+    [Fact]
+    public void Zero_drop_recovery_streak_resets_when_a_zero_round_interrupts()
+    {
+        var prior = new ProjectionState(
+            Array.Empty<TransportDemand>(),
+            [
+                new TaskTypePauseState("DIE_TO_OVEN", PausedZeroDrop: true, LastHealthyNonZeroCount: 11, RecoveryStreak: 1),
+            ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var afterZero = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10);
+        var pause = Assert.Single(afterZero.State.TaskTypePauses);
+        Assert.True(pause.PausedZeroDrop);
+        Assert.Equal(0, pause.RecoveryStreak);
+        Assert.Equal(11, pause.LastHealthyNonZeroCount);
+    }
+
     private static MesSnapshotRow Row(
         string taskType,
         string sublot,

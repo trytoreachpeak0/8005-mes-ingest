@@ -60,16 +60,26 @@ public sealed record TransportDemand
     public string? LocationRiskCode { get; init; }
 }
 
+public sealed record TaskTypePauseState(
+    string TaskType,
+    bool PausedZeroDrop,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreak);
+
 public sealed class ProjectionState
 {
     public static ProjectionState Empty { get; } = new(Array.Empty<TransportDemand>());
 
-    public ProjectionState(IReadOnlyList<TransportDemand> demands)
+    public ProjectionState(
+        IReadOnlyList<TransportDemand> demands,
+        IReadOnlyList<TaskTypePauseState>? taskTypePauses = null)
     {
         Demands = demands;
+        TaskTypePauses = taskTypePauses ?? Array.Empty<TaskTypePauseState>();
     }
 
     public IReadOnlyList<TransportDemand> Demands { get; }
+    public IReadOnlyList<TaskTypePauseState> TaskTypePauses { get; }
 }
 
 public sealed class ReconcileResult

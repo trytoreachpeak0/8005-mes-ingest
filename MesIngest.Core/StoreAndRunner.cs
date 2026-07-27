@@ -54,6 +54,7 @@ public sealed class IngestRoundRunner
     private readonly ITransportDemandStore _store;
     private readonly DateTimeOffset _goLiveBaseline;
     private readonly int _disappearThreshold;
+    private readonly int _zeroDropEnterThreshold;
     private readonly Func<DateTimeOffset> _clock;
 
     public IngestRoundRunner(
@@ -62,6 +63,7 @@ public sealed class IngestRoundRunner
         ITransportDemandStore store,
         DateTimeOffset goLiveBaseline,
         int disappearThreshold = 2,
+        int zeroDropEnterThreshold = 10,
         Func<DateTimeOffset>? clock = null)
     {
         _source = source;
@@ -69,6 +71,7 @@ public sealed class IngestRoundRunner
         _store = store;
         _goLiveBaseline = goLiveBaseline;
         _disappearThreshold = disappearThreshold;
+        _zeroDropEnterThreshold = zeroDropEnterThreshold;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -82,7 +85,8 @@ public sealed class IngestRoundRunner
             snapshot,
             _clock(),
             _goLiveBaseline,
-            _disappearThreshold);
+            _disappearThreshold,
+            _zeroDropEnterThreshold);
         sw.Stop();
         var endedAt = _clock();
 

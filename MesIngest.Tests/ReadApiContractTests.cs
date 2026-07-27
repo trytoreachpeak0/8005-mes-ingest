@@ -505,6 +505,93 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Poll_health_endpoint_reports_task_type_paused_zero_drop_state()
+    {
+        var baseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
+        var now = baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "d1",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-1",
+                    Area = "N01-01",
+                    Eqp = "EQ1",
+                    Step = "烘箱",
+                    Dates = now,
+                    Package = "PKG",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = now,
+                    DisappearCount = 0,
+                },
+            ],
+            [
+                new TaskTypePauseState(
+                    "DIE_TO_OVEN",
+                    PausedZeroDrop: false,
+                    LastHealthyNonZeroCount: 10,
+                    RecoveryStreak: 0),
+            ]));
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = baseline,
+                        RunOneShotOnStartup = false,
+                        ZeroDropEnterThreshold = 10,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                    services.AddSingleton<IMesSnapshotSource>(
+                        new FixedMesSnapshotSource(MesSnapshotOutcome.Success([])));
+                    services.AddSingleton(sp => new IngestRoundRunner(
+                        sp.GetRequiredService<IMesSnapshotSource>(),
+                        sp.GetRequiredService<TransportDemandReconciler>(),
+                        sp.GetRequiredService<ITransportDemandStore>(),
+                        baseline,
+                        zeroDropEnterThreshold: 10,
+                        clock: () => now.AddMinutes(1)));
+                });
+            });
+
+            await factory.Services.GetRequiredService<IngestRoundRunner>().RunOnceAsync();
+
+            var client = factory.CreateClient();
+            var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
+            Assert.Equal("SUCCESS", health.GetProperty("outcome").GetString());
+
+            var pauses = health.GetProperty("taskTypePauses");
+            Assert.Equal(1, pauses.GetArrayLength());
+            Assert.Equal("DIE_TO_OVEN", pauses[0].GetProperty("taskType").GetString());
+            Assert.True(pauses[0].GetProperty("pausedZeroDrop").GetBoolean());
+            Assert.Equal(10, pauses[0].GetProperty("lastHealthyNonZeroCount").GetInt32());
+
+            var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
+            Assert.Contains(
+                alerts.EnumerateArray(),
+                a => a.GetProperty("code").GetString() == "PAUSED_ZERO_DROP");
+
+            var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");
+            Assert.Equal(1, visible.GetArrayLength());
+            Assert.Equal(0, visible[0].GetProperty("disappearCount").GetInt32());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Read_api_has_no_write_command_endpoints()
     {
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
@@ -530,6 +617,12 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.True(IsWriteRejected(await client.DeleteAsync("/api/alerts")));
             Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/api/alerts/clear", null)).StatusCode);
             Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsync("/api/demands/d1/suppress", null)).StatusCode);
+            Assert.Equal(
+                HttpStatusCode.NotFound,
+                (await client.PostAsync("/api/poll-health/clear-pause", null)).StatusCode);
+            Assert.Equal(
+                HttpStatusCode.NotFound,
+                (await client.PostAsync("/api/task-types/DIE_TO_OVEN/clear-pause", null)).StatusCode);
         }
         finally
         {

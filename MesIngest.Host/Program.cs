@@ -33,7 +33,8 @@ builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<TransportDemandReconciler>(),
         sp.GetRequiredService<ITransportDemandStore>(),
         options.GoLiveBaseline,
-        disappearThreshold: options.DisappearThreshold);
+        disappearThreshold: options.DisappearThreshold,
+        zeroDropEnterThreshold: options.ZeroDropEnterThreshold);
 });
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -82,7 +83,12 @@ app.MapGet("/api/alerts", (ITransportDemandStore store) =>
 app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
 {
     var health = store.GetLatestPollHealth();
-    return health is null ? Results.NotFound() : Results.Ok(PollHealthDto.From(health));
+    if (health is null)
+    {
+        return Results.NotFound();
+    }
+
+    return Results.Ok(PollHealthDto.From(health, store.GetState().TaskTypePauses));
 });
 
 app.Run();
@@ -151,21 +157,36 @@ internal sealed record AlertDto(
         a.Message);
 }
 
+internal sealed record TaskTypePauseDto(
+    string TaskType,
+    bool PausedZeroDrop,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreak)
+{
+    public static TaskTypePauseDto From(TaskTypePauseState p) => new(
+        p.TaskType,
+        p.PausedZeroDrop,
+        p.LastHealthyNonZeroCount,
+        p.RecoveryStreak);
+}
+
 internal sealed record PollHealthDto(
     DateTimeOffset StartedAt,
     DateTimeOffset EndedAt,
     double DurationMs,
     int RowCount,
     bool Success,
-    string Outcome)
+    string Outcome,
+    IReadOnlyList<TaskTypePauseDto> TaskTypePauses)
 {
-    public static PollHealthDto From(PollHealth h) => new(
+    public static PollHealthDto From(PollHealth h, IReadOnlyList<TaskTypePauseState> pauses) => new(
         h.StartedAt,
         h.EndedAt,
         h.DurationMs,
         h.RowCount,
         h.Success,
-        h.Outcome);
+        h.Outcome,
+        pauses.Select(TaskTypePauseDto.From).ToList());
 }
 
 public partial class Program;

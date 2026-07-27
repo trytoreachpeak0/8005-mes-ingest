@@ -16,5 +16,11 @@ public sealed class MesIngestHostOptions
     /// <summary>Consecutive successful absences before a VISIBLE demand becomes GONE.</summary>
     public int DisappearThreshold { get; set; } = 2;
 
+    /// <summary>
+    /// Enter PAUSED_ZERO_DROP when prior healthy non-zero count for a TASK_TYPE
+    /// is at/above this threshold and the next successful count is 0.
+    /// </summary>
+    public int ZeroDropEnterThreshold { get; set; } = 10;
+
     public string Urls { get; set; } = "http://127.0.0.1:5088";
 }

@@ -2,6 +2,8 @@ namespace MesIngest.Core;
 
 public sealed class TransportDemandReconciler
 {
+    public const int DefaultZeroDropClearStreak = 2;
+
     private readonly IDemandIdAllocator _demandIds;
 
     public TransportDemandReconciler(IDemandIdAllocator demandIds)
@@ -14,7 +16,9 @@ public sealed class TransportDemandReconciler
         MesSnapshotOutcome snapshot,
         DateTimeOffset now,
         DateTimeOffset goLiveBaseline,
-        int disappearThreshold = 2)
+        int disappearThreshold = 2,
+        int zeroDropEnterThreshold = 10,
+        int zeroDropClearStreak = DefaultZeroDropClearStreak)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
@@ -33,6 +37,21 @@ public sealed class TransportDemandReconciler
             .Select(kv => kv.Key)
             .ToHashSet();
 
+        var countsByType = snapshot.Rows
+            .GroupBy(r => r.TaskType)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var nextPauses = AdvancePauseStates(
+            prior.TaskTypePauses,
+            countsByType,
+            zeroDropEnterThreshold,
+            zeroDropClearStreak,
+            out var enteredPauseTypes);
+
+        var pausedTypes = nextPauses
+            .Where(p => p.PausedZeroDrop)
+            .Select(p => p.TaskType)
+            .ToHashSet(StringComparer.Ordinal);
+
         var next = new List<TransportDemand>();
         var visibleKeys = new HashSet<(string TaskType, string Sublot)>();
         var goneKeys = prior.Demands
@@ -41,6 +60,14 @@ public sealed class TransportDemandReconciler
             .ToHashSet();
         var alerts = new List<IngestAlert>();
         var alertedDuplicateKeys = new HashSet<(string TaskType, string Sublot)>();
+
+        foreach (var taskType in enteredPauseTypes.OrderBy(t => t, StringComparer.Ordinal))
+        {
+            alerts.Add(new IngestAlert(
+                Code: "PAUSED_ZERO_DROP",
+                TaskType: taskType,
+                Message: "TASK_TYPE count dropped to 0 after healthy non-zero baseline; disappear/GONE suspended for this type."));
+        }
 
         foreach (var demand in prior.Demands)
         {
@@ -78,6 +105,10 @@ public sealed class TransportDemandReconciler
                     MesLastSeenAt = now,
                     DisappearCount = 0,
                 });
+            }
+            else if (pausedTypes.Contains(demand.TaskType))
+            {
+                next.Add(demand);
             }
             else
             {
@@ -140,7 +171,70 @@ public sealed class TransportDemandReconciler
             }
         }
 
-        return new ReconcileResult(new ProjectionState(next), alerts);
+        return new ReconcileResult(new ProjectionState(next, nextPauses), alerts);
+    }
+
+    private static List<TaskTypePauseState> AdvancePauseStates(
+        IReadOnlyList<TaskTypePauseState> priorPauses,
+        IReadOnlyDictionary<string, int> countsByType,
+        int zeroDropEnterThreshold,
+        int zeroDropClearStreak,
+        out List<string> enteredPauseTypes)
+    {
+        enteredPauseTypes = new List<string>();
+        var byType = priorPauses.ToDictionary(p => p.TaskType, StringComparer.Ordinal);
+        var relevantTypes = byType.Keys
+            .Concat(countsByType.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(t => t, StringComparer.Ordinal);
+
+        var next = new List<TaskTypePauseState>();
+        foreach (var taskType in relevantTypes)
+        {
+            byType.TryGetValue(taskType, out var prior);
+            var lastHealthy = prior?.LastHealthyNonZeroCount ?? 0;
+            var paused = prior?.PausedZeroDrop ?? false;
+            var recovery = prior?.RecoveryStreak ?? 0;
+            var count = countsByType.GetValueOrDefault(taskType, 0);
+
+            if (count > 0)
+            {
+                lastHealthy = count;
+                if (paused)
+                {
+                    recovery += 1;
+                    if (recovery >= zeroDropClearStreak)
+                    {
+                        paused = false;
+                        recovery = 0;
+                    }
+                }
+                else
+                {
+                    recovery = 0;
+                }
+            }
+            else
+            {
+                recovery = 0;
+                if (!paused && lastHealthy >= zeroDropEnterThreshold)
+                {
+                    paused = true;
+                    enteredPauseTypes.Add(taskType);
+                }
+            }
+
+            if (paused || lastHealthy > 0 || recovery > 0 || prior is not null)
+            {
+                next.Add(new TaskTypePauseState(
+                    TaskType: taskType,
+                    PausedZeroDrop: paused,
+                    LastHealthyNonZeroCount: lastHealthy,
+                    RecoveryStreak: recovery));
+            }
+        }
+
+        return next;
     }
 
     private static void TryAddDuplicateAlert(
