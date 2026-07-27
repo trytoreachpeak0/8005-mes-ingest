@@ -178,6 +178,272 @@ public class TransportDemandReconcilerTests
         Assert.Equal("PKG-ORIGINAL", demand.Package);
     }
 
+    [Fact]
+    public void Still_visible_key_in_successful_snapshot_refreshes_last_seen_and_resets_disappear_count()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_WIRE_STAGING",
+                Sublot = "Q26079458-1",
+                Area = "N09-01",
+                Eqp = "EQP-ORIGINAL",
+                Step = "焊线",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG-ORIGINAL",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 1,
+            },
+        ]);
+        var stillThere = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q26079458-1",
+            "N09-01",
+            "EQP-ORIGINAL",
+            "焊线",
+            Baseline.AddHours(1),
+            "PKG-ORIGINAL");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var later = Now.AddMinutes(5);
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([stillThere]),
+            later,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal("d1", demand.DemandId);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal(later, demand.MesLastSeenAt);
+        Assert.Equal(0, demand.DisappearCount);
+    }
+
+    [Fact]
+    public void Still_visible_key_present_below_baseline_dates_still_refreshes_presence()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_WIRE_STAGING",
+                Sublot = "Q26079458-1",
+                Area = "N09-01",
+                Eqp = "EQP-ORIGINAL",
+                Step = "焊线",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG-ORIGINAL",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 1,
+            },
+        ]);
+        // Presence uses reconcile key in the successful snapshot; baseline only gates new creates.
+        var stillThereWithOldDates = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q26079458-1",
+            "N09-01",
+            "EQP-ORIGINAL",
+            "焊线",
+            Baseline.AddDays(-10),
+            "PKG-ORIGINAL");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var later = Now.AddMinutes(5);
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([stillThereWithOldDates]),
+            later,
+            Baseline);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal(DemandStatus.Visible, demand.Status);
+        Assert.Equal(later, demand.MesLastSeenAt);
+        Assert.Equal(0, demand.DisappearCount);
+    }
+
+    [Fact]
+    public void Failed_or_incomplete_snapshot_does_not_increment_disappear_or_mark_gone()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q100-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 1,
+            },
+        ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+
+        var afterFailure = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Failure(),
+            Now.AddMinutes(1),
+            Baseline);
+        var failed = Assert.Single(afterFailure.State.Demands);
+        Assert.Equal(DemandStatus.Visible, failed.Status);
+        Assert.Equal(1, failed.DisappearCount);
+        Assert.Equal(Now, failed.MesLastSeenAt);
+
+        var afterIncomplete = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Incomplete(),
+            Now.AddMinutes(2),
+            Baseline);
+        var incomplete = Assert.Single(afterIncomplete.State.Demands);
+        Assert.Equal(DemandStatus.Visible, incomplete.Status);
+        Assert.Equal(1, incomplete.DisappearCount);
+        Assert.Equal(Now, incomplete.MesLastSeenAt);
+    }
+
+    [Fact]
+    public void Successful_absence_increments_disappear_count_and_marks_gone_at_threshold()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "WIRE_TO_GATE",
+                Sublot = "Q200-1",
+                Area = "N02-02",
+                Eqp = "EQ2",
+                Step = "关卡",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG2",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 0,
+            },
+        ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+
+        var afterFirstMiss = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 2);
+        var once = Assert.Single(afterFirstMiss.State.Demands);
+        Assert.Equal(DemandStatus.Visible, once.Status);
+        Assert.Equal(1, once.DisappearCount);
+        Assert.Equal(Now, once.MesLastSeenAt);
+
+        var afterSecondMiss = reconciler.Reconcile(
+            afterFirstMiss.State,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(2),
+            Baseline,
+            disappearThreshold: 2);
+        var gone = Assert.Single(afterSecondMiss.State.Demands);
+        Assert.Equal(DemandStatus.Gone, gone.Status);
+        Assert.Equal(2, gone.DisappearCount);
+        Assert.Equal("d1", gone.DemandId);
+    }
+
+    [Fact]
+    public void Gone_transition_uses_configurable_disappear_threshold()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "WIRE_TO_OPTICAL",
+                Sublot = "Q300-1",
+                Area = "N04-01",
+                Eqp = "EQ3",
+                Step = "外观",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG3",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = Now,
+                DisappearCount = 0,
+            },
+        ]);
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([]),
+            Now.AddMinutes(1),
+            Baseline,
+            disappearThreshold: 1);
+
+        var demand = Assert.Single(result.State.Demands);
+        Assert.Equal(DemandStatus.Gone, demand.Status);
+        Assert.Equal(1, demand.DisappearCount);
+    }
+
+    [Fact]
+    public void Reappear_after_gone_allocates_new_demand_id_and_raises_alert_without_reviving_old()
+    {
+        var prior = new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "old-gone",
+                TaskType = "STAGING_TO_WIRE",
+                Sublot = "Q400-1",
+                Area = "N05-01",
+                Eqp = "EQ4",
+                Step = "焊线",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG-OLD",
+                Status = DemandStatus.Gone,
+                MesLastSeenAt = Now,
+                DisappearCount = 2,
+            },
+        ]);
+        var reappeared = Row(
+            "STAGING_TO_WIRE",
+            "Q400-1",
+            "N05-01",
+            "EQ4-NEW",
+            "焊线",
+            Baseline.AddHours(3),
+            "PKG-NEW");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("new-id"));
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([reappeared]),
+            Now.AddMinutes(10),
+            Baseline);
+
+        Assert.Equal(2, result.State.Demands.Count);
+        var old = Assert.Single(result.State.Demands, d => d.DemandId == "old-gone");
+        Assert.Equal(DemandStatus.Gone, old.Status);
+        Assert.Equal("PKG-OLD", old.Package);
+
+        var created = Assert.Single(result.State.Demands, d => d.DemandId == "new-id");
+        Assert.Equal(DemandStatus.Visible, created.Status);
+        Assert.Equal("PKG-NEW", created.Package);
+        Assert.Equal(Now.AddMinutes(10), created.MesLastSeenAt);
+        Assert.Equal(0, created.DisappearCount);
+
+        var alert = Assert.Single(result.Alerts);
+        Assert.Equal("REAPPEAR_AFTER_GONE", alert.Code);
+        Assert.Equal("STAGING_TO_WIRE", alert.TaskType);
+        Assert.Equal("Q400-1", alert.Sublot);
+        Assert.Equal("new-id", alert.DemandId);
+    }
+
     private static MesSnapshotRow Row(
         string taskType,
         string sublot,

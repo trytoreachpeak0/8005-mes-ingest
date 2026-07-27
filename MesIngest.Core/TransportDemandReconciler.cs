@@ -13,18 +13,56 @@ public sealed class TransportDemandReconciler
         ProjectionState prior,
         MesSnapshotOutcome snapshot,
         DateTimeOffset now,
-        DateTimeOffset goLiveBaseline)
+        DateTimeOffset goLiveBaseline,
+        int disappearThreshold = 2)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
             return new ReconcileResult(prior);
         }
 
-        var created = new List<TransportDemand>(prior.Demands);
-        var visibleKeys = prior.Demands
-            .Where(d => d.Status == DemandStatus.Visible)
+        var presentKeys = snapshot.Rows
+            .Select(r => (r.TaskType, r.Sublot))
+            .ToHashSet();
+
+        var next = new List<TransportDemand>();
+        var visibleKeys = new HashSet<(string TaskType, string Sublot)>();
+        var goneKeys = prior.Demands
+            .Where(d => d.Status == DemandStatus.Gone)
             .Select(d => (d.TaskType, d.Sublot))
             .ToHashSet();
+        var alerts = new List<IngestAlert>();
+
+        foreach (var demand in prior.Demands)
+        {
+            if (demand.Status != DemandStatus.Visible)
+            {
+                next.Add(demand);
+                continue;
+            }
+
+            var key = (demand.TaskType, demand.Sublot);
+            visibleKeys.Add(key);
+            if (presentKeys.Contains(key))
+            {
+                next.Add(demand with
+                {
+                    MesLastSeenAt = now,
+                    DisappearCount = 0,
+                });
+            }
+            else
+            {
+                var disappearCount = demand.DisappearCount + 1;
+                next.Add(demand with
+                {
+                    DisappearCount = disappearCount,
+                    Status = disappearCount >= disappearThreshold
+                        ? DemandStatus.Gone
+                        : DemandStatus.Visible,
+                });
+            }
+        }
 
         foreach (var row in snapshot.Rows)
         {
@@ -34,14 +72,15 @@ public sealed class TransportDemandReconciler
             }
 
             var key = (row.TaskType, row.Sublot);
-            if (visibleKeys.Contains(key))
+            if (!visibleKeys.Add(key))
             {
                 continue;
             }
 
-            created.Add(new TransportDemand
+            var demandId = _demandIds.Next();
+            next.Add(new TransportDemand
             {
-                DemandId = _demandIds.Next(),
+                DemandId = demandId,
                 TaskType = row.TaskType,
                 Sublot = row.Sublot,
                 Area = row.Area,
@@ -53,9 +92,18 @@ public sealed class TransportDemandReconciler
                 MesLastSeenAt = now,
                 DisappearCount = 0,
             });
-            visibleKeys.Add(key);
+
+            if (goneKeys.Contains(key))
+            {
+                alerts.Add(new IngestAlert(
+                    Code: "REAPPEAR_AFTER_GONE",
+                    TaskType: row.TaskType,
+                    Sublot: row.Sublot,
+                    DemandId: demandId,
+                    Message: "Reconcile key reappeared after GONE; allocated a new DemandId."));
+            }
         }
 
-        return new ReconcileResult(new ProjectionState(created));
+        return new ReconcileResult(new ProjectionState(next), alerts);
     }
 }

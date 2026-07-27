@@ -6,11 +6,14 @@ public interface ITransportDemandStore
     void ReplaceState(ProjectionState state);
     TransportDemand? GetById(string demandId);
     IReadOnlyList<TransportDemand> List(DemandStatus? status = null);
+    void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
+    IReadOnlyList<IngestAlert> ListAlerts();
 }
 
 public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 {
     private ProjectionState _state = ProjectionState.Empty;
+    private readonly List<IngestAlert> _alerts = new();
 
     public ProjectionState GetState() => _state;
 
@@ -23,6 +26,10 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         status is null
             ? _state.Demands
             : _state.Demands.Where(d => d.Status == status).ToList();
+
+    public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _alerts.AddRange(alerts);
+
+    public IReadOnlyList<IngestAlert> ListAlerts() => _alerts.ToList();
 }
 
 public sealed class IngestRoundRunner
@@ -31,6 +38,7 @@ public sealed class IngestRoundRunner
     private readonly TransportDemandReconciler _reconciler;
     private readonly ITransportDemandStore _store;
     private readonly DateTimeOffset _goLiveBaseline;
+    private readonly int _disappearThreshold;
     private readonly Func<DateTimeOffset> _clock;
 
     public IngestRoundRunner(
@@ -38,20 +46,41 @@ public sealed class IngestRoundRunner
         TransportDemandReconciler reconciler,
         ITransportDemandStore store,
         DateTimeOffset goLiveBaseline,
+        int disappearThreshold = 2,
         Func<DateTimeOffset>? clock = null)
     {
         _source = source;
         _reconciler = reconciler;
         _store = store;
         _goLiveBaseline = goLiveBaseline;
+        _disappearThreshold = disappearThreshold;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
     public async Task<ProjectionState> RunOnceAsync(CancellationToken cancellationToken = default)
     {
         var snapshot = await _source.ReadAsync(cancellationToken);
-        var result = _reconciler.Reconcile(_store.GetState(), snapshot, _clock(), _goLiveBaseline);
+        var result = _reconciler.Reconcile(
+            _store.GetState(),
+            snapshot,
+            _clock(),
+            _goLiveBaseline,
+            _disappearThreshold);
         _store.ReplaceState(result.State);
+        _store.AppendAlerts(result.Alerts);
         return result.State;
     }
+}
+
+public sealed class FixedMesSnapshotSource : IMesSnapshotSource
+{
+    private readonly MesSnapshotOutcome _outcome;
+
+    public FixedMesSnapshotSource(MesSnapshotOutcome outcome)
+    {
+        _outcome = outcome;
+    }
+
+    public Task<MesSnapshotOutcome> ReadAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(_outcome);
 }

@@ -13,5 +13,8 @@ public sealed class MesIngestHostOptions
 
     public bool RunOneShotOnStartup { get; set; } = true;
 
+    /// <summary>Consecutive successful absences before a VISIBLE demand becomes GONE.</summary>
+    public int DisappearThreshold { get; set; } = 2;
+
     public string Urls { get; set; } = "http://127.0.0.1:5088";
 }

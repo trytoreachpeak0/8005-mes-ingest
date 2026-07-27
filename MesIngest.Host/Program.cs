@@ -32,7 +32,8 @@ builder.Services.AddSingleton(sp =>
         sp.GetRequiredService<IMesSnapshotSource>(),
         sp.GetRequiredService<TransportDemandReconciler>(),
         sp.GetRequiredService<ITransportDemandStore>(),
-        options.GoLiveBaseline);
+        options.GoLiveBaseline,
+        disappearThreshold: options.DisappearThreshold);
 });
 
 builder.Services.ConfigureHttpJsonOptions(options =>

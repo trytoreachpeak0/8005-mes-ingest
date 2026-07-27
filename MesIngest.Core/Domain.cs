@@ -43,7 +43,7 @@ public sealed class MesSnapshotOutcome
         new(SnapshotOutcomeKind.Incomplete, Array.Empty<MesSnapshotRow>());
 }
 
-public sealed class TransportDemand
+public sealed record TransportDemand
 {
     public required string DemandId { get; init; }
     public required string TaskType { get; init; }
@@ -72,13 +72,22 @@ public sealed class ProjectionState
 
 public sealed class ReconcileResult
 {
-    public ReconcileResult(ProjectionState state)
+    public ReconcileResult(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null)
     {
         State = state;
+        Alerts = alerts ?? Array.Empty<IngestAlert>();
     }
 
     public ProjectionState State { get; }
+    public IReadOnlyList<IngestAlert> Alerts { get; }
 }
+
+public sealed record IngestAlert(
+    string Code,
+    string? TaskType = null,
+    string? Sublot = null,
+    string? DemandId = null,
+    string? Message = null);
 
 public interface IDemandIdAllocator
 {
