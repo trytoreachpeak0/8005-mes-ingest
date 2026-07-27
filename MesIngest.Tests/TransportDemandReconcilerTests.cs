@@ -137,6 +137,47 @@ public class TransportDemandReconcilerTests
         Assert.Equal("UNKNOWN-PACKAGE-XYZ", Assert.Single(result.State.Demands).Package);
     }
 
+    [Fact]
+    public void Second_successful_snapshot_does_not_overwrite_frozen_fields_for_still_visible_key()
+    {
+        var first = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q26079458-1",
+            "N09-01",
+            "EQP-ORIGINAL",
+            "焊线",
+            Baseline.AddHours(1),
+            "PKG-ORIGINAL");
+        var drifted = Row(
+            "DIE_TO_WIRE_STAGING",
+            "Q26079458-1",
+            "N99-99",
+            "EQP-DRIFTED",
+            "焊线2",
+            Baseline.AddHours(2),
+            "PKG-DRIFTED");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("d1", "d2"));
+        var afterFirst = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success([first]),
+            Now,
+            Baseline);
+        var afterSecond = reconciler.Reconcile(
+            afterFirst.State,
+            MesSnapshotOutcome.Success([drifted]),
+            Now.AddMinutes(1),
+            Baseline);
+
+        var demand = Assert.Single(afterSecond.State.Demands);
+        Assert.Equal("d1", demand.DemandId);
+        Assert.Equal("EQP-ORIGINAL", demand.Eqp);
+        Assert.Equal("N09-01", demand.Area);
+        Assert.Equal("焊线", demand.Step);
+        Assert.Equal(first.Dates, demand.Dates);
+        Assert.Equal("PKG-ORIGINAL", demand.Package);
+    }
+
     private static MesSnapshotRow Row(
         string taskType,
         string sublot,
