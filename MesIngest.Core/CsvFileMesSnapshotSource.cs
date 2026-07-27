@@ -52,14 +52,33 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
             }
 
             var cols = ParseCsvLine(line);
-            rows.Add(new MesSnapshotRow(
-                TaskType: cols[index["TASK_TYPE"]],
-                Sublot: cols[index["SUBLOT"]],
-                Area: EmptyToNull(cols[index["AREA"]]),
-                Eqp: EmptyToNull(cols[index["EQP"]]),
-                Step: EmptyToNull(cols[index["STEP"]]),
-                Dates: ParseDates(cols[index["DATES"]]),
-                Package: EmptyToNull(cols[index["PACKAGE"]])));
+            try
+            {
+                var taskType = cols[index["TASK_TYPE"]];
+                var sublot = cols[index["SUBLOT"]];
+                if (string.IsNullOrWhiteSpace(taskType) || string.IsNullOrWhiteSpace(sublot))
+                {
+                    return MesSnapshotOutcome.Incomplete();
+                }
+
+                if (!TryParseDates(cols[index["DATES"]], out var dates))
+                {
+                    return MesSnapshotOutcome.Incomplete();
+                }
+
+                rows.Add(new MesSnapshotRow(
+                    TaskType: taskType,
+                    Sublot: sublot,
+                    Area: EmptyToNull(cols[index["AREA"]]),
+                    Eqp: EmptyToNull(cols[index["EQP"]]),
+                    Step: EmptyToNull(cols[index["STEP"]]),
+                    Dates: dates,
+                    Package: EmptyToNull(cols[index["PACKAGE"]])));
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return MesSnapshotOutcome.Incomplete();
+            }
         }
 
         return MesSnapshotOutcome.Success(rows);
@@ -68,7 +87,7 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
     private static string? EmptyToNull(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 
-    private static DateTimeOffset ParseDates(string raw)
+    private static bool TryParseDates(string raw, out DateTimeOffset dates)
     {
         if (HasExplicitOffset(raw))
         {
@@ -76,9 +95,9 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
                     raw,
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.RoundtripKind | DateTimeStyles.AllowWhiteSpaces,
-                    out var dto))
+                    out dates))
             {
-                return dto;
+                return true;
             }
         }
         else if (DateTime.TryParse(
@@ -88,10 +107,12 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
                      out var clock))
         {
             var unspecified = DateTime.SpecifyKind(clock, DateTimeKind.Unspecified);
-            return new DateTimeOffset(unspecified, BeijingOffset);
+            dates = new DateTimeOffset(unspecified, BeijingOffset);
+            return true;
         }
 
-        throw new InvalidDataException($"Cannot parse DATES value '{raw}'.");
+        dates = default;
+        return false;
     }
 
     private static bool HasExplicitOffset(string raw) =>

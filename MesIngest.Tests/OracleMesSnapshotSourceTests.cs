@@ -81,6 +81,68 @@ public class OracleMesSnapshotSourceTests
     }
 
     [Fact]
+    public async Task Unparseable_dates_returns_incomplete()
+    {
+        var sqlPath = await WriteTempSqlAsync("SELECT 1 FROM DUAL");
+        var executor = new FakeOracleQueryExecutor(
+            new OracleQueryResult(
+                ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"],
+                [["DIE_TO_OVEN", "Q1", "N01-01", "EQ1", "烘箱", "not-a-date", "PKG"]]));
+
+        try
+        {
+            var source = new OracleMesSnapshotSource(
+                new OracleSnapshotOptions { QuerySqlPath = sqlPath },
+                executor);
+
+            var outcome = await source.ReadAsync();
+
+            Assert.Equal(SnapshotOutcomeKind.Incomplete, outcome.Kind);
+            Assert.Empty(outcome.Rows);
+        }
+        finally
+        {
+            File.Delete(sqlPath);
+        }
+    }
+
+    [Fact]
+    public async Task Empty_task_type_returns_incomplete()
+    {
+        var sqlPath = await WriteTempSqlAsync("SELECT 1 FROM DUAL");
+        var executor = new FakeOracleQueryExecutor(
+            new OracleQueryResult(
+                ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"],
+                [
+                    [
+                        " ",
+                        "Q1",
+                        "N01-01",
+                        "EQ1",
+                        "烘箱",
+                        new DateTime(2026, 8, 1, 10, 0, 0, DateTimeKind.Unspecified),
+                        "PKG",
+                    ],
+                ]));
+
+        try
+        {
+            var source = new OracleMesSnapshotSource(
+                new OracleSnapshotOptions { QuerySqlPath = sqlPath },
+                executor);
+
+            var outcome = await source.ReadAsync();
+
+            Assert.Equal(SnapshotOutcomeKind.Incomplete, outcome.Kind);
+            Assert.Empty(outcome.Rows);
+        }
+        finally
+        {
+            File.Delete(sqlPath);
+        }
+    }
+
+    [Fact]
     public async Task Executor_exception_propagates_for_runner_failure_mapping()
     {
         var sqlPath = await WriteTempSqlAsync("SELECT 1 FROM DUAL");

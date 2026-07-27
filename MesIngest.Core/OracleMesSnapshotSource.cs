@@ -112,7 +112,18 @@ public sealed class OracleMesSnapshotSource : IMesSnapshotSource
         var rows = new List<MesSnapshotRow>(result.Rows.Count);
         foreach (var raw in result.Rows)
         {
-            rows.Add(MapRow(raw, index));
+            try
+            {
+                rows.Add(MapRow(raw, index));
+            }
+            catch (InvalidDataException)
+            {
+                return MesSnapshotOutcome.Incomplete();
+            }
+            catch (IndexOutOfRangeException)
+            {
+                return MesSnapshotOutcome.Incomplete();
+            }
         }
 
         return MesSnapshotOutcome.Success(rows);
