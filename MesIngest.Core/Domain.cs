@@ -101,6 +101,40 @@ public sealed record IngestAlert(
     string? DemandId = null,
     string? Message = null);
 
+/// <summary>
+/// Process-start recovery semantics (business model §6.4).
+/// BarrierRound: first successful full poll after start — create/refresh only.
+/// PostBarrierRound: second successful poll — adopt barrier counts then normal rules.
+/// </summary>
+public sealed class RestartRecovery
+{
+    public static RestartRecovery Normal { get; } = new(RestartRecoveryPhase.Normal, null);
+
+    private RestartRecovery(
+        RestartRecoveryPhase phase,
+        IReadOnlyDictionary<string, int>? barrierRoundCountsByType)
+    {
+        Phase = phase;
+        BarrierRoundCountsByType = barrierRoundCountsByType;
+    }
+
+    public RestartRecoveryPhase Phase { get; }
+    public IReadOnlyDictionary<string, int>? BarrierRoundCountsByType { get; }
+
+    public static RestartRecovery BarrierRound() =>
+        new(RestartRecoveryPhase.BarrierRound, null);
+
+    public static RestartRecovery PostBarrierRound(IReadOnlyDictionary<string, int> barrierRoundCountsByType) =>
+        new(RestartRecoveryPhase.PostBarrierRound, barrierRoundCountsByType);
+}
+
+public enum RestartRecoveryPhase
+{
+    Normal,
+    BarrierRound,
+    PostBarrierRound,
+}
+
 public interface IDemandIdAllocator
 {
     string Next();

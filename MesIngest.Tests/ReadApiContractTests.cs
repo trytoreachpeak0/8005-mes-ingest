@@ -564,7 +564,10 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                 });
             });
 
-            await factory.Services.GetRequiredService<IngestRoundRunner>().RunOnceAsync();
+            var runner = factory.Services.GetRequiredService<IngestRoundRunner>();
+            // First successful post-start round is the restart barrier; pause enters on the second zero.
+            await runner.RunOnceAsync();
+            await runner.RunOnceAsync();
 
             var client = factory.CreateClient();
             var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");

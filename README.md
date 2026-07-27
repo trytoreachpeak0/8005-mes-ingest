@@ -43,6 +43,10 @@ $env:MesIngest__SqlServerConnectionString = "Server=(localdb)\MSSQLLocalDB;Datab
 
 SQL Server round-trip smokes run when LocalDB is available, or when `MES_INGEST_SQLSERVER` is set. Credentials never belong in the repo.
 
+## Ticket 06 — restart recovery barrier
+
+After process start, the first *successful* full poll may create/refresh VISIBLE demands but does not increment disappear counts or mark GONE, and does not enter `PAUSED_ZERO_DROP` on a zero count (persisted last-healthy is kept when count is 0). From the second successful poll, normal disappear/GONE and zero-drop rules resume; barrier-round per-type counts are adopted as the recovery baseline for that second poll. Failed/incomplete rounds do not consume the barrier.
+
 ## Tests
 
 ```powershell

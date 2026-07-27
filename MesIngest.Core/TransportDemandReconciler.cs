@@ -18,12 +18,16 @@ public sealed class TransportDemandReconciler
         DateTimeOffset goLiveBaseline,
         int disappearThreshold = 2,
         int zeroDropEnterThreshold = 10,
-        int zeroDropClearStreak = DefaultZeroDropClearStreak)
+        int zeroDropClearStreak = DefaultZeroDropClearStreak,
+        RestartRecovery? restartRecovery = null)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
             return new ReconcileResult(prior);
         }
+
+        restartRecovery ??= RestartRecovery.Normal;
+        var isBarrierRound = restartRecovery.Phase == RestartRecoveryPhase.BarrierRound;
 
         var rowsByKey = snapshot.Rows
             .GroupBy(r => (r.TaskType, r.Sublot))
@@ -40,12 +44,16 @@ public sealed class TransportDemandReconciler
         var countsByType = snapshot.Rows
             .GroupBy(r => r.TaskType)
             .ToDictionary(g => g.Key, g => g.Count());
+        var pausePrior = restartRecovery.Phase == RestartRecoveryPhase.PostBarrierRound
+            ? AdoptBarrierRoundBaseline(prior.TaskTypePauses, restartRecovery.BarrierRoundCountsByType)
+            : prior.TaskTypePauses;
         var nextPauses = AdvancePauseStates(
-            prior.TaskTypePauses,
+            pausePrior,
             countsByType,
             zeroDropEnterThreshold,
             zeroDropClearStreak,
-            out var enteredPauseTypes);
+            out var enteredPauseTypes,
+            isBarrierRound);
 
         var pausedTypes = nextPauses
             .Where(p => p.PausedZeroDrop)
@@ -106,7 +114,7 @@ public sealed class TransportDemandReconciler
                     DisappearCount = 0,
                 });
             }
-            else if (pausedTypes.Contains(demand.TaskType))
+            else if (isBarrierRound || pausedTypes.Contains(demand.TaskType))
             {
                 next.Add(demand);
             }
@@ -174,12 +182,49 @@ public sealed class TransportDemandReconciler
         return new ReconcileResult(new ProjectionState(next, nextPauses), alerts);
     }
 
+    private static IReadOnlyList<TaskTypePauseState> AdoptBarrierRoundBaseline(
+        IReadOnlyList<TaskTypePauseState> priorPauses,
+        IReadOnlyDictionary<string, int>? barrierRoundCountsByType)
+    {
+        if (barrierRoundCountsByType is null || barrierRoundCountsByType.Count == 0)
+        {
+            return priorPauses;
+        }
+
+        var byType = priorPauses.ToDictionary(p => p.TaskType, StringComparer.Ordinal);
+        foreach (var (taskType, count) in barrierRoundCountsByType)
+        {
+            if (count <= 0)
+            {
+                continue;
+            }
+
+            if (byType.TryGetValue(taskType, out var prior))
+            {
+                byType[taskType] = prior with { LastHealthyNonZeroCount = count };
+            }
+            else
+            {
+                byType[taskType] = new TaskTypePauseState(
+                    TaskType: taskType,
+                    PausedZeroDrop: false,
+                    LastHealthyNonZeroCount: count,
+                    RecoveryStreak: 0);
+            }
+        }
+
+        return byType.Values
+            .OrderBy(p => p.TaskType, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static List<TaskTypePauseState> AdvancePauseStates(
         IReadOnlyList<TaskTypePauseState> priorPauses,
         IReadOnlyDictionary<string, int> countsByType,
         int zeroDropEnterThreshold,
         int zeroDropClearStreak,
-        out List<string> enteredPauseTypes)
+        out List<string> enteredPauseTypes,
+        bool isBarrierRound = false)
     {
         enteredPauseTypes = new List<string>();
         var byType = priorPauses.ToDictionary(p => p.TaskType, StringComparer.Ordinal);
@@ -199,7 +244,11 @@ public sealed class TransportDemandReconciler
 
             if (count > 0)
             {
-                lastHealthy = count;
+                if (!isBarrierRound || paused)
+                {
+                    lastHealthy = count;
+                }
+
                 if (paused)
                 {
                     recovery += 1;
@@ -217,7 +266,7 @@ public sealed class TransportDemandReconciler
             else
             {
                 recovery = 0;
-                if (!paused && lastHealthy >= zeroDropEnterThreshold)
+                if (!isBarrierRound && !paused && lastHealthy >= zeroDropEnterThreshold)
                 {
                     paused = true;
                     enteredPauseTypes.Add(taskType);

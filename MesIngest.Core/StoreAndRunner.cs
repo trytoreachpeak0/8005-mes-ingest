@@ -56,6 +56,8 @@ public sealed class IngestRoundRunner
     private readonly int _disappearThreshold;
     private readonly int _zeroDropEnterThreshold;
     private readonly Func<DateTimeOffset> _clock;
+    private RestartRecoveryPhase _nextPhase = RestartRecoveryPhase.BarrierRound;
+    private IReadOnlyDictionary<string, int>? _barrierRoundCountsByType;
 
     public IngestRoundRunner(
         IMesSnapshotSource source,
@@ -80,13 +82,15 @@ public sealed class IngestRoundRunner
         var startedAt = _clock();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var snapshot = await _source.ReadAsync(cancellationToken);
+        var restartRecovery = ResolveRestartRecovery();
         var result = _reconciler.Reconcile(
             _store.GetState(),
             snapshot,
             _clock(),
             _goLiveBaseline,
             _disappearThreshold,
-            _zeroDropEnterThreshold);
+            _zeroDropEnterThreshold,
+            restartRecovery: restartRecovery);
         sw.Stop();
         var endedAt = _clock();
 
@@ -105,7 +109,40 @@ public sealed class IngestRoundRunner
                 SnapshotOutcomeKind.Incomplete => "INCOMPLETE",
                 _ => "UNKNOWN",
             }));
+
+        if (snapshot.Kind == SnapshotOutcomeKind.Success)
+        {
+            RecordSuccessfulRound(snapshot);
+        }
+
         return result.State;
+    }
+
+    private RestartRecovery ResolveRestartRecovery() =>
+        _nextPhase switch
+        {
+            RestartRecoveryPhase.BarrierRound => RestartRecovery.BarrierRound(),
+            RestartRecoveryPhase.PostBarrierRound => RestartRecovery.PostBarrierRound(
+                _barrierRoundCountsByType ?? new Dictionary<string, int>(StringComparer.Ordinal)),
+            _ => RestartRecovery.Normal,
+        };
+
+    private void RecordSuccessfulRound(MesSnapshotOutcome snapshot)
+    {
+        if (_nextPhase == RestartRecoveryPhase.BarrierRound)
+        {
+            _barrierRoundCountsByType = snapshot.Rows
+                .GroupBy(r => r.TaskType)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            _nextPhase = RestartRecoveryPhase.PostBarrierRound;
+            return;
+        }
+
+        if (_nextPhase == RestartRecoveryPhase.PostBarrierRound)
+        {
+            _barrierRoundCountsByType = null;
+            _nextPhase = RestartRecoveryPhase.Normal;
+        }
     }
 }
 
