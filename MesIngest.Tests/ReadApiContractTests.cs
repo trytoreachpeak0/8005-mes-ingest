@@ -377,6 +377,156 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Demand_dto_embeds_relevant_alerts_by_demand_id_or_reconcile_key()
+    {
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_WIRE_STAGING",
+                Sublot = "Q1",
+                Area = "N09-01",
+                Eqp = "EQ1",
+                Step = "焊线",
+                Dates = now,
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 0,
+            },
+            new TransportDemand
+            {
+                DemandId = "d2",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q2",
+                Area = "N01-01",
+                Eqp = "EQ2",
+                Step = "烘箱",
+                Dates = now,
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 0,
+            },
+            new TransportDemand
+            {
+                DemandId = "d3",
+                TaskType = "WIRE_TO_NITROGEN",
+                Sublot = "Q3",
+                Area = "N03-03",
+                Eqp = "EQ3",
+                Step = "焊线",
+                Dates = now,
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 0,
+            },
+            new TransportDemand
+            {
+                DemandId = "d1-gone",
+                TaskType = "DIE_TO_WIRE_STAGING",
+                Sublot = "Q1",
+                Area = "N09-01",
+                Eqp = "EQ1",
+                Step = "焊线",
+                Dates = now.AddHours(-1),
+                Package = "PKG",
+                Status = DemandStatus.Gone,
+                MesLastSeenAt = now.AddHours(-1),
+                DisappearCount = 2,
+                GoneAt = now.AddMinutes(-30),
+            },
+        ]));
+        store.AppendAlerts(
+        [
+            new IngestAlert(
+                Code: "FIELD_DRIFT",
+                TaskType: "DIE_TO_WIRE_STAGING",
+                Sublot: "Q1",
+                DemandId: "d1",
+                Message: "drift"),
+            new IngestAlert(
+                Code: "REAPPEAR_AFTER_GONE",
+                TaskType: "DIE_TO_WIRE_STAGING",
+                Sublot: "Q1",
+                DemandId: "d1",
+                Message: "reappear"),
+            new IngestAlert(
+                Code: "DUPLICATE_RECONCILE_KEY",
+                TaskType: "DIE_TO_OVEN",
+                Sublot: "Q2",
+                Message: "dup"),
+            new IngestAlert(
+                Code: "POLL_FAILURE",
+                Message: "global"),
+            new IngestAlert(
+                Code: "PAUSED_ZERO_DROP",
+                TaskType: "DIE_TO_OVEN",
+                Message: "type-only"),
+        ]);
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                });
+            });
+
+            var client = factory.CreateClient();
+            var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
+            Assert.Equal(4, list.GetArrayLength());
+
+            var d1 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d1");
+            Assert.True(d1.TryGetProperty("alerts", out var d1Alerts));
+            Assert.Equal(JsonValueKind.Array, d1Alerts.ValueKind);
+            Assert.Equal(2, d1Alerts.GetArrayLength());
+            var d1Codes = d1Alerts.EnumerateArray().Select(a => a.GetProperty("code").GetString()).ToHashSet();
+            Assert.Contains("FIELD_DRIFT", d1Codes);
+            Assert.Contains("REAPPEAR_AFTER_GONE", d1Codes);
+
+            var d1Gone = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d1-gone");
+            Assert.Equal(0, d1Gone.GetProperty("alerts").GetArrayLength());
+
+            var d2 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d2");
+            var d2Alerts = d2.GetProperty("alerts");
+            Assert.Equal(1, d2Alerts.GetArrayLength());
+            Assert.Equal("DUPLICATE_RECONCILE_KEY", d2Alerts[0].GetProperty("code").GetString());
+            Assert.Equal("DIE_TO_OVEN", d2Alerts[0].GetProperty("taskType").GetString());
+            Assert.Equal("Q2", d2Alerts[0].GetProperty("sublot").GetString());
+
+            var d3 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d3");
+            Assert.Equal(0, d3.GetProperty("alerts").GetArrayLength());
+
+            var get = await client.GetFromJsonAsync<JsonElement>("/api/demands/d1");
+            Assert.Equal(2, get.GetProperty("alerts").GetArrayLength());
+            Assert.Equal("VISIBLE", get.GetProperty("status").GetString());
+
+            var global = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
+            Assert.Equal(5, global.GetArrayLength());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Poll_health_endpoint_reports_latest_round_after_runner()
     {
         var baseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));

@@ -136,14 +136,23 @@ app.MapGet("/api/demands", (
         parsed = value;
     }
 
-    var items = store.List(parsed, taskType, sublot, demandId).Select(DemandDto.From).ToList();
+    var alerts = store.ListAlerts();
+    var items = store.List(parsed, taskType, sublot, demandId)
+        .Select(d => DemandDto.From(d, DemandDto.RelevantAlerts(alerts, d)))
+        .ToList();
     return Results.Ok(items);
 });
 
 app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore store) =>
 {
     var demand = store.GetById(demandId);
-    return demand is null ? Results.NotFound() : Results.Ok(DemandDto.From(demand));
+    if (demand is null)
+    {
+        return Results.NotFound();
+    }
+
+    var alerts = DemandDto.RelevantAlerts(store.ListAlerts(), demand);
+    return Results.Ok(DemandDto.From(demand, alerts));
 });
 
 app.MapGet("/api/alerts", (ITransportDemandStore store, int? limit) =>
@@ -223,9 +232,10 @@ internal sealed record DemandDto(
     bool LocationRisk,
     string? LocationRiskCode,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? GoneAt)
+    DateTimeOffset? GoneAt,
+    IReadOnlyList<AlertDto> Alerts)
 {
-    public static DemandDto From(TransportDemand d) => new(
+    public static DemandDto From(TransportDemand d, IReadOnlyList<AlertDto> alerts) => new(
         d.DemandId,
         d.TaskType,
         d.Sublot,
@@ -240,7 +250,29 @@ internal sealed record DemandDto(
         d.LocationRisk,
         d.LocationRiskCode,
         d.CreatedAt,
-        d.GoneAt);
+        d.GoneAt,
+        alerts);
+
+    public static IReadOnlyList<AlertDto> RelevantAlerts(
+        IReadOnlyList<IngestAlert> alerts,
+        TransportDemand demand) =>
+        alerts
+            .Where(a => IsRelevant(a, demand))
+            .Select(AlertDto.From)
+            .ToList();
+
+    private static bool IsRelevant(IngestAlert alert, TransportDemand demand)
+    {
+        if (!string.IsNullOrWhiteSpace(alert.DemandId))
+        {
+            return string.Equals(alert.DemandId, demand.DemandId, StringComparison.Ordinal);
+        }
+
+        return !string.IsNullOrWhiteSpace(alert.TaskType)
+            && !string.IsNullOrWhiteSpace(alert.Sublot)
+            && string.Equals(alert.TaskType, demand.TaskType, StringComparison.Ordinal)
+            && string.Equals(alert.Sublot, demand.Sublot, StringComparison.Ordinal);
+    }
 }
 
 internal sealed record AlertDto(
