@@ -134,7 +134,7 @@ internal partial class MainWindow : Window
         var banner = WatchBannerState.From(_health, _fetchError);
         FetchFailureBanner.Visibility = banner.ShowFetchFailure ? Visibility.Visible : Visibility.Collapsed;
         FetchFailureText.Text = banner.ShowFetchFailure
-            ? $"QUERY / POLL FAILURE — {banner.FetchFailureMessage}"
+            ? banner.FetchFailureMessage ?? string.Empty
             : string.Empty;
 
         PausedBanner.Visibility = banner.ShowPausedZeroDrop ? Visibility.Visible : Visibility.Collapsed;

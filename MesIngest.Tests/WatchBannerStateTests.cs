@@ -30,7 +30,20 @@ public class WatchBannerStateTests
         var state = WatchBannerState.From(health: null, fetchError: "Connection refused");
 
         Assert.True(state.ShowFetchFailure);
-        Assert.Equal("Connection refused", state.FetchFailureMessage);
+        Assert.Contains("HTTP", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Connection refused", state.FetchFailureMessage, StringComparison.Ordinal);
+        Assert.False(state.ShowPausedZeroDrop);
+    }
+
+    [Fact]
+    public void Shows_not_ready_banner_when_health_null_and_no_fetch_error()
+    {
+        var state = WatchBannerState.From(health: null, fetchError: null);
+
+        Assert.True(state.ShowFetchFailure);
+        Assert.Contains("not ready", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("poll-health", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HTTP", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
         Assert.False(state.ShowPausedZeroDrop);
     }
 
@@ -49,7 +62,10 @@ public class WatchBannerStateTests
         var state = WatchBannerState.From(health, fetchError: null);
 
         Assert.True(state.ShowFetchFailure);
+        Assert.Contains("Poll failure", state.FetchFailureMessage, StringComparison.Ordinal);
         Assert.Contains("FAILURE", state.FetchFailureMessage, StringComparison.Ordinal);
+        Assert.DoesNotContain("not ready", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("HTTP", state.FetchFailureMessage, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
