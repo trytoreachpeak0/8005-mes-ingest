@@ -40,7 +40,17 @@ internal partial class MainWindow : Window
         };
     }
 
-    private void OnFilterChanged(object sender, RoutedEventArgs e) => ApplyProjection();
+    private void OnFilterChanged(object sender, RoutedEventArgs e)
+    {
+        // ComboBox IsSelected in XAML raises SelectionChanged during InitializeComponent,
+        // before later-named controls (SortField, grids, …) are assigned.
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        ApplyProjection();
+    }
 
     private void OnDemandsSorting(object sender, DataGridSortingEventArgs e)
     {
