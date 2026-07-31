@@ -6,13 +6,14 @@ internal enum DemandSortField
     Sublot,
     Status,
     MesLastSeenAt,
+    Dates,
 }
 
 internal sealed record DemandListQuery(
     string? TaskType = null,
     string? Sublot = null,
     string? Status = null,
-    DemandSortField SortBy = DemandSortField.MesLastSeenAt,
+    DemandSortField SortBy = DemandSortField.Dates,
     bool Ascending = false);
 
 internal static class DemandListProjector
@@ -46,11 +47,15 @@ internal static class DemandListProjector
             _ => static _ => string.Empty,
         };
 
-        if (query.SortBy == DemandSortField.MesLastSeenAt)
+        if (query.SortBy is DemandSortField.MesLastSeenAt or DemandSortField.Dates)
         {
+            Func<WatchDemandDto, DateTimeOffset> timeKey = query.SortBy == DemandSortField.Dates
+                ? static d => d.Dates
+                : static d => d.MesLastSeenAt;
+
             q = query.Ascending
-                ? q.OrderBy(d => d.MesLastSeenAt).ThenBy(d => d.DemandId, StringComparer.Ordinal)
-                : q.OrderByDescending(d => d.MesLastSeenAt).ThenBy(d => d.DemandId, StringComparer.Ordinal);
+                ? q.OrderBy(timeKey).ThenBy(d => d.DemandId, StringComparer.Ordinal)
+                : q.OrderByDescending(timeKey).ThenBy(d => d.DemandId, StringComparer.Ordinal);
         }
         else
         {

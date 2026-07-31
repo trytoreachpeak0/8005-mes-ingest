@@ -154,7 +154,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 sql += " AND DemandId = @DemandId";
             }
 
-            sql += " ORDER BY DemandId;";
+            sql += " ORDER BY Dates DESC, DemandId ASC;";
             using var cmd = new SqlCommand(sql, conn);
             if (status is not null)
             {
@@ -192,7 +192,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         {
             using var conn = Open();
             using var tx = conn.BeginTransaction();
-            var stamped = DateTimeOffset.Now;
+            var stamped = DateTimeOffset.UtcNow;
             foreach (var alert in alerts)
             {
                 using var insert = new SqlCommand(

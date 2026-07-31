@@ -66,12 +66,15 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
             query = query.Where(d => string.Equals(d.DemandId, demandId, StringComparison.Ordinal));
         }
 
-        return query.ToList();
+        return query
+            .OrderByDescending(d => d.Dates)
+            .ThenBy(d => d.DemandId, StringComparer.Ordinal)
+            .ToList();
     }
 
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
     {
-        var stamped = DateTimeOffset.Now;
+        var stamped = DateTimeOffset.UtcNow;
         foreach (var alert in alerts)
         {
             _alerts.Add(alert.CreatedAt is null ? alert with { CreatedAt = stamped } : alert);
@@ -127,7 +130,7 @@ public sealed class IngestRoundRunner
         _zeroDropEnterThreshold = zeroDropEnterThreshold;
         _zeroDropClearStreak = zeroDropClearStreak;
         _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(30);
-        _clock = clock ?? (() => DateTimeOffset.Now);
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
     public async Task<ProjectionState> RunOnceAsync(CancellationToken cancellationToken = default)

@@ -9,7 +9,8 @@ public class DemandListProjectorTests
         string taskType,
         string sublot,
         string status,
-        DateTimeOffset lastSeen) =>
+        DateTimeOffset lastSeen,
+        DateTimeOffset? dates = null) =>
         new(
             DemandId: demandId,
             TaskType: taskType,
@@ -17,7 +18,7 @@ public class DemandListProjectorTests
             Area: null,
             Eqp: null,
             Step: null,
-            Dates: lastSeen,
+            Dates: dates ?? lastSeen,
             Package: null,
             Status: status,
             MesLastSeenAt: lastSeen,
@@ -46,7 +47,42 @@ public class DemandListProjectorTests
     }
 
     [Fact]
-    public void Sorts_by_mes_last_seen_descending_by_default_field_order()
+    public void Default_query_sorts_by_dates_descending_then_demand_id_ascending()
+    {
+        var rows = new[]
+        {
+            Demand(
+                "b",
+                "DIE_TO_OVEN",
+                "A",
+                "VISIBLE",
+                lastSeen: new DateTimeOffset(2026, 8, 9, 0, 0, 0, TimeSpan.Zero),
+                dates: new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.Zero)),
+            Demand(
+                "a",
+                "DIE_TO_OVEN",
+                "B",
+                "VISIBLE",
+                lastSeen: new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+                dates: new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.Zero)),
+            Demand(
+                "c",
+                "DIE_TO_OVEN",
+                "C",
+                "VISIBLE",
+                lastSeen: new DateTimeOffset(2026, 8, 8, 0, 0, 0, TimeSpan.Zero),
+                dates: new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero)),
+        };
+
+        var sorted = DemandListProjector.FilterSort(rows, new DemandListQuery());
+
+        Assert.Equal(DemandSortField.Dates, new DemandListQuery().SortBy);
+        Assert.False(new DemandListQuery().Ascending);
+        Assert.Equal(new[] { "c", "a", "b" }, sorted.Select(d => d.DemandId));
+    }
+
+    [Fact]
+    public void Sorts_by_mes_last_seen_when_explicitly_requested()
     {
         var rows = new[]
         {
@@ -77,5 +113,26 @@ public class DemandListProjectorTests
             new DemandListQuery(SortBy: DemandSortField.TaskType, Ascending: true));
 
         Assert.Equal(new[] { "a", "c", "b" }, sorted.Select(d => d.DemandId));
+    }
+
+    [Fact]
+    public void Same_dates_instant_with_different_offsets_sort_by_instant_then_demand_id()
+    {
+        // Same UTC instant expressed with +00 and +08 offsets.
+        var instant = new DateTimeOffset(2026, 8, 1, 2, 0, 0, TimeSpan.Zero);
+        var asBeijing = new DateTimeOffset(2026, 8, 1, 10, 0, 0, TimeSpan.FromHours(8));
+        Assert.Equal(instant.UtcTicks, asBeijing.UtcTicks);
+
+        var rows = new[]
+        {
+            Demand("b", "T", "1", "VISIBLE", instant, dates: asBeijing),
+            Demand("a", "T", "1", "VISIBLE", instant, dates: instant),
+        };
+
+        var sorted = DemandListProjector.FilterSort(
+            rows,
+            new DemandListQuery(SortBy: DemandSortField.Dates, Ascending: false));
+
+        Assert.Equal(new[] { "a", "b" }, sorted.Select(d => d.DemandId));
     }
 }

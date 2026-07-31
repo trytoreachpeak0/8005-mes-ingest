@@ -13,7 +13,7 @@ internal partial class MainWindow : Window
     private IReadOnlyList<WatchAlertDto> _alerts = [];
     private WatchPollHealthDto? _health;
     private string? _fetchError;
-    private DemandSortField _sortBy = DemandSortField.MesLastSeenAt;
+    private DemandSortField _sortBy = DemandSortField.Dates;
     private bool _sortAscending;
 
     public MainWindow(MesIngestApiClient client, WatchOptions options)
@@ -61,6 +61,7 @@ internal partial class MainWindow : Window
             "SUBLOT" => DemandSortField.Sublot,
             "status" => DemandSortField.Status,
             "last seen" => DemandSortField.MesLastSeenAt,
+            "当前工序进入时间 (DATES)" => DemandSortField.Dates,
             _ => (DemandSortField?)null,
         };
 
@@ -76,7 +77,7 @@ internal partial class MainWindow : Window
         else
         {
             _sortBy = field.Value;
-            _sortAscending = field != DemandSortField.MesLastSeenAt;
+            _sortAscending = field is not (DemandSortField.MesLastSeenAt or DemandSortField.Dates);
         }
 
         SyncSortControlsFromState();
@@ -184,15 +185,21 @@ internal partial class MainWindow : Window
 
     private static string FormatHealth(WatchPollHealthDto? health, string baseUrl)
     {
+        var localTz = TimeZoneInfo.Local;
+        var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, localTz);
+        var tzLabel = $"{localTz.Id} (UTC{nowLocal:zzz})";
+
         if (health is null)
         {
-            return $"API {baseUrl} — poll health: (none yet)";
+            return $"API {baseUrl} — poll health: (none yet)  timezone={tzLabel}";
         }
 
         var paused = health.TaskTypePauses.Count(p => p.PausedZeroDrop);
-        return $"API {baseUrl} — started {health.StartedAt:u}  ended {health.EndedAt:u}  "
+        return $"API {baseUrl} — started {WatchTimeDisplay.Format(health.StartedAt)}  "
+            + $"ended {WatchTimeDisplay.Format(health.EndedAt)}  "
             + $"durationMs={health.DurationMs:0}  rows={health.RowCount}  "
-            + $"success={health.Success}  outcome={health.Outcome}  pausedTypes={paused}";
+            + $"success={health.Success}  outcome={health.Outcome}  pausedTypes={paused}  "
+            + $"timezone={tzLabel}";
     }
 
     private static string? NullIfBlank(string? value) =>

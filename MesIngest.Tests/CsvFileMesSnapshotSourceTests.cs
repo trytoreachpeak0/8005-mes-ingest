@@ -81,6 +81,32 @@ public class CsvFileMesSnapshotSourceTests
     }
 
     [Fact]
+    public async Task Explicit_offset_on_dates_is_preserved()
+    {
+        var csv = """
+            TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE
+            STAGING_TO_WIRE,Q1-1,N01-01,EQ1,焊线,2026-08-01T10:00:00Z,PKG-A
+            """;
+        var path = Path.Combine(Path.GetTempPath(), $"mes-csv-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, csv, Encoding.UTF8);
+
+        try
+        {
+            var source = new CsvFileMesSnapshotSource(path);
+            var outcome = await source.ReadAsync();
+
+            Assert.Equal(SnapshotOutcomeKind.Success, outcome.Kind);
+            var row = Assert.Single(outcome.Rows);
+            Assert.Equal(TimeSpan.Zero, row.Dates.Offset);
+            Assert.Equal(10, row.Dates.Hour);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Empty_task_type_returns_incomplete_outcome()
     {
         var csv = """

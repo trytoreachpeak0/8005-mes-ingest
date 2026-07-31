@@ -77,6 +77,71 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task List_demands_defaults_to_dates_desc_then_demand_id_asc()
+    {
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "b",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "S",
+                Dates = new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.FromHours(8)),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = new DateTimeOffset(2026, 8, 9, 0, 0, 0, TimeSpan.Zero),
+            },
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "S",
+                Dates = new DateTimeOffset(2026, 8, 2, 0, 0, 0, TimeSpan.FromHours(8)),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+            },
+            new TransportDemand
+            {
+                DemandId = "c",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "S",
+                Dates = new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.FromHours(8)),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = new DateTimeOffset(2026, 8, 8, 0, 0, 0, TimeSpan.Zero),
+            },
+        ]));
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
+
+        try
+        {
+            await using var factory = _factory.WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureTestServices(services =>
+                {
+                    services.AddSingleton(new MesIngestHostOptions
+                    {
+                        SnapshotCsvPath = path,
+                        GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
+                        RunOneShotOnStartup = false,
+                    });
+                    services.AddSingleton<ITransportDemandStore>(store);
+                });
+            });
+
+            var client = factory.CreateClient();
+            var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
+            var ids = list.EnumerateArray().Select(d => d.GetProperty("demandId").GetString()).ToArray();
+            Assert.Equal(new[] { "c", "a", "b" }, ids);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task List_filters_demands_by_visible_or_gone_status()
     {
         var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
