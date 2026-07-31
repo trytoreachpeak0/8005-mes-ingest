@@ -19,7 +19,8 @@ public sealed class TransportDemandReconciler
         int disappearThreshold = 2,
         int zeroDropEnterThreshold = 10,
         int zeroDropClearStreak = DefaultZeroDropClearStreak,
-        RestartRecovery? restartRecovery = null)
+        RestartRecovery? restartRecovery = null,
+        Func<string, string, bool>? isGoneTransportDemandKey = null)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
@@ -173,7 +174,10 @@ public sealed class TransportDemandReconciler
                 GoneAt = null,
             });
 
-            if (goneKeys.Contains(key))
+            var reappeared =
+                goneKeys.Contains(key)
+                || (isGoneTransportDemandKey?.Invoke(row.TaskType, row.Sublot) ?? false);
+            if (reappeared)
             {
                 alerts.Add(new IngestAlert(
                     Code: "REAPPEAR_AFTER_GONE",

@@ -12,8 +12,28 @@ public sealed record PollHealth(
 
 public interface ITransportDemandStore
 {
+    /// <summary>
+    /// Hot projection for reconcile: VISIBLE demands + pause states.
+    /// Permanent GONE history is not loaded here; use <see cref="HasGoneTransportDemandKey"/>,
+    /// <see cref="GetById"/>, or <see cref="List"/>.
+    /// </summary>
     ProjectionState GetState();
-    void ReplaceState(ProjectionState state);
+
+    /// <summary>
+    /// Persist the next hot projection differentially: INSERT new rows, UPDATE changed
+    /// VISIBLE / newly-GONE rows, UPSERT changed pauses. Historical GONE omitted from
+    /// <paramref name="state"/> are retained and never rewritten.
+    /// When <paramref name="alerts"/> is provided, they are appended in the same transaction
+    /// as the projection writes (SQL) or the same atomic update (in-memory).
+    /// </summary>
+    void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null);
+
+    /// <summary>
+    /// Indexed existence check for reappear detection without loading all GONE rows.
+    /// Key is TransportDemandKey (TASK_TYPE + SUBLOT).
+    /// </summary>
+    bool HasGoneTransportDemandKey(string taskType, string sublot);
+
     TransportDemand? GetById(string demandId);
     IReadOnlyList<TransportDemand> List(
         DemandStatus? status = null,
@@ -34,9 +54,32 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     private readonly List<IngestAlert> _alerts = new();
     private PollHealth? _latestPollHealth;
 
-    public ProjectionState GetState() => _state;
+    public ProjectionState GetState() =>
+        new(
+            _state.Demands.Where(d => d.Status == DemandStatus.Visible).ToList(),
+            _state.TaskTypePauses);
 
-    public void ReplaceState(ProjectionState state) => _state = state;
+    public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var incomingIds = state.Demands.Select(d => d.DemandId).ToHashSet(StringComparer.Ordinal);
+        var retainedGone = _state.Demands
+            .Where(d => d.Status == DemandStatus.Gone && !incomingIds.Contains(d.DemandId))
+            .ToList();
+        _state = new ProjectionState(
+            state.Demands.Concat(retainedGone).ToList(),
+            state.TaskTypePauses);
+        if (alerts is { Count: > 0 })
+        {
+            AppendAlerts(alerts);
+        }
+    }
+
+    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
+        _state.Demands.Any(d =>
+            d.Status == DemandStatus.Gone
+            && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
+            && string.Equals(d.Sublot, sublot, StringComparison.Ordinal));
 
     public TransportDemand? GetById(string demandId) =>
         _state.Demands.FirstOrDefault(d => d.DemandId == demandId);
@@ -154,14 +197,14 @@ public sealed class IngestRoundRunner
             _disappearThreshold,
             _zeroDropEnterThreshold,
             _zeroDropClearStreak,
-            restartRecovery: restartRecovery);
+            restartRecovery: restartRecovery,
+            isGoneTransportDemandKey: _store.HasGoneTransportDemandKey);
         sw.Stop();
         var endedAt = _clock();
 
         if (snapshot.Kind == SnapshotOutcomeKind.Success)
         {
-            _store.ReplaceState(result.State);
-            _store.AppendAlerts(result.Alerts);
+            _store.ReplaceState(result.State, result.Alerts);
         }
         else if (snapshot.Kind == SnapshotOutcomeKind.Failure)
         {

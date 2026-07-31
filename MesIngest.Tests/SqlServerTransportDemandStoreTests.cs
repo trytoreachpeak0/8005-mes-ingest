@@ -67,8 +67,9 @@ public class SqlServerTransportDemandStoreTests
         var reader = new SqlServerTransportDemandStore(cs);
         var reloaded = reader.GetState();
 
-        Assert.Equal(2, reloaded.Demands.Count);
-        var visible = Assert.Single(reloaded.Demands, d => d.DemandId == "d-visible");
+        // Hot path: VISIBLE only. Permanent GONE stays queryable via List/GetById.
+        var visible = Assert.Single(reloaded.Demands);
+        Assert.Equal("d-visible", visible.DemandId);
         Assert.Equal(DemandStatus.Visible, visible.Status);
         Assert.Equal("PKG-V", visible.Package);
         Assert.Equal(0, visible.DisappearCount);
@@ -76,7 +77,8 @@ public class SqlServerTransportDemandStoreTests
         Assert.Equal(now.AddHours(-2), visible.CreatedAt);
         Assert.Null(visible.GoneAt);
 
-        var gone = Assert.Single(reloaded.Demands, d => d.DemandId == "d-gone");
+        var gone = Assert.Single(reader.List(DemandStatus.Gone));
+        Assert.Equal("d-gone", gone.DemandId);
         Assert.Equal(DemandStatus.Gone, gone.Status);
         Assert.Equal(2, gone.DisappearCount);
         Assert.True(gone.LocationRisk);
@@ -84,6 +86,8 @@ public class SqlServerTransportDemandStoreTests
         Assert.Null(gone.Area);
         Assert.Equal(now.AddHours(-3), gone.CreatedAt);
         Assert.Equal(now.AddMinutes(-15), gone.GoneAt);
+        Assert.True(reader.HasGoneTransportDemandKey("DIE_TO_OVEN", "Q-GONE"));
+        Assert.False(reader.HasGoneTransportDemandKey("DIE_TO_WIRE_STAGING", "Q-VIS"));
 
         var pause = Assert.Single(reloaded.TaskTypePauses);
         Assert.Equal("DIE_TO_OVEN", pause.TaskType);
@@ -94,6 +98,286 @@ public class SqlServerTransportDemandStoreTests
         Assert.Equal("d-visible", reader.GetById("d-visible")?.DemandId);
         Assert.Single(reader.List(DemandStatus.Visible));
         Assert.Single(reader.List(DemandStatus.Gone));
+    }
+
+    [SqlServerAvailabilityFact]
+    public void ReplaceState_writes_only_changed_rows_and_leaves_gone_immutable()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var t0 = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var stableVisible = new TransportDemand
+        {
+            DemandId = "keep-visible",
+            TaskType = "DIE_TO_WIRE_STAGING",
+            Sublot = "Q-KEEP",
+            Area = "N09-01",
+            Eqp = "EQ1",
+            Step = "焊线",
+            Dates = t0,
+            Package = "PKG-K",
+            Status = DemandStatus.Visible,
+            MesLastSeenAt = t0,
+            DisappearCount = 0,
+            LocationRisk = false,
+            CreatedAt = t0.AddHours(-2),
+        };
+        var changingVisible = new TransportDemand
+        {
+            DemandId = "change-visible",
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "Q-CHG",
+            Area = "N09-02",
+            Eqp = "EQ2",
+            Step = "烘箱",
+            Dates = t0.AddMinutes(-10),
+            Package = "PKG-C",
+            Status = DemandStatus.Visible,
+            MesLastSeenAt = t0,
+            DisappearCount = 0,
+            LocationRisk = false,
+            CreatedAt = t0.AddHours(-1),
+        };
+        var gone = new TransportDemand
+        {
+            DemandId = "keep-gone",
+            TaskType = "WIRE_TO_GATE",
+            Sublot = "Q-GONE",
+            Area = "N01",
+            Eqp = "EQ3",
+            Step = "关卡",
+            Dates = t0.AddHours(-3),
+            Package = "PKG-G",
+            Status = DemandStatus.Gone,
+            MesLastSeenAt = t0.AddMinutes(-30),
+            DisappearCount = 2,
+            LocationRisk = true,
+            LocationRiskCode = "AREA_EMPTY",
+            CreatedAt = t0.AddHours(-4),
+            GoneAt = t0.AddMinutes(-20),
+        };
+
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+            [stableVisible, changingVisible, gone],
+            [new TaskTypePauseState("DIE_TO_OVEN", false, 5, 0)]));
+
+        SqlServerTestEnv.InstallDemandWriteAudit(cs);
+
+        var t1 = t0.AddMinutes(1);
+        store.ReplaceState(new ProjectionState(
+            [
+                stableVisible, // identical → zero write
+                changingVisible with { MesLastSeenAt = t1 },
+                // historical GONE omitted from hot ReplaceState payload
+            ],
+            [new TaskTypePauseState("DIE_TO_OVEN", false, 5, 0)]));
+
+        var writes = SqlServerTestEnv.ReadDemandWriteAudit(cs);
+        Assert.DoesNotContain(writes, w => w.DemandId == "keep-visible");
+        Assert.DoesNotContain(writes, w => w.DemandId == "keep-gone");
+        Assert.Contains(writes, w => w.DemandId == "change-visible" && w.Op == "UPDATE");
+        Assert.DoesNotContain(writes, w => w.Op == "DELETE");
+
+        var reloadedGone = store.GetById("keep-gone");
+        Assert.NotNull(reloadedGone);
+        Assert.Equal(gone, reloadedGone);
+        Assert.Equal(t1, store.GetById("change-visible")!.MesLastSeenAt);
+        Assert.Equal(stableVisible, Assert.Single(store.GetState().Demands, d => d.DemandId == "keep-visible"));
+    }
+
+    [SqlServerAvailabilityFact]
+    public void ReplaceState_commits_projection_and_alerts_atomically()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var t0 = new DateTimeOffset(2026, 8, 2, 14, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "d-a",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-A",
+                    Area = "N1",
+                    Eqp = "E1",
+                    Step = "烘箱",
+                    Dates = t0,
+                    Package = "P",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = t0,
+                    CreatedAt = t0,
+                },
+            ]));
+
+        using (var conn = new SqlConnection(cs))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
+                    ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
+                ALTER TABLE dbo.TransportDemands WITH NOCHECK
+                    ADD CONSTRAINT CK_TransportDemands_Status_Guard
+                    CHECK (Status IN (N'VISIBLE', N'GONE') AND DemandId <> N'boom');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            Assert.ThrowsAny<Exception>(() =>
+                store.ReplaceState(
+                    new ProjectionState(
+                    [
+                        new TransportDemand
+                        {
+                            DemandId = "d-a",
+                            TaskType = "DIE_TO_OVEN",
+                            Sublot = "Q-A",
+                            Area = "N1",
+                            Eqp = "E1",
+                            Step = "烘箱",
+                            Dates = t0,
+                            Package = "P",
+                            Status = DemandStatus.Visible,
+                            MesLastSeenAt = t0.AddMinutes(1),
+                            CreatedAt = t0,
+                        },
+                        new TransportDemand
+                        {
+                            DemandId = "boom",
+                            TaskType = "DIE_TO_OVEN",
+                            Sublot = "Q-B",
+                            Area = "N2",
+                            Eqp = "E2",
+                            Step = "烘箱",
+                            Dates = t0,
+                            Package = "P2",
+                            Status = DemandStatus.Visible,
+                            MesLastSeenAt = t0.AddMinutes(1),
+                            CreatedAt = t0,
+                        },
+                    ]),
+                    [
+                        new IngestAlert(Code: "REAPPEAR_AFTER_GONE", DemandId: "boom", Message: "should roll back"),
+                    ]));
+
+            Assert.Equal(t0, store.GetById("d-a")!.MesLastSeenAt);
+            Assert.Empty(store.ListAlerts());
+        }
+        finally
+        {
+            using var conn = new SqlConnection(cs);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
+                    ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    [SqlServerAvailabilityFact]
+    public void ReplaceState_is_atomic_across_demand_and_pause_writes()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var t0 = new DateTimeOffset(2026, 8, 2, 13, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+            [
+                new TransportDemand
+                {
+                    DemandId = "d-a",
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "Q-A",
+                    Area = "N1",
+                    Eqp = "E1",
+                    Step = "烘箱",
+                    Dates = t0,
+                    Package = "P",
+                    Status = DemandStatus.Visible,
+                    MesLastSeenAt = t0,
+                    CreatedAt = t0,
+                },
+            ],
+            [new TaskTypePauseState("DIE_TO_OVEN", false, 3, 0)]));
+
+        // Force mid-transaction failure after first demand write via CHECK that rejects Status.
+        using (var conn = new SqlConnection(cs))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
+                    ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
+                ALTER TABLE dbo.TransportDemands WITH NOCHECK
+                    ADD CONSTRAINT CK_TransportDemands_Status_Guard
+                    CHECK (Status IN (N'VISIBLE', N'GONE') AND DemandId <> N'boom');
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        try
+        {
+            var boom = Assert.ThrowsAny<Exception>(() =>
+                store.ReplaceState(new ProjectionState(
+                    [
+                        new TransportDemand
+                        {
+                            DemandId = "d-a",
+                            TaskType = "DIE_TO_OVEN",
+                            Sublot = "Q-A",
+                            Area = "N1",
+                            Eqp = "E1",
+                            Step = "烘箱",
+                            Dates = t0,
+                            Package = "P",
+                            Status = DemandStatus.Visible,
+                            MesLastSeenAt = t0.AddMinutes(1),
+                            CreatedAt = t0,
+                        },
+                        new TransportDemand
+                        {
+                            DemandId = "boom",
+                            TaskType = "DIE_TO_OVEN",
+                            Sublot = "Q-B",
+                            Area = "N2",
+                            Eqp = "E2",
+                            Step = "烘箱",
+                            Dates = t0,
+                            Package = "P2",
+                            Status = DemandStatus.Visible,
+                            MesLastSeenAt = t0.AddMinutes(1),
+                            CreatedAt = t0,
+                        },
+                    ],
+                    [new TaskTypePauseState("DIE_TO_OVEN", true, 3, 0)])));
+            Assert.Contains("CHECK", boom.Message + (boom.InnerException?.Message ?? ""), StringComparison.OrdinalIgnoreCase);
+
+            // Neither demand MesLastSeenAt bump nor pause flip may be visible.
+            Assert.Equal(t0, store.GetById("d-a")!.MesLastSeenAt);
+            Assert.Null(store.GetById("boom"));
+            var pause = Assert.Single(store.GetState().TaskTypePauses);
+            Assert.False(pause.PausedZeroDrop);
+        }
+        finally
+        {
+            using var conn = new SqlConnection(cs);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
+                    ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
+                """;
+            cmd.ExecuteNonQuery();
+        }
     }
 
     [SqlServerAvailabilityFact]
@@ -202,17 +486,78 @@ internal static class SqlServerTestEnv
 
     public static void WipeProjection(string connectionString)
     {
-        var store = new SqlServerTransportDemandStore(connectionString);
-        store.ReplaceState(ProjectionState.Empty);
-
+        // Hard wipe: incremental ReplaceState(Empty) must not erase permanent GONE history.
+        _ = new SqlServerTransportDemandStore(connectionString);
         using var conn = new SqlConnection(connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
+            IF OBJECT_ID(N'dbo.TR_TransportDemands_WriteAudit', N'TR') IS NOT NULL
+                DROP TRIGGER dbo.TR_TransportDemands_WriteAudit;
+            IF OBJECT_ID(N'dbo.DemandWriteAudit', N'U') IS NOT NULL
+                DROP TABLE dbo.DemandWriteAudit;
+            IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
+                ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
+            DELETE FROM dbo.TransportDemands;
+            DELETE FROM dbo.TaskTypePauses;
             DELETE FROM dbo.IngestAlerts;
             DELETE FROM dbo.PollHealth;
             """;
         cmd.ExecuteNonQuery();
+    }
+
+    public static void InstallDemandWriteAudit(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            IF OBJECT_ID(N'dbo.TR_TransportDemands_WriteAudit', N'TR') IS NOT NULL
+                DROP TRIGGER dbo.TR_TransportDemands_WriteAudit;
+            IF OBJECT_ID(N'dbo.DemandWriteAudit', N'U') IS NOT NULL
+                DROP TABLE dbo.DemandWriteAudit;
+            CREATE TABLE dbo.DemandWriteAudit
+            (
+                Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                DemandId NVARCHAR(64) NOT NULL,
+                Op NVARCHAR(16) NOT NULL
+            );
+            EXEC(N'
+                CREATE TRIGGER dbo.TR_TransportDemands_WriteAudit
+                ON dbo.TransportDemands
+                AFTER INSERT, UPDATE, DELETE
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+                    INSERT INTO dbo.DemandWriteAudit (DemandId, Op)
+                    SELECT DemandId, N''INSERT'' FROM inserted
+                    WHERE NOT EXISTS (SELECT 1 FROM deleted d WHERE d.DemandId = inserted.DemandId);
+                    INSERT INTO dbo.DemandWriteAudit (DemandId, Op)
+                    SELECT DemandId, N''UPDATE'' FROM inserted
+                    WHERE EXISTS (SELECT 1 FROM deleted d WHERE d.DemandId = inserted.DemandId);
+                    INSERT INTO dbo.DemandWriteAudit (DemandId, Op)
+                    SELECT DemandId, N''DELETE'' FROM deleted
+                    WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.DemandId = deleted.DemandId);
+                END
+            ');
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    public static IReadOnlyList<(string DemandId, string Op)> ReadDemandWriteAudit(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT DemandId, Op FROM dbo.DemandWriteAudit ORDER BY Id;";
+        using var reader = cmd.ExecuteReader();
+        var list = new List<(string DemandId, string Op)>();
+        while (reader.Read())
+        {
+            list.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        return list;
     }
 }
 

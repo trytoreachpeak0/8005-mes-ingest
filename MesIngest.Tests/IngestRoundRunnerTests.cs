@@ -433,11 +433,14 @@ public class IngestRoundRunnerTests
 
         public ProjectionState GetState() => _inner.GetState();
 
-        public void ReplaceState(ProjectionState state)
+        public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null)
         {
             ReplaceCount++;
-            _inner.ReplaceState(state);
+            _inner.ReplaceState(state, alerts);
         }
+
+        public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
+            _inner.HasGoneTransportDemandKey(taskType, sublot);
 
         public TransportDemand? GetById(string demandId) => _inner.GetById(demandId);
 

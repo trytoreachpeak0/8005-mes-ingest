@@ -197,16 +197,22 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
     public ProjectionState GetState() =>
         Measure(LatencyStages.SqlQuery, () => _inner.GetState(), rows: s => s.Demands.Count);
 
-    public void ReplaceState(ProjectionState state) =>
+    public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null) =>
         Measure(
             LatencyStages.SqlTransaction,
             () =>
             {
-                _inner.ReplaceState(state);
-                return state.Demands.Count + state.TaskTypePauses.Count;
+                _inner.ReplaceState(state, alerts);
+                return state.Demands.Count + state.TaskTypePauses.Count + (alerts?.Count ?? 0);
             },
             rows: n => n,
             alsoWrite: true);
+
+    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.HasGoneTransportDemandKey(taskType, sublot),
+            rows: found => found ? 1 : 0);
 
     public TransportDemand? GetById(string demandId) =>
         Measure(LatencyStages.SqlQuery, () => _inner.GetById(demandId), rows: d => d is null ? 0 : 1);
