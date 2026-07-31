@@ -33,6 +33,8 @@ internal partial class MainWindow : Window
         WatchConnectionEventRecorder? connectionRecorder = null)
     {
         InitializeComponent();
+        WatchGridClipboardBehavior.Attach(DemandsGrid);
+        WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
         _options = options;
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(options);
