@@ -155,6 +155,7 @@ public class MesIngestApiClientFetchTests
 
     private static HttpResponseMessage EmptyPageOrList(string path) =>
         path.EndsWith("/api/demands", StringComparison.Ordinal)
+        || path.EndsWith("/api/alerts", StringComparison.Ordinal)
             ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
             : JsonResponse(path, "[]");
 

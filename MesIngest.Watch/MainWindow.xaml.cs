@@ -392,12 +392,12 @@ internal partial class MainWindow : Window
         IOrderedEnumerable<WatchAlertDto> ordered = _alertSortColumn switch
         {
             "Code" => OrderAlerts(source, a => a.Code ?? string.Empty),
-            "created" => OrderAlerts(source, a => a.CreatedAt ?? DateTimeOffset.MinValue),
+            "created" => OrderAlerts(source, a => a.LastSeenAt ?? a.CreatedAt ?? DateTimeOffset.MinValue),
             "TASK_TYPE" => OrderAlerts(source, a => a.TaskType ?? string.Empty),
             "SUBLOT" => OrderAlerts(source, a => a.Sublot ?? string.Empty),
             "DemandId" => OrderAlerts(source, a => a.DemandId ?? string.Empty),
             "Message" => OrderAlerts(source, a => a.Message ?? string.Empty),
-            _ => OrderAlerts(source, a => a.CreatedAt ?? DateTimeOffset.MinValue),
+            _ => OrderAlerts(source, a => a.LastSeenAt ?? a.CreatedAt ?? DateTimeOffset.MinValue),
         };
 
         return ordered.ThenBy(a => a.DemandId ?? string.Empty, StringComparer.Ordinal).ToList();

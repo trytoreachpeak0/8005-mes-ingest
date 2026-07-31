@@ -107,17 +107,14 @@ internal sealed class MesIngestApiClient
                     correlationId,
                     cancellationToken)
                 .ConfigureAwait(false);
-            var alerts = await FetchListAsync<WatchAlertDto>(
-                    "/api/alerts",
-                    correlationId,
-                    cancellationToken)
+            var alertPage = await FetchAlertPageAsync(correlationId, cancellationToken)
                 .ConfigureAwait(false);
             var health = await FetchPollHealthAsync(correlationId, cancellationToken)
                 .ConfigureAwait(false);
 
             return new WatchSnapshot(
                 Demands: demandPage.Items,
-                Alerts: alerts,
+                Alerts: alertPage.Items,
                 PollHealth: health,
                 FetchError: null,
                 FailedEndpoint: null,
@@ -250,6 +247,81 @@ internal sealed class MesIngestApiClient
         var page = JsonSerializer.Deserialize<WatchDemandPage>(body, JsonOptions)
             ?? throw new JsonException("Demand page deserialize returned null.");
         return page;
+    }
+
+    private async Task<WatchAlertPage> FetchAlertPageAsync(
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        const string endpoint = "/api/alerts";
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(body);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                RecordWatch(
+                    correlationId,
+                    endpoint,
+                    sw.ElapsedMilliseconds,
+                    (int)response.StatusCode,
+                    rowCount: 0,
+                    bytes,
+                    stage: LatencyStages.HttpStatus,
+                    detail: LatencyLogFormatter.Sanitize(body));
+                throw Classify(endpoint, sw.Elapsed, new HttpRequestException(
+                    $"HTTP {(int)response.StatusCode}: {LatencyLogFormatter.Sanitize(body)}",
+                    null,
+                    response.StatusCode));
+            }
+
+            var page = DeserializeAlertPage(body);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                (int)response.StatusCode,
+                rowCount: page.Items.Count,
+                bytes,
+                stage: LatencyStages.HttpOk);
+            return page;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
+            throw Classify(endpoint, sw.Elapsed, ex);
+        }
+    }
+
+    private static WatchAlertPage DeserializeAlertPage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new JsonException("Alert page body is empty; expected items/nextCursor/hasMore envelope.");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object
+            || !doc.RootElement.TryGetProperty("items", out _))
+        {
+            throw new JsonException("Alert page must be an object with items/nextCursor/hasMore (bare array is no longer supported).");
+        }
+
+        return JsonSerializer.Deserialize<WatchAlertPage>(body, JsonOptions)
+            ?? throw new JsonException("Alert page deserialize returned null.");
     }
 
     private async Task<IReadOnlyList<T>> FetchListAsync<T>(

@@ -952,7 +952,7 @@ public class TransportDemandReconcilerTests
         Assert.Equal(DemandStatus.Visible, other.Status);
         Assert.Equal(1, other.DisappearCount);
 
-        Assert.DoesNotContain(result.Alerts, a => a.Code == "PAUSED_ZERO_DROP");
+        Assert.Contains(result.Alerts, a => a.Code == "PAUSED_ZERO_DROP");
         Assert.True(Assert.Single(result.State.TaskTypePauses, p => p.TaskType == "DIE_TO_OVEN").PausedZeroDrop);
         Assert.False(Assert.Single(result.State.TaskTypePauses, p => p.TaskType == "WIRE_TO_GATE").PausedZeroDrop);
     }

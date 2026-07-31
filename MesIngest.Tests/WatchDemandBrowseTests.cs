@@ -107,7 +107,7 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             }
 
-            return Task.FromResult(JsonResponse(path, "[]"));
+            return Task.FromResult(JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}"""));
         });
 
         using var http = CreateHttp(handler);
@@ -142,7 +142,7 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             }
 
-            return Task.FromResult(JsonResponse(path, "[]"));
+            return Task.FromResult(JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}"""));
         });
 
         using var http = CreateHttp(handler);
@@ -184,7 +184,7 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             }
 
-            return Task.FromResult(JsonResponse(path, "[]"));
+            return Task.FromResult(JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}"""));
         });
 
         using var http = CreateHttp(handler);

@@ -18,12 +18,25 @@ internal sealed record WatchDemandDto(
     DateTimeOffset? GoneAt);
 
 internal sealed record WatchAlertDto(
+    string? AlertId,
     string Code,
+    string? Severity,
     string? TaskType,
     string? Sublot,
     string? DemandId,
     string? Message,
+    string? Details,
+    DateTimeOffset? FirstSeenAt,
+    DateTimeOffset? LastSeenAt,
+    int OccurrenceCount,
+    bool IsActive,
+    DateTimeOffset? ResolvedAt,
     DateTimeOffset? CreatedAt);
+
+internal sealed record WatchAlertPage(
+    IReadOnlyList<WatchAlertDto> Items,
+    string? NextCursor,
+    bool HasMore);
 
 internal sealed record WatchTaskTypePauseDto(
     string TaskType,

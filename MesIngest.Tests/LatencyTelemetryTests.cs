@@ -110,7 +110,7 @@ public class LatencyTelemetryTests
 
             if (path.EndsWith("/api/alerts", StringComparison.Ordinal))
             {
-                return Task.FromResult(JsonResponse(path, "[]"));
+                return Task.FromResult(JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}"""));
             }
 
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
@@ -289,6 +289,7 @@ public class LatencyTelemetryTests
 
     private static HttpResponseMessage EmptyDemandsOrList(string path) =>
         path.EndsWith("/api/demands", StringComparison.Ordinal)
+        || path.EndsWith("/api/alerts", StringComparison.Ordinal)
             ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
             : JsonResponse(path, "[]");
 

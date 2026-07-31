@@ -39,9 +39,11 @@ builder.Services.AddSingleton<ITransportDemandStore>(sp =>
         ? new SqlServerTransportDemandStore(
             options.SqlServerConnectionString,
             telemetry,
-            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)))
+            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+            alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)))
         : new InMemoryTransportDemandStore(
-            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)));
+            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+            alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)));
     return new ObservingTransportDemandStore(inner, telemetry);
 });
 builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
@@ -228,10 +230,85 @@ app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore st
     return Results.Ok(DemandDto.From(demand, alerts));
 });
 
-app.MapGet("/api/alerts", (ITransportDemandStore store, int? limit) =>
+app.MapGet("/api/alerts", (
+    ITransportDemandStore store,
+    string? active,
+    string? code,
+    string? severity,
+    string? from,
+    string? to,
+    string? sortBy,
+    string? direction,
+    string? limit,
+    string? cursor) =>
 {
-    var items = store.ListAlerts(limit).Select(AlertDto.From).ToList();
-    return Results.Ok(items);
+    if (!AlertListQueryParser.TryParseActive(active, out var parsedActive, out var activeError))
+    {
+        return Results.BadRequest(new { error = activeError });
+    }
+
+    if (!AlertListQueryParser.TryParseSortBy(sortBy, out var parsedSortBy, out var sortError))
+    {
+        return Results.BadRequest(new { error = sortError });
+    }
+
+    if (!AlertListQueryParser.TryParseDirection(direction, out var parsedDirection, out var directionError))
+    {
+        return Results.BadRequest(new { error = directionError });
+    }
+
+    if (!AlertListQueryParser.TryParseLimit(limit, out var parsedLimit, out var limitError))
+    {
+        return Results.BadRequest(new { error = limitError });
+    }
+
+    if (!AlertListQueryParser.TryParseDateTimeOffset(from, out var parsedFrom, out var fromError))
+    {
+        return Results.BadRequest(new { error = fromError });
+    }
+
+    if (!AlertListQueryParser.TryParseDateTimeOffset(to, out var parsedTo, out var toError))
+    {
+        return Results.BadRequest(new { error = toError });
+    }
+
+    if (!string.IsNullOrWhiteSpace(severity)
+        && !severity.Equals(AlertSeverities.Error, StringComparison.OrdinalIgnoreCase)
+        && !severity.Equals(AlertSeverities.Warning, StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.BadRequest(new { error = "severity must be ERROR or WARNING" });
+    }
+
+    var useDefaultPriority =
+        string.IsNullOrWhiteSpace(sortBy)
+        && string.IsNullOrWhiteSpace(direction);
+
+    var query = new AlertListQuery
+    {
+        Active = parsedActive,
+        Code = string.IsNullOrWhiteSpace(code) ? null : code.Trim(),
+        Severity = string.IsNullOrWhiteSpace(severity) ? null : severity.Trim().ToUpperInvariant(),
+        From = parsedFrom,
+        To = parsedTo,
+        SortBy = parsedSortBy,
+        Direction = parsedDirection,
+        Limit = parsedLimit,
+        Cursor = cursor,
+        UseDefaultPrioritySort = useDefaultPriority,
+    };
+
+    try
+    {
+        var page = store.QueryAlerts(query);
+        return Results.Ok(new AlertPageDto(
+            page.Items.Select(AlertDto.From).ToList(),
+            page.NextCursor,
+            page.HasMore));
+    }
+    catch (ArgumentException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
 });
 
 app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
@@ -439,21 +516,42 @@ internal sealed record DemandDto(
     }
 }
 
+internal sealed record AlertPageDto(
+    IReadOnlyList<AlertDto> Items,
+    string? NextCursor,
+    bool HasMore);
+
 internal sealed record AlertDto(
+    string AlertId,
     string Code,
+    string Severity,
     string? TaskType,
     string? Sublot,
     string? DemandId,
     string? Message,
+    string? Details,
+    DateTimeOffset FirstSeenAt,
+    DateTimeOffset LastSeenAt,
+    int OccurrenceCount,
+    bool IsActive,
+    DateTimeOffset? ResolvedAt,
     DateTimeOffset? CreatedAt)
 {
     public static AlertDto From(IngestAlert a) => new(
+        a.AlertId ?? string.Empty,
         a.Code,
+        a.Severity ?? IngestAlertCatalog.SeverityFor(a.Code),
         a.TaskType,
         a.Sublot,
         a.DemandId,
         a.Message,
-        a.CreatedAt);
+        a.Details,
+        a.EffectiveFirstSeenAt,
+        a.EffectiveLastSeenAt,
+        Math.Max(1, a.OccurrenceCount),
+        a.IsActive,
+        a.ResolvedAt,
+        a.EffectiveFirstSeenAt);
 }
 
 internal sealed record TaskTypePauseDto(

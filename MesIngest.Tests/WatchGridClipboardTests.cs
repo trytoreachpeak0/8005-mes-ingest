@@ -136,11 +136,19 @@ public class WatchGridClipboardTests
     public void Projects_alert_row_preserving_column_order()
     {
         var alert = new WatchAlertDto(
+            AlertId: "a1",
             Code: "POLL_FAILURE",
+            Severity: "ERROR",
             TaskType: null,
             Sublot: "S2",
             DemandId: "abcdef",
             Message: "line1\nline2",
+            Details: null,
+            FirstSeenAt: null,
+            LastSeenAt: null,
+            OccurrenceCount: 1,
+            IsActive: true,
+            ResolvedAt: null,
             CreatedAt: null);
 
         var columns = new (string Header, string PropertyPath)[]

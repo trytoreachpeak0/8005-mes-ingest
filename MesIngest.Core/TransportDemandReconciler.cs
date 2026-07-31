@@ -56,7 +56,7 @@ public sealed class TransportDemandReconciler
             countsByType,
             zeroDropEnterThreshold,
             zeroDropClearStreak,
-            out var enteredPauseTypes,
+            out var _,
             isBarrierRound);
 
         var pausedTypes = nextPauses
@@ -73,12 +73,23 @@ public sealed class TransportDemandReconciler
         var alerts = new List<IngestAlert>();
         var alertedDuplicateKeys = new HashSet<(string TaskType, string Sublot)>();
 
-        foreach (var taskType in enteredPauseTypes.OrderBy(t => t, StringComparer.Ordinal))
+        foreach (var pause in nextPauses.Where(p => p.PausedZeroDrop).OrderBy(p => p.TaskType, StringComparer.Ordinal))
         {
+            var details = AlertDetailsBuilder.PausedZeroDrop(
+                pause.LastHealthyNonZeroCount,
+                pause.RecoveryStreak,
+                zeroDropEnterThreshold,
+                zeroDropClearStreak);
             alerts.Add(new IngestAlert(
-                Code: "PAUSED_ZERO_DROP",
-                TaskType: taskType,
-                Message: "TASK_TYPE count dropped to 0 after healthy non-zero baseline; disappear/GONE suspended for this type."));
+                Code: AlertCodes.PausedZeroDrop,
+                TaskType: pause.TaskType,
+                Message:
+                "TASK_TYPE count dropped to 0 after healthy non-zero baseline; disappear/GONE suspended for this type.",
+                Details: details,
+                DetailsFingerprint: AlertDetailsBuilder.PausedZeroDropFingerprint(
+                    pause.LastHealthyNonZeroCount,
+                    zeroDropEnterThreshold,
+                    zeroDropClearStreak)));
         }
 
         foreach (var demand in prior.Demands)
@@ -95,7 +106,7 @@ public sealed class TransportDemandReconciler
             if (duplicateKeys.Contains(key))
             {
                 next.Add(demand);
-                TryAddDuplicateAlert(alerts, alertedDuplicateKeys, key, demand.DemandId);
+                TryAddDuplicateAlert(alerts, alertedDuplicateKeys, key, demand.DemandId, rowsByKey[key]);
                 continue;
             }
 
@@ -105,11 +116,12 @@ public sealed class TransportDemandReconciler
                 if (HasFieldDrift(demand, observed))
                 {
                     alerts.Add(new IngestAlert(
-                        Code: "FIELD_DRIFT",
+                        Code: AlertCodes.FieldDrift,
                         TaskType: demand.TaskType,
                         Sublot: demand.Sublot,
                         DemandId: demand.DemandId,
-                        Message: "MES fields drifted for still-VISIBLE demand; frozen projection retained."));
+                        Message: "MES fields drifted for still-VISIBLE demand; frozen projection retained.",
+                        Details: AlertDetailsBuilder.FieldDrift(demand, observed)));
                 }
 
                 next.Add(demand with
@@ -137,7 +149,7 @@ public sealed class TransportDemandReconciler
 
         foreach (var key in duplicateKeys)
         {
-            TryAddDuplicateAlert(alerts, alertedDuplicateKeys, key, demandId: null);
+            TryAddDuplicateAlert(alerts, alertedDuplicateKeys, key, demandId: null, rowsByKey[key]);
         }
 
         foreach (var key in uniquePresentKeys)
@@ -179,12 +191,20 @@ public sealed class TransportDemandReconciler
                 || (isGoneTransportDemandKey?.Invoke(row.TaskType, row.Sublot) ?? false);
             if (reappeared)
             {
+                var previousDemandId = prior.Demands
+                    .Where(d => d.Status == DemandStatus.Gone
+                        && string.Equals(d.TaskType, row.TaskType, StringComparison.Ordinal)
+                        && string.Equals(d.Sublot, row.Sublot, StringComparison.Ordinal))
+                    .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
+                    .Select(d => d.DemandId)
+                    .FirstOrDefault();
                 alerts.Add(new IngestAlert(
-                    Code: "REAPPEAR_AFTER_GONE",
+                    Code: AlertCodes.ReappearAfterGone,
                     TaskType: row.TaskType,
                     Sublot: row.Sublot,
                     DemandId: demandId,
-                    Message: "Reconcile key reappeared after GONE; allocated a new DemandId."));
+                    Message: "Reconcile key reappeared after GONE; allocated a new DemandId.",
+                    Details: AlertDetailsBuilder.Reappear(previousDemandId, demandId)));
             }
         }
 
@@ -311,7 +331,8 @@ public sealed class TransportDemandReconciler
         List<IngestAlert> alerts,
         HashSet<(string TaskType, string Sublot)> alertedDuplicateKeys,
         (string TaskType, string Sublot) key,
-        string? demandId)
+        string? demandId,
+        IReadOnlyList<MesSnapshotRow> rows)
     {
         if (!alertedDuplicateKeys.Add(key))
         {
@@ -319,11 +340,12 @@ public sealed class TransportDemandReconciler
         }
 
         alerts.Add(new IngestAlert(
-            Code: "DUPLICATE_RECONCILE_KEY",
+            Code: AlertCodes.DuplicateReconcileKey,
             TaskType: key.TaskType,
             Sublot: key.Sublot,
             DemandId: demandId,
-            Message: "Duplicate TASK_TYPE+SUBLOT rows in snapshot; create/update blocked for this key."));
+            Message: "Duplicate TASK_TYPE+SUBLOT rows in snapshot; create/update blocked for this key.",
+            Details: AlertDetailsBuilder.Duplicate(rows.Count, rows)));
     }
 
     private static bool HasFieldDrift(TransportDemand demand, MesSnapshotRow row) =>

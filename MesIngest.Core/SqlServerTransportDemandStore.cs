@@ -8,6 +8,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
     private readonly string _connectionString;
     private readonly ILatencyTelemetry _telemetry;
     private readonly TimeSpan _changeFeedRetention;
+    private readonly TimeSpan _alertRetention;
     private readonly Func<DateTimeOffset> _clock;
     private readonly object _gate = new();
 
@@ -15,7 +16,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         string connectionString,
         ILatencyTelemetry? telemetry = null,
         TimeSpan? changeFeedRetention = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        TimeSpan? alertRetention = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -25,6 +27,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         _connectionString = connectionString;
         _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
         _changeFeedRetention = changeFeedRetention ?? DemandChangeFeedQuery.DefaultRetention;
+        _alertRetention = alertRetention ?? AlertIncidentSync.DefaultResolvedRetention;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         EnsureSchema();
     }
@@ -54,10 +57,12 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             var existingPauses = LoadPauses(conn, tx)
                 .ToDictionary(p => p.TaskType, StringComparer.Ordinal);
 
-            if (alerts is { Count: > 0 })
-            {
-                AppendAlertsCore(conn, tx, alerts);
-            }
+            SyncAlertsCore(
+                conn,
+                tx,
+                alerts ?? Array.Empty<IngestAlert>(),
+                IngestAlertCatalog.SuccessRoundManagedCodes,
+                now);
 
             foreach (var demand in state.Demands)
             {
@@ -336,75 +341,193 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
     {
         ArgumentNullException.ThrowIfNull(alerts);
-        if (alerts.Count == 0)
-        {
-            return;
-        }
 
         lock (_gate)
         {
             using var conn = Open();
             using var tx = conn.BeginTransaction();
-            AppendAlertsCore(conn, tx, alerts);
+            SyncAlertsCore(conn, tx, alerts, IngestAlertCatalog.PollCodes, _clock());
             tx.Commit();
         }
     }
 
-    private static void AppendAlertsCore(
+    private void SyncAlertsCore(
         SqlConnection conn,
         SqlTransaction tx,
-        IReadOnlyList<IngestAlert> alerts)
+        IReadOnlyList<IngestAlert> observations,
+        IReadOnlySet<string> managedCodes,
+        DateTimeOffset asOf)
     {
-        var stamped = DateTimeOffset.UtcNow;
-        foreach (var alert in alerts)
+        var existing = LoadAllAlerts(conn, tx);
+        var next = AlertIncidentSync.Apply(
+            existing,
+            observations,
+            asOf,
+            managedCodes,
+            _alertRetention);
+        PersistAlerts(conn, tx, existing, next);
+    }
+
+    private static List<IngestAlert> LoadAllAlerts(SqlConnection conn, SqlTransaction? tx = null)
+    {
+        using var cmd = new SqlCommand(
+            """
+            SELECT AlertId, Code, Severity, TaskType, Sublot, DemandId, Message, Details, DetailsFingerprint,
+                   FirstSeenAt, LastSeenAt, OccurrenceCount, IsActive, ResolvedAt, CreatedAt
+            FROM dbo.IngestAlerts;
+            """,
+            conn);
+        if (tx is not null)
         {
-            using var insert = new SqlCommand(
-                """
-                INSERT INTO dbo.IngestAlerts (Code, TaskType, Sublot, DemandId, Message, CreatedAt)
-                VALUES (@Code, @TaskType, @Sublot, @DemandId, @Message, @CreatedAt);
-                """,
+            cmd.Transaction = tx;
+        }
+
+        using var reader = cmd.ExecuteReader();
+        var list = new List<IngestAlert>();
+        while (reader.Read())
+        {
+            list.Add(ReadAlert(reader));
+        }
+
+        return list;
+    }
+
+    private static IngestAlert ReadAlert(SqlDataReader reader) =>
+        new(
+            Code: reader.GetString(1),
+            TaskType: reader.IsDBNull(3) ? null : reader.GetString(3),
+            Sublot: reader.IsDBNull(4) ? null : reader.GetString(4),
+            DemandId: reader.IsDBNull(5) ? null : reader.GetString(5),
+            Message: reader.IsDBNull(6) ? null : reader.GetString(6),
+            CreatedAt: reader.GetDateTimeOffset(14),
+            AlertId: reader.GetString(0),
+            Severity: reader.IsDBNull(2) ? null : reader.GetString(2),
+            Details: reader.IsDBNull(7) ? null : reader.GetString(7),
+            DetailsFingerprint: reader.IsDBNull(8) ? null : reader.GetString(8),
+            FirstSeenAt: reader.GetDateTimeOffset(9),
+            LastSeenAt: reader.GetDateTimeOffset(10),
+            OccurrenceCount: reader.GetInt32(11),
+            IsActive: reader.GetBoolean(12),
+            ResolvedAt: reader.IsDBNull(13) ? null : reader.GetDateTimeOffset(13));
+
+    private static void PersistAlerts(
+        SqlConnection conn,
+        SqlTransaction tx,
+        IReadOnlyList<IngestAlert> existing,
+        IReadOnlyList<IngestAlert> next)
+    {
+        var nextById = next.ToDictionary(a => a.AlertId!, StringComparer.Ordinal);
+        foreach (var prior in existing)
+        {
+            if (prior.AlertId is null || nextById.ContainsKey(prior.AlertId))
+            {
+                continue;
+            }
+
+            using var delete = new SqlCommand(
+                "DELETE FROM dbo.IngestAlerts WHERE AlertId = @AlertId;",
                 conn,
                 tx);
-            insert.Parameters.AddWithValue("@Code", alert.Code);
-            insert.Parameters.AddWithValue("@TaskType", (object?)alert.TaskType ?? DBNull.Value);
-            insert.Parameters.AddWithValue("@Sublot", (object?)alert.Sublot ?? DBNull.Value);
-            insert.Parameters.AddWithValue("@DemandId", (object?)alert.DemandId ?? DBNull.Value);
-            insert.Parameters.AddWithValue("@Message", (object?)alert.Message ?? DBNull.Value);
-            insert.Parameters.AddWithValue("@CreatedAt", alert.CreatedAt ?? stamped);
-            insert.ExecuteNonQuery();
+            delete.Parameters.AddWithValue("@AlertId", prior.AlertId);
+            delete.ExecuteNonQuery();
+        }
+
+        var existingIds = existing
+            .Where(a => a.AlertId is not null)
+            .Select(a => a.AlertId!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var alert in next)
+        {
+            if (existingIds.Contains(alert.AlertId!))
+            {
+                using var update = new SqlCommand(
+                    """
+                    UPDATE dbo.IngestAlerts
+                    SET Code = @Code,
+                        Severity = @Severity,
+                        TaskType = @TaskType,
+                        Sublot = @Sublot,
+                        DemandId = @DemandId,
+                        Message = @Message,
+                        Details = @Details,
+                        DetailsFingerprint = @DetailsFingerprint,
+                        FirstSeenAt = @FirstSeenAt,
+                        LastSeenAt = @LastSeenAt,
+                        OccurrenceCount = @OccurrenceCount,
+                        IsActive = @IsActive,
+                        ResolvedAt = @ResolvedAt,
+                        CreatedAt = @CreatedAt
+                    WHERE AlertId = @AlertId;
+                    """,
+                    conn,
+                    tx);
+                BindAlert(update, alert);
+                update.ExecuteNonQuery();
+            }
+            else
+            {
+                using var insert = new SqlCommand(
+                    """
+                    INSERT INTO dbo.IngestAlerts
+                        (AlertId, Code, Severity, TaskType, Sublot, DemandId, Message, Details, DetailsFingerprint,
+                         FirstSeenAt, LastSeenAt, OccurrenceCount, IsActive, ResolvedAt, CreatedAt)
+                    VALUES
+                        (@AlertId, @Code, @Severity, @TaskType, @Sublot, @DemandId, @Message, @Details, @DetailsFingerprint,
+                         @FirstSeenAt, @LastSeenAt, @OccurrenceCount, @IsActive, @ResolvedAt, @CreatedAt);
+                    """,
+                    conn,
+                    tx);
+                BindAlert(insert, alert);
+                insert.ExecuteNonQuery();
+            }
         }
     }
 
-    public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null)
+    private static void BindAlert(SqlCommand cmd, IngestAlert alert)
     {
+        cmd.Parameters.AddWithValue("@AlertId", alert.AlertId!);
+        cmd.Parameters.AddWithValue("@Code", alert.Code);
+        cmd.Parameters.AddWithValue("@Severity", (object?)alert.Severity ?? IngestAlertCatalog.SeverityFor(alert.Code));
+        cmd.Parameters.AddWithValue("@TaskType", (object?)alert.TaskType ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Sublot", (object?)alert.Sublot ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@DemandId", (object?)alert.DemandId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Message", (object?)alert.Message ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@Details", (object?)alert.Details ?? DBNull.Value);
+        cmd.Parameters.AddWithValue(
+            "@DetailsFingerprint",
+            (object?)(alert.DetailsFingerprint ?? AlertDetailsFingerprint.Compute(alert.Details)) ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@FirstSeenAt", alert.EffectiveFirstSeenAt);
+        cmd.Parameters.AddWithValue("@LastSeenAt", alert.EffectiveLastSeenAt);
+        cmd.Parameters.AddWithValue("@OccurrenceCount", Math.Max(1, alert.OccurrenceCount));
+        cmd.Parameters.AddWithValue("@IsActive", alert.IsActive);
+        cmd.Parameters.AddWithValue("@ResolvedAt", (object?)alert.ResolvedAt ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@CreatedAt", alert.EffectiveFirstSeenAt);
+    }
+
+    public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) =>
+        QueryAlerts(new AlertListQuery
+        {
+            Limit = Math.Max(1, limit ?? InMemoryTransportDemandStore.DefaultAlertLimit),
+            UseDefaultPrioritySort = true,
+        }).Items;
+
+    public AlertListPage QueryAlerts(AlertListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!AlertListCursor.TryDecode(query.Cursor, query.SortBy, query.Direction, out var cursor, out var error))
+        {
+            throw new ArgumentException(error ?? "cursor is invalid", nameof(query));
+        }
+
         lock (_gate)
         {
             using var conn = Open();
-            var take = Math.Max(1, limit ?? InMemoryTransportDemandStore.DefaultAlertLimit);
-            using var cmd = new SqlCommand(
-                """
-                SELECT TOP (@Limit) Code, TaskType, Sublot, DemandId, Message, CreatedAt
-                FROM dbo.IngestAlerts
-                ORDER BY CreatedAt DESC, Id DESC;
-                """,
-                conn);
-            cmd.Parameters.AddWithValue("@Limit", take);
-            using var reader = cmd.ExecuteReader();
-            var list = new List<IngestAlert>();
-            while (reader.Read())
-            {
-                list.Add(new IngestAlert(
-                    Code: reader.GetString(0),
-                    TaskType: reader.IsDBNull(1) ? null : reader.GetString(1),
-                    Sublot: reader.IsDBNull(2) ? null : reader.GetString(2),
-                    DemandId: reader.IsDBNull(3) ? null : reader.GetString(3),
-                    Message: reader.IsDBNull(4) ? null : reader.GetString(4),
-                    CreatedAt: reader.GetDateTimeOffset(5)));
-            }
-
-            return list;
+            var all = LoadAllAlerts(conn);
+            return AlertListPaging.Page(all, query, cursor);
         }
     }
+
 
     public void SetLatestPollHealth(PollHealth health)
     {
@@ -543,18 +666,130 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 CREATE TABLE dbo.IngestAlerts
                 (
                     Id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_IngestAlerts PRIMARY KEY,
+                    AlertId NVARCHAR(64) NOT NULL,
                     Code NVARCHAR(64) NOT NULL,
+                    Severity NVARCHAR(16) NOT NULL,
                     TaskType NVARCHAR(128) NULL,
                     Sublot NVARCHAR(128) NULL,
                     DemandId NVARCHAR(64) NULL,
                     Message NVARCHAR(1024) NULL,
-                    CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_CreatedAt DEFAULT (SYSDATETIMEOFFSET())
+                    Details NVARCHAR(MAX) NULL,
+                    DetailsFingerprint NVARCHAR(64) NOT NULL,
+                    FirstSeenAt DATETIMEOFFSET NOT NULL,
+                    LastSeenAt DATETIMEOFFSET NOT NULL,
+                    OccurrenceCount INT NOT NULL CONSTRAINT DF_IngestAlerts_OccurrenceCount DEFAULT (1),
+                    IsActive BIT NOT NULL CONSTRAINT DF_IngestAlerts_IsActive DEFAULT (1),
+                    ResolvedAt DATETIMEOFFSET NULL,
+                    CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_CreatedAt DEFAULT (SYSDATETIMEOFFSET()),
+                    CONSTRAINT UQ_IngestAlerts_AlertId UNIQUE (AlertId)
                 );
             ');
 
             IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
                AND COL_LENGTH(N'dbo.IngestAlerts', N'CreatedAt') IS NULL
             EXEC(N'ALTER TABLE dbo.IngestAlerts ADD CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_CreatedAt DEFAULT (SYSDATETIMEOFFSET());');
+
+            IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.IngestAlerts', N'AlertId') IS NULL
+            EXEC(N'
+                ALTER TABLE dbo.IngestAlerts ADD
+                    AlertId NVARCHAR(64) NULL,
+                    Severity NVARCHAR(16) NULL,
+                    Details NVARCHAR(MAX) NULL,
+                    DetailsFingerprint NVARCHAR(64) NULL,
+                    FirstSeenAt DATETIMEOFFSET NULL,
+                    LastSeenAt DATETIMEOFFSET NULL,
+                    OccurrenceCount INT NULL,
+                    IsActive BIT NULL,
+                    ResolvedAt DATETIMEOFFSET NULL;
+            ');
+
+            IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.IngestAlerts', N'AlertId') IS NOT NULL
+            BEGIN
+                EXEC(N'
+                    UPDATE dbo.IngestAlerts
+                    SET AlertId = LOWER(REPLACE(CONVERT(nvarchar(36), NEWID()), N''-'', N'''')),
+                        Severity = CASE Code
+                            WHEN N''REAPPEAR_AFTER_GONE'' THEN N''WARNING''
+                            ELSE N''ERROR''
+                        END,
+                        DetailsFingerprint = N''legacy'',
+                        FirstSeenAt = CreatedAt,
+                        LastSeenAt = CreatedAt,
+                        OccurrenceCount = 1,
+                        IsActive = 0,
+                        ResolvedAt = CreatedAt
+                    WHERE AlertId IS NULL;
+                ');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'AlertId'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN AlertId NVARCHAR(64) NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'Severity'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN Severity NVARCHAR(16) NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'DetailsFingerprint'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN DetailsFingerprint NVARCHAR(64) NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'FirstSeenAt'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN FirstSeenAt DATETIMEOFFSET NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'LastSeenAt'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN LastSeenAt DATETIMEOFFSET NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'OccurrenceCount'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN OccurrenceCount INT NOT NULL;');
+
+                IF EXISTS (
+                    SELECT 1 FROM sys.columns
+                    WHERE object_id = OBJECT_ID(N'dbo.IngestAlerts')
+                      AND name = N'IsActive'
+                      AND is_nullable = 1)
+                EXEC(N'ALTER TABLE dbo.IngestAlerts ALTER COLUMN IsActive BIT NOT NULL;');
+            END
+
+            IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE name = N'UQ_IngestAlerts_AlertId'
+                      AND object_id = OBJECT_ID(N'dbo.IngestAlerts'))
+               AND NOT EXISTS (
+                    SELECT 1 FROM sys.key_constraints
+                    WHERE name = N'UQ_IngestAlerts_AlertId'
+                      AND parent_object_id = OBJECT_ID(N'dbo.IngestAlerts'))
+            EXEC(N'CREATE UNIQUE INDEX UQ_IngestAlerts_AlertId ON dbo.IngestAlerts (AlertId);');
+
+            IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE name = N'IX_IngestAlerts_Active_LastSeen_AlertId'
+                      AND object_id = OBJECT_ID(N'dbo.IngestAlerts'))
+            EXEC(N'CREATE INDEX IX_IngestAlerts_Active_LastSeen_AlertId ON dbo.IngestAlerts (IsActive DESC, LastSeenAt DESC, AlertId);');
 
             IF OBJECT_ID(N'dbo.PollHealth', N'U') IS NULL
             EXEC(N'

@@ -97,6 +97,12 @@ public sealed class MesIngestHostOptions
     /// </summary>
     public int ChangeFeedRetentionHours { get; set; } = 48;
 
+    /// <summary>
+    /// Resolved IngestAlert retention in days. Default 365. 0 keeps resolved incidents permanently.
+    /// Active incidents are never purged by retention.
+    /// </summary>
+    public int AlertRetentionDays { get; set; } = 365;
+
     public bool IsOracleSnapshotSource() =>
         SnapshotSource.Equals("Oracle", StringComparison.OrdinalIgnoreCase);
 

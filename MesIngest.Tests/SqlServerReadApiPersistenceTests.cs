@@ -48,14 +48,17 @@ public class SqlServerReadApiPersistenceTests : IClassFixture<WebApplicationFact
             baseline,
             clock: Clock);
         await runner.RunOnceAsync();
-        store.AppendAlerts(
-        [
-            new IngestAlert(
-                Code: "REAPPEAR_AFTER_GONE",
-                TaskType: "WIRE_TO_NITROGEN",
-                Sublot: "Q-HTTP-1",
-                DemandId: "persist-1"),
-        ]);
+        store.ReplaceState(
+            store.GetState(),
+            [
+                new IngestAlert(
+                    Code: "REAPPEAR_AFTER_GONE",
+                    TaskType: "WIRE_TO_NITROGEN",
+                    Sublot: "Q-HTTP-1",
+                    DemandId: "persist-1",
+                    Message: "reappear",
+                    Details: """{"previousDemandId":null,"newDemandId":"persist-1"}"""),
+            ]);
 
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
         await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
@@ -87,8 +90,9 @@ public class SqlServerReadApiPersistenceTests : IClassFixture<WebApplicationFact
             Assert.Equal("VISIBLE", demands.GetProperty("items")[0].GetProperty("status").GetString());
 
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
-            Assert.Equal(1, alerts.GetArrayLength());
-            Assert.Equal("REAPPEAR_AFTER_GONE", alerts[0].GetProperty("code").GetString());
+            Assert.Equal(1, alerts.GetProperty("items").GetArrayLength());
+            Assert.Equal("REAPPEAR_AFTER_GONE", alerts.GetProperty("items")[0].GetProperty("code").GetString());
+            Assert.Equal("WARNING", alerts.GetProperty("items")[0].GetProperty("severity").GetString());
 
             var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
             Assert.Equal("SUCCESS", health.GetProperty("outcome").GetString());

@@ -371,8 +371,10 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.Equal("VISIBLE", visible.GetProperty("items")[0].GetProperty("status").GetString());
 
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
-            Assert.Equal(1, alerts.GetArrayLength());
-            Assert.Equal("POLL_FAILURE", alerts[0].GetProperty("code").GetString());
+            Assert.Equal(1, alerts.GetProperty("items").GetArrayLength());
+            Assert.Equal("POLL_FAILURE", alerts.GetProperty("items")[0].GetProperty("code").GetString());
+            Assert.Equal("ERROR", alerts.GetProperty("items")[0].GetProperty("severity").GetString());
+            Assert.True(alerts.GetProperty("items")[0].GetProperty("isActive").GetBoolean());
 
             var health = await client.GetFromJsonAsync<JsonElement>("/api/poll-health");
             Assert.False(health.GetProperty("success").GetBoolean());
@@ -388,20 +390,28 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
     public async Task Alerts_endpoint_lists_recent_ingest_alerts()
     {
         var store = new InMemoryTransportDemandStore();
-        store.AppendAlerts(
-        [
-            new IngestAlert(
-                Code: "FIELD_DRIFT",
-                TaskType: "DIE_TO_WIRE_STAGING",
-                Sublot: "Q1",
-                DemandId: "d1",
-                Message: "drift"),
-            new IngestAlert(
-                Code: "DUPLICATE_RECONCILE_KEY",
-                TaskType: "DIE_TO_OVEN",
-                Sublot: "Q2",
-                Message: "dup"),
-        ]);
+        store.ReplaceState(
+            ProjectionState.Empty,
+            [
+                new IngestAlert(
+                    Code: "FIELD_DRIFT",
+                    TaskType: "DIE_TO_WIRE_STAGING",
+                    Sublot: "Q1",
+                    DemandId: "d1",
+                    Message: "drift",
+                    Details: """{"fields":[{"field":"Area","frozen":"A","observed":"B"}]}"""),
+                new IngestAlert(
+                    Code: "DUPLICATE_RECONCILE_KEY",
+                    TaskType: "DIE_TO_OVEN",
+                    Sublot: "Q2",
+                    Message: "dup",
+                    Details: """{"duplicateCount":2,"conflictingRows":[]}"""),
+                new IngestAlert(
+                    Code: "PAUSED_ZERO_DROP",
+                    TaskType: "DIE_TO_OVEN",
+                    Message: "paused",
+                    Details: """{"lastHealthyNonZeroCount":12,"recoveryStreak":0,"enterThreshold":10,"clearStreakRequired":3}"""),
+            ]);
 
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
         await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
@@ -424,24 +434,33 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
-            Assert.Equal(JsonValueKind.Array, alerts.ValueKind);
-            Assert.Equal(2, alerts.GetArrayLength());
-            var codes = alerts.EnumerateArray().Select(a => a.GetProperty("code").GetString()).ToHashSet();
+            Assert.Equal(JsonValueKind.Object, alerts.ValueKind);
+            Assert.Equal(3, alerts.GetProperty("items").GetArrayLength());
+            var codes = alerts.GetProperty("items").EnumerateArray().Select(a => a.GetProperty("code").GetString()).ToHashSet();
             Assert.Contains("FIELD_DRIFT", codes);
             Assert.Contains("DUPLICATE_RECONCILE_KEY", codes);
-            Assert.All(alerts.EnumerateArray(), a =>
+            Assert.Contains("PAUSED_ZERO_DROP", codes);
+            Assert.All(alerts.GetProperty("items").EnumerateArray(), a =>
             {
+                Assert.True(a.TryGetProperty("alertId", out var id));
+                Assert.False(string.IsNullOrWhiteSpace(id.GetString()));
+                Assert.True(a.TryGetProperty("firstSeenAt", out var first));
+                Assert.NotEqual(JsonValueKind.Null, first.ValueKind);
+                Assert.True(a.TryGetProperty("lastSeenAt", out var last));
+                Assert.NotEqual(JsonValueKind.Null, last.ValueKind);
+                Assert.True(a.GetProperty("isActive").GetBoolean());
                 Assert.True(a.TryGetProperty("createdAt", out var created));
                 Assert.NotEqual(JsonValueKind.Null, created.ValueKind);
             });
 
-            store.AppendAlerts(
-            [
-                new IngestAlert(Code: "PAUSED_ZERO_DROP", TaskType: "DIE_TO_OVEN", Message: "paused"),
-            ]);
             var limited = await client.GetFromJsonAsync<JsonElement>("/api/alerts?limit=2");
-            Assert.Equal(2, limited.GetArrayLength());
-            Assert.Equal("PAUSED_ZERO_DROP", limited[0].GetProperty("code").GetString());
+            Assert.Equal(2, limited.GetProperty("items").GetArrayLength());
+            Assert.True(limited.GetProperty("hasMore").GetBoolean());
+
+            var activeOnly = await client.GetFromJsonAsync<JsonElement>("/api/alerts?active=true&code=PAUSED_ZERO_DROP");
+            Assert.Equal(1, activeOnly.GetProperty("items").GetArrayLength());
+            Assert.Equal("PAUSED_ZERO_DROP", activeOnly.GetProperty("items")[0].GetProperty("code").GetString());
+            Assert.Equal("ERROR", activeOnly.GetProperty("items")[0].GetProperty("severity").GetString());
         }
         finally
         {
@@ -513,33 +532,37 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                 DisappearCount = 2,
                 GoneAt = now.AddMinutes(-30),
             },
-        ]));
-        store.AppendAlerts(
+        ]),
         [
             new IngestAlert(
                 Code: "FIELD_DRIFT",
                 TaskType: "DIE_TO_WIRE_STAGING",
                 Sublot: "Q1",
                 DemandId: "d1",
-                Message: "drift"),
+                Message: "drift",
+                Details: """{"fields":[{"field":"Area","frozen":"A","observed":"B"}]}"""),
             new IngestAlert(
                 Code: "REAPPEAR_AFTER_GONE",
                 TaskType: "DIE_TO_WIRE_STAGING",
                 Sublot: "Q1",
                 DemandId: "d1",
-                Message: "reappear"),
+                Message: "reappear",
+                Details: """{"previousDemandId":"d0","newDemandId":"d1"}"""),
             new IngestAlert(
                 Code: "DUPLICATE_RECONCILE_KEY",
                 TaskType: "DIE_TO_OVEN",
                 Sublot: "Q2",
-                Message: "dup"),
+                Message: "dup",
+                Details: """{"duplicateCount":2,"conflictingRows":[]}"""),
             new IngestAlert(
                 Code: "POLL_FAILURE",
-                Message: "global"),
+                Message: "global",
+                Details: """{"failureStage":"ORACLE_QUERY","durationMs":1,"rowCount":0,"reason":"global"}"""),
             new IngestAlert(
                 Code: "PAUSED_ZERO_DROP",
                 TaskType: "DIE_TO_OVEN",
-                Message: "type-only"),
+                Message: "type-only",
+                Details: """{"lastHealthyNonZeroCount":12,"recoveryStreak":0,"enterThreshold":10,"clearStreakRequired":3}"""),
         ]);
 
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
@@ -594,7 +617,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.Equal("VISIBLE", get.GetProperty("status").GetString());
 
             var global = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
-            Assert.Equal(5, global.GetArrayLength());
+            Assert.Equal(5, global.GetProperty("items").GetArrayLength());
         }
         finally
         {
@@ -839,7 +862,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
             Assert.Contains(
-                alerts.EnumerateArray(),
+                alerts.GetProperty("items").EnumerateArray(),
                 a => a.GetProperty("code").GetString() == "PAUSED_ZERO_DROP");
 
             var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");

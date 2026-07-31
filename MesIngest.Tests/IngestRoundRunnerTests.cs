@@ -459,6 +459,7 @@ public class IngestRoundRunnerTests
         public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _inner.AppendAlerts(alerts);
 
         public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) => _inner.ListAlerts(limit);
+        public AlertListPage QueryAlerts(AlertListQuery query) => _inner.QueryAlerts(query);
 
         public void SetLatestPollHealth(PollHealth health) => _inner.SetLatestPollHealth(health);
 

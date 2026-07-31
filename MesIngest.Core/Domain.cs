@@ -112,13 +112,45 @@ public sealed class ReconcileResult
     public IReadOnlyList<IngestAlert> Alerts { get; }
 }
 
+public static class AlertCodes
+{
+    public const string PollFailure = "POLL_FAILURE";
+    public const string PollIncomplete = "POLL_INCOMPLETE";
+    public const string DuplicateReconcileKey = "DUPLICATE_RECONCILE_KEY";
+    public const string PausedZeroDrop = "PAUSED_ZERO_DROP";
+    public const string FieldDrift = "FIELD_DRIFT";
+    public const string ReappearAfterGone = "REAPPEAR_AFTER_GONE";
+}
+
+public static class AlertSeverities
+{
+    public const string Error = "ERROR";
+    public const string Warning = "WARNING";
+}
+
 public sealed record IngestAlert(
     string Code,
     string? TaskType = null,
     string? Sublot = null,
     string? DemandId = null,
     string? Message = null,
-    DateTimeOffset? CreatedAt = null);
+    DateTimeOffset? CreatedAt = null,
+    string? AlertId = null,
+    string? Severity = null,
+    string? Details = null,
+    string? DetailsFingerprint = null,
+    DateTimeOffset? FirstSeenAt = null,
+    DateTimeOffset? LastSeenAt = null,
+    int OccurrenceCount = 1,
+    bool IsActive = true,
+    DateTimeOffset? ResolvedAt = null)
+{
+    public DateTimeOffset EffectiveFirstSeenAt =>
+        FirstSeenAt ?? CreatedAt ?? DateTimeOffset.MinValue;
+
+    public DateTimeOffset EffectiveLastSeenAt =>
+        LastSeenAt ?? FirstSeenAt ?? CreatedAt ?? DateTimeOffset.MinValue;
+}
 
 /// <summary>
 /// Process-start recovery semantics (business model §6.4).

@@ -252,6 +252,12 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
     public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) =>
         Measure(LatencyStages.SqlQuery, () => _inner.ListAlerts(limit), rows: items => items.Count);
 
+    public AlertListPage QueryAlerts(AlertListQuery query) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.QueryAlerts(query),
+            rows: page => page.Items.Count);
+
     public void SetLatestPollHealth(PollHealth health) =>
         Measure(
             LatencyStages.SqlWrite,

@@ -608,19 +608,22 @@ public class SqlServerTransportDemandStoreTests
         var ended = started.AddSeconds(3);
 
         var writer = new SqlServerTransportDemandStore(cs);
-        writer.AppendAlerts(
-        [
-            new IngestAlert(
-                Code: "FIELD_DRIFT",
-                TaskType: "DIE_TO_WIRE_STAGING",
-                Sublot: "Q1",
-                DemandId: "d1",
-                Message: "drift"),
-            new IngestAlert(
-                Code: "PAUSED_ZERO_DROP",
-                TaskType: "DIE_TO_OVEN",
-                Message: "paused"),
-        ]);
+        writer.ReplaceState(
+            ProjectionState.Empty,
+            [
+                new IngestAlert(
+                    Code: "FIELD_DRIFT",
+                    TaskType: "DIE_TO_WIRE_STAGING",
+                    Sublot: "Q1",
+                    DemandId: "d1",
+                    Message: "drift",
+                    Details: """{"fields":[{"field":"Area","frozen":"A","observed":"B"}]}"""),
+                new IngestAlert(
+                    Code: "PAUSED_ZERO_DROP",
+                    TaskType: "DIE_TO_OVEN",
+                    Message: "paused",
+                    Details: """{"lastHealthyNonZeroCount":12,"recoveryStreak":0,"enterThreshold":10,"clearStreakRequired":3}"""),
+            ]);
         writer.SetLatestPollHealth(new PollHealth(
             StartedAt: started,
             EndedAt: ended,
@@ -635,7 +638,8 @@ public class SqlServerTransportDemandStoreTests
         Assert.Contains(alerts, a => a.Code == "FIELD_DRIFT" && a.DemandId == "d1");
         Assert.Contains(alerts, a => a.Code == "PAUSED_ZERO_DROP" && a.TaskType == "DIE_TO_OVEN");
         Assert.All(alerts, a => Assert.NotNull(a.CreatedAt));
-        Assert.Equal("PAUSED_ZERO_DROP", alerts[0].Code);
+        Assert.All(alerts, a => Assert.False(string.IsNullOrWhiteSpace(a.AlertId)));
+        Assert.Contains(alerts, a => a.Code == "PAUSED_ZERO_DROP");
 
         var health = reader.GetLatestPollHealth();
         Assert.NotNull(health);

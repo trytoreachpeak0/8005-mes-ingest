@@ -44,6 +44,7 @@ public interface ITransportDemandStore
     DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query);
     void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
     IReadOnlyList<IngestAlert> ListAlerts(int? limit = null);
+    AlertListPage QueryAlerts(AlertListQuery query);
     void SetLatestPollHealth(PollHealth health);
     PollHealth? GetLatestPollHealth();
 }
@@ -56,15 +57,18 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     private readonly List<IngestAlert> _alerts = new();
     private readonly List<DemandChangeFeedEntry> _changeFeed = new();
     private readonly TimeSpan _changeFeedRetention;
+    private readonly TimeSpan _alertRetention;
     private readonly Func<DateTimeOffset> _clock;
     private long _nextSequence = 1;
     private PollHealth? _latestPollHealth;
 
     public InMemoryTransportDemandStore(
         TimeSpan? changeFeedRetention = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        TimeSpan? alertRetention = null)
     {
         _changeFeedRetention = changeFeedRetention ?? DemandChangeFeedQuery.DefaultRetention;
+        _alertRetention = alertRetention ?? AlertIncidentSync.DefaultResolvedRetention;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -102,10 +106,7 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
             state.Demands.Concat(retainedGone).ToList(),
             state.TaskTypePauses);
         PurgeChangeFeed(now);
-        if (alerts is { Count: > 0 })
-        {
-            AppendAlerts(alerts);
-        }
+        ApplyAlertObservations(alerts ?? Array.Empty<IngestAlert>(), IngestAlertCatalog.SuccessRoundManagedCodes, now);
     }
 
     public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
@@ -219,22 +220,44 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
     {
-        var stamped = DateTimeOffset.UtcNow;
-        foreach (var alert in alerts)
-        {
-            _alerts.Add(alert.CreatedAt is null ? alert with { CreatedAt = stamped } : alert);
-        }
+        ArgumentNullException.ThrowIfNull(alerts);
+        ApplyAlertObservations(alerts, IngestAlertCatalog.PollCodes, _clock());
     }
 
     public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null)
     {
         var take = Math.Max(1, limit ?? DefaultAlertLimit);
-        // Newest first: reverse append order (CreatedAt may collide within a batch).
-        return _alerts
-            .AsEnumerable()
-            .Reverse()
-            .Take(take)
-            .ToList();
+        return QueryAlerts(new AlertListQuery
+        {
+            Limit = take,
+            UseDefaultPrioritySort = true,
+        }).Items;
+    }
+
+    public AlertListPage QueryAlerts(AlertListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!AlertListCursor.TryDecode(query.Cursor, query.SortBy, query.Direction, out var cursor, out var error))
+        {
+            throw new ArgumentException(error ?? "cursor is invalid", nameof(query));
+        }
+
+        return AlertListPaging.Page(_alerts, query, cursor);
+    }
+
+    private void ApplyAlertObservations(
+        IReadOnlyList<IngestAlert> observations,
+        IReadOnlySet<string> managedCodes,
+        DateTimeOffset asOf)
+    {
+        var next = AlertIncidentSync.Apply(
+            _alerts,
+            observations,
+            asOf,
+            managedCodes,
+            _alertRetention);
+        _alerts.Clear();
+        _alerts.AddRange(next);
     }
 
     public void SetLatestPollHealth(PollHealth health) => _latestPollHealth = health;
@@ -310,21 +333,45 @@ public sealed class IngestRoundRunner
         {
             var stage = snapshot.FailureStage ?? LatencyStages.OracleQuery;
             var oracleMs = snapshot.OracleDurationMs ?? sw.Elapsed.TotalMilliseconds;
+            var timeoutSeconds = (int)Math.Max(1, _queryTimeout.TotalSeconds);
+            var reason = $"MES snapshot round failed; stage={stage}";
             _store.AppendAlerts(
             [
                 new IngestAlert(
-                    Code: "POLL_FAILURE",
+                    Code: AlertCodes.PollFailure,
                     Message:
-                    $"MES snapshot round failed; projection left unchanged. stage={stage} durationMs={(long)oracleMs} rowCount=0"),
+                    $"MES snapshot round failed; projection left unchanged. stage={stage} durationMs={(long)oracleMs} rowCount=0",
+                    Details: AlertDetailsBuilder.Poll(
+                        stage,
+                        oracleMs,
+                        rowCount: 0,
+                        reason: reason,
+                        timeoutSeconds: timeoutSeconds),
+                    DetailsFingerprint: AlertDetailsBuilder.PollFingerprint(
+                        stage,
+                        reason,
+                        timeoutSeconds)),
             ]);
         }
         else if (snapshot.Kind == SnapshotOutcomeKind.Incomplete)
         {
+            var timeoutSeconds = (int)Math.Max(1, _queryTimeout.TotalSeconds);
+            const string reason = "MES snapshot round incomplete; projection left unchanged.";
             _store.AppendAlerts(
             [
                 new IngestAlert(
-                    Code: "POLL_INCOMPLETE",
-                    Message: "MES snapshot round incomplete; projection left unchanged."),
+                    Code: AlertCodes.PollIncomplete,
+                    Message: reason,
+                    Details: AlertDetailsBuilder.Poll(
+                        failureStage: null,
+                        durationMs: snapshot.OracleDurationMs ?? sw.Elapsed.TotalMilliseconds,
+                        rowCount: 0,
+                        reason: reason,
+                        timeoutSeconds: timeoutSeconds),
+                    DetailsFingerprint: AlertDetailsBuilder.PollFingerprint(
+                        failureStage: null,
+                        reason: reason,
+                        timeoutSeconds: timeoutSeconds)),
             ]);
         }
 
