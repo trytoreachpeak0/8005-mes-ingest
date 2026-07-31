@@ -119,8 +119,8 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
                 new AuthenticationHeaderValue("Bearer", "plant-secret");
 
             var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(1, list.GetArrayLength());
-            Assert.Equal("auth-1", list[0].GetProperty("demandId").GetString());
+            Assert.Equal(1, list.GetProperty("items").GetArrayLength());
+            Assert.Equal("auth-1", list.GetProperty("items")[0].GetProperty("demandId").GetString());
         }
         finally
         {

@@ -127,24 +127,89 @@ app.MapGet("/api/demands", (
     string? status,
     string? taskType,
     string? sublot,
-    string? demandId) =>
+    string? demandId,
+    string? datesFrom,
+    string? datesTo,
+    string? goneAtFrom,
+    string? goneAtTo,
+    string? sortBy,
+    string? direction,
+    int? limit,
+    string? cursor) =>
 {
-    DemandStatus? parsed = null;
-    if (!string.IsNullOrWhiteSpace(status))
+    if (!DemandListQueryParser.TryParseStatus(status, out var parsedStatus, out var statusError))
     {
-        if (!TryParseStatus(status, out var value))
-        {
-            return Results.BadRequest(new { error = "status must be VISIBLE or GONE" });
-        }
-
-        parsed = value;
+        return Results.BadRequest(new { error = statusError });
     }
 
+    if (!DemandListQueryParser.TryParseSortBy(sortBy, out var parsedSortBy, out var sortError))
+    {
+        return Results.BadRequest(new { error = sortError });
+    }
+
+    if (!DemandListQueryParser.TryParseDirection(direction, out var parsedDirection, out var directionError))
+    {
+        return Results.BadRequest(new { error = directionError });
+    }
+
+    if (!DemandListQueryParser.TryParseLimit(limit, out var parsedLimit, out var limitError))
+    {
+        return Results.BadRequest(new { error = limitError });
+    }
+
+    if (!DemandListQueryParser.TryParseDemandId(demandId, out var demandIdMatch, out var demandIdError))
+    {
+        return Results.BadRequest(new { error = demandIdError });
+    }
+
+    if (!DemandListQueryParser.TryParseDateTimeOffset(datesFrom, out var parsedDatesFrom, out var datesFromError))
+    {
+        return Results.BadRequest(new { error = datesFromError });
+    }
+
+    if (!DemandListQueryParser.TryParseDateTimeOffset(datesTo, out var parsedDatesTo, out var datesToError))
+    {
+        return Results.BadRequest(new { error = datesToError });
+    }
+
+    if (!DemandListQueryParser.TryParseDateTimeOffset(goneAtFrom, out var parsedGoneAtFrom, out var goneAtFromError))
+    {
+        return Results.BadRequest(new { error = goneAtFromError });
+    }
+
+    if (!DemandListQueryParser.TryParseDateTimeOffset(goneAtTo, out var parsedGoneAtTo, out var goneAtToError))
+    {
+        return Results.BadRequest(new { error = goneAtToError });
+    }
+
+    if (!DemandListCursor.TryDecode(cursor, parsedSortBy, parsedDirection, out _, out var cursorError))
+    {
+        return Results.BadRequest(new { error = cursorError });
+    }
+
+    var query = new DemandListQuery
+    {
+        Status = parsedStatus,
+        TaskType = taskType,
+        Sublot = sublot,
+        DemandId = demandIdMatch,
+        DatesFrom = parsedDatesFrom,
+        DatesTo = parsedDatesTo,
+        GoneAtFrom = parsedGoneAtFrom,
+        GoneAtTo = parsedGoneAtTo,
+        SortBy = parsedSortBy,
+        Direction = parsedDirection,
+        Limit = parsedLimit,
+        Cursor = cursor,
+        AsOf = DateTimeOffset.UtcNow,
+    };
+
     var alerts = store.ListAlerts();
-    var items = store.List(parsed, taskType, sublot, demandId)
-        .Select(d => DemandDto.From(d, DemandDto.RelevantAlerts(alerts, d)))
-        .ToList();
-    return Results.Ok(items);
+    var page = store.QueryPage(query);
+    return Results.Ok(new DemandPageDto(
+        page.Items.Select(d => DemandDto.From(d, DemandDto.RelevantAlerts(alerts, d))).ToList(),
+        page.NextCursor,
+        page.HasMore));
 });
 
 app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore store) =>
@@ -203,23 +268,10 @@ static IMesSnapshotSource CreateSnapshotSource(MesIngestHostOptions options, str
     return new CsvFileMesSnapshotSource(options.SnapshotCsvPath);
 }
 
-static bool TryParseStatus(string raw, out DemandStatus status)
-{
-    if (raw.Equals("VISIBLE", StringComparison.OrdinalIgnoreCase))
-    {
-        status = DemandStatus.Visible;
-        return true;
-    }
-
-    if (raw.Equals("GONE", StringComparison.OrdinalIgnoreCase))
-    {
-        status = DemandStatus.Gone;
-        return true;
-    }
-
-    status = default;
-    return false;
-}
+internal sealed record DemandPageDto(
+    IReadOnlyList<DemandDto> Items,
+    string? NextCursor,
+    bool HasMore);
 
 internal sealed record DemandDto(
     string DemandId,

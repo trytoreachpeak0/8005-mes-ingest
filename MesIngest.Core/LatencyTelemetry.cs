@@ -227,6 +227,12 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
             () => _inner.List(status, taskType, sublot, demandId),
             rows: items => items.Count);
 
+    public DemandListPage QueryPage(DemandListQuery query) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.QueryPage(query),
+            rows: page => page.Items.Count);
+
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) =>
         Measure(
             LatencyStages.SqlWrite,

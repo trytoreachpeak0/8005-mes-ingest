@@ -428,6 +428,98 @@ public class SqlServerTransportDemandStoreTests
         Assert.True(health.Success);
         Assert.Equal("SUCCESS", health.Outcome);
     }
+
+    [SqlServerAvailabilityFact]
+    public void Query_page_uses_read_path_indexes_and_keyset_pagination()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+        _ = new SqlServerTransportDemandStore(cs);
+
+        using (var conn = new SqlConnection(cs))
+        {
+            conn.Open();
+            using var cmd = new SqlCommand(
+                """
+                SELECT name FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N'dbo.TransportDemands')
+                  AND name IN (
+                    N'IX_TransportDemands_Status_Dates_DemandId',
+                    N'IX_TransportDemands_TaskType_Sublot',
+                    N'IX_TransportDemands_GoneAt_DemandId');
+                """,
+                conn);
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                names.Add(reader.GetString(0));
+            }
+
+            Assert.Contains("IX_TransportDemands_Status_Dates_DemandId", names);
+            Assert.Contains("IX_TransportDemands_TaskType_Sublot", names);
+            Assert.Contains("IX_TransportDemands_GoneAt_DemandId", names);
+        }
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q1",
+                Dates = now.AddMinutes(1),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q2",
+                Dates = now.AddMinutes(2),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "cccccccccccccccccccccccccccccccc",
+                TaskType = "WIRE_TO_GATE",
+                Sublot = "Q3",
+                Dates = now.AddMinutes(3),
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+
+        var first = store.QueryPage(new DemandListQuery
+        {
+            Status = DemandStatus.Visible,
+            Limit = 2,
+            AsOf = now,
+        });
+        Assert.True(first.HasMore);
+        Assert.Equal(
+            new[] { "cccccccccccccccccccccccccccccccc", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+            first.Items.Select(d => d.DemandId).ToArray());
+
+        var second = store.QueryPage(new DemandListQuery
+        {
+            Status = DemandStatus.Visible,
+            Limit = 2,
+            Cursor = first.NextCursor,
+            AsOf = now,
+        });
+        Assert.False(second.HasMore);
+        Assert.Equal(
+            new[] { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            second.Items.Select(d => d.DemandId).ToArray());
+    }
 }
 
 internal static class SqlServerTestEnv

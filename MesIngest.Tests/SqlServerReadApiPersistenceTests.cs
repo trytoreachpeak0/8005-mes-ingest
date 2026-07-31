@@ -82,9 +82,9 @@ public class SqlServerReadApiPersistenceTests : IClassFixture<WebApplicationFact
             var client = factory.CreateClient();
 
             var demands = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(1, demands.GetArrayLength());
-            Assert.Equal("persist-1", demands[0].GetProperty("demandId").GetString());
-            Assert.Equal("VISIBLE", demands[0].GetProperty("status").GetString());
+            Assert.Equal(1, demands.GetProperty("items").GetArrayLength());
+            Assert.Equal("persist-1", demands.GetProperty("items")[0].GetProperty("demandId").GetString());
+            Assert.Equal("VISIBLE", demands.GetProperty("items")[0].GetProperty("status").GetString());
 
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
             Assert.Equal(1, alerts.GetArrayLength());

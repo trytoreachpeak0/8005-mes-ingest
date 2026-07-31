@@ -40,6 +40,7 @@ public interface ITransportDemandStore
         string? taskType = null,
         string? sublot = null,
         string? demandId = null);
+    DemandListPage QueryPage(DemandListQuery query);
     void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
     IReadOnlyList<IngestAlert> ListAlerts(int? limit = null);
     void SetLatestPollHealth(PollHealth health);
@@ -115,6 +116,19 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
             .OrderByDescending(d => d.Dates)
             .ThenBy(d => d.DemandId, StringComparer.Ordinal)
             .ToList();
+    }
+
+    public DemandListPage QueryPage(DemandListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (!DemandListCursor.TryDecode(query.Cursor, query.SortBy, query.Direction, out var cursor, out var error))
+        {
+            throw new ArgumentException(error ?? "cursor is invalid", nameof(query));
+        }
+
+        DemandListCursor.CursorPayload? cursorPayload =
+            string.IsNullOrWhiteSpace(query.Cursor) ? null : cursor;
+        return DemandListPaging.Page(_state.Demands, query, cursorPayload);
     }
 
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)

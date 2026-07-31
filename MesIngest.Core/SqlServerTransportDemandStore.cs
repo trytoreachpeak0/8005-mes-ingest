@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.Data.SqlClient;
 
 namespace MesIngest.Core;
@@ -194,6 +195,46 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             }
 
             return ReadDemands(cmd);
+        }
+    }
+
+    public DemandListPage QueryPage(DemandListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        DemandListCursor.CursorPayload? cursorPayload = null;
+        if (!string.IsNullOrWhiteSpace(query.Cursor))
+        {
+            if (!DemandListCursor.TryDecode(
+                    query.Cursor,
+                    query.SortBy,
+                    query.Direction,
+                    out var decoded,
+                    out var error))
+            {
+                throw new ArgumentException(error ?? "cursor is invalid", nameof(query));
+            }
+
+            cursorPayload = decoded;
+        }
+
+        lock (_gate)
+        {
+            using var conn = Open();
+            using var cmd = BuildQueryPageCommand(conn, query, cursorPayload);
+            var rows = ReadDemands(cmd).ToList();
+            var hasMore = rows.Count > query.Limit;
+            if (hasMore)
+            {
+                rows.RemoveRange(query.Limit, rows.Count - query.Limit);
+            }
+
+            string? nextCursor = null;
+            if (hasMore && rows.Count > 0)
+            {
+                nextCursor = DemandListCursor.Encode(query.SortBy, query.Direction, rows[^1]);
+            }
+
+            return new DemandListPage(rows, nextCursor, hasMore);
         }
     }
 
@@ -537,6 +578,166 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         upsert.Parameters.AddWithValue("@RecoveryStreak", pause.RecoveryStreak);
         upsert.ExecuteNonQuery();
     }
+
+    private static SqlCommand BuildQueryPageCommand(
+        SqlConnection conn,
+        DemandListQuery query,
+        DemandListCursor.CursorPayload? cursor)
+    {
+        var sql = new StringBuilder(
+            """
+            SELECT TOP (@Take) DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
+                   MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
+            FROM dbo.TransportDemands
+            WHERE Status = @Status
+            """);
+        var cmd = new SqlCommand { Connection = conn };
+        cmd.Parameters.AddWithValue("@Take", query.Limit + 1);
+        cmd.Parameters.AddWithValue("@Status", ToStatusText(query.Status));
+
+        if (!string.IsNullOrWhiteSpace(query.TaskType))
+        {
+            sql.Append(" AND TaskType = @TaskType");
+            cmd.Parameters.AddWithValue("@TaskType", query.TaskType);
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Sublot))
+        {
+            sql.Append(" AND Sublot = @Sublot");
+            cmd.Parameters.AddWithValue("@Sublot", query.Sublot);
+        }
+
+        if (query.DemandId is { } demandId)
+        {
+            if (demandId.IsPrefix)
+            {
+                sql.Append(" AND DemandId LIKE @DemandIdPrefix ESCAPE N'\\'");
+                cmd.Parameters.AddWithValue("@DemandIdPrefix", EscapeLikePrefix(demandId.Value) + "%");
+            }
+            else
+            {
+                sql.Append(" AND DemandId = @DemandId");
+                cmd.Parameters.AddWithValue("@DemandId", demandId.Value);
+            }
+        }
+
+        if (query.DatesFrom is { } datesFrom)
+        {
+            sql.Append(" AND Dates >= @DatesFrom");
+            cmd.Parameters.AddWithValue("@DatesFrom", datesFrom);
+        }
+
+        if (query.DatesTo is { } datesTo)
+        {
+            sql.Append(" AND Dates <= @DatesTo");
+            cmd.Parameters.AddWithValue("@DatesTo", datesTo);
+        }
+
+        if (query.EffectiveGoneAtFrom is { } goneFrom)
+        {
+            sql.Append(" AND GoneAt IS NOT NULL AND GoneAt >= @GoneAtFrom");
+            cmd.Parameters.AddWithValue("@GoneAtFrom", goneFrom);
+        }
+
+        if (query.EffectiveGoneAtTo is { } goneTo)
+        {
+            sql.Append(" AND GoneAt IS NOT NULL AND GoneAt <= @GoneAtTo");
+            cmd.Parameters.AddWithValue("@GoneAtTo", goneTo);
+        }
+
+        if (cursor is not null)
+        {
+            AppendKeysetPredicate(sql, cmd, query.SortBy, query.Direction, cursor);
+        }
+
+        sql.Append(' ').Append(BuildOrderByClause(query.SortBy, query.Direction));
+        cmd.CommandText = sql.ToString();
+        return cmd;
+    }
+
+    private static void AppendKeysetPredicate(
+        StringBuilder sql,
+        SqlCommand cmd,
+        DemandSortColumn sortBy,
+        SortDirection direction,
+        DemandListCursor.CursorPayload cursor)
+    {
+        var gt = direction == SortDirection.Asc;
+        cmd.Parameters.AddWithValue("@CursorDemandId", cursor.DemandId);
+        switch (sortBy)
+        {
+            case DemandSortColumn.DemandId:
+                sql.Append(gt ? " AND DemandId > @CursorDemandId" : " AND DemandId < @CursorDemandId");
+                break;
+            case DemandSortColumn.GoneAt:
+                if (cursor.GoneAt is null)
+                {
+                    // Match in-memory MinValue treatment without wrapping GoneAt in a function.
+                    sql.Append(gt
+                        ? " AND (GoneAt IS NOT NULL OR (GoneAt IS NULL AND DemandId > @CursorDemandId))"
+                        : " AND (GoneAt IS NULL AND DemandId > @CursorDemandId)");
+                }
+                else
+                {
+                    cmd.Parameters.AddWithValue("@CursorGoneAt", cursor.GoneAt.Value);
+                    sql.Append(gt
+                        ? " AND ((GoneAt > @CursorGoneAt) OR (GoneAt = @CursorGoneAt AND DemandId > @CursorDemandId))"
+                        : " AND ((GoneAt < @CursorGoneAt) OR (GoneAt = @CursorGoneAt AND DemandId > @CursorDemandId) OR GoneAt IS NULL)");
+                }
+
+                break;
+            case DemandSortColumn.CreatedAt:
+                cmd.Parameters.AddWithValue("@CursorCreatedAt", cursor.CreatedAt ?? default);
+                sql.Append(gt
+                    ? " AND (CreatedAt > @CursorCreatedAt OR (CreatedAt = @CursorCreatedAt AND DemandId > @CursorDemandId))"
+                    : " AND (CreatedAt < @CursorCreatedAt OR (CreatedAt = @CursorCreatedAt AND DemandId > @CursorDemandId))");
+                break;
+            case DemandSortColumn.MesLastSeenAt:
+                cmd.Parameters.AddWithValue("@CursorMesLastSeenAt", cursor.MesLastSeenAt ?? default);
+                sql.Append(gt
+                    ? " AND (MesLastSeenAt > @CursorMesLastSeenAt OR (MesLastSeenAt = @CursorMesLastSeenAt AND DemandId > @CursorDemandId))"
+                    : " AND (MesLastSeenAt < @CursorMesLastSeenAt OR (MesLastSeenAt = @CursorMesLastSeenAt AND DemandId > @CursorDemandId))");
+                break;
+            case DemandSortColumn.TaskType:
+                cmd.Parameters.AddWithValue("@CursorTaskType", cursor.TaskType ?? "");
+                sql.Append(gt
+                    ? " AND (TaskType > @CursorTaskType OR (TaskType = @CursorTaskType AND DemandId > @CursorDemandId))"
+                    : " AND (TaskType < @CursorTaskType OR (TaskType = @CursorTaskType AND DemandId > @CursorDemandId))");
+                break;
+            case DemandSortColumn.Sublot:
+                cmd.Parameters.AddWithValue("@CursorSublot", cursor.Sublot ?? "");
+                sql.Append(gt
+                    ? " AND (Sublot > @CursorSublot OR (Sublot = @CursorSublot AND DemandId > @CursorDemandId))"
+                    : " AND (Sublot < @CursorSublot OR (Sublot = @CursorSublot AND DemandId > @CursorDemandId))");
+                break;
+            default:
+                cmd.Parameters.AddWithValue("@CursorDates", cursor.Dates ?? default);
+                sql.Append(gt
+                    ? " AND (Dates > @CursorDates OR (Dates = @CursorDates AND DemandId > @CursorDemandId))"
+                    : " AND (Dates < @CursorDates OR (Dates = @CursorDates AND DemandId > @CursorDemandId))");
+                break;
+        }
+    }
+
+    private static string BuildOrderByClause(DemandSortColumn sortBy, SortDirection direction)
+    {
+        var dir = direction == SortDirection.Asc ? "ASC" : "DESC";
+        return sortBy switch
+        {
+            DemandSortColumn.DemandId => $"ORDER BY DemandId {dir}",
+            DemandSortColumn.GoneAt => $"ORDER BY GoneAt {dir}, DemandId ASC",
+            DemandSortColumn.CreatedAt => $"ORDER BY CreatedAt {dir}, DemandId ASC",
+            DemandSortColumn.MesLastSeenAt => $"ORDER BY MesLastSeenAt {dir}, DemandId ASC",
+            DemandSortColumn.TaskType => $"ORDER BY TaskType {dir}, DemandId ASC",
+            DemandSortColumn.Sublot => $"ORDER BY Sublot {dir}, DemandId ASC",
+            _ => $"ORDER BY Dates {dir}, DemandId ASC",
+        };
+    }
+
+    private static string EscapeLikePrefix(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 
     private static void BindDemand(SqlCommand cmd, TransportDemand demand)
     {

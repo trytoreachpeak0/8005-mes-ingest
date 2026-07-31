@@ -451,6 +451,8 @@ public class IngestRoundRunnerTests
             string? demandId = null) =>
             _inner.List(status, taskType, sublot, demandId);
 
+        public DemandListPage QueryPage(DemandListQuery query) => _inner.QueryPage(query);
+
         public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _inner.AppendAlerts(alerts);
 
         public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) => _inner.ListAlerts(limit);

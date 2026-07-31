@@ -50,13 +50,14 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             var client = factory.CreateClient();
 
             var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(JsonValueKind.Array, list.ValueKind);
-            Assert.Equal(2, list.GetArrayLength());
+            Assert.Equal(JsonValueKind.Object, list.ValueKind);
+            var items = list.GetProperty("items");
+            Assert.Equal(2, items.GetArrayLength());
 
-            var ids = list.EnumerateArray().Select(d => d.GetProperty("demandId").GetString()).ToArray();
+            var ids = items.EnumerateArray().Select(d => d.GetProperty("demandId").GetString()).ToArray();
             Assert.All(ids, id => Assert.False(string.IsNullOrWhiteSpace(id)));
 
-            var nitrogen = list.EnumerateArray()
+            var nitrogen = items.EnumerateArray()
                 .Single(d => d.GetProperty("taskType").GetString() == "WIRE_TO_NITROGEN");
             Assert.Equal("UNKNOWN-PACKAGE-XYZ", nitrogen.GetProperty("package").GetString());
             Assert.Equal("VISIBLE", nitrogen.GetProperty("status").GetString());
@@ -132,7 +133,9 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
             var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            var ids = list.EnumerateArray().Select(d => d.GetProperty("demandId").GetString()).ToArray();
+            var ids = list.GetProperty("items").EnumerateArray()
+                .Select(d => d.GetProperty("demandId").GetString())
+                .ToArray();
             Assert.Equal(new[] { "c", "a", "b" }, ids);
         }
         finally
@@ -175,6 +178,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                 Status = DemandStatus.Gone,
                 MesLastSeenAt = now.AddMinutes(-10),
                 DisappearCount = 2,
+                GoneAt = now.AddMinutes(-5),
             },
         ]));
 
@@ -199,33 +203,36 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
 
-            var all = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(2, all.GetArrayLength());
+            var defaults = await client.GetFromJsonAsync<JsonElement>("/api/demands");
+            Assert.Equal(1, defaults.GetProperty("items").GetArrayLength());
+            Assert.Equal("visible-1", defaults.GetProperty("items")[0].GetProperty("demandId").GetString());
 
             var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");
-            Assert.Equal(1, visible.GetArrayLength());
-            Assert.Equal("visible-1", visible[0].GetProperty("demandId").GetString());
-            Assert.Equal("VISIBLE", visible[0].GetProperty("status").GetString());
+            Assert.Equal(1, visible.GetProperty("items").GetArrayLength());
+            Assert.Equal("visible-1", visible.GetProperty("items")[0].GetProperty("demandId").GetString());
+            Assert.Equal("VISIBLE", visible.GetProperty("items")[0].GetProperty("status").GetString());
 
             var gone = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=GONE");
-            Assert.Equal(1, gone.GetArrayLength());
-            Assert.Equal("gone-1", gone[0].GetProperty("demandId").GetString());
-            Assert.Equal("GONE", gone[0].GetProperty("status").GetString());
+            Assert.Equal(1, gone.GetProperty("items").GetArrayLength());
+            Assert.Equal("gone-1", gone.GetProperty("items")[0].GetProperty("demandId").GetString());
+            Assert.Equal("GONE", gone.GetProperty("items")[0].GetProperty("status").GetString());
 
             var bad = await client.GetAsync("/api/demands?status=PENDING");
             Assert.Equal(HttpStatusCode.BadRequest, bad.StatusCode);
 
-            var byType = await client.GetFromJsonAsync<JsonElement>("/api/demands?taskType=DIE_TO_OVEN");
-            Assert.Equal(1, byType.GetArrayLength());
-            Assert.Equal("gone-1", byType[0].GetProperty("demandId").GetString());
+            var byType = await client.GetFromJsonAsync<JsonElement>(
+                "/api/demands?status=GONE&taskType=DIE_TO_OVEN");
+            Assert.Equal(1, byType.GetProperty("items").GetArrayLength());
+            Assert.Equal("gone-1", byType.GetProperty("items")[0].GetProperty("demandId").GetString());
 
             var bySublot = await client.GetFromJsonAsync<JsonElement>("/api/demands?sublot=Q-VISIBLE");
-            Assert.Equal(1, bySublot.GetArrayLength());
-            Assert.Equal("visible-1", bySublot[0].GetProperty("demandId").GetString());
+            Assert.Equal(1, bySublot.GetProperty("items").GetArrayLength());
+            Assert.Equal("visible-1", bySublot.GetProperty("items")[0].GetProperty("demandId").GetString());
 
-            var byDemandId = await client.GetFromJsonAsync<JsonElement>("/api/demands?demandId=gone-1");
-            Assert.Equal(1, byDemandId.GetArrayLength());
-            Assert.Equal("GONE", byDemandId[0].GetProperty("status").GetString());
+            var byDemandId = await client.GetAsync("/api/demands/gone-1");
+            Assert.Equal(HttpStatusCode.OK, byDemandId.StatusCode);
+            var one = await byDemandId.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("GONE", one.GetProperty("status").GetString());
         }
         finally
         {
@@ -294,13 +301,13 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             var client = factory.CreateClient();
 
             var gone = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=GONE");
-            Assert.Equal(1, gone.GetArrayLength());
-            Assert.Equal("d1", gone[0].GetProperty("demandId").GetString());
+            Assert.Equal(1, gone.GetProperty("items").GetArrayLength());
+            Assert.Equal("d1", gone.GetProperty("items")[0].GetProperty("demandId").GetString());
 
             var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");
-            Assert.Equal(1, visible.GetArrayLength());
-            Assert.Equal("d2", visible[0].GetProperty("demandId").GetString());
-            Assert.Equal("PKG-REAPPEAR", visible[0].GetProperty("package").GetString());
+            Assert.Equal(1, visible.GetProperty("items").GetArrayLength());
+            Assert.Equal("d2", visible.GetProperty("items")[0].GetProperty("demandId").GetString());
+            Assert.Equal("PKG-REAPPEAR", visible.GetProperty("items")[0].GetProperty("package").GetString());
         }
         finally
         {
@@ -358,10 +365,10 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
             var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");
-            Assert.Equal(1, visible.GetArrayLength());
-            Assert.Equal("d1", visible[0].GetProperty("demandId").GetString());
-            Assert.Equal(1, visible[0].GetProperty("disappearCount").GetInt32());
-            Assert.Equal("VISIBLE", visible[0].GetProperty("status").GetString());
+            Assert.Equal(1, visible.GetProperty("items").GetArrayLength());
+            Assert.Equal("d1", visible.GetProperty("items")[0].GetProperty("demandId").GetString());
+            Assert.Equal(1, visible.GetProperty("items")[0].GetProperty("disappearCount").GetInt32());
+            Assert.Equal("VISIBLE", visible.GetProperty("items")[0].GetProperty("status").GetString());
 
             var alerts = await client.GetFromJsonAsync<JsonElement>("/api/alerts");
             Assert.Equal(1, alerts.GetArrayLength());
@@ -556,9 +563,10 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
             var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(4, list.GetArrayLength());
+            var items = list.GetProperty("items");
+            Assert.Equal(3, items.GetArrayLength());
 
-            var d1 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d1");
+            var d1 = items.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d1");
             Assert.True(d1.TryGetProperty("alerts", out var d1Alerts));
             Assert.Equal(JsonValueKind.Array, d1Alerts.ValueKind);
             Assert.Equal(2, d1Alerts.GetArrayLength());
@@ -566,17 +574,19 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.Contains("FIELD_DRIFT", d1Codes);
             Assert.Contains("REAPPEAR_AFTER_GONE", d1Codes);
 
-            var d1Gone = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d1-gone");
+            var gonePage = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=GONE");
+            var d1Gone = gonePage.GetProperty("items").EnumerateArray()
+                .Single(d => d.GetProperty("demandId").GetString() == "d1-gone");
             Assert.Equal(0, d1Gone.GetProperty("alerts").GetArrayLength());
 
-            var d2 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d2");
+            var d2 = items.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d2");
             var d2Alerts = d2.GetProperty("alerts");
             Assert.Equal(1, d2Alerts.GetArrayLength());
             Assert.Equal("DUPLICATE_RECONCILE_KEY", d2Alerts[0].GetProperty("code").GetString());
             Assert.Equal("DIE_TO_OVEN", d2Alerts[0].GetProperty("taskType").GetString());
             Assert.Equal("Q2", d2Alerts[0].GetProperty("sublot").GetString());
 
-            var d3 = list.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d3");
+            var d3 = items.EnumerateArray().Single(d => d.GetProperty("demandId").GetString() == "d3");
             Assert.Equal(0, d3.GetProperty("alerts").GetArrayLength());
 
             var get = await client.GetFromJsonAsync<JsonElement>("/api/demands/d1");
@@ -650,8 +660,8 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             Assert.True(health.GetProperty("durationMs").GetDouble() >= 0);
 
             var demands = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(1, demands.GetArrayLength());
-            Assert.False(demands[0].GetProperty("locationRisk").GetBoolean());
+            Assert.Equal(1, demands.GetProperty("items").GetArrayLength());
+            Assert.False(demands.GetProperty("items")[0].GetProperty("locationRisk").GetBoolean());
         }
         finally
         {
@@ -742,9 +752,9 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
             var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(1, list.GetArrayLength());
-            Assert.True(list[0].GetProperty("locationRisk").GetBoolean());
-            Assert.Equal("AREA_EMPTY", list[0].GetProperty("locationRiskCode").GetString());
+            Assert.Equal(1, list.GetProperty("items").GetArrayLength());
+            Assert.True(list.GetProperty("items")[0].GetProperty("locationRisk").GetBoolean());
+            Assert.Equal("AREA_EMPTY", list.GetProperty("items")[0].GetProperty("locationRiskCode").GetString());
         }
         finally
         {
@@ -833,8 +843,8 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                 a => a.GetProperty("code").GetString() == "PAUSED_ZERO_DROP");
 
             var visible = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=VISIBLE");
-            Assert.Equal(1, visible.GetArrayLength());
-            Assert.Equal(0, visible[0].GetProperty("disappearCount").GetInt32());
+            Assert.Equal(1, visible.GetProperty("items").GetArrayLength());
+            Assert.Equal(0, visible.GetProperty("items")[0].GetProperty("disappearCount").GetInt32());
         }
         finally
         {
