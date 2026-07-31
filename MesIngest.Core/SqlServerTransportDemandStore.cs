@@ -7,9 +7,15 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
 {
     private readonly string _connectionString;
     private readonly ILatencyTelemetry _telemetry;
+    private readonly TimeSpan _changeFeedRetention;
+    private readonly Func<DateTimeOffset> _clock;
     private readonly object _gate = new();
 
-    public SqlServerTransportDemandStore(string connectionString, ILatencyTelemetry? telemetry = null)
+    public SqlServerTransportDemandStore(
+        string connectionString,
+        ILatencyTelemetry? telemetry = null,
+        TimeSpan? changeFeedRetention = null,
+        Func<DateTimeOffset>? clock = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -18,6 +24,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
 
         _connectionString = connectionString;
         _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
+        _changeFeedRetention = changeFeedRetention ?? DemandChangeFeedQuery.DefaultRetention;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
         EnsureSchema();
     }
 
@@ -40,6 +48,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         {
             using var conn = Open();
             using var tx = conn.BeginTransaction();
+            var now = _clock();
             var existingVisible = LoadDemands(conn, visibleOnly: true, tx)
                 .ToDictionary(d => d.DemandId, StringComparer.Ordinal);
             var existingPauses = LoadPauses(conn, tx)
@@ -57,6 +66,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     if (visiblePrior != demand)
                     {
                         UpdateDemand(conn, tx, demand);
+                        if (demand.Status == DemandStatus.Gone)
+                        {
+                            AppendChangeFeed(conn, tx, DemandChangeType.Gone, demand, now);
+                        }
                     }
 
                     continue;
@@ -66,6 +79,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 if (prior is null)
                 {
                     InsertDemand(conn, tx, demand);
+                    AppendChangeFeed(conn, tx, DemandChangeType.Created, demand, now);
                     continue;
                 }
 
@@ -78,6 +92,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 if (prior != demand)
                 {
                     UpdateDemand(conn, tx, demand);
+                    if (demand.Status == DemandStatus.Gone)
+                    {
+                        AppendChangeFeed(conn, tx, DemandChangeType.Gone, demand, now);
+                    }
                 }
             }
 
@@ -91,6 +109,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 UpsertPause(conn, tx, pause);
             }
 
+            PurgeChangeFeed(conn, tx, now);
             tx.Commit();
         }
     }
@@ -235,6 +254,82 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             }
 
             return new DemandListPage(rows, nextCursor, hasMore);
+        }
+    }
+
+    public DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        lock (_gate)
+        {
+            using var conn = Open();
+            using var tx = conn.BeginTransaction();
+            PurgeChangeFeed(conn, tx, query.AsOf);
+
+            long highWatermark;
+            long? earliest;
+            using (var bounds = new SqlCommand(
+                       """
+                       SELECT
+                           ISNULL(MAX([Sequence]), 0),
+                           MIN([Sequence])
+                       FROM dbo.DemandChangeFeed;
+                       """,
+                       conn,
+                       tx))
+            {
+                using var reader = bounds.ExecuteReader();
+                reader.Read();
+                highWatermark = reader.GetInt64(0);
+                earliest = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+            }
+
+            if (earliest is long e
+                && query.AfterSequence > 0
+                && query.AfterSequence < e - 1)
+            {
+                throw new SyncCursorExpiredException(query.AfterSequence, e, highWatermark);
+            }
+
+            using var cmd = new SqlCommand(
+                """
+                SELECT TOP (@Take)
+                    [Sequence], DemandId, ChangeType, ChangedAt,
+                    TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
+                    LocationRisk, LocationRiskCode, CreatedAt, GoneAt
+                FROM dbo.DemandChangeFeed
+                WHERE [Sequence] > @AfterSequence
+                ORDER BY [Sequence] ASC;
+                """,
+                conn,
+                tx);
+            cmd.Parameters.AddWithValue("@Take", query.Limit + 1);
+            cmd.Parameters.AddWithValue("@AfterSequence", query.AfterSequence);
+
+            var items = new List<DemandChangeFeedEntry>();
+            using (var reader = cmd.ExecuteReader())
+            {
+                while (reader.Read())
+                {
+                    items.Add(ReadChangeFeedEntry(reader));
+                }
+            }
+
+            tx.Commit();
+
+            var hasMore = items.Count > query.Limit;
+            if (hasMore)
+            {
+                items.RemoveAt(items.Count - 1);
+            }
+
+            return new DemandChangeFeedPage(
+                items,
+                hasMore ? items[^1].Sequence : null,
+                hasMore,
+                highWatermark,
+                earliest);
         }
     }
 
@@ -506,8 +601,122 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     WHERE name = N'IX_TransportDemands_GoneAt_DemandId'
                       AND object_id = OBJECT_ID(N'dbo.TransportDemands'))
             EXEC(N'CREATE INDEX IX_TransportDemands_GoneAt_DemandId ON dbo.TransportDemands (GoneAt, DemandId) WHERE GoneAt IS NOT NULL;');
+
+            IF OBJECT_ID(N'dbo.DemandChangeFeed', N'U') IS NULL
+            EXEC(N'
+                CREATE TABLE dbo.DemandChangeFeed
+                (
+                    [Sequence] BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_DemandChangeFeed PRIMARY KEY,
+                    DemandId NVARCHAR(64) NOT NULL,
+                    ChangeType NVARCHAR(16) NOT NULL,
+                    ChangedAt DATETIMEOFFSET NOT NULL,
+                    TaskType NVARCHAR(128) NOT NULL,
+                    Sublot NVARCHAR(128) NOT NULL,
+                    Area NVARCHAR(256) NULL,
+                    Eqp NVARCHAR(256) NULL,
+                    Step NVARCHAR(256) NULL,
+                    Dates DATETIMEOFFSET NOT NULL,
+                    Package NVARCHAR(256) NULL,
+                    Status NVARCHAR(16) NOT NULL,
+                    LocationRisk BIT NOT NULL,
+                    LocationRiskCode NVARCHAR(64) NULL,
+                    CreatedAt DATETIMEOFFSET NOT NULL,
+                    GoneAt DATETIMEOFFSET NULL
+                );
+            ');
+
+            IF OBJECT_ID(N'dbo.DemandChangeFeed', N'U') IS NOT NULL
+               AND NOT EXISTS (
+                    SELECT 1 FROM sys.indexes
+                    WHERE name = N'IX_DemandChangeFeed_ChangedAt'
+                      AND object_id = OBJECT_ID(N'dbo.DemandChangeFeed'))
+            EXEC(N'CREATE INDEX IX_DemandChangeFeed_ChangedAt ON dbo.DemandChangeFeed (ChangedAt);');
             """;
         cmd.ExecuteNonQuery();
+    }
+
+    private static void AppendChangeFeed(
+        SqlConnection conn,
+        SqlTransaction tx,
+        DemandChangeType changeType,
+        TransportDemand demand,
+        DateTimeOffset changedAt)
+    {
+        using var insert = new SqlCommand(
+            """
+            INSERT INTO dbo.DemandChangeFeed
+            (DemandId, ChangeType, ChangedAt, TaskType, Sublot, Area, Eqp, Step, Dates, Package,
+             Status, LocationRisk, LocationRiskCode, CreatedAt, GoneAt)
+            VALUES
+            (@DemandId, @ChangeType, @ChangedAt, @TaskType, @Sublot, @Area, @Eqp, @Step, @Dates, @Package,
+             @Status, @LocationRisk, @LocationRiskCode, @CreatedAt, @GoneAt);
+            """,
+            conn,
+            tx);
+        insert.Parameters.AddWithValue("@DemandId", demand.DemandId);
+        insert.Parameters.AddWithValue(
+            "@ChangeType",
+            changeType == DemandChangeType.Created ? "CREATED" : "GONE");
+        insert.Parameters.AddWithValue("@ChangedAt", changedAt);
+        insert.Parameters.AddWithValue("@TaskType", demand.TaskType);
+        insert.Parameters.AddWithValue("@Sublot", demand.Sublot);
+        insert.Parameters.AddWithValue("@Area", (object?)demand.Area ?? DBNull.Value);
+        insert.Parameters.AddWithValue("@Eqp", (object?)demand.Eqp ?? DBNull.Value);
+        insert.Parameters.AddWithValue("@Step", (object?)demand.Step ?? DBNull.Value);
+        insert.Parameters.AddWithValue("@Dates", demand.Dates);
+        insert.Parameters.AddWithValue("@Package", (object?)demand.Package ?? DBNull.Value);
+        insert.Parameters.AddWithValue("@Status", ToStatusText(demand.Status));
+        insert.Parameters.AddWithValue("@LocationRisk", demand.LocationRisk);
+        insert.Parameters.AddWithValue("@LocationRiskCode", (object?)demand.LocationRiskCode ?? DBNull.Value);
+        insert.Parameters.AddWithValue("@CreatedAt", demand.CreatedAt);
+        insert.Parameters.AddWithValue("@GoneAt", (object?)demand.GoneAt ?? DBNull.Value);
+        insert.ExecuteNonQuery();
+    }
+
+    private void PurgeChangeFeed(SqlConnection conn, SqlTransaction tx, DateTimeOffset asOf)
+    {
+        if (_changeFeedRetention <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        using var purge = new SqlCommand(
+            """
+            DELETE FROM dbo.DemandChangeFeed
+            WHERE ChangedAt < @Cutoff;
+            """,
+            conn,
+            tx);
+        purge.Parameters.AddWithValue("@Cutoff", asOf - _changeFeedRetention);
+        purge.ExecuteNonQuery();
+    }
+
+    private static DemandChangeFeedEntry ReadChangeFeedEntry(SqlDataReader reader)
+    {
+        var changeTypeRaw = reader.GetString(2);
+        var changeType = changeTypeRaw.Equals("GONE", StringComparison.OrdinalIgnoreCase)
+            ? DemandChangeType.Gone
+            : DemandChangeType.Created;
+        var payload = new DemandChangePayload(
+            reader.GetString(1),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.IsDBNull(7) ? null : reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.GetFieldValue<DateTimeOffset>(9),
+            reader.IsDBNull(10) ? null : reader.GetString(10),
+            ParseStatus(reader.GetString(11)),
+            reader.GetBoolean(12),
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            reader.GetFieldValue<DateTimeOffset>(14),
+            reader.IsDBNull(15) ? null : reader.GetFieldValue<DateTimeOffset>(15));
+        return new DemandChangeFeedEntry(
+            reader.GetInt64(0),
+            payload.DemandId,
+            changeType,
+            reader.GetFieldValue<DateTimeOffset>(3),
+            payload);
     }
 
     private static void InsertDemand(SqlConnection conn, SqlTransaction tx, TransportDemand demand)

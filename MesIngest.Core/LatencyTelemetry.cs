@@ -233,6 +233,12 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
             () => _inner.QueryPage(query),
             rows: page => page.Items.Count);
 
+    public DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.QueryChangeFeed(query),
+            rows: page => page.Items.Count);
+
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) =>
         Measure(
             LatencyStages.SqlWrite,

@@ -92,6 +92,11 @@ public sealed class MesIngestHostOptions
     /// </summary>
     public string SqlServerConnectionString { get; set; } = "";
 
+    /// <summary>
+    /// DemandChangeFeed retention in hours. Default 48. 0 keeps the ledger permanently.
+    /// </summary>
+    public int ChangeFeedRetentionHours { get; set; } = 48;
+
     public bool IsOracleSnapshotSource() =>
         SnapshotSource.Equals("Oracle", StringComparison.OrdinalIgnoreCase);
 

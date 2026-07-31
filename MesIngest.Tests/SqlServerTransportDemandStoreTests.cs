@@ -101,6 +101,224 @@ public class SqlServerTransportDemandStoreTests
     }
 
     [SqlServerAvailabilityFact]
+    public void ReplaceState_appends_change_feed_in_same_transaction_for_created_and_gone()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs, clock: () => now);
+        var visible = new TransportDemand
+        {
+            DemandId = "feed-1",
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "Q-FEED",
+            Dates = now,
+            Status = DemandStatus.Visible,
+            MesLastSeenAt = now,
+            CreatedAt = now,
+        };
+        store.ReplaceState(new ProjectionState([visible]));
+
+        var created = Assert.Single(store.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = now }).Items);
+        Assert.Equal(DemandChangeType.Created, created.ChangeType);
+        Assert.Equal("feed-1", created.DemandId);
+
+        store.ReplaceState(new ProjectionState(
+        [
+            visible with { MesLastSeenAt = now.AddMinutes(1), DisappearCount = 1 },
+        ]));
+        Assert.Equal(1, store.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = now }).Items.Count);
+
+        store.ReplaceState(new ProjectionState(
+        [
+            visible with
+            {
+                Status = DemandStatus.Gone,
+                GoneAt = now.AddMinutes(2),
+                DisappearCount = 2,
+                MesLastSeenAt = now.AddMinutes(2),
+            },
+        ]));
+
+        var page = store.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = now });
+        Assert.Equal(2, page.Items.Count);
+        Assert.Equal(DemandChangeType.Gone, page.Items[1].ChangeType);
+        Assert.Equal(DemandStatus.Gone, page.Items[1].Payload.Status);
+        Assert.Equal(now.AddMinutes(2), page.Items[1].Payload.GoneAt);
+
+        // Reappear uses a new DemandId → CREATED again.
+        store.ReplaceState(new ProjectionState(
+        [
+            visible with
+            {
+                Status = DemandStatus.Gone,
+                GoneAt = now.AddMinutes(2),
+                DisappearCount = 2,
+            },
+            visible with
+            {
+                DemandId = "feed-1-reappear",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now.AddMinutes(3),
+                CreatedAt = now.AddMinutes(3),
+                GoneAt = null,
+                DisappearCount = 0,
+            },
+        ]));
+        var afterReappear = store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 2, AsOf = now });
+        Assert.Contains(
+            afterReappear.Items,
+            i => i.DemandId == "feed-1-reappear" && i.ChangeType == DemandChangeType.Created);
+    }
+
+    [SqlServerAvailabilityFact]
+    public void Change_feed_survives_host_store_restart_and_purges_expired_entries()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var clock = now;
+        var writer = new SqlServerTransportDemandStore(
+            cs,
+            changeFeedRetention: TimeSpan.FromHours(48),
+            clock: () => clock);
+
+        writer.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+        writer.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "b",
+                TaskType = "T",
+                Sublot = "S2",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+        writer.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "b",
+                TaskType = "T",
+                Sublot = "S2",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "c",
+                TaskType = "T",
+                Sublot = "S3",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+
+        clock = now.AddHours(49);
+        writer.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "b",
+                TaskType = "T",
+                Sublot = "S2",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "c",
+                TaskType = "T",
+                Sublot = "S3",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "d",
+                TaskType = "T",
+                Sublot = "S4",
+                Dates = clock,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = clock,
+                CreatedAt = clock,
+            },
+        ]));
+
+        var reader = new SqlServerTransportDemandStore(
+            cs,
+            changeFeedRetention: TimeSpan.FromHours(48),
+            clock: () => clock);
+        var page = reader.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = clock });
+        Assert.Equal(1, page.Items.Count);
+        Assert.Equal("d", page.Items[0].DemandId);
+        Assert.Equal(page.Items[0].Sequence, page.EarliestAvailableSequence);
+        Assert.Equal(page.Items[0].Sequence, page.HighWatermark);
+        Assert.True(page.EarliestAvailableSequence >= 4);
+        Assert.Throws<SyncCursorExpiredException>(() =>
+            reader.QueryChangeFeed(new DemandChangeFeedQuery
+            {
+                AfterSequence = page.EarliestAvailableSequence!.Value - 2,
+                AsOf = clock,
+            }));
+    }
+
+    [SqlServerAvailabilityFact]
     public void ReplaceState_writes_only_changed_rows_and_leaves_gone_immutable()
     {
         var cs = SqlServerTestEnv.ConnectionString!;
@@ -594,6 +812,8 @@ internal static class SqlServerTestEnv
             DELETE FROM dbo.TaskTypePauses;
             DELETE FROM dbo.IngestAlerts;
             DELETE FROM dbo.PollHealth;
+            IF OBJECT_ID(N'dbo.DemandChangeFeed', N'U') IS NOT NULL
+                TRUNCATE TABLE dbo.DemandChangeFeed;
             """;
         cmd.ExecuteNonQuery();
     }

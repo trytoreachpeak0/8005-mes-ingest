@@ -453,6 +453,9 @@ public class IngestRoundRunnerTests
 
         public DemandListPage QueryPage(DemandListQuery query) => _inner.QueryPage(query);
 
+        public DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query) =>
+            _inner.QueryChangeFeed(query);
+
         public void AppendAlerts(IReadOnlyList<IngestAlert> alerts) => _inner.AppendAlerts(alerts);
 
         public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null) => _inner.ListAlerts(limit);

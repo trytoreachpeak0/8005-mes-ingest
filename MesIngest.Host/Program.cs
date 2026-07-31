@@ -36,8 +36,12 @@ builder.Services.AddSingleton<ITransportDemandStore>(sp =>
     var options = sp.GetRequiredService<MesIngestHostOptions>();
     var telemetry = sp.GetRequiredService<ILatencyTelemetry>();
     ITransportDemandStore inner = !string.IsNullOrWhiteSpace(options.SqlServerConnectionString)
-        ? new SqlServerTransportDemandStore(options.SqlServerConnectionString, telemetry)
-        : new InMemoryTransportDemandStore();
+        ? new SqlServerTransportDemandStore(
+            options.SqlServerConnectionString,
+            telemetry,
+            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)))
+        : new InMemoryTransportDemandStore(
+            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)));
     return new ObservingTransportDemandStore(inner, telemetry);
 });
 builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
@@ -241,6 +245,46 @@ app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
     return Results.Ok(PollHealthDto.From(health, store.GetState().TaskTypePauses));
 });
 
+app.MapGet("/api/demand-changes", (
+    ITransportDemandStore store,
+    string? afterSequence,
+    int? limit) =>
+{
+    if (!DemandChangeFeedQueryParser.TryParseAfterSequence(afterSequence, out var parsedAfter, out var afterError))
+    {
+        return Results.BadRequest(new { error = afterError });
+    }
+
+    if (!DemandChangeFeedQueryParser.TryParseLimit(limit, out var parsedLimit, out var limitError))
+    {
+        return Results.BadRequest(new { error = limitError });
+    }
+
+    try
+    {
+        var page = store.QueryChangeFeed(new DemandChangeFeedQuery
+        {
+            AfterSequence = parsedAfter,
+            Limit = parsedLimit,
+            AsOf = DateTimeOffset.UtcNow,
+        });
+        return Results.Ok(DemandChangeFeedPageDto.From(page));
+    }
+    catch (SyncCursorExpiredException ex)
+    {
+        return Results.Json(
+            new
+            {
+                error = SyncCursorExpiredException.ErrorCode,
+                code = SyncCursorExpiredException.ErrorCode,
+                afterSequence = ex.AfterSequence,
+                earliestAvailableSequence = ex.EarliestAvailableSequence,
+                highWatermark = ex.HighWatermark,
+            },
+            statusCode: StatusCodes.Status410Gone);
+    }
+});
+
 app.Run();
 return 0;
 
@@ -272,6 +316,70 @@ internal sealed record DemandPageDto(
     IReadOnlyList<DemandDto> Items,
     string? NextCursor,
     bool HasMore);
+
+internal sealed record DemandChangeFeedPageDto(
+    IReadOnlyList<DemandChangeDto> Items,
+    long? NextAfterSequence,
+    bool HasMore,
+    long HighWatermark,
+    long? EarliestAvailableSequence)
+{
+    public static DemandChangeFeedPageDto From(DemandChangeFeedPage page) =>
+        new(
+            page.Items.Select(DemandChangeDto.From).ToList(),
+            page.NextAfterSequence,
+            page.HasMore,
+            page.HighWatermark,
+            page.EarliestAvailableSequence);
+}
+
+internal sealed record DemandChangeDto(
+    long Sequence,
+    string DemandId,
+    string ChangeType,
+    DateTimeOffset ChangedAt,
+    DemandChangePayloadDto Payload)
+{
+    public static DemandChangeDto From(DemandChangeFeedEntry entry) =>
+        new(
+            entry.Sequence,
+            entry.DemandId,
+            entry.ChangeType == DemandChangeType.Created ? "CREATED" : "GONE",
+            entry.ChangedAt,
+            DemandChangePayloadDto.From(entry.Payload));
+}
+
+internal sealed record DemandChangePayloadDto(
+    string DemandId,
+    string TaskType,
+    string Sublot,
+    string? Area,
+    string? Eqp,
+    string? Step,
+    DateTimeOffset Dates,
+    string? Package,
+    string Status,
+    bool LocationRisk,
+    string? LocationRiskCode,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? GoneAt)
+{
+    public static DemandChangePayloadDto From(DemandChangePayload p) =>
+        new(
+            p.DemandId,
+            p.TaskType,
+            p.Sublot,
+            p.Area,
+            p.Eqp,
+            p.Step,
+            p.Dates,
+            p.Package,
+            p.Status == DemandStatus.Visible ? "VISIBLE" : "GONE",
+            p.LocationRisk,
+            p.LocationRiskCode,
+            p.CreatedAt,
+            p.GoneAt);
+}
 
 internal sealed record DemandDto(
     string DemandId,

@@ -41,6 +41,7 @@ public interface ITransportDemandStore
         string? sublot = null,
         string? demandId = null);
     DemandListPage QueryPage(DemandListQuery query);
+    DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query);
     void AppendAlerts(IReadOnlyList<IngestAlert> alerts);
     IReadOnlyList<IngestAlert> ListAlerts(int? limit = null);
     void SetLatestPollHealth(PollHealth health);
@@ -53,7 +54,19 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 
     private ProjectionState _state = ProjectionState.Empty;
     private readonly List<IngestAlert> _alerts = new();
+    private readonly List<DemandChangeFeedEntry> _changeFeed = new();
+    private readonly TimeSpan _changeFeedRetention;
+    private readonly Func<DateTimeOffset> _clock;
+    private long _nextSequence = 1;
     private PollHealth? _latestPollHealth;
+
+    public InMemoryTransportDemandStore(
+        TimeSpan? changeFeedRetention = null,
+        Func<DateTimeOffset>? clock = null)
+    {
+        _changeFeedRetention = changeFeedRetention ?? DemandChangeFeedQuery.DefaultRetention;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
 
     public ProjectionState GetState() =>
         new(
@@ -63,13 +76,32 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null)
     {
         ArgumentNullException.ThrowIfNull(state);
+        var priorById = _state.Demands.ToDictionary(d => d.DemandId, StringComparer.Ordinal);
+        var now = _clock();
         var incomingIds = state.Demands.Select(d => d.DemandId).ToHashSet(StringComparer.Ordinal);
         var retainedGone = _state.Demands
             .Where(d => d.Status == DemandStatus.Gone && !incomingIds.Contains(d.DemandId))
             .ToList();
+
+        foreach (var demand in state.Demands)
+        {
+            if (!priorById.TryGetValue(demand.DemandId, out var prior))
+            {
+                AppendChange(DemandChangeType.Created, demand, now);
+                continue;
+            }
+
+            if (prior.Status != DemandStatus.Gone
+                && demand.Status == DemandStatus.Gone)
+            {
+                AppendChange(DemandChangeType.Gone, demand, now);
+            }
+        }
+
         _state = new ProjectionState(
             state.Demands.Concat(retainedGone).ToList(),
             state.TaskTypePauses);
+        PurgeChangeFeed(now);
         if (alerts is { Count: > 0 })
         {
             AppendAlerts(alerts);
@@ -129,6 +161,60 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         DemandListCursor.CursorPayload? cursorPayload =
             string.IsNullOrWhiteSpace(query.Cursor) ? null : cursor;
         return DemandListPaging.Page(_state.Demands, query, cursorPayload);
+    }
+
+    public DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        PurgeChangeFeed(query.AsOf);
+
+        long highWatermark = _changeFeed.Count == 0 ? 0 : _changeFeed[^1].Sequence;
+        long? earliest = _changeFeed.Count == 0 ? null : _changeFeed[0].Sequence;
+        if (earliest is long e
+            && query.AfterSequence > 0
+            && query.AfterSequence < e - 1)
+        {
+            throw new SyncCursorExpiredException(query.AfterSequence, e, highWatermark);
+        }
+
+        var matched = _changeFeed
+            .Where(e => e.Sequence > query.AfterSequence)
+            .Take(query.Limit + 1)
+            .ToList();
+        var hasMore = matched.Count > query.Limit;
+        if (hasMore)
+        {
+            matched.RemoveAt(matched.Count - 1);
+        }
+
+        return new DemandChangeFeedPage(
+            matched,
+            hasMore ? matched[^1].Sequence : null,
+            hasMore,
+            highWatermark,
+            earliest);
+    }
+
+    private void AppendChange(DemandChangeType changeType, TransportDemand demand, DateTimeOffset changedAt)
+    {
+        var sequence = _nextSequence++;
+        _changeFeed.Add(new DemandChangeFeedEntry(
+            sequence,
+            demand.DemandId,
+            changeType,
+            changedAt,
+            DemandChangePayload.From(demand)));
+    }
+
+    private void PurgeChangeFeed(DateTimeOffset asOf)
+    {
+        if (_changeFeedRetention <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        var cutoff = asOf - _changeFeedRetention;
+        _changeFeed.RemoveAll(e => e.ChangedAt < cutoff);
     }
 
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
