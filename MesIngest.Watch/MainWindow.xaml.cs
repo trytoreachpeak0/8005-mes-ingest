@@ -6,21 +6,30 @@ internal partial class MainWindow : Window
 {
     private readonly MesIngestApiClient _client;
     private readonly WatchOptions _options;
+    private readonly WatchConnectionEventRecorder _connectionRecorder;
+    private readonly WatchConnectionEventJournal _connectionJournal;
     private readonly DispatcherTimer _timer;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
 
     private IReadOnlyList<WatchDemandDto> _demands = [];
     private IReadOnlyList<WatchAlertDto> _alerts = [];
     private WatchPollHealthDto? _health;
-    private string? _fetchError;
+    private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private DemandSortField _sortBy = DemandSortField.Dates;
     private bool _sortAscending;
 
-    public MainWindow(MesIngestApiClient client, WatchOptions options)
+    public MainWindow(
+        MesIngestApiClient client,
+        WatchOptions options,
+        WatchConnectionEventJournal? connectionJournal = null,
+        WatchConnectionEventRecorder? connectionRecorder = null)
     {
         InitializeComponent();
         _client = client;
         _options = options;
+        _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(options);
+        _connectionRecorder = connectionRecorder
+            ?? new WatchConnectionEventRecorder(TimeSpan.FromMinutes(5));
         Title = $"MesIngest Watch — {_options.BaseUrl}";
 
         _timer = new DispatcherTimer
@@ -93,30 +102,66 @@ internal partial class MainWindow : Window
 
         try
         {
+            var now = DateTimeOffset.UtcNow;
             var snapshot = await _client.FetchSnapshotAsync().ConfigureAwait(true);
             if (snapshot.FetchError is null)
             {
                 _demands = snapshot.Demands;
                 _alerts = snapshot.Alerts;
                 _health = snapshot.PollHealth;
-                _fetchError = null;
+                _refreshState = _refreshState.ApplySuccess(now);
+                RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
             }
             else
             {
-                // Keep last good projection; surface failure via banner.
-                _fetchError = snapshot.FetchError;
+                // Keep last good projection; FetchError lists are placeholders only.
+                _refreshState = _refreshState.ApplyFailure(snapshot.FetchError);
+                RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                    now,
+                    endpoint: snapshot.FailedEndpoint ?? "(unknown)",
+                    stage: snapshot.FailedStage ?? "HTTP_ERROR",
+                    elapsed: snapshot.FailedElapsed ?? TimeSpan.Zero,
+                    timeoutSeconds: _options.RequestTimeoutSeconds,
+                    message: snapshot.FetchError));
             }
 
             ApplyProjection();
         }
         catch (Exception ex)
         {
-            _fetchError = ex.Message;
+            var now = DateTimeOffset.UtcNow;
+            var message =
+                $"endpoint=(unknown) stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} elapsedMs=0 {ex.Message}";
+            _refreshState = _refreshState.ApplyFailure(message);
+            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                now,
+                endpoint: "(unknown)",
+                stage: "HTTP_ERROR",
+                elapsed: TimeSpan.Zero,
+                timeoutSeconds: _options.RequestTimeoutSeconds,
+                message: message));
             ApplyProjection();
         }
         finally
         {
             _refreshGate.Release();
+        }
+    }
+
+    private void RecordConnectionEvent(WatchConnectionEvent? connectionEvent)
+    {
+        if (connectionEvent is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _connectionJournal.Append(connectionEvent);
+        }
+        catch
+        {
+            // Local journal must not break the watch loop.
         }
     }
 
@@ -142,7 +187,7 @@ internal partial class MainWindow : Window
         RowCountText.Text = $"{rows.Count} / {_demands.Count} rows";
         AlertsGrid.ItemsSource = _alerts;
 
-        var banner = WatchBannerState.From(_health, _fetchError);
+        var banner = WatchBannerState.From(_health, _refreshState.FetchError);
         FetchFailureBanner.Visibility = banner.ShowFetchFailure ? Visibility.Visible : Visibility.Collapsed;
         FetchFailureText.Text = banner.ShowFetchFailure
             ? banner.FetchFailureMessage ?? string.Empty
@@ -153,7 +198,7 @@ internal partial class MainWindow : Window
             ? $"PAUSED_ZERO_DROP — types: {string.Join(", ", banner.PausedTaskTypes)}"
             : string.Empty;
 
-        HealthText.Text = FormatHealth(_health, _options.BaseUrl);
+        HealthText.Text = FormatHealth(_health, _options.BaseUrl, _refreshState);
     }
 
     private void SyncSortStateFromControls()
@@ -183,15 +228,19 @@ internal partial class MainWindow : Window
         SortAscending.IsChecked = _sortAscending;
     }
 
-    private static string FormatHealth(WatchPollHealthDto? health, string baseUrl)
+    private static string FormatHealth(
+        WatchPollHealthDto? health,
+        string baseUrl,
+        WatchRefreshState refreshState)
     {
         var localTz = TimeZoneInfo.Local;
         var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, localTz);
         var tzLabel = $"{localTz.Id} (UTC{nowLocal:zzz})";
+        var refreshLine = refreshState.FormatWatchRefreshLine(DateTimeOffset.UtcNow);
 
         if (health is null)
         {
-            return $"API {baseUrl} — poll health: (none yet)  timezone={tzLabel}";
+            return $"API {baseUrl} — poll health: (none yet)  {refreshLine}  timezone={tzLabel}";
         }
 
         var paused = health.TaskTypePauses.Count(p => p.PausedZeroDrop);
@@ -199,7 +248,7 @@ internal partial class MainWindow : Window
             + $"ended {WatchTimeDisplay.Format(health.EndedAt)}  "
             + $"durationMs={health.DurationMs:0}  rows={health.RowCount}  "
             + $"success={health.Success}  outcome={health.Outcome}  pausedTypes={paused}  "
-            + $"timezone={tzLabel}";
+            + $"{refreshLine}  timezone={tzLabel}";
     }
 
     private static string? NullIfBlank(string? value) =>

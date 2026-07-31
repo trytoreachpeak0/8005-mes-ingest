@@ -24,6 +24,24 @@ internal static class WatchOptionsLoader
             options.RefreshSeconds = 2;
         }
 
+        if (options.RequestTimeoutSeconds is < 1 or > 300)
+        {
+            throw new InvalidOperationException(
+                $"Watch:RequestTimeoutSeconds must be between 1 and 300; got {options.RequestTimeoutSeconds}.");
+        }
+
+        if (options.ConnectionLogRetentionDays < 1)
+        {
+            throw new InvalidOperationException(
+                $"Watch:ConnectionLogRetentionDays must be >= 1; got {options.ConnectionLogRetentionDays}.");
+        }
+
+        if (options.ConnectionLogMaxSizeMb < 1)
+        {
+            throw new InvalidOperationException(
+                $"Watch:ConnectionLogMaxSizeMb must be >= 1; got {options.ConnectionLogMaxSizeMb}.");
+        }
+
         return options;
     }
 

@@ -13,7 +13,7 @@ internal partial class App : Application
         var http = new HttpClient
         {
             BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(15),
+            Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds),
         };
         if (!string.IsNullOrWhiteSpace(options.SharedSecret))
         {
@@ -21,8 +21,9 @@ internal partial class App : Application
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
         }
 
-        var client = new MesIngestApiClient(http);
-        var window = new MainWindow(client, options);
+        var client = new MesIngestApiClient(http, options.RequestTimeoutSeconds);
+        var journal = WatchConnectionEventJournal.FromOptions(options);
+        var window = new MainWindow(client, options, journal);
         window.Show();
     }
 }
