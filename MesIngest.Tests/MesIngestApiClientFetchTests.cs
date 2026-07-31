@@ -16,7 +16,7 @@ public class MesIngestApiClientFetchTests
                 throw new TaskCanceledException("canceled", new TimeoutException());
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyPageOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = new HttpClient(handler)
@@ -46,7 +46,7 @@ public class MesIngestApiClientFetchTests
                 throw new HttpRequestException("Connection refused");
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyPageOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = new HttpClient(handler)
@@ -74,7 +74,7 @@ public class MesIngestApiClientFetchTests
                 throw new HttpRequestException("No connection could be made");
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyPageOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = new HttpClient(handler)
@@ -106,7 +106,7 @@ public class MesIngestApiClientFetchTests
                 });
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyPageOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = new HttpClient(handler)
@@ -134,7 +134,7 @@ public class MesIngestApiClientFetchTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             }
 
-            return Task.FromResult(JsonResponse(path, "[]"));
+            return Task.FromResult(EmptyPageOrList(path));
         });
 
         using var http = new HttpClient(handler)
@@ -152,6 +152,11 @@ public class MesIngestApiClientFetchTests
         Assert.Null(snapshot.PollHealth);
         Assert.Null(snapshot.FailedEndpoint);
     }
+
+    private static HttpResponseMessage EmptyPageOrList(string path) =>
+        path.EndsWith("/api/demands", StringComparison.Ordinal)
+            ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
+            : JsonResponse(path, "[]");
 
     private static HttpResponseMessage JsonResponse(string path, string json) =>
         new(HttpStatusCode.OK)

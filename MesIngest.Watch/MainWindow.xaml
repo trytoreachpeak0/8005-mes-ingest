@@ -52,27 +52,32 @@
                 <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
                     <TextBlock Text="status" VerticalAlignment="Center" Margin="0,0,6,0" />
                     <ComboBox x:Name="FilterStatus" Width="110" SelectionChanged="OnFilterChanged">
-                        <ComboBoxItem Content="(all)" IsSelected="True" />
-                        <ComboBoxItem Content="VISIBLE" />
+                        <ComboBoxItem Content="VISIBLE" IsSelected="True" />
                         <ComboBoxItem Content="GONE" />
                     </ComboBox>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                    <TextBlock Text="sort" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <ComboBox x:Name="SortField" Width="220" SelectionChanged="OnFilterChanged">
-                        <ComboBoxItem Content="当前工序进入时间 (DATES)" Tag="Dates" IsSelected="True" />
-                        <ComboBoxItem Content="last seen" Tag="MesLastSeenAt" />
-                        <ComboBoxItem Content="TASK_TYPE" Tag="TaskType" />
-                        <ComboBoxItem Content="SUBLOT" Tag="Sublot" />
-                        <ComboBoxItem Content="status" Tag="Status" />
-                    </ComboBox>
-                    <CheckBox x:Name="SortAscending"
-                              Content="asc"
-                              Margin="8,0,0,0"
-                              VerticalAlignment="Center"
-                              Checked="OnFilterChanged"
-                              Unchecked="OnFilterChanged" />
+                    <TextBlock Text="DemandId" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox x:Name="FilterDemandId" Width="220" TextChanged="OnDemandIdTextChanged" />
                 </StackPanel>
+                <StackPanel x:Name="GoneWindowPanel"
+                            Orientation="Horizontal"
+                            Margin="0,0,12,4"
+                            Visibility="Collapsed">
+                    <TextBlock Text="GoneAt window" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <ComboBox x:Name="GoneWindowHours" Width="120" SelectionChanged="OnFilterChanged">
+                        <ComboBoxItem Content="24h" Tag="24" IsSelected="True" />
+                        <ComboBoxItem Content="48h" Tag="48" />
+                        <ComboBoxItem Content="7d" Tag="168" />
+                        <ComboBoxItem Content="30d" Tag="720" />
+                    </ComboBox>
+                </StackPanel>
+                <Button x:Name="LoadMoreButton"
+                        Content="Load more"
+                        Margin="0,0,12,4"
+                        Padding="10,2"
+                        Click="OnLoadMoreClick"
+                        IsEnabled="False" />
                 <TextBlock x:Name="RowCountText" VerticalAlignment="Center" Margin="8,0,0,0" />
             </WrapPanel>
         </StackPanel>
@@ -82,14 +87,15 @@
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       CanUserAddRows="False"
-                      HeadersVisibility="Column">
+                      HeadersVisibility="Column"
+                      Sorting="OnAlertsSorting">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" />
-                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" />
-                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" />
-                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" />
-                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" />
-                    <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" CanUserSort="True" />
+                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="True" />
+                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" />
+                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
+                    <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
                 </DataGrid.Columns>
             </DataGrid>
         </GroupBox>
@@ -99,23 +105,24 @@
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
                       CanUserAddRows="False"
+                      CanUserSortColumns="True"
                       HeadersVisibility="Column"
                       Sorting="OnDemandsSorting">
                 <DataGrid.Columns>
-                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" />
-                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" />
-                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" />
-                    <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" />
-                    <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" />
-                    <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" />
-                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" />
-                    <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" />
-                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" />
-                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" />
-                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" />
-                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" />
-                    <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" />
-                    <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" />
+                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
+                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" CanUserSort="True" SortMemberPath="TaskType" />
+                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" CanUserSort="True" SortMemberPath="Sublot" />
+                    <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="False" />
+                    <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
+                    <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
+                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
+                    <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
+                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="False" />
+                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="False" />
+                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="False" />
+                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="False" />
+                    <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="False" />
+                    <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="False" />
                 </DataGrid.Columns>
             </DataGrid>
         </GroupBox>

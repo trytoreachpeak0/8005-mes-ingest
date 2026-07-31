@@ -92,13 +92,18 @@ internal sealed class MesIngestApiClient
         _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
     }
 
-    public async Task<WatchSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
+    public Task<WatchSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) =>
+        FetchSnapshotAsync(WatchDemandBrowseQuery.Default, cancellationToken);
+
+    public async Task<WatchSnapshot> FetchSnapshotAsync(
+        WatchDemandBrowseQuery demandQuery,
+        CancellationToken cancellationToken = default)
     {
         var correlationId = Guid.NewGuid().ToString("N");
         try
         {
-            var demands = await FetchListAsync<WatchDemandDto>(
-                    "/api/demands",
+            var demandPage = await FetchDemandPageWithCursorRecoveryAsync(
+                    demandQuery,
                     correlationId,
                     cancellationToken)
                 .ConfigureAwait(false);
@@ -111,14 +116,16 @@ internal sealed class MesIngestApiClient
                 .ConfigureAwait(false);
 
             return new WatchSnapshot(
-                Demands: demands,
+                Demands: demandPage.Items,
                 Alerts: alerts,
                 PollHealth: health,
                 FetchError: null,
                 FailedEndpoint: null,
                 FailedStage: null,
                 FailedElapsed: null,
-                CorrelationId: correlationId);
+                CorrelationId: correlationId,
+                DemandsNextCursor: demandPage.NextCursor,
+                DemandsHasMore: demandPage.HasMore);
         }
         catch (WatchEndpointFetchException ex)
         {
@@ -146,6 +153,103 @@ internal sealed class MesIngestApiClient
                 FailedElapsed: TimeSpan.Zero,
                 CorrelationId: correlationId);
         }
+    }
+
+    public Task<WatchDemandPage> FetchDemandPageAsync(
+        WatchDemandBrowseQuery query,
+        CancellationToken cancellationToken = default) =>
+        FetchDemandPageCoreAsync(query, Guid.NewGuid().ToString("N"), cancellationToken);
+
+    private async Task<WatchDemandPage> FetchDemandPageWithCursorRecoveryAsync(
+        WatchDemandBrowseQuery query,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await FetchDemandPageCoreAsync(query, correlationId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (WatchEndpointFetchException ex) when (
+            !string.IsNullOrWhiteSpace(query.Cursor)
+            && ex.InnerException is HttpRequestException http
+            && http.StatusCode == HttpStatusCode.BadRequest)
+        {
+            // Stale/mismatched cursor → safe reload of first page.
+            return await FetchDemandPageCoreAsync(
+                    query with { Cursor = null },
+                    correlationId,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task<WatchDemandPage> FetchDemandPageCoreAsync(
+        WatchDemandBrowseQuery query,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        var endpoint = query.ToRelativeUrl();
+        var pathForTelemetry = "/api/demands";
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(body);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    null,
+                    response.StatusCode);
+            }
+
+            var page = DeserializeDemandPage(body);
+            RecordWatch(
+                correlationId,
+                pathForTelemetry,
+                sw.ElapsedMilliseconds,
+                (int)response.StatusCode,
+                page.Items.Count,
+                bytes);
+            return page;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                pathForTelemetry,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
+            throw Classify(pathForTelemetry, sw.Elapsed, ex);
+        }
+    }
+
+    private static WatchDemandPage DeserializeDemandPage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            throw new JsonException("Demand page body is empty; expected items/nextCursor/hasMore envelope.");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object
+            || !doc.RootElement.TryGetProperty("items", out _))
+        {
+            throw new JsonException("Demand page must be an object with items/nextCursor/hasMore (bare array is no longer supported).");
+        }
+
+        var page = JsonSerializer.Deserialize<WatchDemandPage>(body, JsonOptions)
+            ?? throw new JsonException("Demand page deserialize returned null.");
+        return page;
     }
 
     private async Task<IReadOnlyList<T>> FetchListAsync<T>(
@@ -309,7 +413,9 @@ internal sealed record WatchSnapshot(
     string? FailedEndpoint = null,
     string? FailedStage = null,
     TimeSpan? FailedElapsed = null,
-    string? CorrelationId = null)
+    string? CorrelationId = null,
+    string? DemandsNextCursor = null,
+    bool DemandsHasMore = false)
 {
     /// <summary>
     /// When <see cref="FetchError"/> is set, Demands/Alerts/PollHealth are placeholders —

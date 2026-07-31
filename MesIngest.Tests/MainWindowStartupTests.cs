@@ -4,7 +4,7 @@ namespace MesIngest.Tests;
 
 /// <summary>
 /// Repro for Watch crash during XAML load: FilterStatus SelectionChanged fires
-/// OnFilterChanged before later-named controls (SortField/SortAscending/grids) exist.
+/// OnFilterChanged before later-named controls (grids, GoneWindowHours, …) exist.
 /// </summary>
 public class MainWindowStartupTests
 {

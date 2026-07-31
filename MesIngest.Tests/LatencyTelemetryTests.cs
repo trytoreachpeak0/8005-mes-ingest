@@ -28,7 +28,7 @@ public class LatencyTelemetryTests
                 return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
             }
 
-            return Task.FromResult(JsonResponse(path, "[]"));
+            return Task.FromResult(EmptyDemandsOrList(path));
         });
 
         using var http = CreateHttp(handler);
@@ -53,7 +53,7 @@ public class LatencyTelemetryTests
                 throw new TaskCanceledException("canceled", new TimeoutException());
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyDemandsOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = CreateHttp(handler);
@@ -82,7 +82,7 @@ public class LatencyTelemetryTests
                 });
             }
 
-            return Task.FromResult(JsonResponse(request.RequestUri.AbsolutePath, "[]"));
+            return Task.FromResult(EmptyDemandsOrList(request.RequestUri.AbsolutePath));
         });
 
         using var http = CreateHttp(handler);
@@ -103,7 +103,9 @@ public class LatencyTelemetryTests
             var path = request.RequestUri!.AbsolutePath;
             if (path.EndsWith("/api/demands", StringComparison.Ordinal))
             {
-                return Task.FromResult(JsonResponse(path, """[{"demandId":"a"}]"""));
+                return Task.FromResult(JsonResponse(
+                    path,
+                    """{"items":[{"demandId":"a","taskType":"T","sublot":"S","area":null,"eqp":null,"step":null,"dates":"2026-07-30T10:00:00+08:00","package":null,"status":"VISIBLE","mesLastSeenAt":"2026-07-30T11:00:00+08:00","disappearCount":0,"locationRisk":false,"locationRiskCode":null,"createdAt":"2026-07-30T09:00:00+08:00","goneAt":null,"alerts":[]}],"nextCursor":null,"hasMore":false}"""));
             }
 
             if (path.EndsWith("/api/alerts", StringComparison.Ordinal))
@@ -284,6 +286,11 @@ public class LatencyTelemetryTests
             BaseAddress = new Uri("http://127.0.0.1:5088/"),
             Timeout = TimeSpan.FromSeconds(30),
         };
+
+    private static HttpResponseMessage EmptyDemandsOrList(string path) =>
+        path.EndsWith("/api/demands", StringComparison.Ordinal)
+            ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
+            : JsonResponse(path, "[]");
 
     private static HttpResponseMessage JsonResponse(string path, string json) =>
         new(HttpStatusCode.OK)
