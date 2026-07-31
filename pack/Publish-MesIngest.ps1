@@ -36,6 +36,7 @@ $exampleLocal = Join-Path $csharpRoot "MesIngest.Host\appsettings.Local.json.exa
 $installDoc = Join-Path $PSScriptRoot "INSTALL.md"
 $factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
 $validationSrc = Join-Path $PSScriptRoot "validation"
+$openapiSrc = Join-Path $PSScriptRoot "openapi\v1.json"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
 
@@ -43,6 +44,7 @@ if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
 if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exampleLocal" }
 if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
 if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
+if (-not (Test-Path $openapiSrc)) { throw "Missing static OpenAPI contract: $openapiSrc" }
 
 $serviceDir = Join-Path $OutputDir "service"
 $watchDir = Join-Path $OutputDir "watch"
@@ -50,6 +52,7 @@ $queriesDir = Join-Path $OutputDir "queries"
 $templatesDir = Join-Path $OutputDir "templates"
 $scriptsDir = Join-Path $OutputDir "scripts"
 $validationDir = Join-Path $OutputDir "validation"
+$openapiDir = Join-Path $OutputDir "openapi"
 
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 if (Test-Path $serviceDir) { Remove-Item -Recurse -Force $serviceDir }
@@ -102,6 +105,9 @@ Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -
 
 if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
 Copy-Item -Recurse $validationSrc $validationDir
+
+New-Item -ItemType Directory -Force -Path $openapiDir | Out-Null
+Copy-Item $openapiSrc (Join-Path $openapiDir "v1.json") -Force
 
 $versionPath = Join-Path $OutputDir "VERSION.txt"
 $hostDll = Join-Path $serviceDir "MesIngest.Host.dll"

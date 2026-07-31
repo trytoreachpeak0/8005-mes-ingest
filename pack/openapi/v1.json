@@ -1,0 +1,346 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "MesIngest Read API",
+    "description": "MesIngest formal read-only HTTP API (GET only). No write, inject, or state-mutation endpoints.\n\nAuth boundary: OpenAPI/Swagger documentation metadata is publicly readable so operators can open\n/swagger and /openapi/v1.json without a secret. Actual /api/* data requests follow SharedSecret\nrules — when the host binds beyond localhost, send Authorization: Bearer <MesIngest:SharedSecret>.\nUse Swagger UI Authorize (Bearer) before Try it out.\n\nTime field semantics and timezone:\n- dates (MesCurrentStepEnteredAt): current-step entered time from MES DATES. Oracle/CSV source\n  offset is preserved (plant DATES are typically UTC+08:00); API returns DateTimeOffset as stored.\n- step: next process label from MES STEP (not the time of entering the current step).\n- mesLastSeenAt: Host observation time when the demand was last present in a successful snapshot\n  (UTC clock on Host).\n- createdAt: Host projection creation time (UTC clock).\n- goneAt: Host time when the demand transitioned to GONE (UTC clock).\n- Query range filters (datesFrom/datesTo, goneAtFrom/goneAtTo, alert from/to) accept ISO-8601\n  DateTimeOffset strings. Watch displays local TimeZoneInfo.Local; this API does not rewrite offsets.\n\nPagination: list endpoints return { items, nextCursor, hasMore }. Default page size 100; hard max 200.\nInvalid filter/sort/cursor/limit → 400. Missing demand/poll-health → 404. SharedSecret required but\nmissing/wrong → 401. DemandChangeFeed cursor older than retained ledger → 410 SYNC_CURSOR_EXPIRED.\n\nDemandChangeFeed (/api/demand-changes): CREATED and GONE events only (not MesLastSeenAt / pause /\nalert churn). Default retention 48 hours (MesIngest:ChangeFeedRetentionHours; 0 = permanent).\nBootstrap is a client procedure: capture highWatermark, replace local mirror with full VISIBLE plus\nGoneAt>=now-24h GONE via /api/demands, then catch up /api/demand-changes after that watermark —\ndo not merge into a stale mirror.",
+    "version": "v1"
+  },
+  "paths": {
+    "/api/alerts": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List ingest alert incidents (paginated)",
+        "description": "Filters: active, code, severity (ERROR|WARNING), from/to, sortBy, direction, limit (1-200), cursor.\nDefault sort prefers active ERROR/WARNING then LastSeenAt.\n\nExample: GET /api/alerts?active=true&severity=ERROR&limit=100",
+        "operationId": "ListAlerts",
+        "parameters": [
+          {
+            "name": "active",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "description": "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "dates"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "asc or desc (default desc).",
+            "schema": {
+              "type": "string"
+            },
+            "example": "desc"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size. Default 100; hard maximum 200.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "string"
+            },
+            "example": 100
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque keyset cursor from a previous page's nextCursor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid filter, sort, cursor, or limit"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          }
+        }
+      }
+    },
+    "/api/demand-changes": {
+      "get": {
+        "tags": [
+          "DemandChangeFeed"
+        ],
+        "summary": "DemandChangeFeed page (CREATED/GONE)",
+        "description": "Query: afterSequence (default 0), limit (1-200). Response includes nextAfterSequence, hasMore,\nhighWatermark, earliestAvailableSequence. Only CREATED and GONE.\nUse with /api/demands for authoritative Bootstrap (see API description).\n\nExample: GET /api/demand-changes?afterSequence=0&limit=100",
+        "operationId": "ListDemandChanges",
+        "parameters": [
+          {
+            "name": "afterSequence",
+            "in": "query",
+            "description": "Return changes with sequence greater than this value. Default 0.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "0"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size. Default 100; hard maximum 200.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 100
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid filter, sort, cursor, or limit"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          },
+          "410": {
+            "description": "SYNC_CURSOR_EXPIRED — afterSequence older than retained ChangeFeed"
+          }
+        }
+      }
+    },
+    "/api/demands": {
+      "get": {
+        "tags": [
+          "Demands"
+        ],
+        "summary": "List transport demands (paginated)",
+        "description": "Default status=VISIBLE&sortBy=dates&direction=desc with DemandId tie-break.\nFilters: status, taskType, sublot, demandId (exact or >=6 lowercase hex prefix),\ndatesFrom/datesTo, goneAtFrom/goneAtTo, sortBy allow-list\n(dates|demandId|goneAt|taskType|sublot|createdAt|mesLastSeenAt), direction, limit (1-200), cursor.\nGONE defaults to GoneAt >= now-24h unless an explicit GoneAt range is supplied.\n\nExample: GET /api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=100",
+        "operationId": "ListDemands",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "VISIBLE (default) or GONE.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "VISIBLE"
+          },
+          {
+            "name": "taskType",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sublot",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "demandId",
+            "in": "query",
+            "description": "Exact DemandId or >=6 lowercase hex prefix.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "a1b2c3"
+          },
+          {
+            "name": "datesFrom",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "datesTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "goneAtFrom",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "goneAtTo",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sortBy",
+            "in": "query",
+            "description": "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "dates"
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "description": "asc or desc (default desc).",
+            "schema": {
+              "type": "string"
+            },
+            "example": "desc"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size. Default 100; hard maximum 200.",
+            "schema": {
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 100
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque keyset cursor from a previous page's nextCursor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid filter, sort, cursor, or limit"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          }
+        }
+      }
+    },
+    "/api/demands/{demandId}": {
+      "get": {
+        "tags": [
+          "Demands"
+        ],
+        "summary": "Get one transport demand by DemandId",
+        "description": "Exact DemandId lookup.",
+        "operationId": "GetDemand",
+        "parameters": [
+          {
+            "name": "demandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid filter, sort, cursor, or limit"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          },
+          "404": {
+            "description": "Resource not found"
+          }
+        }
+      }
+    },
+    "/api/poll-health": {
+      "get": {
+        "tags": [
+          "PollHealth"
+        ],
+        "summary": "Latest poll health snapshot",
+        "description": "Returns the most recent Host poll outcome and task-type pause states.",
+        "operationId": "GetPollHealth",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Invalid filter, sort, cursor, or limit"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          },
+          "404": {
+            "description": "Resource not found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Bearer SharedSecret required for /api/* when the host binds beyond localhost. Documentation routes (/swagger, /openapi) stay public.",
+        "scheme": "bearer",
+        "bearerFormat": "SharedSecret"
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": [ ]
+    }
+  ]
+}

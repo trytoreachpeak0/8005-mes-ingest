@@ -78,12 +78,23 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
+if (!probeOracle)
+{
+    builder.Services.AddMesIngestOpenApi();
+}
+
 var app = builder.Build();
 
 app.UseMiddleware<HostRequestLatencyMiddleware>();
 
 app.Use(async (context, next) =>
 {
+    if (MesIngestOpenApi.IsPublicDocumentationPath(context.Request.Path))
+    {
+        await next();
+        return;
+    }
+
     var options = context.RequestServices.GetRequiredService<MesIngestHostOptions>();
     var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
     if (!SharedSecretAuth.IsAuthorized(context.Request, options, configuration))
@@ -127,6 +138,8 @@ if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
     var runner = app.Services.GetRequiredService<IngestRoundRunner>();
     await runner.RunOnceAsync();
 }
+
+app.UseMesIngestOpenApi();
 
 app.MapGet("/api/demands", (
     ITransportDemandStore store,
@@ -216,7 +229,8 @@ app.MapGet("/api/demands", (
         page.Items.Select(d => DemandDto.From(d, DemandDto.RelevantAlerts(alerts, d))).ToList(),
         page.NextCursor,
         page.HasMore));
-});
+})
+.WithName("ListDemands");
 
 app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore store) =>
 {
@@ -228,7 +242,8 @@ app.MapGet("/api/demands/{demandId}", (string demandId, ITransportDemandStore st
 
     var alerts = DemandDto.RelevantAlerts(store.ListAlerts(), demand);
     return Results.Ok(DemandDto.From(demand, alerts));
-});
+})
+.WithName("GetDemand");
 
 app.MapGet("/api/alerts", (
     ITransportDemandStore store,
@@ -309,7 +324,8 @@ app.MapGet("/api/alerts", (
     {
         return Results.BadRequest(new { error = ex.Message });
     }
-});
+})
+.WithName("ListAlerts");
 
 app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
 {
@@ -320,7 +336,8 @@ app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
     }
 
     return Results.Ok(PollHealthDto.From(health, store.GetState().TaskTypePauses));
-});
+})
+.WithName("GetPollHealth");
 
 app.MapGet("/api/demand-changes", (
     ITransportDemandStore store,
@@ -360,7 +377,8 @@ app.MapGet("/api/demand-changes", (
             },
             statusCode: StatusCodes.Status410Gone);
     }
-});
+})
+.WithName("ListDemandChanges");
 
 app.Run();
 return 0;

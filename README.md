@@ -21,6 +21,8 @@ Then:
 - `GET http://127.0.0.1:5088/api/demands/{demandId}`
 - `GET http://127.0.0.1:5088/api/alerts`
 - `GET http://127.0.0.1:5088/api/poll-health`
+- `GET http://127.0.0.1:5088/api/demand-changes`
+- Swagger UI: `http://127.0.0.1:5088/swagger` · OpenAPI JSON: `/openapi/v1.json` (pack ships `openapi/v1.json`)
 
 ## Ticket 05 — SQL Server projection
 

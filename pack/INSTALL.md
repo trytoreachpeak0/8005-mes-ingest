@@ -12,6 +12,7 @@ MesIngest/
   templates/               # 填空配置模板（无真实凭证）
   scripts/                 # 安装 / 卸载辅助脚本
   validation/              # 工厂验证回传模板
+  openapi/v1.json          # 静态 OpenAPI 契约（离线导入 Postman/代码工具）
   INSTALL.md               # 本说明
   FACTORY-VALIDATION.md    # 工厂执行与核验清单
   VERSION.txt              # 发布版本信息
@@ -88,7 +89,15 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 只读 API（本机默认）：
 
 - `GET /api/demands`
+- `GET /api/demands/{demandId}`
 - `GET /api/alerts`
 - `GET /api/poll-health`
+- `GET /api/demand-changes`
+
+人工试调与合作者文档：
+
+- 浏览器打开 `http://127.0.0.1:5088/swagger`（远程绑定时文档仍默认启用）
+- 机器可读契约：`GET /openapi/v1.json`（安装包离线副本：`openapi/v1.json`）
+- 文档元数据可匿名打开；实际 `/api/*` 在非本机绑定时仍需 `Authorization: Bearer <SharedSecret>`（Swagger UI 点 Authorize 后再 Try it out）
 
 工厂连通验证、人工核验与回传约定见同包 [`FACTORY-VALIDATION.md`](FACTORY-VALIDATION.md) 与 `validation/`；本说明只覆盖安装与安全配置。
