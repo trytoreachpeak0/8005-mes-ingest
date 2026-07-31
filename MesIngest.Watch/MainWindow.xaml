@@ -82,49 +82,68 @@
             </WrapPanel>
         </StackPanel>
 
-        <GroupBox Header="Alerts" DockPanel.Dock="Bottom" Height="140" Margin="0,8,0,0">
-            <DataGrid x:Name="AlertsGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      CanUserAddRows="False"
-                      HeadersVisibility="Column"
-                      Sorting="OnAlertsSorting">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" CanUserSort="True" />
-                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="True" />
-                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" />
-                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
-                    <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
-                </DataGrid.Columns>
-            </DataGrid>
-        </GroupBox>
+        <Grid x:Name="PanesGrid">
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="DemandsRow" Height="7*" MinHeight="120" />
+                <RowDefinition Height="6" />
+                <RowDefinition x:Name="AlertsRow" Height="3*" MinHeight="80" />
+            </Grid.RowDefinitions>
 
-        <GroupBox Header="TransportDemands">
-            <DataGrid x:Name="DemandsGrid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      CanUserAddRows="False"
-                      CanUserSortColumns="True"
-                      HeadersVisibility="Column"
-                      Sorting="OnDemandsSorting">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
-                    <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" CanUserSort="True" SortMemberPath="TaskType" />
-                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" CanUserSort="True" SortMemberPath="Sublot" />
-                    <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="False" />
-                    <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
-                    <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
-                    <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
-                    <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
-                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="False" />
-                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="False" />
-                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="False" />
-                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="False" />
-                    <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="False" />
-                    <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="False" />
-                </DataGrid.Columns>
-            </DataGrid>
-        </GroupBox>
+            <GroupBox Header="TransportDemands" Grid.Row="0">
+                <DataGrid x:Name="DemandsGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          CanUserSortColumns="True"
+                          HeadersVisibility="Column"
+                          Sorting="OnDemandsSorting">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
+                        <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" CanUserSort="True" SortMemberPath="TaskType" />
+                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" CanUserSort="True" SortMemberPath="Sublot" />
+                        <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="False" />
+                        <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
+                        <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
+                        <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
+                        <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
+                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="False" />
+                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="False" />
+                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="False" />
+                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="False" />
+                        <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="False" />
+                        <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="False" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </GroupBox>
+
+            <GridSplitter x:Name="PanesSplitter"
+                          Grid.Row="1"
+                          Height="6"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ResizeDirection="Rows"
+                          ResizeBehavior="PreviousAndNext"
+                          ShowsPreview="True"
+                          Background="#FFBDBDBD"
+                          MouseDoubleClick="OnPanesSplitterDoubleClick" />
+
+            <GroupBox Header="Alerts" Grid.Row="2" Margin="0,0,0,0">
+                <DataGrid x:Name="AlertsGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          HeadersVisibility="Column"
+                          Sorting="OnAlertsSorting">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" CanUserSort="True" />
+                        <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                        <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="True" />
+                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" />
+                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
+                        <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </GroupBox>
+        </Grid>
     </DockPanel>
 </Window>

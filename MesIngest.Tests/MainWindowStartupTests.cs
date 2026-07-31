@@ -1,5 +1,7 @@
 using MesIngest.Watch;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 
 namespace MesIngest.Tests;
@@ -94,5 +96,273 @@ public class MainWindowStartupTests
 
         Assert.Null(caught);
         Assert.True(ok);
+    }
+
+    [Fact]
+    public void MainWindow_applies_saved_pane_ratio_and_uses_star_rows_with_splitter()
+    {
+        Exception? caught = null;
+        var ok = false;
+        var prefsPath = Path.Combine(Path.GetTempPath(), $"watch-layout-ui-{Guid.NewGuid():N}.json");
+        File.WriteAllText(prefsPath, """{"version":1,"demandShare":0.55}""");
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var client = new MesIngestApiClient(http);
+                var options = new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:9",
+                    RefreshSeconds = 60,
+                };
+                var window = new MainWindow(client, options, layoutPreferencesPath: prefsPath);
+                var demandsRow = (RowDefinition)window.FindName("DemandsRow");
+                var alertsRow = (RowDefinition)window.FindName("AlertsRow");
+                var splitter = (GridSplitter)window.FindName("PanesSplitter");
+
+                if (demandsRow.Height.IsStar != true
+                    || alertsRow.Height.IsStar != true
+                    || Math.Abs(demandsRow.Height.Value - 0.55) > 1e-9
+                    || Math.Abs(alertsRow.Height.Value - 0.45) > 1e-9
+                    || demandsRow.MinHeight < 1
+                    || alertsRow.MinHeight < 1
+                    || splitter is null
+                    || splitter.ResizeDirection != GridResizeDirection.Rows)
+                {
+                    throw new InvalidOperationException(
+                        $"Pane layout mismatch: demand={demandsRow.Height}, alert={alertsRow.Height}");
+                }
+
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            Assert.Null(caught);
+            Assert.True(ok);
+        }
+        finally
+        {
+            if (File.Exists(prefsPath))
+            {
+                File.Delete(prefsPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void MainWindow_double_click_splitter_resets_to_default_ratio()
+    {
+        Exception? caught = null;
+        var ok = false;
+        var prefsPath = Path.Combine(Path.GetTempPath(), $"watch-layout-ui-{Guid.NewGuid():N}.json");
+        File.WriteAllText(prefsPath, """{"version":1,"demandShare":0.4}""");
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var client = new MesIngestApiClient(http);
+                var options = new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:9",
+                    RefreshSeconds = 60,
+                };
+                var window = new MainWindow(client, options, layoutPreferencesPath: prefsPath);
+                var demandsRow = (RowDefinition)window.FindName("DemandsRow");
+                var alertsRow = (RowDefinition)window.FindName("AlertsRow");
+                var splitter = (GridSplitter)window.FindName("PanesSplitter");
+
+                splitter.RaiseEvent(new MouseButtonEventArgs(
+                        Mouse.PrimaryDevice,
+                        Environment.TickCount,
+                        MouseButton.Left)
+                    {
+                        RoutedEvent = Control.MouseDoubleClickEvent,
+                        Source = splitter,
+                    });
+
+                if (Math.Abs(demandsRow.Height.Value - 0.7) > 1e-9
+                    || Math.Abs(alertsRow.Height.Value - 0.3) > 1e-9
+                    || !demandsRow.Height.IsStar
+                    || !alertsRow.Height.IsStar)
+                {
+                    throw new InvalidOperationException(
+                        $"Reset failed: demand={demandsRow.Height}, alert={alertsRow.Height}");
+                }
+
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            Assert.Null(caught);
+            Assert.True(ok);
+        }
+        finally
+        {
+            if (File.Exists(prefsPath))
+            {
+                File.Delete(prefsPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void MainWindow_close_persists_current_pane_ratio()
+    {
+        Exception? caught = null;
+        var ok = false;
+        var prefsPath = Path.Combine(Path.GetTempPath(), $"watch-layout-ui-{Guid.NewGuid():N}.json");
+        File.WriteAllText(prefsPath, """{"version":1,"demandShare":0.7}""");
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var client = new MesIngestApiClient(http);
+                var options = new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:9",
+                    RefreshSeconds = 60,
+                };
+                var window = new MainWindow(client, options, layoutPreferencesPath: prefsPath);
+                window.Width = 1000;
+                window.Height = 700;
+                window.Show();
+                window.UpdateLayout();
+
+                var demandsRow = (RowDefinition)window.FindName("DemandsRow");
+                var alertsRow = (RowDefinition)window.FindName("AlertsRow");
+                demandsRow.Height = new GridLength(0.65, GridUnitType.Star);
+                alertsRow.Height = new GridLength(0.35, GridUnitType.Star);
+                window.UpdateLayout();
+                window.Close();
+
+                var saved = WatchLayoutPreferences.LoadDemandShare(prefsPath);
+                if (Math.Abs(saved - 0.65) > 0.05)
+                {
+                    throw new InvalidOperationException($"Expected ~0.65 saved, got {saved}");
+                }
+
+                ok = true;
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            Assert.Null(caught);
+            Assert.True(ok);
+        }
+        finally
+        {
+            if (File.Exists(prefsPath))
+            {
+                File.Delete(prefsPath);
+            }
+        }
+    }
+
+    [Fact]
+    public void MainWindow_drag_completed_converts_absolute_rows_back_to_stars()
+    {
+        Exception? caught = null;
+        var ok = false;
+        var prefsPath = Path.Combine(Path.GetTempPath(), $"watch-layout-ui-{Guid.NewGuid():N}.json");
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var client = new MesIngestApiClient(http);
+                var options = new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:9",
+                    RefreshSeconds = 60,
+                };
+                var window = new MainWindow(client, options, layoutPreferencesPath: prefsPath);
+                window.Width = 1000;
+                window.Height = 700;
+                window.Show();
+                window.UpdateLayout();
+
+                var demandsRow = (RowDefinition)window.FindName("DemandsRow");
+                var alertsRow = (RowDefinition)window.FindName("AlertsRow");
+                var splitter = (GridSplitter)window.FindName("PanesSplitter");
+
+                // Simulate post-drag Absolute heights (WPF GridSplitter behavior).
+                demandsRow.Height = new GridLength(390);
+                alertsRow.Height = new GridLength(210);
+                window.UpdateLayout();
+
+                splitter.RaiseEvent(new DragCompletedEventArgs(0, 0, false)
+                {
+                    RoutedEvent = Thumb.DragCompletedEvent,
+                    Source = splitter,
+                });
+
+                if (!demandsRow.Height.IsStar
+                    || !alertsRow.Height.IsStar
+                    || Math.Abs(demandsRow.Height.Value - 0.65) > 0.02
+                    || Math.Abs(alertsRow.Height.Value - 0.35) > 0.02)
+                {
+                    throw new InvalidOperationException(
+                        $"Expected star 0.65/0.35 after drag, got demand={demandsRow.Height}, alert={alertsRow.Height}");
+                }
+
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            Assert.Null(caught);
+            Assert.True(ok);
+        }
+        finally
+        {
+            if (File.Exists(prefsPath))
+            {
+                File.Delete(prefsPath);
+            }
+        }
     }
 }

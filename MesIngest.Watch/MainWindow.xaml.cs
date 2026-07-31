@@ -1,4 +1,5 @@
-﻿using System.Windows.Threading;
+﻿using System.Windows.Input;
+using System.Windows.Threading;
 
 namespace MesIngest.Watch;
 
@@ -10,6 +11,7 @@ internal partial class MainWindow : Window
     private readonly WatchOptions _options;
     private readonly WatchConnectionEventRecorder _connectionRecorder;
     private readonly WatchConnectionEventJournal _connectionJournal;
+    private readonly string _layoutPreferencesPath;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
@@ -30,17 +32,22 @@ internal partial class MainWindow : Window
         MesIngestApiClient client,
         WatchOptions options,
         WatchConnectionEventJournal? connectionJournal = null,
-        WatchConnectionEventRecorder? connectionRecorder = null)
+        WatchConnectionEventRecorder? connectionRecorder = null,
+        string? layoutPreferencesPath = null)
     {
         InitializeComponent();
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
         _options = options;
+        _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(options);
         _connectionRecorder = connectionRecorder
             ?? new WatchConnectionEventRecorder(TimeSpan.FromMinutes(5));
         Title = $"MesIngest Watch — {_options.BaseUrl}";
+
+        ApplyPaneRatio(WatchLayoutPreferences.LoadDemandShare(_layoutPreferencesPath));
+        PanesSplitter.DragCompleted += (_, _) => ConvertPaneHeightsToStars();
 
         _timer = new DispatcherTimer
         {
@@ -72,10 +79,55 @@ internal partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
+            SavePaneRatio();
             _timer.Stop();
             _demandIdDebounceTimer.Stop();
             _refreshGate.Dispose();
         };
+    }
+
+    private void ApplyPaneRatio(double demandShare)
+    {
+        var (demandStar, alertStar) = WatchLayoutPreferences.ToStarHeights(demandShare);
+        DemandsRow.Height = new GridLength(demandStar, GridUnitType.Star);
+        AlertsRow.Height = new GridLength(alertStar, GridUnitType.Star);
+    }
+
+    /// <summary>
+    /// GridSplitter leaves Absolute row heights after a drag; convert back to Star
+    /// so window resize/maximize keeps the same Demand/Alert fill ratio.
+    /// </summary>
+    private void ConvertPaneHeightsToStars()
+    {
+        var demand = DemandsRow.ActualHeight;
+        var alert = AlertsRow.ActualHeight;
+        var total = demand + alert;
+        if (total <= 0)
+        {
+            return;
+        }
+
+        ApplyPaneRatio(demand / total);
+    }
+
+    private void SavePaneRatio()
+    {
+        ConvertPaneHeightsToStars();
+        var demand = DemandsRow.Height.Value;
+        var alert = AlertsRow.Height.Value;
+        var total = demand + alert;
+        if (total <= 0 || !DemandsRow.Height.IsStar)
+        {
+            return;
+        }
+
+        WatchLayoutPreferences.SaveDemandShare(_layoutPreferencesPath, demand / total);
+    }
+
+    private void OnPanesSplitterDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        ApplyPaneRatio(WatchLayoutPreferences.DefaultDemandShare);
+        e.Handled = true;
     }
 
     private void OnFilterChanged(object sender, RoutedEventArgs e)
