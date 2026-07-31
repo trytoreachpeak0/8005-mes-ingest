@@ -157,6 +157,59 @@ internal sealed class MesIngestApiClient
         CancellationToken cancellationToken = default) =>
         FetchDemandPageCoreAsync(query, Guid.NewGuid().ToString("N"), cancellationToken);
 
+    /// <summary>
+    /// Exact DemandId lookup via GET /api/demands/{demandId}. Returns null on 404.
+    /// </summary>
+    public async Task<WatchDemandDto?> FetchDemandByIdAsync(
+        string demandId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(demandId);
+        var endpoint = "/api/demands/" + Uri.EscapeDataString(demandId.Trim());
+        var correlationId = Guid.NewGuid().ToString("N");
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(body);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, 404, 0, bytes);
+                return null;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    null,
+                    response.StatusCode);
+            }
+
+            var demand = JsonSerializer.Deserialize<WatchDemandDto>(body, JsonOptions)
+                ?? throw new JsonException("Demand by-id deserialize returned null.");
+            RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, 1, bytes);
+            return demand;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
+            throw Classify(endpoint, sw.Elapsed, ex);
+        }
+    }
+
     private async Task<WatchDemandPage> FetchDemandPageWithCursorRecoveryAsync(
         WatchDemandBrowseQuery query,
         string correlationId,

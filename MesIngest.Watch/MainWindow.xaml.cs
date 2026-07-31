@@ -1,4 +1,5 @@
-﻿using System.Windows.Input;
+﻿using System.IO;
+using System.Windows.Input;
 using System.Windows.Threading;
 
 namespace MesIngest.Watch;
@@ -15,6 +16,8 @@ internal partial class MainWindow : Window
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly Dictionary<string, AlertDetailWindow> _openAlertDetails = new(StringComparer.Ordinal);
+    private readonly List<WeakReference<AlertDetailWindow>> _openAlertDetailsWithoutId = [];
 
     private IReadOnlyList<WatchDemandDto> _demands = [];
     private IReadOnlyList<WatchAlertDto> _alerts = [];
@@ -27,6 +30,7 @@ internal partial class MainWindow : Window
     private string? _appliedDemandId;
     private string _alertSortColumn = "created";
     private bool _alertSortAscending;
+    private UnifiedEventsWindow? _eventsWindow;
 
     public MainWindow(
         MesIngestApiClient client,
@@ -385,7 +389,204 @@ internal partial class MainWindow : Window
         HealthText.Text = FormatHealth(_health, _options.BaseUrl, _refreshState);
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
+        SyncOpenAlertDetails();
+        _eventsWindow?.Reload();
     }
+
+    private void OnAlertsDoubleClick(object sender, MouseButtonEventArgs e) => OpenSelectedAlertDetail();
+
+    private void OnAlertsPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            OpenSelectedAlertDetail();
+        }
+    }
+
+    private void OnAlertViewDetailsMenu(object sender, RoutedEventArgs e) => OpenSelectedAlertDetail();
+
+    private void OpenSelectedAlertDetail()
+    {
+        if (AlertsGrid.SelectedItem is WatchAlertDto alert)
+        {
+            OpenAlertDetail(alert);
+        }
+    }
+
+    private void OpenAlertDetail(WatchAlertDto alert)
+    {
+        if (!string.IsNullOrWhiteSpace(alert.AlertId)
+            && _openAlertDetails.TryGetValue(alert.AlertId, out var existing)
+            && existing.IsVisible)
+        {
+            existing.ApplyUpdate(alert);
+            existing.Activate();
+            return;
+        }
+
+        AlertDetailWindow? window = null;
+        window = new AlertDetailWindow(
+            AlertDetailViewModel.From(alert),
+            locateDemand: demandId => LocateDemandFromAlert(demandId, window));
+        window.Owner = this;
+        window.Closed += (_, _) => UnregisterAlertDetail(window);
+
+        if (!string.IsNullOrWhiteSpace(alert.AlertId))
+        {
+            _openAlertDetails[alert.AlertId] = window;
+        }
+        else
+        {
+            _openAlertDetailsWithoutId.Add(new WeakReference<AlertDetailWindow>(window));
+        }
+
+        window.Show();
+    }
+
+    private void UnregisterAlertDetail(AlertDetailWindow window)
+    {
+        if (!string.IsNullOrWhiteSpace(window.AlertId)
+            && _openAlertDetails.TryGetValue(window.AlertId, out var mapped)
+            && ReferenceEquals(mapped, window))
+        {
+            _openAlertDetails.Remove(window.AlertId);
+        }
+
+        _openAlertDetailsWithoutId.RemoveAll(reference =>
+            !reference.TryGetTarget(out var target) || ReferenceEquals(target, window));
+    }
+
+    private void SyncOpenAlertDetails()
+    {
+        var byId = _alerts
+            .Where(a => !string.IsNullOrWhiteSpace(a.AlertId))
+            .GroupBy(a => a.AlertId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        foreach (var (alertId, window) in _openAlertDetails.ToList())
+        {
+            if (!window.IsVisible)
+            {
+                _openAlertDetails.Remove(alertId);
+                continue;
+            }
+
+            if (byId.TryGetValue(alertId, out var live))
+            {
+                window.ApplyUpdate(live);
+            }
+            else
+            {
+                window.MarkHistorical();
+            }
+        }
+    }
+
+    private async void LocateDemandFromAlert(string demandId, AlertDetailWindow? window)
+    {
+        window?.SetLocateHint(null);
+        try
+        {
+            var found = await _client.FetchDemandByIdAsync(demandId).ConfigureAwait(true);
+            if (found is null)
+            {
+                var missing =
+                    $"DemandId {demandId} was not found in Host TransportDemands. "
+                    + "It may never have been projected, or filters/history retention do not apply to exact id lookup.";
+                window?.SetLocateHint(missing);
+                MessageBox.Show(this, missing, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            SelectStatus(found.Status);
+            FilterDemandId.Text = found.DemandId;
+            _appliedDemandId = found.DemandId;
+            _demandIdDebounceTimer.Stop();
+            await RefreshAsync(resetPage: true).ConfigureAwait(true);
+
+            var match = _demands.FirstOrDefault(d =>
+                string.Equals(d.DemandId, found.DemandId, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
+            {
+                DemandsGrid.SelectedItem = match;
+                DemandsGrid.ScrollIntoView(match);
+                window?.SetLocateHint(null);
+                return;
+            }
+
+            var hint =
+                $"DemandId {found.DemandId} exists (status={found.Status}) but is not in the current browse page. "
+                + "Clear TASK_TYPE/SUBLOT filters or widen the GoneAt window if status=GONE.";
+            window?.SetLocateHint(hint);
+            MessageBox.Show(this, hint, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            var message = $"Locate Demand failed: {ex.Message}";
+            window?.SetLocateHint(message);
+            MessageBox.Show(this, message, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void SelectStatus(string status)
+    {
+        foreach (ComboBoxItem item in FilterStatus.Items)
+        {
+            if (string.Equals(item.Content?.ToString(), status, StringComparison.OrdinalIgnoreCase))
+            {
+                FilterStatus.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void OnOpenEventsClick(object sender, RoutedEventArgs e)
+    {
+        if (_eventsWindow is { IsVisible: true })
+        {
+            _eventsWindow.Reload();
+            _eventsWindow.Activate();
+            return;
+        }
+
+        _eventsWindow = new UnifiedEventsWindow(
+            loadEvents: LoadUnifiedEvents,
+            openAlertDetail: OpenAlertDetail,
+            logDirectory: _connectionJournal.DirectoryPath)
+        {
+            Owner = this,
+        };
+        _eventsWindow.Closed += (_, _) => _eventsWindow = null;
+        _eventsWindow.Show();
+    }
+
+    private IReadOnlyList<UnifiedWatchEvent> LoadUnifiedEvents()
+    {
+        var zone = TimeZoneInfo.Local;
+        var host = _alerts.Select(a => UnifiedWatchEvent.FromAlert(a, zone));
+        IEnumerable<UnifiedWatchEvent> watch;
+        try
+        {
+            watch = _connectionJournal.ReadRecent(200)
+                .Select(e => UnifiedWatchEvent.FromConnectionEvent(e, zone));
+        }
+        catch (IOException)
+        {
+            watch = [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            watch = [];
+        }
+
+        return host.Concat(watch)
+            .OrderByDescending(e => e.At)
+            .ToList();
+    }
+
+    private void OnOpenLogDirectoryClick(object sender, RoutedEventArgs e) =>
+        WatchLogDirectory.Open(this, _connectionJournal.DirectoryPath);
 
     private IReadOnlyList<WatchAlertDto> SortAlerts(IReadOnlyList<WatchAlertDto> source)
     {

@@ -43,6 +43,45 @@ public class WatchConnectionEventJournalTests
     }
 
     [Fact]
+    public void ReadRecent_returns_newest_first_including_appended_events()
+    {
+        using var dir = new TempDirectory();
+        var journal = new WatchConnectionEventJournal(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 100 * 1024 * 1024,
+            utcNow: () => DateTimeOffset.Parse("2026-07-31T10:00:00Z"));
+
+        journal.Append(new WatchConnectionEvent(
+            WatchConnectionEventKind.Failure,
+            DateTimeOffset.Parse("2026-07-31T09:00:00Z"),
+            "/api/demands",
+            "HTTP_TIMEOUT",
+            30_000,
+            30,
+            "first",
+            1,
+            null));
+        journal.Append(new WatchConnectionEvent(
+            WatchConnectionEventKind.Recovered,
+            DateTimeOffset.Parse("2026-07-31T09:05:00Z"),
+            "/api/demands",
+            "HTTP_TIMEOUT",
+            10,
+            30,
+            "recovered",
+            1,
+            300_000));
+
+        var recent = journal.ReadRecent(10);
+
+        Assert.Equal(2, recent.Count);
+        Assert.Equal(WatchConnectionEventKind.Recovered, recent[0].Kind);
+        Assert.Equal(WatchConnectionEventKind.Failure, recent[1].Kind);
+        Assert.Equal("/api/demands", recent[0].Endpoint);
+    }
+
+    [Fact]
     public void Retention_deletes_files_older_than_retention_days()
     {
         using var dir = new TempDirectory();

@@ -69,6 +69,8 @@ internal sealed class WatchConnectionEventJournal
             options.ConnectionLogRetentionDays,
             options.ConnectionLogMaxSizeMb * 1024L * 1024L);
 
+    public string DirectoryPath => _directory;
+
     public void Append(WatchConnectionEvent connectionEvent)
     {
         Directory.CreateDirectory(_directory);
@@ -94,6 +96,113 @@ internal sealed class WatchConnectionEventJournal
         File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
 
         EnforceRetention();
+    }
+
+    /// <summary>
+    /// Reads newest JSONL connection events (newest first), best-effort across daily files.
+    /// </summary>
+    public IReadOnlyList<WatchConnectionEvent> ReadRecent(int maxCount = 200)
+    {
+        if (maxCount < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxCount));
+        }
+
+        if (!Directory.Exists(_directory))
+        {
+            return [];
+        }
+
+        var collected = new List<WatchConnectionEvent>();
+        foreach (var file in Directory.EnumerateFiles(_directory, "watch-connection-*.jsonl")
+                     .Select(path => new FileInfo(path))
+                     .Where(info => info.Exists)
+                     .OrderByDescending(info => info.LastWriteTimeUtc))
+        {
+            string[] lines;
+            try
+            {
+                lines = File.ReadAllLines(file.FullName, Encoding.UTF8);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            for (var i = lines.Length - 1; i >= 0; i--)
+            {
+                var line = lines[i];
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                if (TryParse(line, out var parsed))
+                {
+                    collected.Add(parsed);
+                    if (collected.Count >= maxCount)
+                    {
+                        return collected;
+                    }
+                }
+            }
+        }
+
+        return collected;
+    }
+
+    private static bool TryParse(string line, out WatchConnectionEvent connectionEvent)
+    {
+        connectionEvent = null!;
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("kind", out var kindElement)
+                || !Enum.TryParse<WatchConnectionEventKind>(kindElement.GetString(), ignoreCase: true, out var kind)
+                || !root.TryGetProperty("at", out var atElement)
+                || !atElement.TryGetDateTimeOffset(out var at))
+            {
+                return false;
+            }
+
+            connectionEvent = new WatchConnectionEvent(
+                Kind: kind,
+                At: at,
+                Endpoint: root.TryGetProperty("endpoint", out var endpoint) ? endpoint.GetString() : null,
+                Stage: root.TryGetProperty("stage", out var stage) ? stage.GetString() : null,
+                ElapsedMs: root.TryGetProperty("elapsedMs", out var elapsed) && elapsed.ValueKind == JsonValueKind.Number
+                    ? elapsed.GetInt64()
+                    : null,
+                TimeoutSeconds: root.TryGetProperty("timeoutSeconds", out var timeout)
+                    && timeout.ValueKind == JsonValueKind.Number
+                    ? timeout.GetInt32()
+                    : null,
+                Message: root.TryGetProperty("message", out var message) ? message.GetString() : null,
+                FailureCount: root.TryGetProperty("failureCount", out var count) && count.ValueKind == JsonValueKind.Number
+                    ? count.GetInt32()
+                    : 0,
+                OutageDurationMs: root.TryGetProperty("outageDurationMs", out var outage)
+                    && outage.ValueKind == JsonValueKind.Number
+                    ? outage.GetInt64()
+                    : null,
+                CorrelationId: root.TryGetProperty("correlationId", out var correlation)
+                    ? correlation.GetString()
+                    : null);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private void EnforceRetention()

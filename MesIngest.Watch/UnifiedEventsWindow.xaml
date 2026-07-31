@@ -1,0 +1,60 @@
+<Window x:Class="MesIngest.Watch.UnifiedEventsWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Events"
+        Height="520"
+        Width="960"
+        MinHeight="360"
+        MinWidth="720"
+        ShowInTaskbar="True"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <WrapPanel>
+                <TextBlock Text="Source filter" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ComboBox x:Name="SourceFilter"
+                          Width="220"
+                          SelectionChanged="OnFilterChanged">
+                    <ComboBoxItem Content="All" Tag="All" IsSelected="True" />
+                    <ComboBoxItem Content="Host IngestAlert" Tag="HostIngestAlert" />
+                    <ComboBoxItem Content="Watch Connection Event" Tag="WatchConnectionEvent" />
+                </ComboBox>
+                <Button Content="Open local log directory"
+                        Margin="16,0,0,0"
+                        Padding="10,2"
+                        Click="OnOpenLogDirectory" />
+                <Button Content="Refresh"
+                        Margin="8,0,0,0"
+                        Padding="10,2"
+                        Click="OnRefreshClick" />
+            </WrapPanel>
+            <TextBlock Margin="0,6,0,0"
+                       TextWrapping="Wrap"
+                       Text="Unified viewing surface only — Host IngestAlert and Watch Connection Event stay separate sources (never uploaded to Host)." />
+        </StackPanel>
+
+        <DataGrid x:Name="EventsGrid"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  HeadersVisibility="Column"
+                  MouseDoubleClick="OnEventsDoubleClick"
+                  PreviewKeyDown="OnEventsPreviewKeyDown">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Source" Binding="{Binding SourceLabel}" Width="170" />
+                <DataGridTextColumn Header="At" Binding="{Binding AtText}" Width="190" />
+                <DataGridTextColumn Header="Code/Kind" Binding="{Binding CodeOrKind}" Width="150" />
+                <DataGridTextColumn Header="Severity/Stage" Binding="{Binding SeverityOrStage}" Width="130" />
+                <DataGridTextColumn Header="TASK_TYPE/Endpoint" Binding="{Binding EndpointOrTaskType}" Width="160" />
+                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="140" />
+                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" />
+            </DataGrid.Columns>
+            <DataGrid.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="查看详情" Click="OnViewDetailsMenu" />
+                </ContextMenu>
+            </DataGrid.ContextMenu>
+        </DataGrid>
+    </DockPanel>
+</Window>

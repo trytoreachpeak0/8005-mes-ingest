@@ -78,6 +78,14 @@
                         Padding="10,2"
                         Click="OnLoadMoreClick"
                         IsEnabled="False" />
+                <Button Content="Events"
+                        Margin="0,0,12,4"
+                        Padding="10,2"
+                        Click="OnOpenEventsClick" />
+                <Button Content="Open log directory"
+                        Margin="0,0,12,4"
+                        Padding="10,2"
+                        Click="OnOpenLogDirectoryClick" />
                 <TextBlock x:Name="RowCountText" VerticalAlignment="Center" Margin="8,0,0,0" />
             </WrapPanel>
         </StackPanel>
@@ -133,7 +141,9 @@
                           IsReadOnly="True"
                           CanUserAddRows="False"
                           HeadersVisibility="Column"
-                          Sorting="OnAlertsSorting">
+                          Sorting="OnAlertsSorting"
+                          MouseDoubleClick="OnAlertsDoubleClick"
+                          PreviewKeyDown="OnAlertsPreviewKeyDown">
                     <DataGrid.Columns>
                         <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="160" CanUserSort="True" />
                         <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
@@ -142,6 +152,11 @@
                         <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
                         <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
                     </DataGrid.Columns>
+                    <DataGrid.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="查看详情" Click="OnAlertViewDetailsMenu" />
+                        </ContextMenu>
+                    </DataGrid.ContextMenu>
                 </DataGrid>
             </GroupBox>
         </Grid>

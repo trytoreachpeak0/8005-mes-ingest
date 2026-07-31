@@ -1,0 +1,106 @@
+<Window x:Class="MesIngest.Watch.AlertDetailWindow"
+        x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Alert detail"
+        Height="560"
+        Width="720"
+        MinHeight="360"
+        MinWidth="520"
+        ShowInTaskbar="True"
+        WindowStartupLocation="CenterOwner">
+    <DockPanel Margin="12">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="CopySummaryButton" Content="Copy summary" Margin="0,0,8,0" Padding="10,4" Click="OnCopySummary" />
+            <Button x:Name="CopyDetailsButton" Content="Copy Details JSON" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDetails" />
+            <Button x:Name="CopyDemandIdButton" Content="Copy DemandId" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDemandId" />
+            <Button x:Name="LocateDemandButton" Content="Locate Demand" Padding="10,4" Click="OnLocateDemand" />
+        </StackPanel>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock x:Name="SnapshotStatusText" FontWeight="SemiBold" Margin="0,0,0,8" TextWrapping="Wrap" />
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Code" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CodeText" Grid.Row="0" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Severity" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SeverityText" Grid.Row="0" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Source" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SourceText" Grid.Row="1" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Lifecycle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="LifecycleText" Grid.Row="1" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="First seen" FontWeight="SemiBold" />
+                    <TextBlock x:Name="FirstSeenText" Grid.Row="2" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Last seen" FontWeight="SemiBold" />
+                    <TextBlock x:Name="LastSeenText" Grid.Row="2" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Resolved at" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ResolvedAtText" Grid.Row="3" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="Count" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CountText" Grid.Row="3" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="TASK_TYPE" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TaskTypeText" Grid.Row="4" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="SUBLOT" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SublotText" Grid.Row="4" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="DemandId" FontWeight="SemiBold" />
+                    <TextBlock x:Name="DemandIdText" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" FontFamily="Consolas" />
+
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Message" FontWeight="SemiBold" />
+                    <TextBlock x:Name="MessageText" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                </Grid>
+
+                <TextBlock Text="Details" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock x:Name="LegacyDetailsText" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,8" />
+                <DataGrid x:Name="FieldDriftGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          HeadersVisibility="Column"
+                          MaxHeight="220"
+                          Visibility="Collapsed"
+                          Margin="0,0,0,8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="120" />
+                        <DataGridTextColumn Header="Frozen" Binding="{Binding Frozen}" Width="*" />
+                        <DataGridTextColumn Header="Observed" Binding="{Binding Observed}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <DataGrid x:Name="KeyValueGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          HeadersVisibility="Column"
+                          MaxHeight="220"
+                          Visibility="Collapsed"
+                          Margin="0,0,0,8">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="180" />
+                        <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+                <TextBlock x:Name="EmptyDetailsText" Text="(no structured details)" Visibility="Collapsed" Margin="0,0,0,8" />
+                <TextBlock x:Name="LocateHintText" Foreground="#B71C1C" TextWrapping="Wrap" Visibility="Collapsed" />
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
