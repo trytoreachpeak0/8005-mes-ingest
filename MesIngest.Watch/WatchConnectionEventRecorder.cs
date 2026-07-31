@@ -16,7 +16,8 @@ internal sealed record WatchConnectionEvent(
     int? TimeoutSeconds,
     string? Message,
     int FailureCount,
-    long? OutageDurationMs);
+    long? OutageDurationMs,
+    string? CorrelationId = null);
 
 /// <summary>
 /// Deduplicates Watch HTTP outage observations: first failure, 5-minute summaries, recovery.
@@ -33,6 +34,7 @@ internal sealed class WatchConnectionEventRecorder
     private long? _lastElapsedMs;
     private int? _lastTimeoutSeconds;
     private string? _lastMessage;
+    private string? _lastCorrelationId;
 
     public WatchConnectionEventRecorder(TimeSpan summaryInterval)
     {
@@ -50,7 +52,8 @@ internal sealed class WatchConnectionEventRecorder
         string stage,
         TimeSpan elapsed,
         int timeoutSeconds,
-        string message)
+        string message,
+        string? correlationId = null)
     {
         _failureCount++;
         _lastEndpoint = endpoint;
@@ -58,6 +61,7 @@ internal sealed class WatchConnectionEventRecorder
         _lastElapsedMs = (long)elapsed.TotalMilliseconds;
         _lastTimeoutSeconds = timeoutSeconds;
         _lastMessage = message;
+        _lastCorrelationId = correlationId;
 
         if (_outageStartedAt is null)
         {
@@ -72,7 +76,8 @@ internal sealed class WatchConnectionEventRecorder
                 TimeoutSeconds: timeoutSeconds,
                 Message: message,
                 FailureCount: _failureCount,
-                OutageDurationMs: null);
+                OutageDurationMs: null,
+                CorrelationId: correlationId);
         }
 
         if (_lastEmittedAt is { } lastEmitted && at - lastEmitted >= _summaryInterval)
@@ -87,7 +92,8 @@ internal sealed class WatchConnectionEventRecorder
                 TimeoutSeconds: timeoutSeconds,
                 Message: message,
                 FailureCount: _failureCount,
-                OutageDurationMs: (long)(at - _outageStartedAt.Value).TotalMilliseconds);
+                OutageDurationMs: (long)(at - _outageStartedAt.Value).TotalMilliseconds,
+                CorrelationId: correlationId);
         }
 
         return null;
@@ -107,6 +113,7 @@ internal sealed class WatchConnectionEventRecorder
         var elapsedMs = _lastElapsedMs;
         var timeoutSeconds = _lastTimeoutSeconds;
         var message = _lastMessage;
+        var correlationId = _lastCorrelationId;
 
         _outageStartedAt = null;
         _lastEmittedAt = null;
@@ -116,6 +123,7 @@ internal sealed class WatchConnectionEventRecorder
         _lastElapsedMs = null;
         _lastTimeoutSeconds = null;
         _lastMessage = null;
+        _lastCorrelationId = null;
 
         return new WatchConnectionEvent(
             Kind: WatchConnectionEventKind.Recovered,
@@ -126,6 +134,7 @@ internal sealed class WatchConnectionEventRecorder
             TimeoutSeconds: timeoutSeconds,
             Message: message,
             FailureCount: count,
-            OutageDurationMs: (long)(at - started).TotalMilliseconds);
+            OutageDurationMs: (long)(at - started).TotalMilliseconds,
+            CorrelationId: correlationId);
     }
 }

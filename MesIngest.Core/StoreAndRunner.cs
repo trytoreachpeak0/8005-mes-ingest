@@ -6,7 +6,9 @@ public sealed record PollHealth(
     double DurationMs,
     int RowCount,
     bool Success,
-    string Outcome);
+    string Outcome,
+    string? FailureStage = null,
+    double? OracleDurationMs = null);
 
 public interface ITransportDemandStore
 {
@@ -108,6 +110,7 @@ public sealed class IngestRoundRunner
     private readonly int _zeroDropClearStreak;
     private readonly TimeSpan _queryTimeout;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly ILatencyTelemetry _telemetry;
     private RestartRecoveryPhase _nextPhase = RestartRecoveryPhase.BarrierRound;
     private IReadOnlyDictionary<string, int>? _barrierRoundCountsByType;
 
@@ -120,7 +123,8 @@ public sealed class IngestRoundRunner
         int zeroDropEnterThreshold = 10,
         int zeroDropClearStreak = TransportDemandReconciler.DefaultZeroDropClearStreak,
         TimeSpan? queryTimeout = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        ILatencyTelemetry? telemetry = null)
     {
         _source = source;
         _reconciler = reconciler;
@@ -131,13 +135,16 @@ public sealed class IngestRoundRunner
         _zeroDropClearStreak = zeroDropClearStreak;
         _queryTimeout = queryTimeout ?? TimeSpan.FromSeconds(30);
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
     }
 
     public async Task<ProjectionState> RunOnceAsync(CancellationToken cancellationToken = default)
     {
+        var correlationId = Guid.NewGuid().ToString("N");
+        LatencyCorrelation.Id = correlationId;
         var startedAt = _clock();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var snapshot = await ReadSnapshotAsync(cancellationToken);
+        var snapshot = await ReadSnapshotAsync(correlationId, cancellationToken);
         var restartRecovery = ResolveRestartRecovery();
         var result = _reconciler.Reconcile(
             _store.GetState(),
@@ -158,11 +165,14 @@ public sealed class IngestRoundRunner
         }
         else if (snapshot.Kind == SnapshotOutcomeKind.Failure)
         {
+            var stage = snapshot.FailureStage ?? LatencyStages.OracleQuery;
+            var oracleMs = snapshot.OracleDurationMs ?? sw.Elapsed.TotalMilliseconds;
             _store.AppendAlerts(
             [
                 new IngestAlert(
                     Code: "POLL_FAILURE",
-                    Message: "MES snapshot round failed; projection left unchanged."),
+                    Message:
+                    $"MES snapshot round failed; projection left unchanged. stage={stage} durationMs={(long)oracleMs} rowCount=0"),
             ]);
         }
         else if (snapshot.Kind == SnapshotOutcomeKind.Incomplete)
@@ -187,7 +197,11 @@ public sealed class IngestRoundRunner
                 SnapshotOutcomeKind.Failure => "FAILURE",
                 SnapshotOutcomeKind.Incomplete => "INCOMPLETE",
                 _ => "UNKNOWN",
-            }));
+            },
+            FailureStage: snapshot.Kind == SnapshotOutcomeKind.Failure
+                ? snapshot.FailureStage ?? LatencyStages.OracleQuery
+                : null,
+            OracleDurationMs: snapshot.OracleDurationMs));
 
         if (snapshot.Kind == SnapshotOutcomeKind.Success)
         {
@@ -197,13 +211,30 @@ public sealed class IngestRoundRunner
         return result.State;
     }
 
-    private async Task<MesSnapshotOutcome> ReadSnapshotAsync(CancellationToken cancellationToken)
+    private async Task<MesSnapshotOutcome> ReadSnapshotAsync(
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         linked.CancelAfter(_queryTimeout);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            return await _source.ReadAsync(linked.Token);
+            var outcome = await _source.ReadAsync(linked.Token);
+            sw.Stop();
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: correlationId,
+                Component: LatencyComponents.Oracle,
+                Stage: LatencyStages.OracleQuery,
+                ElapsedMs: sw.ElapsedMilliseconds,
+                RowCount: outcome.Kind == SnapshotOutcomeKind.Success ? outcome.Rows.Count : 0));
+
+            return outcome.Kind switch
+            {
+                SnapshotOutcomeKind.Success => MesSnapshotOutcome.Success(outcome.Rows, sw.Elapsed.TotalMilliseconds),
+                SnapshotOutcomeKind.Incomplete => MesSnapshotOutcome.Incomplete(sw.Elapsed.TotalMilliseconds),
+                _ => MesSnapshotOutcome.Failure(LatencyStages.OracleQuery, sw.Elapsed.TotalMilliseconds),
+            };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -211,11 +242,27 @@ public sealed class IngestRoundRunner
         }
         catch (OperationCanceledException)
         {
-            return MesSnapshotOutcome.Failure();
+            sw.Stop();
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: correlationId,
+                Component: LatencyComponents.Oracle,
+                Stage: LatencyStages.OracleQuery,
+                ElapsedMs: sw.ElapsedMilliseconds,
+                RowCount: 0,
+                Detail: "query timeout"));
+            return MesSnapshotOutcome.Failure(LatencyStages.OracleQuery, sw.Elapsed.TotalMilliseconds);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return MesSnapshotOutcome.Failure();
+            sw.Stop();
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: correlationId,
+                Component: LatencyComponents.Oracle,
+                Stage: LatencyStages.OracleQuery,
+                ElapsedMs: sw.ElapsedMilliseconds,
+                RowCount: 0,
+                Detail: LatencyLogFormatter.Sanitize(ex.Message)));
+            return MesSnapshotOutcome.Failure(LatencyStages.OracleQuery, sw.Elapsed.TotalMilliseconds);
         }
     }
 

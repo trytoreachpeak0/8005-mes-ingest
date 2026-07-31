@@ -24,23 +24,39 @@ public sealed record MesSnapshotRow(
 
 public sealed class MesSnapshotOutcome
 {
-    private MesSnapshotOutcome(SnapshotOutcomeKind kind, IReadOnlyList<MesSnapshotRow> rows)
+    private MesSnapshotOutcome(
+        SnapshotOutcomeKind kind,
+        IReadOnlyList<MesSnapshotRow> rows,
+        string? failureStage = null,
+        double? oracleDurationMs = null)
     {
         Kind = kind;
         Rows = rows;
+        FailureStage = failureStage;
+        OracleDurationMs = oracleDurationMs;
     }
 
     public SnapshotOutcomeKind Kind { get; }
     public IReadOnlyList<MesSnapshotRow> Rows { get; }
+    public string? FailureStage { get; }
+    public double? OracleDurationMs { get; }
 
-    public static MesSnapshotOutcome Success(IReadOnlyList<MesSnapshotRow> rows) =>
-        new(SnapshotOutcomeKind.Success, rows);
+    public static MesSnapshotOutcome Success(
+        IReadOnlyList<MesSnapshotRow> rows,
+        double? oracleDurationMs = null) =>
+        new(SnapshotOutcomeKind.Success, rows, oracleDurationMs: oracleDurationMs);
 
-    public static MesSnapshotOutcome Failure() =>
-        new(SnapshotOutcomeKind.Failure, Array.Empty<MesSnapshotRow>());
+    public static MesSnapshotOutcome Failure(
+        string? failureStage = null,
+        double? oracleDurationMs = null) =>
+        new(
+            SnapshotOutcomeKind.Failure,
+            Array.Empty<MesSnapshotRow>(),
+            failureStage,
+            oracleDurationMs);
 
-    public static MesSnapshotOutcome Incomplete() =>
-        new(SnapshotOutcomeKind.Incomplete, Array.Empty<MesSnapshotRow>());
+    public static MesSnapshotOutcome Incomplete(double? oracleDurationMs = null) =>
+        new(SnapshotOutcomeKind.Incomplete, Array.Empty<MesSnapshotRow>(), oracleDurationMs: oracleDurationMs);
 }
 
 public sealed record TransportDemand

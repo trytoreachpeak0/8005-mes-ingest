@@ -122,7 +122,8 @@ internal partial class MainWindow : Window
                     stage: snapshot.FailedStage ?? "HTTP_ERROR",
                     elapsed: snapshot.FailedElapsed ?? TimeSpan.Zero,
                     timeoutSeconds: _options.RequestTimeoutSeconds,
-                    message: snapshot.FetchError));
+                    message: snapshot.FetchError,
+                    correlationId: snapshot.CorrelationId));
             }
 
             ApplyProjection();

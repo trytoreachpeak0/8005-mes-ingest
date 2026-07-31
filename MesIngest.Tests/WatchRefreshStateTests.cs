@@ -24,7 +24,7 @@ public class WatchRefreshStateTests
         var failAt = DateTimeOffset.Parse("2026-07-31T10:02:30Z");
         var state = WatchRefreshState.Empty
             .ApplySuccess(successAt)
-            .ApplyFailure("endpoint=/api/demands stage=HTTP_TIMEOUT timeoutSeconds=30 elapsedMs=30000");
+            .ApplyFailure("endpoint=/api/demands stage=WATCH_TIMEOUT timeoutSeconds=30 elapsedMs=30000");
 
         Assert.Equal(successAt, state.LastSuccessAt);
         Assert.Equal(TimeSpan.FromMinutes(2.5), state.StaleDuration(failAt));

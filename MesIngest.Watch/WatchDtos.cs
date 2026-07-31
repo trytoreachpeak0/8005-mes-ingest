@@ -38,4 +38,6 @@ internal sealed record WatchPollHealthDto(
     int RowCount,
     bool Success,
     string Outcome,
-    IReadOnlyList<WatchTaskTypePauseDto> TaskTypePauses);
+    IReadOnlyList<WatchTaskTypePauseDto> TaskTypePauses,
+    string? FailureStage = null,
+    double? OracleDurationMs = null);

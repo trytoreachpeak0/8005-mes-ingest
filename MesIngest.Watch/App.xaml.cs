@@ -21,7 +21,10 @@ internal partial class App : Application
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
         }
 
-        var client = new MesIngestApiClient(http, options.RequestTimeoutSeconds);
+        var client = new MesIngestApiClient(
+            http,
+            options.RequestTimeoutSeconds,
+            telemetry: WatchLatencyFileTelemetry.FromOptions(options));
         var journal = WatchConnectionEventJournal.FromOptions(options);
         var window = new MainWindow(client, options, journal);
         window.Show();

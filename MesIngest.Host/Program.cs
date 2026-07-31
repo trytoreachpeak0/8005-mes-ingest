@@ -26,18 +26,19 @@ if (!string.IsNullOrWhiteSpace(configured.Urls))
 }
 
 builder.Services.AddSingleton(configured);
+builder.Services.AddSingleton<ILatencyTelemetry>(sp =>
+    new LoggingLatencyTelemetry(sp.GetRequiredService<ILoggerFactory>().CreateLogger("MesIngest.Latency")));
 
 builder.Services.AddSingleton<IDemandIdAllocator, GuidDemandIdAllocator>();
 builder.Services.AddSingleton<TransportDemandReconciler>();
 builder.Services.AddSingleton<ITransportDemandStore>(sp =>
 {
     var options = sp.GetRequiredService<MesIngestHostOptions>();
-    if (!string.IsNullOrWhiteSpace(options.SqlServerConnectionString))
-    {
-        return new SqlServerTransportDemandStore(options.SqlServerConnectionString);
-    }
-
-    return new InMemoryTransportDemandStore();
+    var telemetry = sp.GetRequiredService<ILatencyTelemetry>();
+    ITransportDemandStore inner = !string.IsNullOrWhiteSpace(options.SqlServerConnectionString)
+        ? new SqlServerTransportDemandStore(options.SqlServerConnectionString, telemetry)
+        : new InMemoryTransportDemandStore();
+    return new ObservingTransportDemandStore(inner, telemetry);
 });
 builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
 {
@@ -56,7 +57,8 @@ builder.Services.AddSingleton(sp =>
         disappearThreshold: options.DisappearThreshold,
         zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
         zeroDropClearStreak: options.ZeroDropClearStreak,
-        queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)));
+        queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)),
+        telemetry: sp.GetRequiredService<ILatencyTelemetry>());
 });
 
 if (!probeOracle)
@@ -71,6 +73,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 var app = builder.Build();
+
+app.UseMiddleware<HostRequestLatencyMiddleware>();
 
 app.Use(async (context, next) =>
 {
@@ -312,7 +316,9 @@ internal sealed record PollHealthDto(
     int RowCount,
     bool Success,
     string Outcome,
-    IReadOnlyList<TaskTypePauseDto> TaskTypePauses)
+    IReadOnlyList<TaskTypePauseDto> TaskTypePauses,
+    string? FailureStage = null,
+    double? OracleDurationMs = null)
 {
     public static PollHealthDto From(PollHealth h, IReadOnlyList<TaskTypePauseState> pauses) => new(
         h.StartedAt,
@@ -321,7 +327,9 @@ internal sealed record PollHealthDto(
         h.RowCount,
         h.Success,
         h.Outcome,
-        pauses.Select(TaskTypePauseDto.From).ToList());
+        pauses.Select(TaskTypePauseDto.From).ToList(),
+        h.FailureStage,
+        h.OracleDurationMs);
 }
 
 public partial class Program;

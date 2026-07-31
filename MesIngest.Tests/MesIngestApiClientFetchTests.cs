@@ -30,7 +30,7 @@ public class MesIngestApiClientFetchTests
 
         Assert.NotNull(snapshot.FetchError);
         Assert.Contains("/api/demands", snapshot.FetchError, StringComparison.Ordinal);
-        Assert.Contains("HTTP_TIMEOUT", snapshot.FetchError, StringComparison.Ordinal);
+        Assert.Contains("WATCH_TIMEOUT", snapshot.FetchError, StringComparison.Ordinal);
         Assert.Contains("timeoutSeconds=30", snapshot.FetchError, StringComparison.Ordinal);
         Assert.Contains("elapsedMs=", snapshot.FetchError, StringComparison.Ordinal);
         Assert.Empty(snapshot.Demands);

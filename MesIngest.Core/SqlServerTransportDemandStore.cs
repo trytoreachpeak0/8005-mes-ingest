@@ -5,9 +5,10 @@ namespace MesIngest.Core;
 public sealed class SqlServerTransportDemandStore : ITransportDemandStore
 {
     private readonly string _connectionString;
+    private readonly ILatencyTelemetry _telemetry;
     private readonly object _gate = new();
 
-    public SqlServerTransportDemandStore(string connectionString)
+    public SqlServerTransportDemandStore(string connectionString, ILatencyTelemetry? telemetry = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -15,6 +16,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         }
 
         _connectionString = connectionString;
+        _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
         EnsureSchema();
     }
 
@@ -256,8 +258,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             using var cmd = new SqlCommand(
                 """
                 DELETE FROM dbo.PollHealth WHERE Id = 1;
-                INSERT INTO dbo.PollHealth (Id, StartedAt, EndedAt, DurationMs, [RowCount], Success, Outcome)
-                VALUES (1, @StartedAt, @EndedAt, @DurationMs, @RowCount, @Success, @Outcome);
+                INSERT INTO dbo.PollHealth
+                    (Id, StartedAt, EndedAt, DurationMs, [RowCount], Success, Outcome, FailureStage, OracleDurationMs)
+                VALUES
+                    (1, @StartedAt, @EndedAt, @DurationMs, @RowCount, @Success, @Outcome, @FailureStage, @OracleDurationMs);
                 """,
                 conn);
             cmd.Parameters.AddWithValue("@StartedAt", health.StartedAt);
@@ -266,6 +270,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             cmd.Parameters.AddWithValue("@RowCount", health.RowCount);
             cmd.Parameters.AddWithValue("@Success", health.Success);
             cmd.Parameters.AddWithValue("@Outcome", health.Outcome);
+            cmd.Parameters.AddWithValue("@FailureStage", (object?)health.FailureStage ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@OracleDurationMs", (object?)health.OracleDurationMs ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -277,7 +283,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             using var conn = Open();
             using var cmd = new SqlCommand(
                 """
-                SELECT StartedAt, EndedAt, DurationMs, [RowCount], Success, Outcome
+                SELECT StartedAt, EndedAt, DurationMs, [RowCount], Success, Outcome, FailureStage, OracleDurationMs
                 FROM dbo.PollHealth
                 WHERE Id = 1;
                 """,
@@ -294,15 +300,39 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 DurationMs: reader.GetDouble(2),
                 RowCount: reader.GetInt32(3),
                 Success: reader.GetBoolean(4),
-                Outcome: reader.GetString(5));
+                Outcome: reader.GetString(5),
+                FailureStage: reader.IsDBNull(6) ? null : reader.GetString(6),
+                OracleDurationMs: reader.IsDBNull(7) ? null : reader.GetDouble(7));
         }
     }
 
     private SqlConnection Open()
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var conn = new SqlConnection(_connectionString);
-        conn.Open();
-        return conn;
+        try
+        {
+            conn.Open();
+            sw.Stop();
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: LatencyCorrelation.Id ?? "none",
+                Component: LatencyComponents.SqlServer,
+                Stage: LatencyStages.SqlOpen,
+                ElapsedMs: sw.ElapsedMilliseconds));
+            return conn;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: LatencyCorrelation.Id ?? "none",
+                Component: LatencyComponents.SqlServer,
+                Stage: SqlFailureClassifier.Classify(ex),
+                ElapsedMs: sw.ElapsedMilliseconds,
+                Detail: LatencyLogFormatter.Sanitize(ex.Message)));
+            conn.Dispose();
+            throw;
+        }
     }
 
     private void EnsureSchema()
@@ -379,9 +409,19 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     [RowCount] INT NOT NULL,
                     Success BIT NOT NULL,
                     Outcome NVARCHAR(32) NOT NULL,
+                    FailureStage NVARCHAR(64) NULL,
+                    OracleDurationMs FLOAT NULL,
                     CONSTRAINT CK_PollHealth_SingleRow CHECK (Id = 1)
                 );
             ');
+
+            IF OBJECT_ID(N'dbo.PollHealth', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.PollHealth', N'FailureStage') IS NULL
+            EXEC(N'ALTER TABLE dbo.PollHealth ADD FailureStage NVARCHAR(64) NULL;');
+
+            IF OBJECT_ID(N'dbo.PollHealth', N'U') IS NOT NULL
+               AND COL_LENGTH(N'dbo.PollHealth', N'OracleDurationMs') IS NULL
+            EXEC(N'ALTER TABLE dbo.PollHealth ADD OracleDurationMs FLOAT NULL;');
             """;
         cmd.ExecuteNonQuery();
     }

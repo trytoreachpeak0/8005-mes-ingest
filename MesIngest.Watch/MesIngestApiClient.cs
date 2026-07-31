@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
@@ -33,6 +35,41 @@ internal sealed class WatchOptions
     public string SharedSecret { get; set; } = "";
 }
 
+internal static class WatchHttpStageClassifier
+{
+    public static string Classify(Exception ex)
+    {
+        if (ex is TaskCanceledException)
+        {
+            return ex.InnerException is TimeoutException
+                ? LatencyStages.WatchTimeout
+                : LatencyStages.HostAbort;
+        }
+
+        if (ex.InnerException is TimeoutException)
+        {
+            return LatencyStages.WatchTimeout;
+        }
+
+        if (ex is JsonException)
+        {
+            return LatencyStages.HttpJson;
+        }
+
+        if (ex is HttpRequestException http)
+        {
+            return http.StatusCode is not null ? LatencyStages.HttpStatus : LatencyStages.HttpConnect;
+        }
+
+        if (ex is InvalidOperationException)
+        {
+            return LatencyStages.HttpStatus;
+        }
+
+        return LatencyStages.HttpError;
+    }
+}
+
 internal sealed class MesIngestApiClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -43,22 +80,35 @@ internal sealed class MesIngestApiClient
 
     private readonly HttpClient _http;
     private readonly int _requestTimeoutSeconds;
+    private readonly ILatencyTelemetry _telemetry;
 
-    public MesIngestApiClient(HttpClient http, int requestTimeoutSeconds = 30)
+    public MesIngestApiClient(
+        HttpClient http,
+        int requestTimeoutSeconds = 30,
+        ILatencyTelemetry? telemetry = null)
     {
         _http = http;
         _requestTimeoutSeconds = requestTimeoutSeconds;
+        _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
     }
 
     public async Task<WatchSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default)
     {
+        var correlationId = Guid.NewGuid().ToString("N");
         try
         {
-            var demands = await FetchListAsync<WatchDemandDto>("/api/demands", cancellationToken)
+            var demands = await FetchListAsync<WatchDemandDto>(
+                    "/api/demands",
+                    correlationId,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            var alerts = await FetchListAsync<WatchAlertDto>("/api/alerts", cancellationToken)
+            var alerts = await FetchListAsync<WatchAlertDto>(
+                    "/api/alerts",
+                    correlationId,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            var health = await FetchPollHealthAsync(cancellationToken).ConfigureAwait(false);
+            var health = await FetchPollHealthAsync(correlationId, cancellationToken)
+                .ConfigureAwait(false);
 
             return new WatchSnapshot(
                 Demands: demands,
@@ -67,7 +117,8 @@ internal sealed class MesIngestApiClient
                 FetchError: null,
                 FailedEndpoint: null,
                 FailedStage: null,
-                FailedElapsed: null);
+                FailedElapsed: null,
+                CorrelationId: correlationId);
         }
         catch (WatchEndpointFetchException ex)
         {
@@ -75,90 +126,160 @@ internal sealed class MesIngestApiClient
                 Demands: [],
                 Alerts: [],
                 PollHealth: null,
-                FetchError: ex.FormatForBanner(_requestTimeoutSeconds),
+                FetchError: ex.FormatForBanner(_requestTimeoutSeconds, correlationId),
                 FailedEndpoint: ex.Endpoint,
                 FailedStage: ex.Stage,
-                FailedElapsed: ex.Elapsed);
+                FailedElapsed: ex.Elapsed,
+                CorrelationId: correlationId);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
+            var stage = WatchHttpStageClassifier.Classify(ex);
             return new WatchSnapshot(
                 Demands: [],
                 Alerts: [],
                 PollHealth: null,
-                FetchError: $"endpoint=(unknown) stage=HTTP_ERROR timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 {ex.Message}",
+                FetchError:
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}",
                 FailedEndpoint: null,
-                FailedStage: "HTTP_ERROR",
-                FailedElapsed: TimeSpan.Zero);
+                FailedStage: stage,
+                FailedElapsed: TimeSpan.Zero,
+                CorrelationId: correlationId);
         }
     }
 
-    private async Task<IReadOnlyList<T>> FetchListAsync<T>(string endpoint, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<T>> FetchListAsync<T>(
+        string endpoint,
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         var sw = Stopwatch.StartNew();
         try
         {
-            var items = await _http.GetFromJsonAsync<List<T>>(endpoint, JsonOptions, cancellationToken)
-                .ConfigureAwait(false);
-            return items ?? [];
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength;
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            bytes ??= Encoding.UTF8.GetByteCount(body);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    null,
+                    response.StatusCode);
+            }
+
+            var items = string.IsNullOrWhiteSpace(body)
+                ? []
+                : JsonSerializer.Deserialize<List<T>>(body, JsonOptions) ?? [];
+
+            RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, items.Count, bytes.Value);
+            return items;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
             throw Classify(endpoint, sw.Elapsed, ex);
         }
     }
 
-    private async Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken)
+    private async Task<WatchPollHealthDto?> FetchPollHealthAsync(
+        string correlationId,
+        CancellationToken cancellationToken)
     {
         const string endpoint = "/api/poll-health";
         var sw = Stopwatch.StartNew();
         try
         {
-            using var response = await _http.GetAsync(endpoint, cancellationToken).ConfigureAwait(false);
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength ?? 0;
+
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
+                RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, 404, rowCount: 0, bytes: bytes);
                 return null;
             }
 
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<WatchPollHealthDto>(JsonOptions, cancellationToken)
-                .ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(body);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    null,
+                    response.StatusCode);
+            }
+
+            var health = string.IsNullOrWhiteSpace(body)
+                ? null
+                : JsonSerializer.Deserialize<WatchPollHealthDto>(body, JsonOptions);
+
+            RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, rowCount: health is null ? 0 : 1, bytes: bytes);
+            return health;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
             throw Classify(endpoint, sw.Elapsed, ex);
         }
     }
 
-    private static WatchEndpointFetchException Classify(string endpoint, TimeSpan elapsed, Exception ex)
+    private HttpRequestMessage CreateRequest(HttpMethod method, string endpoint, string correlationId)
     {
-        var stage = ClassifyStage(ex);
-        return new WatchEndpointFetchException(endpoint, stage, elapsed, ex);
+        var request = new HttpRequestMessage(method, endpoint);
+        request.Headers.TryAddWithoutValidation(LatencyHeaders.CorrelationId, correlationId);
+        return request;
     }
 
-    private static string ClassifyStage(Exception ex)
+    private void RecordWatch(
+        string correlationId,
+        string endpoint,
+        long elapsedMs,
+        int? statusCode,
+        int rowCount,
+        long bytes,
+        string? stage = null,
+        string? detail = null)
     {
-        if (ex is TaskCanceledException || ex.InnerException is TimeoutException)
-        {
-            return "HTTP_TIMEOUT";
-        }
+        var resolvedStage = stage
+            ?? (statusCode is >= 400 ? LatencyStages.HttpStatus : LatencyStages.HttpOk);
+        _telemetry.Record(new LatencyEvent(
+            CorrelationId: correlationId,
+            Component: LatencyComponents.Watch,
+            Stage: resolvedStage,
+            ElapsedMs: elapsedMs,
+            StatusCode: statusCode,
+            RowCount: rowCount,
+            Bytes: bytes,
+            Endpoint: endpoint,
+            Detail: detail));
+    }
 
-        if (ex is JsonException)
-        {
-            return "HTTP_JSON";
-        }
-
-        if (ex is HttpRequestException http)
-        {
-            return http.StatusCode is not null ? "HTTP_STATUS" : "HTTP_CONNECT";
-        }
-
-        if (ex is InvalidOperationException)
-        {
-            return "HTTP_STATUS";
-        }
-
-        return "HTTP_ERROR";
+    private static WatchEndpointFetchException Classify(string endpoint, TimeSpan elapsed, Exception ex)
+    {
+        var stage = WatchHttpStageClassifier.Classify(ex);
+        return new WatchEndpointFetchException(endpoint, stage, elapsed, ex);
     }
 }
 
@@ -176,8 +297,8 @@ internal sealed class WatchEndpointFetchException : Exception
     public string Stage { get; }
     public TimeSpan Elapsed { get; }
 
-    public string FormatForBanner(int timeoutSeconds) =>
-        $"endpoint={Endpoint} stage={Stage} timeoutSeconds={timeoutSeconds} elapsedMs={(long)Elapsed.TotalMilliseconds} {Message}";
+    public string FormatForBanner(int timeoutSeconds, string correlationId) =>
+        $"endpoint={Endpoint} stage={Stage} timeoutSeconds={timeoutSeconds} elapsedMs={(long)Elapsed.TotalMilliseconds} correlationId={correlationId} {Message}";
 }
 
 internal sealed record WatchSnapshot(
@@ -187,7 +308,8 @@ internal sealed record WatchSnapshot(
     string? FetchError,
     string? FailedEndpoint = null,
     string? FailedStage = null,
-    TimeSpan? FailedElapsed = null)
+    TimeSpan? FailedElapsed = null,
+    string? CorrelationId = null)
 {
     /// <summary>
     /// When <see cref="FetchError"/> is set, Demands/Alerts/PollHealth are placeholders —

@@ -85,6 +85,7 @@ internal sealed class WatchConnectionEventJournal
             message = Sanitize(connectionEvent.Message),
             failureCount = connectionEvent.FailureCount,
             outageDurationMs = connectionEvent.OutageDurationMs,
+            correlationId = connectionEvent.CorrelationId,
         };
 
         var line = JsonSerializer.Serialize(payload, JsonOptions);
