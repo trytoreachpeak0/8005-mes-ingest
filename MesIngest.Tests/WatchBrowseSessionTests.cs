@@ -307,8 +307,8 @@ public class WatchBrowseSessionTests
 
         Assert.Equal(Enum.GetValues<MesIngest.Core.AlertSortColumn>().Length, alertTokens.Length);
         Assert.Equal("taskType", WatchAlertBrowseQuery.SortToken("TASK_TYPE"));
-        Assert.Null(WatchDemandBrowseQuery.SortToken("PACKAGE"));
-        Assert.Null(WatchDemandBrowseQuery.SortToken("status"));
+        Assert.Equal("package", WatchDemandBrowseQuery.SortToken("PACKAGE"));
+        Assert.Equal("status", WatchDemandBrowseQuery.SortToken("status"));
     }
 
     private static string? QueryValue(Uri uri, string name)

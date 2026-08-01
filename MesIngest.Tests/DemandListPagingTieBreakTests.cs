@@ -88,6 +88,13 @@ public class DemandListPagingTieBreakTests
     [InlineData(DemandSortColumn.TaskType)]
     [InlineData(DemandSortColumn.Sublot)]
     [InlineData(DemandSortColumn.GoneAt)]
+    [InlineData(DemandSortColumn.Status)]
+    [InlineData(DemandSortColumn.Area)]
+    [InlineData(DemandSortColumn.Eqp)]
+    [InlineData(DemandSortColumn.Step)]
+    [InlineData(DemandSortColumn.Package)]
+    [InlineData(DemandSortColumn.LocationRisk)]
+    [InlineData(DemandSortColumn.DisappearCount)]
     public void QueryPage_desc_identical_primary_covers_all_allow_list_columns(DemandSortColumn sortBy)
     {
         var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));

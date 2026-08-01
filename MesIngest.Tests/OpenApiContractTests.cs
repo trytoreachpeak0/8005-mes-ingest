@@ -363,9 +363,32 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     private static void AssertDemandSortByAllowList(JsonElement root)
     {
         var description = SortByParameterDescription(root, "/api/demands");
-        Assert.Contains("dates", description, StringComparison.Ordinal);
-        Assert.Contains("demandId", description, StringComparison.Ordinal);
-        Assert.True(DemandListQueryParser.TryParseSortBy("dates", out _, out _));
+        var tokens = new[]
+        {
+            "dates",
+            "demandId",
+            "goneAt",
+            "taskType",
+            "sublot",
+            "createdAt",
+            "mesLastSeenAt",
+            "status",
+            "area",
+            "eqp",
+            "step",
+            "package",
+            "locationRisk",
+            "disappearCount",
+        };
+        foreach (var token in tokens)
+        {
+            Assert.Contains(token, description, StringComparison.Ordinal);
+            Assert.True(
+                DemandListQueryParser.TryParseSortBy(token, out _, out _),
+                $"OpenAPI advertises Demand sortBy={token} but parser rejects it");
+        }
+
+        Assert.False(DemandListQueryParser.TryParseSortBy("locationRiskCode", out _, out _));
     }
 
     private static string SortByParameterDescription(JsonElement root, string path)

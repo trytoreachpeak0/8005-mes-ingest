@@ -117,17 +117,17 @@
                         <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
                         <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" CanUserSort="True" SortMemberPath="TaskType" />
                         <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" CanUserSort="True" SortMemberPath="Sublot" />
-                        <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="False" />
+                        <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="True" SortMemberPath="Status" />
                         <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
                         <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
                         <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
                         <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
-                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="False" />
-                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="False" />
-                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="False" />
-                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="False" />
-                        <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="False" />
-                        <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="False" />
+                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="True" SortMemberPath="Area" />
+                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="True" SortMemberPath="Eqp" />
+                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="True" SortMemberPath="Step" />
+                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="True" SortMemberPath="Package" />
+                        <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="True" SortMemberPath="LocationRisk" />
+                        <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="True" SortMemberPath="DisappearCount" />
                     </DataGrid.Columns>
                 </DataGrid>
             </GroupBox>

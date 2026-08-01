@@ -27,10 +27,17 @@ internal sealed record WatchDemandBrowseQuery(
         "DemandId",
         "TASK_TYPE",
         "SUBLOT",
+        "status",
         "last seen",
         "当前工序进入时间 (DATES)",
         "created",
         "gone at",
+        "AREA",
+        "EQP",
+        "STEP",
+        "PACKAGE",
+        "locationRisk",
+        "disappear",
     ];
 
     public static string? SortToken(string? header) =>
@@ -39,12 +46,36 @@ internal sealed record WatchDemandBrowseQuery(
             "DemandId" => "demandId",
             "TASK_TYPE" => "taskType",
             "SUBLOT" => "sublot",
+            "status" => "status",
             "last seen" => "mesLastSeenAt",
             "当前工序进入时间 (DATES)" => "dates",
             "created" => "createdAt",
             "gone at" => "goneAt",
+            "AREA" => "area",
+            "EQP" => "eqp",
+            "STEP" => "step",
+            "PACKAGE" => "package",
+            "locationRisk" => "locationRisk",
+            "disappear" => "disappearCount",
             _ => null,
         };
+
+    public bool TryApplySort(string? header, out WatchDemandBrowseQuery next)
+    {
+        var token = SortToken(header);
+        if (token is null)
+        {
+            next = this;
+            return false;
+        }
+
+        var direction = string.Equals(SortBy, token, StringComparison.Ordinal)
+            && string.Equals(Direction, "asc", StringComparison.Ordinal)
+                ? "desc"
+                : "asc";
+        next = this with { SortBy = token, Direction = direction };
+        return true;
+    }
 
     public static bool IsDemandIdFilterReady(string? raw)
     {

@@ -971,6 +971,106 @@ public class SqlServerTransportDemandStoreTests
         Assert.Equal(collected.Count, collected.Distinct(StringComparer.Ordinal).Count());
     }
 
+    [SqlServerAvailabilityFact]
+    public void Query_page_new_visible_columns_cover_nulls_ties_and_both_directions()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+        [
+            SortableSqlDemand("a1", now, "B", null, "2", "P1", locationRisk: true, disappearCount: 2),
+            SortableSqlDemand("a2", now, null, "E2", "1", null, locationRisk: false, disappearCount: 1),
+            SortableSqlDemand("a3", now, "A", "E1", null, "P2", locationRisk: true, disappearCount: 1),
+            SortableSqlDemand("a4", now, "A", "E1", "3", "P1", locationRisk: false, disappearCount: 0),
+            SortableSqlDemand("a5", now, null, "E3", null, null, locationRisk: false, disappearCount: 2),
+        ]));
+
+        var cases = new (DemandSortColumn SortBy, SortDirection Direction, string[] ExpectedIds)[]
+        {
+            (DemandSortColumn.Status, SortDirection.Asc, ["a1", "a2", "a3", "a4", "a5"]),
+            (DemandSortColumn.Status, SortDirection.Desc, ["a1", "a2", "a3", "a4", "a5"]),
+            (DemandSortColumn.Area, SortDirection.Asc, ["a2", "a5", "a3", "a4", "a1"]),
+            (DemandSortColumn.Area, SortDirection.Desc, ["a1", "a3", "a4", "a2", "a5"]),
+            (DemandSortColumn.Eqp, SortDirection.Asc, ["a1", "a3", "a4", "a2", "a5"]),
+            (DemandSortColumn.Eqp, SortDirection.Desc, ["a5", "a2", "a3", "a4", "a1"]),
+            (DemandSortColumn.Step, SortDirection.Asc, ["a3", "a5", "a2", "a1", "a4"]),
+            (DemandSortColumn.Step, SortDirection.Desc, ["a4", "a1", "a2", "a3", "a5"]),
+            (DemandSortColumn.Package, SortDirection.Asc, ["a2", "a5", "a1", "a4", "a3"]),
+            (DemandSortColumn.Package, SortDirection.Desc, ["a3", "a1", "a4", "a2", "a5"]),
+            (DemandSortColumn.LocationRisk, SortDirection.Asc, ["a2", "a4", "a5", "a1", "a3"]),
+            (DemandSortColumn.LocationRisk, SortDirection.Desc, ["a1", "a3", "a2", "a4", "a5"]),
+            (DemandSortColumn.DisappearCount, SortDirection.Asc, ["a4", "a2", "a3", "a1", "a5"]),
+            (DemandSortColumn.DisappearCount, SortDirection.Desc, ["a1", "a5", "a2", "a3", "a4"]),
+        };
+
+        foreach (var sortCase in cases)
+        {
+            var actualIds = CollectSqlIds(store, sortCase.SortBy, sortCase.Direction, now);
+            Assert.Equal(sortCase.ExpectedIds, actualIds);
+            Assert.Equal(actualIds.Count, actualIds.Distinct(StringComparer.Ordinal).Count());
+        }
+    }
+
+    private static List<string> CollectSqlIds(
+        SqlServerTransportDemandStore store,
+        DemandSortColumn sortBy,
+        SortDirection direction,
+        DateTimeOffset asOf)
+    {
+        var collected = new List<string>();
+        string? cursor = null;
+        for (var pages = 0; pages < 10; pages++)
+        {
+            var page = store.QueryPage(new DemandListQuery
+            {
+                Status = DemandStatus.Visible,
+                SortBy = sortBy,
+                Direction = direction,
+                Limit = 2,
+                Cursor = cursor,
+                AsOf = asOf,
+            });
+            collected.AddRange(page.Items.Select(demand => demand.DemandId));
+            if (!page.HasMore)
+            {
+                break;
+            }
+
+            cursor = page.NextCursor;
+        }
+
+        return collected;
+    }
+
+    private static TransportDemand SortableSqlDemand(
+        string demandId,
+        DateTimeOffset now,
+        string? area,
+        string? eqp,
+        string? step,
+        string? package,
+        bool locationRisk,
+        int disappearCount) =>
+        new()
+        {
+            DemandId = demandId,
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "SAME_SUBLOT",
+            Area = area,
+            Eqp = eqp,
+            Step = step,
+            Dates = now,
+            Package = package,
+            Status = DemandStatus.Visible,
+            MesLastSeenAt = now,
+            DisappearCount = disappearCount,
+            LocationRisk = locationRisk,
+            CreatedAt = now,
+        };
+
     private static TransportDemand SqlDemand(string id, DateTimeOffset dates) =>
         new()
         {

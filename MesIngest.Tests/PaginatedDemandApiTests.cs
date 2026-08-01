@@ -253,7 +253,7 @@ public class PaginatedDemandApiTests : IClassFixture<WebApplicationFactory<Progr
             new[] { "a" },
             filtered.GetProperty("items").EnumerateArray().Select(d => d.GetProperty("demandId").GetString()).ToArray());
 
-        var badSort = await client.GetAsync("/api/demands?sortBy=package");
+        var badSort = await client.GetAsync("/api/demands?sortBy=locationRiskCode");
         Assert.Equal(HttpStatusCode.BadRequest, badSort.StatusCode);
     }
 

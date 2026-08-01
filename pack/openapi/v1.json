@@ -154,7 +154,7 @@
           "Demands"
         ],
         "summary": "List transport demands (paginated)",
-        "description": "Default status=VISIBLE&sortBy=dates&direction=desc with DemandId tie-break.\nFilters: status, taskType, sublot, demandId (exact or >=6 lowercase hex prefix),\ndatesFrom/datesTo, goneAtFrom/goneAtTo, sortBy allow-list\n(dates|demandId|goneAt|taskType|sublot|createdAt|mesLastSeenAt), direction, limit (1-200), cursor.\nGONE defaults to GoneAt >= now-24h unless an explicit GoneAt range is supplied.\n\nExample: GET /api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=100",
+        "description": "Default status=VISIBLE&sortBy=dates&direction=desc with DemandId tie-break.\nFilters: status, taskType, sublot, demandId (exact or >=6 lowercase hex prefix),\ndatesFrom/datesTo, goneAtFrom/goneAtTo, sortBy allow-list\n(dates|demandId|goneAt|taskType|sublot|createdAt|mesLastSeenAt|status|area|eqp|step|package|locationRisk|disappearCount),\ndirection, limit (1-200), cursor.\nGONE defaults to GoneAt >= now-24h unless an explicit GoneAt range is supplied.\n\nExample: GET /api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=100",
         "operationId": "ListDemands",
         "parameters": [
           {
@@ -220,7 +220,7 @@
           {
             "name": "sortBy",
             "in": "query",
-            "description": "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt.",
+            "description": "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt, status, area, eqp, step, package, locationRisk, disappearCount. DemandId is the stable ascending tie-break. Status sorting operates within the required VISIBLE or GONE status partition, so its primary values are tied.",
             "schema": {
               "type": "string"
             },

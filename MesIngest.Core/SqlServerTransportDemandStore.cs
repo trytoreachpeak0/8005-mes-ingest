@@ -1219,6 +1219,36 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     ? " AND (Sublot > @CursorSublot OR (Sublot = @CursorSublot AND DemandId > @CursorDemandId))"
                     : " AND (Sublot < @CursorSublot OR (Sublot = @CursorSublot AND DemandId > @CursorDemandId))");
                 break;
+            case DemandSortColumn.Status:
+                cmd.Parameters.AddWithValue("@CursorStatus", cursor.Status ?? "");
+                sql.Append(gt
+                    ? " AND (Status > @CursorStatus OR (Status = @CursorStatus AND DemandId > @CursorDemandId))"
+                    : " AND (Status < @CursorStatus OR (Status = @CursorStatus AND DemandId > @CursorDemandId))");
+                break;
+            case DemandSortColumn.Area:
+                AppendNullableTextKeysetPredicate(sql, cmd, "Area", "@CursorArea", cursor.Area, gt);
+                break;
+            case DemandSortColumn.Eqp:
+                AppendNullableTextKeysetPredicate(sql, cmd, "Eqp", "@CursorEqp", cursor.Eqp, gt);
+                break;
+            case DemandSortColumn.Step:
+                AppendNullableTextKeysetPredicate(sql, cmd, "Step", "@CursorStep", cursor.Step, gt);
+                break;
+            case DemandSortColumn.Package:
+                AppendNullableTextKeysetPredicate(sql, cmd, "Package", "@CursorPackage", cursor.Package, gt);
+                break;
+            case DemandSortColumn.LocationRisk:
+                cmd.Parameters.AddWithValue("@CursorLocationRisk", cursor.LocationRisk ?? false);
+                sql.Append(gt
+                    ? " AND (LocationRisk > @CursorLocationRisk OR (LocationRisk = @CursorLocationRisk AND DemandId > @CursorDemandId))"
+                    : " AND (LocationRisk < @CursorLocationRisk OR (LocationRisk = @CursorLocationRisk AND DemandId > @CursorDemandId))");
+                break;
+            case DemandSortColumn.DisappearCount:
+                cmd.Parameters.AddWithValue("@CursorDisappearCount", cursor.DisappearCount ?? 0);
+                sql.Append(gt
+                    ? " AND (DisappearCount > @CursorDisappearCount OR (DisappearCount = @CursorDisappearCount AND DemandId > @CursorDemandId))"
+                    : " AND (DisappearCount < @CursorDisappearCount OR (DisappearCount = @CursorDisappearCount AND DemandId > @CursorDemandId))");
+                break;
             default:
                 cmd.Parameters.AddWithValue("@CursorDates", cursor.Dates ?? default);
                 sql.Append(gt
@@ -1226,6 +1256,28 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     : " AND (Dates < @CursorDates OR (Dates = @CursorDates AND DemandId > @CursorDemandId))");
                 break;
         }
+    }
+
+    private static void AppendNullableTextKeysetPredicate(
+        StringBuilder sql,
+        SqlCommand cmd,
+        string column,
+        string parameterName,
+        string? cursorValue,
+        bool ascending)
+    {
+        if (cursorValue is null)
+        {
+            sql.Append(ascending
+                ? $" AND ({column} IS NOT NULL OR ({column} IS NULL AND DemandId > @CursorDemandId))"
+                : $" AND ({column} IS NULL AND DemandId > @CursorDemandId)");
+            return;
+        }
+
+        cmd.Parameters.AddWithValue(parameterName, cursorValue);
+        sql.Append(ascending
+            ? $" AND ({column} > {parameterName} OR ({column} = {parameterName} AND DemandId > @CursorDemandId))"
+            : $" AND ({column} < {parameterName} OR ({column} = {parameterName} AND DemandId > @CursorDemandId) OR {column} IS NULL)");
     }
 
     private static string BuildOrderByClause(DemandSortColumn sortBy, SortDirection direction)
@@ -1239,6 +1291,13 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             DemandSortColumn.MesLastSeenAt => $"ORDER BY MesLastSeenAt {dir}, DemandId ASC",
             DemandSortColumn.TaskType => $"ORDER BY TaskType {dir}, DemandId ASC",
             DemandSortColumn.Sublot => $"ORDER BY Sublot {dir}, DemandId ASC",
+            DemandSortColumn.Status => $"ORDER BY Status {dir}, DemandId ASC",
+            DemandSortColumn.Area => $"ORDER BY Area {dir}, DemandId ASC",
+            DemandSortColumn.Eqp => $"ORDER BY Eqp {dir}, DemandId ASC",
+            DemandSortColumn.Step => $"ORDER BY Step {dir}, DemandId ASC",
+            DemandSortColumn.Package => $"ORDER BY Package {dir}, DemandId ASC",
+            DemandSortColumn.LocationRisk => $"ORDER BY LocationRisk {dir}, DemandId ASC",
+            DemandSortColumn.DisappearCount => $"ORDER BY DisappearCount {dir}, DemandId ASC",
             _ => $"ORDER BY Dates {dir}, DemandId ASC",
         };
     }

@@ -181,21 +181,18 @@ internal partial class MainWindow : Window
     private void OnDemandsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        var sortToken = WatchDemandBrowseQuery.SortToken(e.Column.Header?.ToString());
-        if (sortToken is null)
+        var current = WatchDemandBrowseQuery.Default with
+        {
+            SortBy = _sortBy,
+            Direction = _direction,
+        };
+        if (!current.TryApplySort(e.Column.Header?.ToString(), out var next))
         {
             return;
         }
 
-        if (string.Equals(_sortBy, sortToken, StringComparison.Ordinal))
-        {
-            _direction = string.Equals(_direction, "asc", StringComparison.Ordinal) ? "desc" : "asc";
-        }
-        else
-        {
-            _sortBy = sortToken;
-            _direction = "asc";
-        }
+        _sortBy = next.SortBy;
+        _direction = next.Direction;
 
         ApplyDemandSortGlyphs();
         _ = RefreshAsync(WatchBrowseRefreshKind.Reset);

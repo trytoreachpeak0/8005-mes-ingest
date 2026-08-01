@@ -172,7 +172,8 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
             Default status=VISIBLE&sortBy=dates&direction=desc with DemandId tie-break.
             Filters: status, taskType, sublot, demandId (exact or >=6 lowercase hex prefix),
             datesFrom/datesTo, goneAtFrom/goneAtTo, sortBy allow-list
-            (dates|demandId|goneAt|taskType|sublot|createdAt|mesLastSeenAt), direction, limit (1-200), cursor.
+            (dates|demandId|goneAt|taskType|sublot|createdAt|mesLastSeenAt|status|area|eqp|step|package|locationRisk|disappearCount),
+            direction, limit (1-200), cursor.
             GONE defaults to GoneAt >= now-24h unless an explicit GoneAt range is supplied.
             """,
             exampleQuery: "?status=VISIBLE&sortBy=dates&direction=desc&limit=100",
@@ -294,7 +295,7 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
                     else
                     {
                         parameter.Description =
-                            "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt.";
+                            "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt, status, area, eqp, step, package, locationRisk, disappearCount. DemandId is the stable ascending tie-break. Status sorting operates within the required VISIBLE or GONE status partition, so its primary values are tied.";
                         parameter.Example = new OpenApiString("dates");
                     }
                 }

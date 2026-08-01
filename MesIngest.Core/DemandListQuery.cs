@@ -14,6 +14,13 @@ public enum DemandSortColumn
     Sublot,
     CreatedAt,
     MesLastSeenAt,
+    Status,
+    Area,
+    Eqp,
+    Step,
+    Package,
+    LocationRisk,
+    DisappearCount,
 }
 
 public enum SortDirection
@@ -116,6 +123,27 @@ public static class DemandListQueryParser
                 return true;
             case "meslastseenat":
                 sortBy = DemandSortColumn.MesLastSeenAt;
+                return true;
+            case "status":
+                sortBy = DemandSortColumn.Status;
+                return true;
+            case "area":
+                sortBy = DemandSortColumn.Area;
+                return true;
+            case "eqp":
+                sortBy = DemandSortColumn.Eqp;
+                return true;
+            case "step":
+                sortBy = DemandSortColumn.Step;
+                return true;
+            case "package":
+                sortBy = DemandSortColumn.Package;
+                return true;
+            case "locationrisk":
+                sortBy = DemandSortColumn.LocationRisk;
+                return true;
+            case "disappearcount":
+                sortBy = DemandSortColumn.DisappearCount;
                 return true;
             default:
                 error = "sortBy is not in the allow-list";
@@ -265,6 +293,13 @@ public static class DemandListCursor
             MesLastSeenAt = sortBy == DemandSortColumn.MesLastSeenAt ? last.MesLastSeenAt : null,
             TaskType = sortBy == DemandSortColumn.TaskType ? last.TaskType : null,
             Sublot = sortBy == DemandSortColumn.Sublot ? last.Sublot : null,
+            Status = sortBy == DemandSortColumn.Status ? StatusSortValue(last.Status) : null,
+            Area = sortBy == DemandSortColumn.Area ? last.Area : null,
+            Eqp = sortBy == DemandSortColumn.Eqp ? last.Eqp : null,
+            Step = sortBy == DemandSortColumn.Step ? last.Step : null,
+            Package = sortBy == DemandSortColumn.Package ? last.Package : null,
+            LocationRisk = sortBy == DemandSortColumn.LocationRisk ? last.LocationRisk : null,
+            DisappearCount = sortBy == DemandSortColumn.DisappearCount ? last.DisappearCount : null,
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
@@ -331,8 +366,18 @@ public static class DemandListCursor
             DemandSortColumn.Sublot => "sublot",
             DemandSortColumn.CreatedAt => "createdAt",
             DemandSortColumn.MesLastSeenAt => "mesLastSeenAt",
+            DemandSortColumn.Status => "status",
+            DemandSortColumn.Area => "area",
+            DemandSortColumn.Eqp => "eqp",
+            DemandSortColumn.Step => "step",
+            DemandSortColumn.Package => "package",
+            DemandSortColumn.LocationRisk => "locationRisk",
+            DemandSortColumn.DisappearCount => "disappearCount",
             _ => "dates",
         };
+
+    public static string StatusSortValue(DemandStatus status) =>
+        status == DemandStatus.Gone ? "GONE" : "VISIBLE";
 
     private static string Base64UrlEncode(byte[] data) =>
         Convert.ToBase64String(data).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -365,6 +410,13 @@ public static class DemandListCursor
         public DateTimeOffset? MesLastSeenAt { get; init; }
         public string? TaskType { get; init; }
         public string? Sublot { get; init; }
+        public string? Status { get; init; }
+        public string? Area { get; init; }
+        public string? Eqp { get; init; }
+        public string? Step { get; init; }
+        public string? Package { get; init; }
+        public bool? LocationRisk { get; init; }
+        public int? DisappearCount { get; init; }
     }
 }
 
@@ -479,6 +531,41 @@ public static class DemandListPaging
                     ? source.OrderBy(d => d.Sublot, StringComparer.Ordinal)
                     : source.OrderByDescending(d => d.Sublot, StringComparer.Ordinal),
                 direction),
+            DemandSortColumn.Status => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => DemandListCursor.StatusSortValue(d.Status), StringComparer.Ordinal)
+                    : source.OrderByDescending(d => DemandListCursor.StatusSortValue(d.Status), StringComparer.Ordinal),
+                direction),
+            DemandSortColumn.Area => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.Area, StringComparer.Ordinal)
+                    : source.OrderByDescending(d => d.Area, StringComparer.Ordinal),
+                direction),
+            DemandSortColumn.Eqp => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.Eqp, StringComparer.Ordinal)
+                    : source.OrderByDescending(d => d.Eqp, StringComparer.Ordinal),
+                direction),
+            DemandSortColumn.Step => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.Step, StringComparer.Ordinal)
+                    : source.OrderByDescending(d => d.Step, StringComparer.Ordinal),
+                direction),
+            DemandSortColumn.Package => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.Package, StringComparer.Ordinal)
+                    : source.OrderByDescending(d => d.Package, StringComparer.Ordinal),
+                direction),
+            DemandSortColumn.LocationRisk => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.LocationRisk)
+                    : source.OrderByDescending(d => d.LocationRisk),
+                direction),
+            DemandSortColumn.DisappearCount => ThenByDemandId(
+                direction == SortDirection.Asc
+                    ? source.OrderBy(d => d.DisappearCount)
+                    : source.OrderByDescending(d => d.DisappearCount),
+                direction),
             _ => ThenByDemandId(
                 direction == SortDirection.Asc
                     ? source.OrderBy(d => d.Dates)
@@ -514,6 +601,16 @@ public static class DemandListPaging
             DemandSortColumn.MesLastSeenAt => demand.MesLastSeenAt.CompareTo(cursor.MesLastSeenAt ?? default),
             DemandSortColumn.TaskType => string.Compare(demand.TaskType, cursor.TaskType ?? "", StringComparison.Ordinal),
             DemandSortColumn.Sublot => string.Compare(demand.Sublot, cursor.Sublot ?? "", StringComparison.Ordinal),
+            DemandSortColumn.Status => string.Compare(
+                DemandListCursor.StatusSortValue(demand.Status),
+                cursor.Status ?? "",
+                StringComparison.Ordinal),
+            DemandSortColumn.Area => string.Compare(demand.Area, cursor.Area, StringComparison.Ordinal),
+            DemandSortColumn.Eqp => string.Compare(demand.Eqp, cursor.Eqp, StringComparison.Ordinal),
+            DemandSortColumn.Step => string.Compare(demand.Step, cursor.Step, StringComparison.Ordinal),
+            DemandSortColumn.Package => string.Compare(demand.Package, cursor.Package, StringComparison.Ordinal),
+            DemandSortColumn.LocationRisk => demand.LocationRisk.CompareTo(cursor.LocationRisk ?? false),
+            DemandSortColumn.DisappearCount => demand.DisappearCount.CompareTo(cursor.DisappearCount ?? 0),
             _ => demand.Dates.CompareTo(cursor.Dates ?? default),
         };
 
