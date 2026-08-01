@@ -538,9 +538,7 @@ internal partial class MainWindow : Window
             var found = await _client.FetchDemandByIdAsync(demandId).ConfigureAwait(true);
             if (found is null)
             {
-                var missing =
-                    $"DemandId {demandId} was not found in Host TransportDemands. "
-                    + "It may never have been projected, or filters/history retention do not apply to exact id lookup.";
+                var missing = AlertDemandLocateHints.NotFound(demandId);
                 window?.SetLocateHint(missing);
                 MessageBox.Show(this, missing, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -562,9 +560,7 @@ internal partial class MainWindow : Window
                 return;
             }
 
-            var hint =
-                $"DemandId {found.DemandId} exists (status={found.Status}) but is not in the current browse page. "
-                + "Clear TASK_TYPE/SUBLOT filters or widen the GoneAt window if status=GONE.";
+            var hint = AlertDemandLocateHints.OutsideCurrentBrowse(found.DemandId, found.Status);
             window?.SetLocateHint(hint);
             MessageBox.Show(this, hint, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
         }

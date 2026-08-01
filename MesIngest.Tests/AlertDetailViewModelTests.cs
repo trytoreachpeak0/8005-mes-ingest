@@ -122,4 +122,34 @@ public class AlertDetailViewModelTests
             AlertDetailViewModel.From(SampleAlert(), Beijing).DetailsJson);
         Assert.Equal(string.Empty, AlertDetailViewModel.From(SampleAlert(details: null), Beijing).DetailsJson);
     }
+
+    [Fact]
+    public void Reappear_exposes_previous_gone_and_new_visible_demand_targets()
+    {
+        var alert = SampleAlert(
+            """{"previousDemandId":"gone-demand-1","newDemandId":"visible-demand-2"}""") with
+        {
+            Code = "REAPPEAR_AFTER_GONE",
+            DemandId = "visible-demand-2",
+        };
+
+        var vm = AlertDetailViewModel.From(alert, Beijing);
+
+        Assert.True(vm.HasReappearDemandTargets);
+        Assert.Equal("gone-demand-1", vm.PreviousDemandId);
+        Assert.Equal("visible-demand-2", vm.NewDemandId);
+    }
+
+    [Fact]
+    public void Non_reappear_does_not_promote_detail_fields_to_demand_targets()
+    {
+        var alert = SampleAlert(
+            """{"previousDemandId":"not-an-action","newDemandId":"also-not-an-action"}""");
+
+        var vm = AlertDetailViewModel.From(alert, Beijing);
+
+        Assert.False(vm.HasReappearDemandTargets);
+        Assert.Null(vm.PreviousDemandId);
+        Assert.Null(vm.NewDemandId);
+    }
 }

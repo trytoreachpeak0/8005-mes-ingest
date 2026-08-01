@@ -6,13 +6,18 @@ namespace MesIngest.Watch;
 internal partial class AlertDetailWindow : Window
 {
     private readonly Action<string>? _locateDemand;
+    private readonly Action<string> _copyText;
     private AlertDetailViewModel _viewModel;
 
-    public AlertDetailWindow(AlertDetailViewModel viewModel, Action<string>? locateDemand = null)
+    public AlertDetailWindow(
+        AlertDetailViewModel viewModel,
+        Action<string>? locateDemand = null,
+        Action<string>? copyText = null)
     {
         InitializeComponent();
         _viewModel = viewModel;
         _locateDemand = locateDemand;
+        _copyText = copyText ?? Clipboard.SetText;
         ApplyViewModel();
     }
 
@@ -72,6 +77,22 @@ internal partial class AlertDetailWindow : Window
         CopyDemandIdButton.IsEnabled = !string.IsNullOrWhiteSpace(_viewModel.DemandId);
         LocateDemandButton.IsEnabled = !string.IsNullOrWhiteSpace(_viewModel.DemandId) && _locateDemand is not null;
 
+        var showReappearTargets = _viewModel.HasReappearDemandTargets;
+        GenericDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Collapsed : Visibility.Visible;
+        ReappearDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Visible : Visibility.Collapsed;
+        ApplyDemandTarget(
+            _viewModel.PreviousDemandId,
+            PreviousDemandActionsPanel,
+            PreviousDemandIdText,
+            CopyPreviousDemandIdButton,
+            LocatePreviousDemandButton);
+        ApplyDemandTarget(
+            _viewModel.NewDemandId,
+            NewDemandActionsPanel,
+            NewDemandIdText,
+            CopyNewDemandIdButton,
+            LocateNewDemandButton);
+
         FieldDriftGrid.Visibility = Visibility.Collapsed;
         KeyValueGrid.Visibility = Visibility.Collapsed;
         LegacyDetailsText.Visibility = Visibility.Collapsed;
@@ -97,19 +118,39 @@ internal partial class AlertDetailWindow : Window
         }
     }
 
+    private void ApplyDemandTarget(
+        string? demandId,
+        FrameworkElement panel,
+        TextBlock text,
+        Button copyButton,
+        Button locateButton)
+    {
+        var available = !string.IsNullOrWhiteSpace(demandId);
+        panel.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        text.Text = demandId ?? string.Empty;
+        copyButton.IsEnabled = available;
+        locateButton.IsEnabled = available && _locateDemand is not null;
+    }
+
     private void OnCopySummary(object sender, RoutedEventArgs e) =>
-        Clipboard.SetText(_viewModel.BuildSummary());
+        _copyText(_viewModel.BuildSummary());
 
     private void OnCopyDetails(object sender, RoutedEventArgs e) =>
-        Clipboard.SetText(_viewModel.DetailsJson);
+        _copyText(_viewModel.DetailsJson);
 
     private void OnCopyDemandId(object sender, RoutedEventArgs e)
     {
         if (!string.IsNullOrWhiteSpace(_viewModel.DemandId))
         {
-            Clipboard.SetText(_viewModel.DemandId);
+            _copyText(_viewModel.DemandId);
         }
     }
+
+    private void OnCopyPreviousDemandId(object sender, RoutedEventArgs e) =>
+        CopyDemandId(_viewModel.PreviousDemandId);
+
+    private void OnCopyNewDemandId(object sender, RoutedEventArgs e) =>
+        CopyDemandId(_viewModel.NewDemandId);
 
     private void OnLocateDemand(object sender, RoutedEventArgs e)
     {
@@ -119,5 +160,27 @@ internal partial class AlertDetailWindow : Window
         }
 
         _locateDemand(_viewModel.DemandId);
+    }
+
+    private void OnLocatePreviousDemand(object sender, RoutedEventArgs e) =>
+        LocateDemand(_viewModel.PreviousDemandId);
+
+    private void OnLocateNewDemand(object sender, RoutedEventArgs e) =>
+        LocateDemand(_viewModel.NewDemandId);
+
+    private void CopyDemandId(string? demandId)
+    {
+        if (!string.IsNullOrWhiteSpace(demandId))
+        {
+            _copyText(demandId);
+        }
+    }
+
+    private void LocateDemand(string? demandId)
+    {
+        if (!string.IsNullOrWhiteSpace(demandId) && _locateDemand is not null)
+        {
+            _locateDemand(demandId);
+        }
     }
 }

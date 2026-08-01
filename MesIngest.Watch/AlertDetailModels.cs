@@ -216,6 +216,8 @@ internal sealed record AlertDetailViewModel(
     string? TaskType,
     string? Sublot,
     string? DemandId,
+    string? PreviousDemandId,
+    string? NewDemandId,
     string? Message,
     string FirstSeenAtText,
     string LastSeenAtText,
@@ -233,9 +235,15 @@ internal sealed record AlertDetailViewModel(
         _ => Source.ToString(),
     };
 
+    public bool HasReappearDemandTargets =>
+        string.Equals(Code, "REAPPEAR_AFTER_GONE", StringComparison.Ordinal)
+        && (!string.IsNullOrWhiteSpace(PreviousDemandId) || !string.IsNullOrWhiteSpace(NewDemandId));
+
     public static AlertDetailViewModel From(WatchAlertDto alert, TimeZoneInfo? timeZone = null)
     {
         var zone = timeZone ?? TimeZoneInfo.Local;
+        var projection = AlertDetailsProjection.From(alert.Code, alert.Details);
+        var (previousDemandId, newDemandId) = ResolveReappearDemandIds(alert, projection);
         return new AlertDetailViewModel(
             AlertId: alert.AlertId,
             Code: alert.Code,
@@ -246,16 +254,41 @@ internal sealed record AlertDetailViewModel(
             TaskType: alert.TaskType,
             Sublot: alert.Sublot,
             DemandId: alert.DemandId,
+            PreviousDemandId: previousDemandId,
+            NewDemandId: newDemandId,
             Message: alert.Message,
             FirstSeenAtText: WatchTimeDisplay.FormatNullable(alert.FirstSeenAt ?? alert.CreatedAt, zone),
             LastSeenAtText: WatchTimeDisplay.FormatNullable(alert.LastSeenAt ?? alert.CreatedAt, zone),
             ResolvedAtText: WatchTimeDisplay.FormatNullable(alert.ResolvedAt, zone),
             OccurrenceCount: alert.OccurrenceCount,
             DetailsJson: alert.Details ?? string.Empty,
-            Projection: AlertDetailsProjection.From(alert.Code, alert.Details),
+            Projection: projection,
             IsHistoricalSnapshot: false,
             SnapshotStatusText: "live");
     }
+
+    private static (string? PreviousDemandId, string? NewDemandId) ResolveReappearDemandIds(
+        WatchAlertDto alert,
+        AlertDetailsProjection projection)
+    {
+        if (!string.Equals(alert.Code, "REAPPEAR_AFTER_GONE", StringComparison.Ordinal))
+        {
+            return (null, null);
+        }
+
+        var previousDemandId = ReadDemandId(projection, "previousDemandId");
+        var newDemandId = ReadDemandId(projection, "newDemandId") ?? NormalizeDemandId(alert.DemandId);
+        return (previousDemandId, newDemandId);
+    }
+
+    private static string? ReadDemandId(AlertDetailsProjection projection, string key) =>
+        NormalizeDemandId(projection.KeyValues.FirstOrDefault(item =>
+            string.Equals(item.Key, key, StringComparison.Ordinal))?.Value);
+
+    private static string? NormalizeDemandId(string? value) =>
+        string.IsNullOrWhiteSpace(value) || string.Equals(value, "null", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : value.Trim();
 
     public AlertDetailViewModel MarkHistorical() =>
         this with

@@ -13,8 +13,10 @@
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <Button x:Name="CopySummaryButton" Content="Copy summary" Margin="0,0,8,0" Padding="10,4" Click="OnCopySummary" />
             <Button x:Name="CopyDetailsButton" Content="Copy Details JSON" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDetails" />
-            <Button x:Name="CopyDemandIdButton" Content="Copy DemandId" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDemandId" />
-            <Button x:Name="LocateDemandButton" Content="Locate Demand" Padding="10,4" Click="OnLocateDemand" />
+            <StackPanel x:Name="GenericDemandActionsPanel" Orientation="Horizontal">
+                <Button x:Name="CopyDemandIdButton" Content="Copy DemandId" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDemandId" />
+                <Button x:Name="LocateDemandButton" Content="Locate Demand" Padding="10,4" Click="OnLocateDemand" />
+            </StackPanel>
         </StackPanel>
 
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -68,6 +70,30 @@
                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Message" FontWeight="SemiBold" />
                     <TextBlock x:Name="MessageText" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" />
                 </Grid>
+
+                <Border x:Name="ReappearDemandActionsPanel"
+                        BorderBrush="#B0BEC5"
+                        BorderThickness="1"
+                        CornerRadius="3"
+                        Padding="10"
+                        Margin="0,0,0,10"
+                        Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="REAPPEAR TransportDemand targets" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <WrapPanel x:Name="PreviousDemandActionsPanel" Orientation="Horizontal" Margin="0,0,0,6">
+                            <TextBlock Text="Previous GONE DemandId" Width="180" VerticalAlignment="Center" />
+                            <TextBlock x:Name="PreviousDemandIdText" Width="220" VerticalAlignment="Center" FontFamily="Consolas" TextWrapping="Wrap" />
+                            <Button x:Name="CopyPreviousDemandIdButton" Content="Copy previous ID" Margin="8,0,6,0" Padding="8,3" Click="OnCopyPreviousDemandId" />
+                            <Button x:Name="LocatePreviousDemandButton" Content="Locate previous GONE" Padding="8,3" Click="OnLocatePreviousDemand" />
+                        </WrapPanel>
+                        <WrapPanel x:Name="NewDemandActionsPanel" Orientation="Horizontal">
+                            <TextBlock Text="New VISIBLE DemandId" Width="180" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NewDemandIdText" Width="220" VerticalAlignment="Center" FontFamily="Consolas" TextWrapping="Wrap" />
+                            <Button x:Name="CopyNewDemandIdButton" Content="Copy new ID" Margin="8,0,6,0" Padding="8,3" Click="OnCopyNewDemandId" />
+                            <Button x:Name="LocateNewDemandButton" Content="Locate new VISIBLE" Padding="8,3" Click="OnLocateNewDemand" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
 
                 <TextBlock Text="Details" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBlock x:Name="LegacyDetailsText" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,8" />

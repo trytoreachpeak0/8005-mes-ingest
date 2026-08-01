@@ -201,6 +201,31 @@ public class MesIngestApiClientFetchTests
         Assert.Null(snapshot.FailedEndpoint);
     }
 
+    [Fact]
+    public async Task Previous_reappear_demand_lookup_uses_exact_id_path_without_new_id_fallback()
+    {
+        string? requestedPath = null;
+        var handler = new StubHandler((request, _) =>
+        {
+            requestedPath = request.RequestUri!.PathAndQuery;
+            return Task.FromResult(JsonResponse(
+                request.RequestUri.AbsolutePath,
+                """{"demandId":"previous-gone-id","taskType":"DIE_TO_OVEN","sublot":"S1","area":"A","eqp":"E","step":"1","dates":"2026-08-01T10:00:00+08:00","package":null,"status":"GONE","mesLastSeenAt":"2026-08-01T02:00:00Z","disappearCount":2,"locationRisk":false,"locationRiskCode":null,"createdAt":"2026-08-01T02:00:00Z","goneAt":"2026-08-01T03:00:00Z"}"""));
+        });
+
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1:5088/"),
+        };
+        var client = new MesIngestApiClient(http);
+
+        var demand = await client.FetchDemandByIdAsync("previous-gone-id");
+
+        Assert.Equal("/api/demands/previous-gone-id", requestedPath);
+        Assert.Equal("previous-gone-id", demand!.DemandId);
+        Assert.Equal("GONE", demand.Status);
+    }
+
     private static HttpResponseMessage EmptyPageOrList(string path)
     {
         if (WatchHttpTestStubs.IsContractPath(path))
