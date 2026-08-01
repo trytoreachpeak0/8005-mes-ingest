@@ -240,6 +240,31 @@ public class LatencyTelemetryTests
     }
 
     [Fact]
+    public void Latency_write_failure_is_recorded_as_local_connection_event_without_secrets()
+    {
+        using var dir = new TempLatencyDir();
+        var at = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
+        var journal = new WatchConnectionEventJournal(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 100 * 1024 * 1024,
+            utcNow: () => at);
+
+        WatchLatencyWriteFailureJournal.Append(
+            journal,
+            new IOException("disk full SharedSecret=leak-token Authorization: Bearer abc"),
+            at);
+
+        var evt = Assert.Single(journal.ReadRecent(10));
+        Assert.Equal(WatchConnectionEventKind.Failure, evt.Kind);
+        Assert.Equal(WatchLatencyWriteFailureJournal.Endpoint, evt.Endpoint);
+        Assert.Equal(WatchLatencyWriteFailureJournal.Stage, evt.Stage);
+        Assert.DoesNotContain("leak-token", evt.Message!, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bearer abc", evt.Message!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SharedSecret=[redacted]", evt.Message!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Oracle_query_timeout_sets_poll_health_and_alert_stage_ORACLE_QUERY()
     {
         var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.FromHours(8));

@@ -32,16 +32,7 @@ internal partial class App : Application
                 {
                     try
                     {
-                        journal.Append(new WatchConnectionEvent(
-                            Kind: WatchConnectionEventKind.Failure,
-                            At: DateTimeOffset.UtcNow,
-                            Endpoint: "watch-latency",
-                            Stage: "TELEMETRY_IO",
-                            ElapsedMs: null,
-                            TimeoutSeconds: null,
-                            Message: LatencyLogFormatter.Sanitize(ex.Message),
-                            FailureCount: 1,
-                            OutageDurationMs: null));
+                        WatchLatencyWriteFailureJournal.Append(journal, ex);
                     }
                     catch
                     {

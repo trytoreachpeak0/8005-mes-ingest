@@ -111,6 +111,118 @@ public class MainWindowStartupTests
     }
 
     [Fact]
+    public void Alert_view_details_menu_and_double_click_open_same_detail_window()
+    {
+        Exception? caught = null;
+        var ok = false;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var client = new MesIngestApiClient(http);
+                var options = new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:9",
+                    RefreshSeconds = 60,
+                };
+                var window = new MainWindow(client, options);
+                window.Show();
+                window.UpdateLayout();
+
+                var alerts = (DataGrid)window.FindName("AlertsGrid");
+                var alert = new WatchAlertDto(
+                    AlertId: "alert-pathway-1",
+                    Code: "REAPPEAR_AFTER_GONE",
+                    Severity: "WARNING",
+                    TaskType: "DIE_TO_OVEN",
+                    Sublot: "S1",
+                    DemandId: "new-id",
+                    Message: "reappeared",
+                    Details: """{"previousDemandId":"old-id","newDemandId":"new-id"}""",
+                    FirstSeenAt: null,
+                    LastSeenAt: null,
+                    OccurrenceCount: 1,
+                    IsActive: true,
+                    ResolvedAt: null,
+                    CreatedAt: null);
+                alerts.ItemsSource = new[] { alert };
+                alerts.SelectedItem = alert;
+
+                var viewDetails = alerts.ContextMenu.Items
+                    .OfType<MenuItem>()
+                    .Single(i => i.Header?.ToString() == "查看详情");
+                viewDetails.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+                var afterMenu = window.OwnedWindows.OfType<AlertDetailWindow>().ToList();
+                if (afterMenu.Count != 1 || afterMenu[0].AlertId != "alert-pathway-1")
+                {
+                    throw new InvalidOperationException(
+                        $"Menu 查看详情 did not open expected detail: count={afterMenu.Count}");
+                }
+
+                afterMenu[0].Close();
+                if (window.OwnedWindows.OfType<AlertDetailWindow>().Any())
+                {
+                    throw new InvalidOperationException("Detail window still open after Close");
+                }
+
+                alerts.RaiseEvent(new MouseButtonEventArgs(
+                        Mouse.PrimaryDevice,
+                        Environment.TickCount,
+                        MouseButton.Left)
+                    {
+                        RoutedEvent = Control.MouseDoubleClickEvent,
+                        Source = alerts,
+                    });
+
+                var afterDbl = window.OwnedWindows.OfType<AlertDetailWindow>().ToList();
+                if (afterDbl.Count != 1 || afterDbl[0].AlertId != "alert-pathway-1")
+                {
+                    throw new InvalidOperationException(
+                        $"Double-click did not open expected detail: count={afterDbl.Count}");
+                }
+
+                afterDbl[0].Close();
+
+                // Enter shares OpenSelectedAlertDetail with menu/double-click (PreviewKeyDown).
+                alerts.RaiseEvent(new KeyEventArgs(
+                        Keyboard.PrimaryDevice,
+                        PresentationSource.FromVisual(window)
+                            ?? throw new InvalidOperationException("No PresentationSource"),
+                        Environment.TickCount,
+                        Key.Enter)
+                    {
+                        RoutedEvent = Keyboard.PreviewKeyDownEvent,
+                        Source = alerts,
+                    });
+
+                var afterEnter = window.OwnedWindows.OfType<AlertDetailWindow>().ToList();
+                if (afterEnter.Count != 1 || afterEnter[0].AlertId != "alert-pathway-1")
+                {
+                    throw new InvalidOperationException(
+                        $"Enter did not open expected detail: count={afterEnter.Count}");
+                }
+
+                afterEnter[0].Close();
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(60));
+
+        Assert.Null(caught);
+        Assert.True(ok);
+    }
+
+    [Fact]
     public void MainWindow_applies_saved_pane_ratio_and_uses_star_rows_with_splitter()
     {
         Exception? caught = null;
