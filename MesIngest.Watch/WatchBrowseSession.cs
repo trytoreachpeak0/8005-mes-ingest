@@ -10,6 +10,9 @@ internal enum WatchBrowseRefreshKind
 
     /// <summary>Load more — append the next cursor page.</summary>
     Append,
+
+    /// <summary>Load more Alerts — append the next alert cursor page.</summary>
+    AppendAlerts,
 }
 
 /// <summary>
@@ -29,8 +32,10 @@ internal sealed class WatchBrowseSession
 
     public IReadOnlyList<WatchDemandDto> Demands { get; private set; } = [];
     public IReadOnlyList<WatchAlertDto> Alerts { get; private set; } = [];
-    public string? NextCursor { get; private set; }
-    public bool HasMore { get; private set; }
+    public string? DemandsNextCursor { get; private set; }
+    public bool DemandsHasMore { get; private set; }
+    public string? AlertsNextCursor { get; private set; }
+    public bool AlertsHasMore { get; private set; }
     public WatchSnapshot? LastSnapshot { get; private set; }
     public WatchAlertBrowseQuery AlertQuery { get; private set; } = WatchAlertBrowseQuery.Default;
 
@@ -50,6 +55,9 @@ internal sealed class WatchBrowseSession
 
         switch (kind)
         {
+            case WatchBrowseRefreshKind.AppendAlerts:
+                await AppendAlertsAsync(cancellationToken).ConfigureAwait(false);
+                return;
             case WatchBrowseRefreshKind.Append:
                 await AppendAsync(filter, cancellationToken).ConfigureAwait(false);
                 return;
@@ -88,7 +96,10 @@ internal sealed class WatchBrowseSession
     private async Task ResetAsync(WatchDemandBrowseQuery filter, CancellationToken cancellationToken)
     {
         var query = WithPaging(filter, cursor: null, _pageSize);
-        var snapshot = await _client.FetchSnapshotAsync(query, AlertQuery, cancellationToken)
+        var snapshot = await _client.FetchSnapshotAsync(
+                query,
+                WithPaging(AlertQuery, cursor: null, _pageSize),
+                cancellationToken)
             .ConfigureAwait(false);
         ApplySnapshotDemands(snapshot);
         ApplySnapshotAlerts(snapshot);
@@ -99,55 +110,97 @@ internal sealed class WatchBrowseSession
     private async Task PreserveWindowAsync(WatchDemandBrowseQuery filter, CancellationToken cancellationToken)
     {
         var targetCount = Math.Max(Demands.Count, _pageSize);
+        var alertTargetCount = Math.Max(Alerts.Count, _pageSize);
         var collected = new List<WatchDemandDto>();
+        var collectedAlerts = new List<WatchAlertDto>();
         string? cursor = null;
         var hasMore = false;
         string? nextCursor = null;
+        string? alertCursor = null;
+        var alertsHasMore = false;
+        string? alertsNextCursor = null;
 
         var snapshot = await _client.FetchSnapshotAsync(
                 WithPaging(filter, cursor: null, _pageSize),
-                AlertQuery,
+                WithPaging(AlertQuery, cursor: null, _pageSize),
                 cancellationToken)
             .ConfigureAwait(false);
-        if (!snapshot.DemandsSucceeded)
+        if (snapshot.DemandsSucceeded)
         {
-            // Keep prior demand window; still apply alerts/health from the snapshot round.
-            ApplySnapshotAlerts(snapshot);
-            LastSnapshot = snapshot;
-            LastRefreshIncludedSnapshot = true;
-            return;
+            collected.AddRange(snapshot.Demands);
+            cursor = snapshot.DemandsNextCursor;
+            hasMore = snapshot.DemandsHasMore;
+            nextCursor = snapshot.DemandsNextCursor;
+
+            while (collected.Count < targetCount
+                   && hasMore
+                   && !string.IsNullOrWhiteSpace(cursor))
+            {
+                var page = await _client.FetchDemandPageAsync(
+                        WithPaging(filter, cursor, _pageSize),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                collected.AddRange(page.Items);
+                cursor = page.NextCursor;
+                hasMore = page.HasMore;
+                nextCursor = page.NextCursor;
+            }
+
+            Demands = collected;
+        DemandsNextCursor = nextCursor;
+        DemandsHasMore = hasMore;
         }
 
-        collected.AddRange(snapshot.Demands);
-        cursor = snapshot.DemandsNextCursor;
-        hasMore = snapshot.DemandsHasMore;
-        nextCursor = snapshot.DemandsNextCursor;
-
-        while (collected.Count < targetCount
-               && hasMore
-               && !string.IsNullOrWhiteSpace(cursor))
+        if (snapshot.AlertsSucceeded)
         {
-            var page = await _client.FetchDemandPageAsync(
-                    WithPaging(filter, cursor, _pageSize),
-                    cancellationToken)
-                .ConfigureAwait(false);
-            collected.AddRange(page.Items);
-            cursor = page.NextCursor;
-            hasMore = page.HasMore;
-            nextCursor = page.NextCursor;
+            collectedAlerts.AddRange(snapshot.Alerts);
+            alertCursor = snapshot.AlertsNextCursor;
+            alertsHasMore = snapshot.AlertsHasMore;
+            alertsNextCursor = snapshot.AlertsNextCursor;
+
+            while (collectedAlerts.Count < alertTargetCount
+                   && alertsHasMore
+                   && !string.IsNullOrWhiteSpace(alertCursor))
+            {
+                WatchAlertPage page;
+                try
+                {
+                    page = await _client.FetchAlertPageAsync(
+                            WithPaging(AlertQuery, alertCursor, _pageSize),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (WatchEndpointFetchException ex) when (IsBadRequestCursor(ex))
+                {
+                    page = await _client.FetchAlertPageAsync(
+                            WithPaging(AlertQuery, cursor: null, _pageSize),
+                            cancellationToken)
+                        .ConfigureAwait(false);
+                    collectedAlerts.Clear();
+                }
+
+                collectedAlerts.AddRange(page.Items);
+                alertCursor = page.NextCursor;
+                alertsHasMore = page.HasMore;
+                alertsNextCursor = page.NextCursor;
+            }
+
+            Alerts = collectedAlerts;
+            AlertsNextCursor = alertsNextCursor;
+            AlertsHasMore = alertsHasMore;
         }
 
-        Demands = collected;
-        NextCursor = nextCursor;
-        HasMore = hasMore;
-        ApplySnapshotAlerts(snapshot);
-        LastSnapshot = snapshot;
+        LastSnapshot = snapshot with
+        {
+            AlertsNextCursor = AlertsNextCursor,
+            AlertsHasMore = AlertsHasMore,
+        };
         LastRefreshIncludedSnapshot = true;
     }
 
     private async Task AppendAsync(WatchDemandBrowseQuery filter, CancellationToken cancellationToken)
     {
-        if (!HasMore || string.IsNullOrWhiteSpace(NextCursor))
+        if (!DemandsHasMore || string.IsNullOrWhiteSpace(DemandsNextCursor))
         {
             return;
         }
@@ -155,18 +208,18 @@ internal sealed class WatchBrowseSession
         try
         {
             var page = await _client.FetchDemandPageAsync(
-                    WithPaging(filter, NextCursor, _pageSize),
+                    WithPaging(filter, DemandsNextCursor, _pageSize),
                     cancellationToken)
                 .ConfigureAwait(false);
             Demands = Demands.Concat(page.Items).ToList();
-            NextCursor = page.NextCursor;
-            HasMore = page.HasMore;
+            DemandsNextCursor = page.NextCursor;
+            DemandsHasMore = page.HasMore;
             LastSnapshot = LastSnapshot is null
                 ? null
                 : LastSnapshot with
                 {
-                    DemandsNextCursor = NextCursor,
-                    DemandsHasMore = HasMore,
+                    DemandsNextCursor = DemandsNextCursor,
+                    DemandsHasMore = DemandsHasMore,
                 };
         }
         catch (WatchEndpointFetchException ex) when (
@@ -177,6 +230,43 @@ internal sealed class WatchBrowseSession
         }
     }
 
+    private async Task AppendAlertsAsync(CancellationToken cancellationToken)
+    {
+        if (!AlertsHasMore || string.IsNullOrWhiteSpace(AlertsNextCursor))
+        {
+            return;
+        }
+
+        WatchAlertPage page;
+        var replaceWindow = false;
+        try
+        {
+            page = await _client.FetchAlertPageAsync(
+                    WithPaging(AlertQuery, AlertsNextCursor, _pageSize),
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (WatchEndpointFetchException ex) when (IsBadRequestCursor(ex))
+        {
+            page = await _client.FetchAlertPageAsync(
+                    WithPaging(AlertQuery, cursor: null, _pageSize),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            replaceWindow = true;
+        }
+
+        Alerts = replaceWindow ? page.Items : Alerts.Concat(page.Items).ToList();
+        AlertsNextCursor = page.NextCursor;
+        AlertsHasMore = page.HasMore;
+        LastSnapshot = LastSnapshot is null
+            ? null
+            : LastSnapshot with
+            {
+                AlertsNextCursor = AlertsNextCursor,
+                AlertsHasMore = AlertsHasMore,
+            };
+    }
+
     private void ApplySnapshotDemands(WatchSnapshot snapshot)
     {
         if (!snapshot.DemandsSucceeded)
@@ -185,8 +275,8 @@ internal sealed class WatchBrowseSession
         }
 
         Demands = snapshot.Demands;
-        NextCursor = snapshot.DemandsNextCursor;
-        HasMore = snapshot.DemandsHasMore;
+        DemandsNextCursor = snapshot.DemandsNextCursor;
+        DemandsHasMore = snapshot.DemandsHasMore;
     }
 
     private void ApplySnapshotAlerts(WatchSnapshot snapshot)
@@ -194,6 +284,8 @@ internal sealed class WatchBrowseSession
         if (snapshot.AlertsSucceeded)
         {
             Alerts = snapshot.Alerts;
+            AlertsNextCursor = snapshot.AlertsNextCursor;
+            AlertsHasMore = snapshot.AlertsHasMore;
         }
     }
 
@@ -202,4 +294,14 @@ internal sealed class WatchBrowseSession
         string? cursor,
         int limit) =>
         filter with { Cursor = cursor, Limit = limit };
+
+    private static WatchAlertBrowseQuery WithPaging(
+        WatchAlertBrowseQuery query,
+        string? cursor,
+        int limit) =>
+        query with { Cursor = cursor, Limit = limit };
+
+    private static bool IsBadRequestCursor(WatchEndpointFetchException exception) =>
+        exception.InnerException is HttpRequestException http
+        && http.StatusCode == System.Net.HttpStatusCode.BadRequest;
 }

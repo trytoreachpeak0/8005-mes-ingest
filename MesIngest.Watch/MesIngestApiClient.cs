@@ -114,6 +114,8 @@ internal sealed class MesIngestApiClient
         WatchPollHealthDto? health = null;
         string? nextCursor = null;
         var hasMore = false;
+        string? alertsNextCursor = null;
+        var alertsHasMore = false;
         var demandsOk = false;
         var alertsOk = false;
         var healthOk = false;
@@ -173,6 +175,8 @@ internal sealed class MesIngestApiClient
             var alertPage = await FetchAlertPageAsync(alertQuery, correlationId, cancellationToken)
                 .ConfigureAwait(false);
             alerts = alertPage.Items;
+            alertsNextCursor = alertPage.NextCursor;
+            alertsHasMore = alertPage.HasMore;
             alertsOk = true;
         }
         catch (WatchEndpointFetchException ex)
@@ -224,6 +228,8 @@ internal sealed class MesIngestApiClient
             CorrelationId: correlationId,
             DemandsNextCursor: nextCursor,
             DemandsHasMore: hasMore,
+            AlertsNextCursor: alertsNextCursor,
+            AlertsHasMore: alertsHasMore,
             DemandsSucceeded: demandsOk,
             AlertsSucceeded: alertsOk,
             PollHealthSucceeded: healthOk);
@@ -233,6 +239,11 @@ internal sealed class MesIngestApiClient
         WatchDemandBrowseQuery query,
         CancellationToken cancellationToken = default) =>
         FetchDemandPageCoreAsync(query, Guid.NewGuid().ToString("N"), cancellationToken);
+
+    public Task<WatchAlertPage> FetchAlertPageAsync(
+        WatchAlertBrowseQuery query,
+        CancellationToken cancellationToken = default) =>
+        FetchAlertPageAsync(query, Guid.NewGuid().ToString("N"), cancellationToken);
 
     /// <summary>
     /// Exact DemandId lookup via GET /api/demands/{demandId}. Returns null on 404.
@@ -703,6 +714,8 @@ internal sealed record WatchSnapshot(
     string? CorrelationId = null,
     string? DemandsNextCursor = null,
     bool DemandsHasMore = false,
+    string? AlertsNextCursor = null,
+    bool AlertsHasMore = false,
     bool DemandsSucceeded = false,
     bool AlertsSucceeded = false,
     bool PollHealthSucceeded = false)

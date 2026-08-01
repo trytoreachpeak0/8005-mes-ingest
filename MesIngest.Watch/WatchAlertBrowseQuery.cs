@@ -9,7 +9,8 @@ namespace MesIngest.Watch;
 internal sealed record WatchAlertBrowseQuery(
     string? SortBy = null,
     string Direction = "desc",
-    int Limit = 100)
+    int Limit = 100,
+    string? Cursor = null)
 {
     public static WatchAlertBrowseQuery Default { get; } = new();
 
@@ -48,6 +49,11 @@ internal sealed record WatchAlertBrowseQuery(
         {
             parts.Add(Pair("sortBy", SortBy));
             parts.Add(Pair("direction", Direction));
+        }
+
+        if (!string.IsNullOrWhiteSpace(Cursor))
+        {
+            parts.Add(Pair("cursor", Cursor));
         }
 
         return "/api/alerts?" + string.Join("&", parts);

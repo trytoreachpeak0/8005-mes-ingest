@@ -144,7 +144,13 @@
                           MouseDoubleClick="OnPanesSplitterDoubleClick" />
 
             <GroupBox Header="Alerts" Grid.Row="2" Margin="0,0,0,0">
-                <DataGrid x:Name="AlertsGrid"
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <DataGrid x:Name="AlertsGrid"
+                              Grid.Row="0"
                           AutoGenerateColumns="False"
                           IsReadOnly="True"
                           CanUserAddRows="False"
@@ -168,7 +174,19 @@
                             <MenuItem Header="查看详情" Click="OnAlertViewDetailsMenu" />
                         </ContextMenu>
                     </DataGrid.ContextMenu>
-                </DataGrid>
+                    </DataGrid>
+                    <DockPanel Grid.Row="1" Margin="6,4,6,4">
+                        <Button x:Name="LoadMoreAlertsButton"
+                                DockPanel.Dock="Right"
+                                Content="Load more alerts"
+                                Padding="10,2"
+                                Click="OnLoadMoreAlertsClick"
+                                IsEnabled="False" />
+                        <TextBlock x:Name="AlertCountText"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,12,0" />
+                    </DockPanel>
+                </Grid>
             </GroupBox>
         </Grid>
     </DockPanel>

@@ -216,12 +216,22 @@ internal partial class MainWindow : Window
 
     private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
     {
-        if (!_browse.HasMore || string.IsNullOrWhiteSpace(_browse.NextCursor))
+        if (!_browse.DemandsHasMore || string.IsNullOrWhiteSpace(_browse.DemandsNextCursor))
         {
             return;
         }
 
         await RefreshAsync(WatchBrowseRefreshKind.Append).ConfigureAwait(true);
+    }
+
+    private async void OnLoadMoreAlertsClick(object sender, RoutedEventArgs e)
+    {
+        if (!_browse.AlertsHasMore || string.IsNullOrWhiteSpace(_browse.AlertsNextCursor))
+        {
+            return;
+        }
+
+        await RefreshAsync(WatchBrowseRefreshKind.AppendAlerts).ConfigureAwait(true);
     }
 
     private async Task RefreshAsync(WatchBrowseRefreshKind kind)
@@ -239,7 +249,8 @@ internal partial class MainWindow : Window
             await _browse.RefreshAsync(kind, query).ConfigureAwait(true);
             var snapshot = _browse.LastSnapshot;
 
-            if (kind == WatchBrowseRefreshKind.Append && !_browse.LastRefreshIncludedSnapshot)
+            if (kind is WatchBrowseRefreshKind.Append or WatchBrowseRefreshKind.AppendAlerts
+                && !_browse.LastRefreshIncludedSnapshot)
             {
                 // Partial page success must not clear a still-failing endpoint banner.
                 _refreshState = _refreshState.ApplyPartialSuccess(now);
@@ -374,10 +385,16 @@ internal partial class MainWindow : Window
         UpdateGoneWindowVisibility();
         DemandsGrid.ItemsSource = _browse.Demands;
         AlertsGrid.ItemsSource = _browse.Alerts;
-        LoadMoreButton.IsEnabled = _browse.HasMore && !string.IsNullOrWhiteSpace(_browse.NextCursor);
-        RowCountText.Text = _browse.HasMore
+        LoadMoreButton.IsEnabled =
+            _browse.DemandsHasMore && !string.IsNullOrWhiteSpace(_browse.DemandsNextCursor);
+        LoadMoreAlertsButton.IsEnabled =
+            _browse.AlertsHasMore && !string.IsNullOrWhiteSpace(_browse.AlertsNextCursor);
+        RowCountText.Text = _browse.DemandsHasMore
             ? $"loaded {_browse.Demands.Count} · more available"
             : $"loaded {_browse.Demands.Count} · end of results";
+        AlertCountText.Text = _browse.AlertsHasMore
+            ? $"loaded {_browse.Alerts.Count} alerts · more available"
+            : $"loaded {_browse.Alerts.Count} alerts · end of results";
 
         var now = DateTimeOffset.UtcNow;
         var banner = WatchBannerProjection.Project(

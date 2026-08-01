@@ -91,7 +91,7 @@ public class WatchBrowseSessionTests
 
         await session.RefreshAsync(WatchBrowseRefreshKind.Reset, filter);
         Assert.Equal(2, session.Demands.Count);
-        Assert.True(session.HasMore);
+        Assert.True(session.DemandsHasMore);
 
         await session.RefreshAsync(WatchBrowseRefreshKind.Append, filter);
         Assert.Equal(4, session.Demands.Count);
@@ -180,7 +180,7 @@ public class WatchBrowseSessionTests
         await session.RefreshAsync(WatchBrowseRefreshKind.Reset, filter);
         Assert.Equal(2, session.Demands.Count);
         Assert.Equal(new[] { "id-01", "id-02" }, session.Demands.Select(d => d.DemandId).ToArray());
-        Assert.True(session.HasMore);
+        Assert.True(session.DemandsHasMore);
     }
 
     [Fact]
@@ -395,15 +395,15 @@ public class WatchBrowseSessionLiveHostTests : IClassFixture<WebApplicationFacto
 
         await session.RefreshAsync(WatchBrowseRefreshKind.Reset, filter);
         Assert.Equal(2, session.Demands.Count);
-        Assert.True(session.HasMore);
+        Assert.True(session.DemandsHasMore);
 
         await session.RefreshAsync(WatchBrowseRefreshKind.Append, filter);
         Assert.Equal(4, session.Demands.Count);
-        Assert.True(session.HasMore);
+        Assert.True(session.DemandsHasMore);
 
         await session.RefreshAsync(WatchBrowseRefreshKind.Append, filter);
         Assert.Equal(5, session.Demands.Count);
-        Assert.False(session.HasMore);
+        Assert.False(session.DemandsHasMore);
 
         var ids = session.Demands.Select(d => d.DemandId).ToArray();
         Assert.Equal(new[] { "id-00", "id-01", "id-02", "id-03", "id-04" }, ids);
