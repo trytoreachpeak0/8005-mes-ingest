@@ -12,6 +12,14 @@ internal sealed record WatchRefreshState(
     public WatchRefreshState ApplySuccess(DateTimeOffset at) =>
         new(LastSuccessAt: at, FetchError: null);
 
+    /// <summary>
+    /// Updates last-success time for a partial refresh (e.g. Load more) without clearing
+    /// an outstanding endpoint fetch error — the connection banner must stay until a full
+    /// successful snapshot clears it.
+    /// </summary>
+    public WatchRefreshState ApplyPartialSuccess(DateTimeOffset at) =>
+        new(LastSuccessAt: at, FetchError: FetchError);
+
     public WatchRefreshState ApplyFailure(string fetchError) =>
         new(LastSuccessAt: LastSuccessAt, FetchError: fetchError);
 

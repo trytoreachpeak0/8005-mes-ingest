@@ -102,7 +102,7 @@ dotnet run --project MesIngest.Watch
 # $env:MesIngestWatch__RequestTimeoutSeconds = "30"
 ```
 
-Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, last seen), recent alerts, latest poll health, and prominent banners for query/poll failure and `PAUSED_ZERO_DROP`. HTTP timeout defaults to 30s (`Watch:RequestTimeoutSeconds`, range 1–300; invalid values fail startup). On fetch failure Watch keeps the last successful snapshot, shows last-success/stale in the health line, and appends local WatchConnectionEvent JSONL under `%LocalAppData%\MesIngest.Watch\logs\` (first failure / 5-minute summary / recovery; not Host IngestAlerts).
+Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, DemandId, time window), recent alerts, a bottom health status bar (Watch last success vs Host poll end, connection/stale, active alerts/paused counts, timezone), and current-condition banners (ERROR red / WARNING orange, min 5s hold, brief 已恢复). HTTP timeout defaults to 30s (`Watch:RequestTimeoutSeconds`, range 1–300; invalid values fail startup). On fetch failure Watch keeps last successful data per endpoint, shows last-success/stale in the status bar, and appends local WatchConnectionEvent JSONL under `%LocalAppData%\MesIngest.Watch\logs\` (first failure / 5-minute summary / recovery; not Host IngestAlerts).
 
 ## Ticket 10 — factory install package + secure config
 

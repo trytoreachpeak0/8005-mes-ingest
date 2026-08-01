@@ -62,6 +62,54 @@ public class MesIngestApiClientFetchTests
         Assert.Contains("/api/alerts", snapshot.FetchError!, StringComparison.Ordinal);
         Assert.Contains("HTTP_CONNECT", snapshot.FetchError, StringComparison.Ordinal);
         Assert.Contains("Connection refused", snapshot.FetchError, StringComparison.Ordinal);
+        Assert.True(snapshot.DemandsSucceeded);
+        Assert.False(snapshot.AlertsSucceeded);
+        Assert.True(snapshot.PollHealthSucceeded);
+        Assert.False(snapshot.AllEndpointsSucceeded);
+    }
+
+    [Fact]
+    public async Task Partial_success_keeps_demands_when_alerts_fail()
+    {
+        var handler = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/alerts", StringComparison.Ordinal))
+            {
+                throw new HttpRequestException("Connection refused");
+            }
+
+            if (path.EndsWith("/api/demands", StringComparison.Ordinal))
+            {
+                return Task.FromResult(JsonResponse(
+                    path,
+                    """{"items":[{"demandId":"abcd1234","taskType":"DIE_TO_OVEN","sublot":"S1","area":"A","eqp":"E","step":"1","dates":"2026-08-01T10:00:00+08:00","package":null,"status":"VISIBLE","mesLastSeenAt":"2026-08-01T02:00:00Z","disappearCount":0,"locationRisk":false,"locationRiskCode":null,"createdAt":"2026-08-01T02:00:00Z","goneAt":null}],"nextCursor":null,"hasMore":false}"""));
+            }
+
+            if (path.EndsWith("/api/poll-health", StringComparison.Ordinal))
+            {
+                return Task.FromResult(JsonResponse(
+                    path,
+                    """{"startedAt":"2026-08-01T02:00:00Z","endedAt":"2026-08-01T02:00:03Z","durationMs":3000,"rowCount":1,"success":true,"outcome":"SUCCESS","taskTypePauses":[]}"""));
+            }
+
+            return Task.FromResult(EmptyPageOrList(path));
+        });
+
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1:5088/"),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30);
+
+        var snapshot = await client.FetchSnapshotAsync();
+
+        Assert.NotNull(snapshot.FetchError);
+        Assert.Contains("/api/alerts", snapshot.FetchError!, StringComparison.Ordinal);
+        Assert.Equal("abcd1234", Assert.Single(snapshot.Demands).DemandId);
+        Assert.NotNull(snapshot.PollHealth);
+        Assert.True(snapshot.PollHealth!.Success);
     }
 
     [Fact]
@@ -153,11 +201,24 @@ public class MesIngestApiClientFetchTests
         Assert.Null(snapshot.FailedEndpoint);
     }
 
-    private static HttpResponseMessage EmptyPageOrList(string path) =>
-        path.EndsWith("/api/demands", StringComparison.Ordinal)
-        || path.EndsWith("/api/alerts", StringComparison.Ordinal)
-            ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
-            : JsonResponse(path, "[]");
+    private static HttpResponseMessage EmptyPageOrList(string path)
+    {
+        if (path.EndsWith("/api/demands", StringComparison.Ordinal)
+            || path.EndsWith("/api/alerts", StringComparison.Ordinal))
+        {
+            return JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""");
+        }
+
+        if (path.EndsWith("/api/poll-health", StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(HttpStatusCode.NotFound)
+            {
+                RequestMessage = new HttpRequestMessage(HttpMethod.Get, "http://127.0.0.1:5088" + path),
+            };
+        }
+
+        return JsonResponse(path, "[]");
+    }
 
     private static HttpResponseMessage JsonResponse(string path, string json) =>
         new(HttpStatusCode.OK)

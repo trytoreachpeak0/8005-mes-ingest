@@ -55,4 +55,18 @@ public class WatchRefreshStateTests
         Assert.Contains("stale=", text, StringComparison.Ordinal);
         Assert.Contains("5m", text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Partial_success_updates_last_success_but_keeps_failing_endpoint_error()
+    {
+        var firstSuccess = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
+        var pageSuccess = DateTimeOffset.Parse("2026-07-31T10:01:00Z");
+        var state = WatchRefreshState.Empty
+            .ApplySuccess(firstSuccess)
+            .ApplyFailure("endpoint=/api/alerts stage=HTTP_CONNECT timeoutSeconds=30 elapsedMs=12")
+            .ApplyPartialSuccess(pageSuccess);
+
+        Assert.Equal(pageSuccess, state.LastSuccessAt);
+        Assert.Contains("/api/alerts", state.FetchError, StringComparison.Ordinal);
+    }
 }

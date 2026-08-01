@@ -12,34 +12,42 @@
         <local:LocalDateTimeOffsetConverter x:Key="LocalTime" />
     </Window.Resources>
     <DockPanel Margin="12">
+        <StatusBar x:Name="WatchStatusBar"
+                   DockPanel.Dock="Bottom"
+                   Margin="0,8,0,0"
+                   Padding="4,2">
+            <StatusBarItem>
+                <TextBlock x:Name="StatusBarText"
+                           FontFamily="Consolas"
+                           FontSize="12"
+                           TextTrimming="CharacterEllipsis"
+                           TextWrapping="NoWrap" />
+            </StatusBarItem>
+        </StatusBar>
+
         <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Border x:Name="FetchFailureBanner"
+            <Border x:Name="ErrorBanner"
                     Background="#C62828"
                     Padding="10,8"
                     Margin="0,0,0,6"
                     Visibility="Collapsed">
-                <TextBlock x:Name="FetchFailureText"
+                <TextBlock x:Name="ErrorBannerText"
                            Foreground="White"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap"
                            FontSize="14" />
             </Border>
-            <Border x:Name="PausedBanner"
-                    Background="#E65100"
+            <Border x:Name="WarningBanner"
+                    Background="#EF6C00"
                     Padding="10,8"
                     Margin="0,0,0,6"
                     Visibility="Collapsed">
-                <TextBlock x:Name="PausedText"
+                <TextBlock x:Name="WarningBannerText"
                            Foreground="White"
                            FontWeight="SemiBold"
                            TextWrapping="Wrap"
                            FontSize="14" />
             </Border>
-            <TextBlock x:Name="HealthText"
-                       FontFamily="Consolas"
-                       FontSize="13"
-                       Margin="0,0,0,6"
-                       TextWrapping="Wrap" />
             <WrapPanel Margin="0,0,0,6">
                 <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
                     <TextBlock Text="TASK_TYPE" VerticalAlignment="Center" Margin="0,0,6,0" />

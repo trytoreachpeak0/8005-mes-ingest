@@ -15,6 +15,7 @@ internal partial class MainWindow : Window
     private readonly string _layoutPreferencesPath;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
+    private readonly DispatcherTimer _bannerHoldTimer;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly Dictionary<string, AlertDetailWindow> _openAlertDetails = new(StringComparer.Ordinal);
     private readonly List<WeakReference<AlertDetailWindow>> _openAlertDetailsWithoutId = [];
@@ -23,6 +24,7 @@ internal partial class MainWindow : Window
     private IReadOnlyList<WatchAlertDto> _alerts = [];
     private WatchPollHealthDto? _health;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
+    private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
     private string _sortBy = "dates";
     private string _direction = "desc";
     private string? _nextCursor;
@@ -59,6 +61,12 @@ internal partial class MainWindow : Window
         };
         _timer.Tick += async (_, _) => await RefreshAsync(resetPage: true).ConfigureAwait(true);
 
+        _bannerHoldTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _bannerHoldTimer.Tick += (_, _) => ApplyProjection();
+
         _demandIdDebounceTimer = new DispatcherTimer { Interval = DemandIdDebounce };
         _demandIdDebounceTimer.Tick += async (_, _) =>
         {
@@ -85,6 +93,7 @@ internal partial class MainWindow : Window
         {
             SavePaneRatio();
             _timer.Stop();
+            _bannerHoldTimer.Stop();
             _demandIdDebounceTimer.Stop();
             _refreshGate.Dispose();
         };
@@ -242,8 +251,12 @@ internal partial class MainWindow : Window
                     _demands = _demands.Concat(page.Items).ToList();
                     _nextCursor = page.NextCursor;
                     _hasMore = page.HasMore;
-                    _refreshState = _refreshState.ApplySuccess(now);
-                    RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+                    // Partial page success must not clear a still-failing endpoint banner.
+                    _refreshState = _refreshState.ApplyPartialSuccess(now);
+                    if (_refreshState.FetchError is null)
+                    {
+                        RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+                    }
                     ApplyProjection();
                     return;
                 }
@@ -273,19 +286,34 @@ internal partial class MainWindow : Window
             }
 
             var snapshot = await _client.FetchSnapshotAsync(query).ConfigureAwait(true);
-            if (snapshot.FetchError is null)
+            if (snapshot.DemandsSucceeded)
             {
                 _demands = snapshot.Demands;
-                _alerts = snapshot.Alerts;
-                _health = snapshot.PollHealth;
                 _nextCursor = snapshot.DemandsNextCursor;
                 _hasMore = snapshot.DemandsHasMore;
+            }
+
+            if (snapshot.AlertsSucceeded)
+            {
+                _alerts = snapshot.Alerts;
+            }
+
+            if (snapshot.PollHealthSucceeded)
+            {
+                _health = snapshot.PollHealth;
+            }
+
+            if (snapshot.AllEndpointsSucceeded)
+            {
                 _refreshState = _refreshState.ApplySuccess(now);
                 RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
             }
-            else
+            else if (snapshot.FetchError is not null)
             {
-                _refreshState = _refreshState.ApplyFailure(snapshot.FetchError);
+                // Keep last-success clock when any endpoint still works.
+                _refreshState = snapshot.DemandsSucceeded || snapshot.AlertsSucceeded || snapshot.PollHealthSucceeded
+                    ? _refreshState.ApplyPartialSuccess(now).ApplyFailure(snapshot.FetchError)
+                    : _refreshState.ApplyFailure(snapshot.FetchError);
                 RecordConnectionEvent(_connectionRecorder.ObserveFailure(
                     now,
                     endpoint: snapshot.FailedEndpoint ?? "(unknown)",
@@ -375,18 +403,48 @@ internal partial class MainWindow : Window
             ? $"loaded {_demands.Count} · more available"
             : $"loaded {_demands.Count} · end of results";
 
-        var banner = WatchBannerState.From(_health, _refreshState.FetchError);
-        FetchFailureBanner.Visibility = banner.ShowFetchFailure ? Visibility.Visible : Visibility.Collapsed;
-        FetchFailureText.Text = banner.ShowFetchFailure
-            ? banner.FetchFailureMessage ?? string.Empty
-            : string.Empty;
+        var now = DateTimeOffset.UtcNow;
+        var banner = WatchBannerProjection.Project(
+            _bannerHold,
+            _health,
+            _refreshState.FetchError,
+            _alerts,
+            now);
+        _bannerHold = banner.HoldState;
 
-        PausedBanner.Visibility = banner.ShowPausedZeroDrop ? Visibility.Visible : Visibility.Collapsed;
-        PausedText.Text = banner.ShowPausedZeroDrop
-            ? $"PAUSED_ZERO_DROP — types: {string.Join(", ", banner.PausedTaskTypes)}"
-            : string.Empty;
+        ErrorBanner.Visibility = banner.ShowError ? Visibility.Visible : Visibility.Collapsed;
+        ErrorBannerText.Text = banner.ShowError ? banner.ErrorMessage ?? string.Empty : string.Empty;
 
-        HealthText.Text = FormatHealth(_health, _options.BaseUrl, _refreshState);
+        WarningBanner.Visibility = banner.ShowWarning ? Visibility.Visible : Visibility.Collapsed;
+        WarningBannerText.Text = banner.ShowWarning ? banner.WarningMessage ?? string.Empty : string.Empty;
+
+        var status = WatchStatusBarState.Project(
+            _health,
+            _refreshState,
+            _alerts,
+            _options.BaseUrl,
+            now,
+            recoveryMessage: banner.RecoveryMessage);
+        StatusBarText.Text = status.CompactLine;
+        StatusBarText.ToolTip = status.Tooltip;
+
+        var needsHoldTick = banner.ShowError
+            || banner.ShowWarning
+            || banner.HoldState.RecoveredAt is not null
+            || banner.HoldState.ErrorClearedAt is not null
+            || banner.HoldState.WarningClearedAt is not null;
+        if (needsHoldTick)
+        {
+            if (!_bannerHoldTimer.IsEnabled)
+            {
+                _bannerHoldTimer.Start();
+            }
+        }
+        else if (_bannerHoldTimer.IsEnabled)
+        {
+            _bannerHoldTimer.Stop();
+        }
+
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
         SyncOpenAlertDetails();
@@ -663,29 +721,6 @@ internal partial class MainWindow : Window
             "gone at" => "goneAt",
             _ => null,
         };
-
-    private static string FormatHealth(
-        WatchPollHealthDto? health,
-        string baseUrl,
-        WatchRefreshState refreshState)
-    {
-        var localTz = TimeZoneInfo.Local;
-        var nowLocal = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, localTz);
-        var tzLabel = $"{localTz.Id} (UTC{nowLocal:zzz})";
-        var refreshLine = refreshState.FormatWatchRefreshLine(DateTimeOffset.UtcNow);
-
-        if (health is null)
-        {
-            return $"API {baseUrl} — poll health: (none yet)  {refreshLine}  timezone={tzLabel}";
-        }
-
-        var paused = health.TaskTypePauses.Count(p => p.PausedZeroDrop);
-        return $"API {baseUrl} — started {WatchTimeDisplay.Format(health.StartedAt)}  "
-            + $"ended {WatchTimeDisplay.Format(health.EndedAt)}  "
-            + $"durationMs={health.DurationMs:0}  rows={health.RowCount}  "
-            + $"success={health.Success}  outcome={health.Outcome}  pausedTypes={paused}  "
-            + $"{refreshLine}  timezone={tzLabel}";
-    }
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

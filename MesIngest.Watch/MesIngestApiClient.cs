@@ -100,6 +100,20 @@ internal sealed class MesIngestApiClient
         CancellationToken cancellationToken = default)
     {
         var correlationId = Guid.NewGuid().ToString("N");
+        IReadOnlyList<WatchDemandDto> demands = [];
+        IReadOnlyList<WatchAlertDto> alerts = [];
+        WatchPollHealthDto? health = null;
+        string? nextCursor = null;
+        var hasMore = false;
+        var demandsOk = false;
+        var alertsOk = false;
+        var healthOk = false;
+
+        string? fetchError = null;
+        string? failedEndpoint = null;
+        string? failedStage = null;
+        TimeSpan? failedElapsed = null;
+
         try
         {
             var demandPage = await FetchDemandPageWithCursorRecoveryAsync(
@@ -107,49 +121,86 @@ internal sealed class MesIngestApiClient
                     correlationId,
                     cancellationToken)
                 .ConfigureAwait(false);
-            var alertPage = await FetchAlertPageAsync(correlationId, cancellationToken)
-                .ConfigureAwait(false);
-            var health = await FetchPollHealthAsync(correlationId, cancellationToken)
-                .ConfigureAwait(false);
-
-            return new WatchSnapshot(
-                Demands: demandPage.Items,
-                Alerts: alertPage.Items,
-                PollHealth: health,
-                FetchError: null,
-                FailedEndpoint: null,
-                FailedStage: null,
-                FailedElapsed: null,
-                CorrelationId: correlationId,
-                DemandsNextCursor: demandPage.NextCursor,
-                DemandsHasMore: demandPage.HasMore);
+            demands = demandPage.Items;
+            nextCursor = demandPage.NextCursor;
+            hasMore = demandPage.HasMore;
+            demandsOk = true;
         }
         catch (WatchEndpointFetchException ex)
         {
-            return new WatchSnapshot(
-                Demands: [],
-                Alerts: [],
-                PollHealth: null,
-                FetchError: ex.FormatForBanner(_requestTimeoutSeconds, correlationId),
-                FailedEndpoint: ex.Endpoint,
-                FailedStage: ex.Stage,
-                FailedElapsed: ex.Elapsed,
-                CorrelationId: correlationId);
+            fetchError = ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            failedEndpoint = ex.Endpoint;
+            failedStage = ex.Stage;
+            failedElapsed = ex.Elapsed;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
-            return new WatchSnapshot(
-                Demands: [],
-                Alerts: [],
-                PollHealth: null,
-                FetchError:
-                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}",
-                FailedEndpoint: null,
-                FailedStage: stage,
-                FailedElapsed: TimeSpan.Zero,
-                CorrelationId: correlationId);
+            fetchError =
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+            failedStage = stage;
+            failedElapsed = TimeSpan.Zero;
         }
+
+        try
+        {
+            var alertPage = await FetchAlertPageAsync(correlationId, cancellationToken)
+                .ConfigureAwait(false);
+            alerts = alertPage.Items;
+            alertsOk = true;
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            fetchError ??= ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            failedEndpoint ??= ex.Endpoint;
+            failedStage ??= ex.Stage;
+            failedElapsed ??= ex.Elapsed;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            fetchError ??=
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+            failedStage ??= stage;
+            failedElapsed ??= TimeSpan.Zero;
+        }
+
+        try
+        {
+            health = await FetchPollHealthAsync(correlationId, cancellationToken)
+                .ConfigureAwait(false);
+            healthOk = true;
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            fetchError ??= ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            failedEndpoint ??= ex.Endpoint;
+            failedStage ??= ex.Stage;
+            failedElapsed ??= ex.Elapsed;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            fetchError ??=
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+            failedStage ??= stage;
+            failedElapsed ??= TimeSpan.Zero;
+        }
+
+        return new WatchSnapshot(
+            Demands: demands,
+            Alerts: alerts,
+            PollHealth: health,
+            FetchError: fetchError,
+            FailedEndpoint: failedEndpoint,
+            FailedStage: failedStage,
+            FailedElapsed: failedElapsed,
+            CorrelationId: correlationId,
+            DemandsNextCursor: nextCursor,
+            DemandsHasMore: hasMore,
+            DemandsSucceeded: demandsOk,
+            AlertsSucceeded: alertsOk,
+            PollHealthSucceeded: healthOk);
     }
 
     public Task<WatchDemandPage> FetchDemandPageAsync(
@@ -540,11 +591,17 @@ internal sealed record WatchSnapshot(
     TimeSpan? FailedElapsed = null,
     string? CorrelationId = null,
     string? DemandsNextCursor = null,
-    bool DemandsHasMore = false)
+    bool DemandsHasMore = false,
+    bool DemandsSucceeded = false,
+    bool AlertsSucceeded = false,
+    bool PollHealthSucceeded = false)
 {
     /// <summary>
-    /// When <see cref="FetchError"/> is set, Demands/Alerts/PollHealth are placeholders —
-    /// callers must keep the last successful projection instead of applying these lists.
+    /// True when at least one endpoint failed. Successful endpoint payloads may still be applied;
+    /// failed endpoints must keep prior data and leave the connection banner visible.
     /// </summary>
     public bool HasFetchError => FetchError is not null;
+
+    public bool AllEndpointsSucceeded =>
+        DemandsSucceeded && AlertsSucceeded && PollHealthSucceeded && FetchError is null;
 }
