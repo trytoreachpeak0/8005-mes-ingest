@@ -146,6 +146,36 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
+    public async Task Export_static_pack_openapi_when_MES_INGEST_EXPORT_OPENAPI_is_1()
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("MES_INGEST_EXPORT_OPENAPI"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var path = await WriteEmptyCsvAsync();
+        try
+        {
+            await using var factory = CreateFactory(
+                path,
+                urls: "http://127.0.0.1:5088",
+                sharedSecret: "");
+            var client = factory.CreateClient();
+            var json = await client.GetStringAsync("/openapi/v1.json");
+            var staticPath = Path.Combine(PackRoot, "openapi", "v1.json");
+            await File.WriteAllTextAsync(staticPath, json);
+            Assert.True(File.Exists(staticPath));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Live_openapi_paths_match_static_pack_openapi()
     {
         var path = await WriteEmptyCsvAsync();

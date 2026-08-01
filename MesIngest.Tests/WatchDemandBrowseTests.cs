@@ -69,6 +69,11 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
         var handler = new StubHandler((request, _) =>
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
             if (path.EndsWith("/api/demands", StringComparison.Ordinal))
             {
                 demandedPathAndQuery = request.RequestUri.PathAndQuery;
@@ -132,6 +137,11 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
         var handler = new StubHandler((request, _) =>
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
             if (path.EndsWith("/api/demands", StringComparison.Ordinal))
             {
                 return Task.FromResult(JsonResponse(path, """[{"demandId":"a"}]"""));
@@ -162,6 +172,11 @@ public class WatchDemandBrowseTests : IClassFixture<WebApplicationFactory<Progra
         var handler = new StubHandler((request, _) =>
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
             if (path.EndsWith("/api/demands", StringComparison.Ordinal))
             {
                 demandCalls++;

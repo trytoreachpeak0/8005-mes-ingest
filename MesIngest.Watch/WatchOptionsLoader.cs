@@ -50,6 +50,7 @@ internal static class WatchOptionsLoader
         return new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false)
             .AddEnvironmentVariables(prefix: EnvPrefix)
             .Build();
     }

@@ -34,6 +34,7 @@ public class InstallPackageLayoutTests
         var pack = Path.Combine(CSharpRoot, "pack");
         Assert.True(File.Exists(Path.Combine(pack, "Publish-MesIngest.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "INSTALL.md")));
+        Assert.True(File.Exists(Path.Combine(pack, "UPGRADE.md")));
         Assert.True(File.Exists(Path.Combine(pack, "install-service.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "uninstall-service.ps1")));
 
@@ -43,6 +44,13 @@ public class InstallPackageLayoutTests
         Assert.Contains("SharedSecret", install, StringComparison.Ordinal);
         Assert.Contains("事件", install, StringComparison.Ordinal);
         Assert.Contains("VERSION.txt", install, StringComparison.Ordinal);
+
+        var upgrade = File.ReadAllText(Path.Combine(pack, "UPGRADE.md"));
+        Assert.Contains("BACKUP DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RESTORE DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CONTRACT_VERSION_MISMATCH", upgrade, StringComparison.Ordinal);
+        Assert.Contains("IngestAlerts_LegacyArchive", upgrade, StringComparison.Ordinal);
+        Assert.Contains("openapi/v1.json", upgrade, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -56,6 +64,8 @@ public class InstallPackageLayoutTests
         Assert.Equal("", mes.GetProperty("SqlServerConnectionString").GetString());
         Assert.Equal("", mes.GetProperty("OracleUser").GetString());
         Assert.Equal("", mes.GetProperty("OraclePassword").GetString());
+        Assert.Equal(48, mes.GetProperty("ChangeFeedRetentionHours").GetInt32());
+        Assert.Equal(365, mes.GetProperty("AlertRetentionDays").GetInt32());
     }
 
     [Fact]
@@ -68,6 +78,10 @@ public class InstallPackageLayoutTests
 
         Assert.Equal("http://127.0.0.1:5088", mes.GetProperty("Urls").GetString());
         Assert.Equal("", mes.GetProperty("SharedSecret").GetString());
+        Assert.Equal(48, mes.GetProperty("ChangeFeedRetentionHours").GetInt32());
+        Assert.Equal(365, mes.GetProperty("AlertRetentionDays").GetInt32());
+        Assert.Contains("pageLimits", text, StringComparison.Ordinal);
+        Assert.Contains("1..200", text, StringComparison.Ordinal);
 
         var oracleUser = mes.GetProperty("OracleUser").GetString()!;
         var oraclePassword = mes.GetProperty("OraclePassword").GetString()!;
@@ -79,6 +93,21 @@ public class InstallPackageLayoutTests
 
         Assert.DoesNotMatch(new Regex(@"Password\s*=\s*[^;<\s][^;]*", RegexOptions.IgnoreCase), sql);
         Assert.DoesNotContain("meslab", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Watch_local_config_template_covers_timeout_and_log_retention()
+    {
+        var path = Path.Combine(CSharpRoot, "MesIngest.Watch", "appsettings.Local.json.example");
+        var text = File.ReadAllText(path);
+        using var doc = JsonDocument.Parse(text);
+        var watch = doc.RootElement.GetProperty("Watch");
+
+        Assert.Equal(30, watch.GetProperty("RequestTimeoutSeconds").GetInt32());
+        Assert.Equal(30, watch.GetProperty("ConnectionLogRetentionDays").GetInt32());
+        Assert.Equal(100, watch.GetProperty("ConnectionLogMaxSizeMb").GetInt32());
+        Assert.Equal("", watch.GetProperty("SharedSecret").GetString());
+        Assert.Contains("MesIngestWatch__RequestTimeoutSeconds", text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -100,8 +129,10 @@ public class InstallPackageLayoutTests
                      "templates",
                      "scripts",
                      "INSTALL.md",
+                     "UPGRADE.md",
                      "VERSION.txt",
                      "appsettings.Local.json.example",
+                     "watch.appsettings.Local.json.example",
                  })
         {
             Assert.Contains(name, script, StringComparison.Ordinal);

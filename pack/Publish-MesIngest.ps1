@@ -33,7 +33,9 @@ $csharpRoot = Split-Path -Parent $PSScriptRoot
 $hostProj = Join-Path $csharpRoot "MesIngest.Host\MesIngest.Host.csproj"
 $watchProj = Join-Path $csharpRoot "MesIngest.Watch\MesIngest.Watch.csproj"
 $exampleLocal = Join-Path $csharpRoot "MesIngest.Host\appsettings.Local.json.example"
+$exampleWatchLocal = Join-Path $csharpRoot "MesIngest.Watch\appsettings.Local.json.example"
 $installDoc = Join-Path $PSScriptRoot "INSTALL.md"
+$upgradeDoc = Join-Path $PSScriptRoot "UPGRADE.md"
 $factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
 $validationSrc = Join-Path $PSScriptRoot "validation"
 $openapiSrc = Join-Path $PSScriptRoot "openapi\v1.json"
@@ -42,6 +44,8 @@ $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
 if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exampleLocal" }
+if (-not (Test-Path $exampleWatchLocal)) { throw "Missing Watch blank config template: $exampleWatchLocal" }
+if (-not (Test-Path $upgradeDoc)) { throw "Missing upgrade/rollback doc: $upgradeDoc" }
 if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
 if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
 if (-not (Test-Path $openapiSrc)) { throw "Missing static OpenAPI contract: $openapiSrc" }
@@ -89,6 +93,7 @@ if (Test-Path $hostQueries) {
 
 New-Item -ItemType Directory -Force -Path $templatesDir | Out-Null
 Copy-Item $exampleLocal (Join-Path $templatesDir "appsettings.Local.json.example") -Force
+Copy-Item $exampleWatchLocal (Join-Path $templatesDir "watch.appsettings.Local.json.example") -Force
 
 # Ensure no filled Local.json leaks into the package.
 $leakedLocal = Join-Path $serviceDir "appsettings.Local.json"
@@ -101,6 +106,7 @@ New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
 Copy-Item $installService (Join-Path $scriptsDir "install-service.ps1") -Force
 Copy-Item $uninstallService (Join-Path $scriptsDir "uninstall-service.ps1") -Force
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
+Copy-Item $upgradeDoc (Join-Path $OutputDir "UPGRADE.md") -Force
 Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force
 
 if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
@@ -126,4 +132,4 @@ $hostVer = if (Test-Path $hostDll) {
 ) | Set-Content -Path $versionPath -Encoding UTF8
 
 Write-Host "Install package ready: $OutputDir"
-Write-Host "Next: copy folder to plant PC, fill templates/appsettings.Local.json.example into service/, see INSTALL.md and FACTORY-VALIDATION.md"
+Write-Host "Next: copy folder to plant PC, fill templates/*.Local.json.example, see INSTALL.md / UPGRADE.md and FACTORY-VALIDATION.md"

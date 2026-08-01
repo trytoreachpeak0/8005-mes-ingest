@@ -141,6 +141,11 @@ if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
 
 app.UseMesIngestOpenApi();
 
+app.MapGet("/api/contract", () =>
+    Results.Ok(new MesIngestContractInfo(
+        MesIngestApiContract.Version,
+        MesIngestApiContract.SchemaVersion)));
+
 app.MapGet("/api/demands", (
     ITransportDemandStore store,
     string? status,

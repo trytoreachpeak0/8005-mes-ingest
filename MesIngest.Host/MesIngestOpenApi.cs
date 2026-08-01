@@ -17,6 +17,7 @@ public static class MesIngestOpenApi
 
     public static readonly string[] ApiPaths =
     [
+        "/api/contract",
         "/api/demands",
         "/api/demands/{demandId}",
         "/api/alerts",
@@ -152,6 +153,19 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
     {
         Describe(
             swaggerDoc,
+            "/api/contract",
+            "API contract version",
+            """
+            Returns contractVersion and schemaVersion. Watch compares contractVersion to its expected
+            MesIngestApiContract.Version and shows CONTRACT_VERSION_MISMATCH when Host/Watch packages diverge.
+            """,
+            exampleQuery: null,
+            notFound: false,
+            syncExpired: false,
+            badRequest: false);
+
+        Describe(
+            swaggerDoc,
             "/api/demands",
             "List transport demands (paginated)",
             """
@@ -216,7 +230,8 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
         string description,
         string? exampleQuery,
         bool notFound,
-        bool syncExpired)
+        bool syncExpired,
+        bool badRequest = true)
     {
         if (!doc.Paths.TryGetValue(path, out var item)
             || item.Operations is null
@@ -233,7 +248,11 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
         }
 
         EnsureResponse(operation, "200", "Success");
-        EnsureResponse(operation, "400", "Invalid filter, sort, cursor, or limit");
+        if (badRequest)
+        {
+            EnsureResponse(operation, "400", "Invalid filter, sort, cursor, or limit");
+        }
+
         EnsureResponse(operation, "401", "SharedSecret required or incorrect (non-localhost bind)");
         if (notFound)
         {

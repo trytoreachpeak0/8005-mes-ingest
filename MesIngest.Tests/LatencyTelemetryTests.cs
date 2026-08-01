@@ -37,7 +37,7 @@ public class LatencyTelemetryTests
         var snapshot = await client.FetchSnapshotAsync();
 
         Assert.Null(snapshot.FetchError);
-        Assert.Equal(3, seen.Count);
+        Assert.Equal(4, seen.Count);
         Assert.All(seen, id => Assert.False(string.IsNullOrWhiteSpace(id)));
         Assert.True(seen.Distinct(StringComparer.Ordinal).Count() == 1);
         Assert.Equal(seen[0], snapshot.CorrelationId);
@@ -101,6 +101,11 @@ public class LatencyTelemetryTests
         var handler = new StubHandler((request, _) =>
         {
             var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
             if (path.EndsWith("/api/demands", StringComparison.Ordinal))
             {
                 return Task.FromResult(JsonResponse(
@@ -122,9 +127,10 @@ public class LatencyTelemetryTests
         var snapshot = await client.FetchSnapshotAsync();
 
         Assert.Null(snapshot.FetchError);
-        Assert.Equal(3, sink.Events.Count);
+        Assert.Equal(4, sink.Events.Count);
         Assert.All(sink.Events, e => Assert.Equal(snapshot.CorrelationId, e.CorrelationId));
         Assert.All(sink.Events, e => Assert.Equal(LatencyComponents.Watch, e.Component));
+        Assert.Contains(sink.Events, e => e.Endpoint == "/api/contract" && e.StatusCode == 200);
         Assert.Contains(sink.Events, e =>
             e.Endpoint == "/api/demands" && e.StatusCode == 200 && e.RowCount == 1 && e.Bytes > 0);
         Assert.Contains(sink.Events, e => e.Endpoint == "/api/alerts" && e.StatusCode == 200);
@@ -202,8 +208,21 @@ public class LatencyTelemetryTests
     public async Task Watch_timeout_records_failure_stage_in_telemetry_sink()
     {
         var sink = new RecordingLatencyTelemetry();
-        var handler = new StubHandler((_, _) =>
-            throw new TaskCanceledException("canceled", new TimeoutException()));
+        var handler = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
+            if (path.EndsWith("/api/demands", StringComparison.Ordinal))
+            {
+                throw new TaskCanceledException("canceled", new TimeoutException());
+            }
+
+            return Task.FromResult(EmptyDemandsOrList(path));
+        });
 
         using var http = CreateHttp(handler);
         var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30, telemetry: sink);
@@ -287,12 +306,18 @@ public class LatencyTelemetryTests
             Timeout = TimeSpan.FromSeconds(30),
         };
 
-    private static HttpResponseMessage EmptyDemandsOrList(string path) =>
-        path.EndsWith("/api/demands", StringComparison.Ordinal)
-        || path.EndsWith("/api/alerts", StringComparison.Ordinal)
+    private static HttpResponseMessage EmptyDemandsOrList(string path)
+    {
+        if (WatchHttpTestStubs.IsContractPath(path))
+        {
+            return WatchHttpTestStubs.MatchingContract(path);
+        }
+
+        return path.EndsWith("/api/demands", StringComparison.Ordinal)
+               || path.EndsWith("/api/alerts", StringComparison.Ordinal)
             ? JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}""")
             : JsonResponse(path, "[]");
-
+    }
     private static HttpResponseMessage JsonResponse(string path, string json) =>
         new(HttpStatusCode.OK)
         {

@@ -14,6 +14,7 @@ MesIngest/
   validation/              # 工厂验证回传模板
   openapi/v1.json          # 静态 OpenAPI 契约（离线导入 Postman/代码工具）
   INSTALL.md               # 本说明
+  UPGRADE.md               # 现有安装升级、备份前置与回滚
   FACTORY-VALIDATION.md    # 工厂执行与核验清单
   VERSION.txt              # 发布版本信息
 ```
@@ -21,13 +22,16 @@ MesIngest/
 ## 配置（凭证不进包）
 
 1. 复制 `templates/appsettings.Local.json.example` → `service/appsettings.Local.json`
-2. 填写 SQL Server、Oracle 等占位符；**不要**把填好的文件拷回仓库或再打进安装包
-3. 默认 `Urls` 为 `http://127.0.0.1:5088`（仅本机）
-4. 若改为非本机绑定（如 `http://0.0.0.0:5088` 或局域网 IP），必须同时设置 `SharedSecret`；调用方携带：
+2. 可选：复制 `templates/watch.appsettings.Local.json.example` → `watch/appsettings.Local.json`（或直接改 `watch/appsettings.json`）
+3. 填写 SQL Server、Oracle 等占位符；**不要**把填好的文件拷回仓库或再打进安装包
+4. 默认 `Urls` 为 `http://127.0.0.1:5088`（仅本机）
+5. 若改为非本机绑定（如 `http://0.0.0.0:5088` 或局域网 IP），必须同时设置 `SharedSecret`；调用方携带：
 
    `Authorization: Bearer <SharedSecret>`
 
-5. WPF 非本机访问时，在 `watch/appsettings.json`（或环境变量 `MesIngestWatch__SharedSecret`）填写同一密钥
+6. WPF 非本机访问时，在 Watch 配置（或环境变量 `MesIngestWatch__SharedSecret`）填写同一密钥
+
+现有安装升级、SQL 备份与回滚见同目录 `UPGRADE.md`。
 
 ## Windows Service 安装 / 启停 / 卸载
 
@@ -88,6 +92,7 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 
 只读 API（本机默认）：
 
+- `GET /api/contract`
 - `GET /api/demands`
 - `GET /api/demands/{demandId}`
 - `GET /api/alerts`

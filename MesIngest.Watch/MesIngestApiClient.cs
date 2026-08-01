@@ -116,6 +116,23 @@ internal sealed class MesIngestApiClient
 
         try
         {
+            await EnsureContractCompatibleAsync(correlationId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            return new WatchSnapshot(
+                Demands: [],
+                Alerts: [],
+                PollHealth: null,
+                FetchError: ex.FormatForBanner(_requestTimeoutSeconds, correlationId),
+                FailedEndpoint: ex.Endpoint,
+                FailedStage: ex.Stage,
+                FailedElapsed: ex.Elapsed,
+                CorrelationId: correlationId);
+        }
+
+        try
+        {
             var demandPage = await FetchDemandPageWithCursorRecoveryAsync(
                     demandQuery,
                     correlationId,
@@ -473,6 +490,74 @@ internal sealed class MesIngestApiClient
         }
     }
 
+    private async Task EnsureContractCompatibleAsync(
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        const string endpoint = "/api/contract";
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            using var request = CreateRequest(HttpMethod.Get, endpoint, correlationId);
+            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var bytes = response.Content.Headers.ContentLength ?? Encoding.UTF8.GetByteCount(body);
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, 404, rowCount: 0, bytes: bytes);
+                throw new WatchEndpointFetchException(
+                    endpoint,
+                    LatencyStages.HttpStatus,
+                    sw.Elapsed,
+                    $"{MesIngestApiContract.MismatchErrorCode}: Host has no /api/contract (expected {MesIngestApiContract.Version}). Upgrade Host and Watch together.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new HttpRequestException(
+                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
+                    null,
+                    response.StatusCode);
+            }
+
+            var info = string.IsNullOrWhiteSpace(body)
+                ? null
+                : JsonSerializer.Deserialize<MesIngestContractInfo>(body, JsonOptions);
+
+            RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, rowCount: 1, bytes: bytes);
+
+            if (info is null
+                || !string.Equals(info.ContractVersion, MesIngestApiContract.Version, StringComparison.Ordinal))
+            {
+                var hostVersion = info?.ContractVersion ?? "(missing)";
+                throw new WatchEndpointFetchException(
+                    endpoint,
+                    LatencyStages.HttpStatus,
+                    sw.Elapsed,
+                    $"{MesIngestApiContract.MismatchErrorCode}: Host contractVersion={hostVersion}; Watch expects {MesIngestApiContract.Version}. Upgrade Host and Watch from the same install package.");
+            }
+        }
+        catch (WatchEndpointFetchException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+        {
+            var stage = WatchHttpStageClassifier.Classify(ex);
+            RecordWatch(
+                correlationId,
+                endpoint,
+                sw.ElapsedMilliseconds,
+                statusCode: null,
+                rowCount: 0,
+                bytes: 0,
+                stage: stage,
+                detail: LatencyLogFormatter.Sanitize(ex.Message));
+            throw Classify(endpoint, sw.Elapsed, ex);
+        }
+    }
+
     private async Task<WatchPollHealthDto?> FetchPollHealthAsync(
         string correlationId,
         CancellationToken cancellationToken)
@@ -567,6 +652,14 @@ internal sealed class WatchEndpointFetchException : Exception
 {
     public WatchEndpointFetchException(string endpoint, string stage, TimeSpan elapsed, Exception inner)
         : base(inner.Message, inner)
+    {
+        Endpoint = endpoint;
+        Stage = stage;
+        Elapsed = elapsed;
+    }
+
+    public WatchEndpointFetchException(string endpoint, string stage, TimeSpan elapsed, string message)
+        : base(message)
     {
         Endpoint = endpoint;
         Stage = stage;

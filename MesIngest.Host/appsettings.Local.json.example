@@ -8,6 +8,13 @@
     "OraclePassword": "<MES_PASSWORD_FROM_SECRET_STORE>",
     "OracleDataSource": "<HOST>:<PORT>/<SERVICE_NAME>",
     "OracleMode": "Thin",
-    "OracleInstantClientDir": ""
+    "OracleInstantClientDir": "",
+    "ChangeFeedRetentionHours": 48,
+    "AlertRetentionDays": 365
+  },
+  "_comments": {
+    "ChangeFeedRetentionHours": "DemandChangeFeed retention hours; 0 = permanent. List/change page size defaults 100 with hard max 200 (not configurable).",
+    "AlertRetentionDays": "Resolved IngestAlert retention days; 0 = permanent. Active incidents are never purged.",
+    "pageLimits": "GET /api/demands, /api/alerts, /api/demand-changes accept limit=1..200 (default 100)."
   }
 }

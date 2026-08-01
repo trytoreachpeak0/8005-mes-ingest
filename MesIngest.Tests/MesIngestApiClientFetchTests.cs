@@ -203,6 +203,11 @@ public class MesIngestApiClientFetchTests
 
     private static HttpResponseMessage EmptyPageOrList(string path)
     {
+        if (WatchHttpTestStubs.IsContractPath(path))
+        {
+            return WatchHttpTestStubs.MatchingContract(path);
+        }
+
         if (path.EndsWith("/api/demands", StringComparison.Ordinal)
             || path.EndsWith("/api/alerts", StringComparison.Ordinal))
         {

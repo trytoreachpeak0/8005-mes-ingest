@@ -303,6 +303,23 @@
         }
       }
     },
+    "/api/contract": {
+      "get": {
+        "tags": [
+          "Other"
+        ],
+        "summary": "API contract version",
+        "description": "Returns contractVersion and schemaVersion. Watch compares contractVersion to its expected\nMesIngestApiContract.Version and shows CONTRACT_VERSION_MISMATCH when Host/Watch packages diverge.",
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "SharedSecret required or incorrect (non-localhost bind)"
+          }
+        }
+      }
+    },
     "/api/poll-health": {
       "get": {
         "tags": [

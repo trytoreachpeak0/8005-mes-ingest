@@ -621,7 +621,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         // Dynamic SQL so CREATE is not compile-validated when the table already exists.
-        cmd.CommandText = """
+        var schemaVersion = MesIngestApiContract.SchemaVersion;
+        cmd.CommandText = $"""
             IF OBJECT_ID(N'dbo.TransportDemands', N'U') IS NULL
             EXEC(N'
                 CREATE TABLE dbo.TransportDemands
@@ -689,20 +690,48 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                AND COL_LENGTH(N'dbo.IngestAlerts', N'CreatedAt') IS NULL
             EXEC(N'ALTER TABLE dbo.IngestAlerts ADD CreatedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_CreatedAt DEFAULT (SYSDATETIMEOFFSET());');
 
+            -- Before mutating Phase-1 IngestAlerts, archive legacy message rows for rollback/forensics.
             IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
                AND COL_LENGTH(N'dbo.IngestAlerts', N'AlertId') IS NULL
-            EXEC(N'
-                ALTER TABLE dbo.IngestAlerts ADD
-                    AlertId NVARCHAR(64) NULL,
-                    Severity NVARCHAR(16) NULL,
-                    Details NVARCHAR(MAX) NULL,
-                    DetailsFingerprint NVARCHAR(64) NULL,
-                    FirstSeenAt DATETIMEOFFSET NULL,
-                    LastSeenAt DATETIMEOFFSET NULL,
-                    OccurrenceCount INT NULL,
-                    IsActive BIT NULL,
-                    ResolvedAt DATETIMEOFFSET NULL;
-            ');
+            BEGIN
+                IF OBJECT_ID(N'dbo.IngestAlerts_LegacyArchive', N'U') IS NULL
+                EXEC(N'
+                    CREATE TABLE dbo.IngestAlerts_LegacyArchive
+                    (
+                        ArchiveId BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_IngestAlerts_LegacyArchive PRIMARY KEY,
+                        SourceId BIGINT NOT NULL,
+                        Code NVARCHAR(64) NOT NULL,
+                        TaskType NVARCHAR(128) NULL,
+                        Sublot NVARCHAR(128) NULL,
+                        DemandId NVARCHAR(64) NULL,
+                        Message NVARCHAR(1024) NULL,
+                        CreatedAt DATETIMEOFFSET NOT NULL,
+                        ArchivedAt DATETIMEOFFSET NOT NULL CONSTRAINT DF_IngestAlerts_LegacyArchive_ArchivedAt DEFAULT (SYSUTCDATETIME())
+                    );
+                ');
+
+                EXEC(N'
+                    INSERT INTO dbo.IngestAlerts_LegacyArchive
+                        (SourceId, Code, TaskType, Sublot, DemandId, Message, CreatedAt)
+                    SELECT a.Id, a.Code, a.TaskType, a.Sublot, a.DemandId, a.Message, a.CreatedAt
+                    FROM dbo.IngestAlerts a
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM dbo.IngestAlerts_LegacyArchive x WHERE x.SourceId = a.Id);
+                ');
+
+                EXEC(N'
+                    ALTER TABLE dbo.IngestAlerts ADD
+                        AlertId NVARCHAR(64) NULL,
+                        Severity NVARCHAR(16) NULL,
+                        Details NVARCHAR(MAX) NULL,
+                        DetailsFingerprint NVARCHAR(64) NULL,
+                        FirstSeenAt DATETIMEOFFSET NULL,
+                        LastSeenAt DATETIMEOFFSET NULL,
+                        OccurrenceCount INT NULL,
+                        IsActive BIT NULL,
+                        ResolvedAt DATETIMEOFFSET NULL;
+                ');
+            END
 
             IF OBJECT_ID(N'dbo.IngestAlerts', N'U') IS NOT NULL
                AND COL_LENGTH(N'dbo.IngestAlerts', N'AlertId') IS NOT NULL
@@ -866,6 +895,23 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     WHERE name = N'IX_DemandChangeFeed_ChangedAt'
                       AND object_id = OBJECT_ID(N'dbo.DemandChangeFeed'))
             EXEC(N'CREATE INDEX IX_DemandChangeFeed_ChangedAt ON dbo.DemandChangeFeed (ChangedAt);');
+
+            IF OBJECT_ID(N'dbo.MesIngestSchemaVersion', N'U') IS NULL
+            EXEC(N'
+                CREATE TABLE dbo.MesIngestSchemaVersion
+                (
+                    Id INT NOT NULL CONSTRAINT PK_MesIngestSchemaVersion PRIMARY KEY,
+                    SchemaVersion INT NOT NULL,
+                    AppliedAt DATETIMEOFFSET NOT NULL,
+                    CONSTRAINT CK_MesIngestSchemaVersion_SingleRow CHECK (Id = 1)
+                );
+            ');
+
+            MERGE dbo.MesIngestSchemaVersion AS target
+            USING (SELECT 1 AS Id, {schemaVersion} AS SchemaVersion, SYSUTCDATETIME() AS AppliedAt) AS src
+            ON target.Id = src.Id
+            WHEN MATCHED THEN UPDATE SET SchemaVersion = src.SchemaVersion, AppliedAt = src.AppliedAt
+            WHEN NOT MATCHED THEN INSERT (Id, SchemaVersion, AppliedAt) VALUES (src.Id, src.SchemaVersion, src.AppliedAt);
             """;
         cmd.ExecuteNonQuery();
     }
