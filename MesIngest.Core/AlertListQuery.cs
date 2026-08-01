@@ -12,6 +12,10 @@ public enum AlertSortColumn
     Code,
     Severity,
     AlertId,
+    TaskType,
+    Sublot,
+    DemandId,
+    Message,
 }
 
 public sealed class AlertListQuery
@@ -89,8 +93,20 @@ public static class AlertListQueryParser
             case "alertid":
                 sortBy = AlertSortColumn.AlertId;
                 return true;
+            case "tasktype":
+                sortBy = AlertSortColumn.TaskType;
+                return true;
+            case "sublot":
+                sortBy = AlertSortColumn.Sublot;
+                return true;
+            case "demandid":
+                sortBy = AlertSortColumn.DemandId;
+                return true;
+            case "message":
+                sortBy = AlertSortColumn.Message;
+                return true;
             default:
-                error = "sortBy must be one of lastSeenAt, firstSeenAt, code, severity, alertId";
+                error = "sortBy must be one of lastSeenAt, firstSeenAt, code, severity, alertId, taskType, sublot, demandId, message";
                 return false;
         }
     }
@@ -177,6 +193,10 @@ public static class AlertListCursor
         [property: JsonPropertyName("t")] string? Time,
         [property: JsonPropertyName("c")] string? Code,
         [property: JsonPropertyName("sev")] string? Severity,
+        [property: JsonPropertyName("tt")] string? TaskType,
+        [property: JsonPropertyName("sl")] string? Sublot,
+        [property: JsonPropertyName("did")] string? DemandId,
+        [property: JsonPropertyName("m")] string? Message,
         [property: JsonPropertyName("id")] string AlertId);
 
     public static string Encode(IngestAlert alert, AlertListQuery query)
@@ -197,6 +217,10 @@ public static class AlertListCursor
             },
             Code: query.SortBy == AlertSortColumn.Code ? alert.Code : null,
             Severity: query.SortBy == AlertSortColumn.Severity ? alert.Severity : null,
+            TaskType: query.SortBy == AlertSortColumn.TaskType ? alert.TaskType : null,
+            Sublot: query.SortBy == AlertSortColumn.Sublot ? alert.Sublot : null,
+            DemandId: query.SortBy == AlertSortColumn.DemandId ? alert.DemandId : null,
+            Message: query.SortBy == AlertSortColumn.Message ? alert.Message : null,
             AlertId: alert.AlertId ?? string.Empty);
 
         var json = JsonSerializer.Serialize(payload);
@@ -257,6 +281,10 @@ public static class AlertListCursor
                 time,
                 payload.Code,
                 payload.Severity,
+                payload.TaskType,
+                payload.Sublot,
+                payload.DemandId,
+                payload.Message,
                 payload.AlertId);
             return true;
         }
@@ -273,6 +301,10 @@ public static class AlertListCursor
         DateTimeOffset? Time,
         string? Code,
         string? Severity,
+        string? TaskType,
+        string? Sublot,
+        string? DemandId,
+        string? Message,
         string AlertId);
 }
 
@@ -363,6 +395,18 @@ public static class AlertListPaging
             AlertSortColumn.AlertId => query.Direction == SortDirection.Asc
                 ? source.OrderBy(a => a.AlertId ?? string.Empty, StringComparer.Ordinal)
                 : source.OrderByDescending(a => a.AlertId ?? string.Empty, StringComparer.Ordinal),
+            AlertSortColumn.TaskType => query.Direction == SortDirection.Asc
+                ? source.OrderBy(a => a.TaskType, StringComparer.Ordinal)
+                : source.OrderByDescending(a => a.TaskType, StringComparer.Ordinal),
+            AlertSortColumn.Sublot => query.Direction == SortDirection.Asc
+                ? source.OrderBy(a => a.Sublot, StringComparer.Ordinal)
+                : source.OrderByDescending(a => a.Sublot, StringComparer.Ordinal),
+            AlertSortColumn.DemandId => query.Direction == SortDirection.Asc
+                ? source.OrderBy(a => a.DemandId, StringComparer.Ordinal)
+                : source.OrderByDescending(a => a.DemandId, StringComparer.Ordinal),
+            AlertSortColumn.Message => query.Direction == SortDirection.Asc
+                ? source.OrderBy(a => a.Message, StringComparer.Ordinal)
+                : source.OrderByDescending(a => a.Message, StringComparer.Ordinal),
             _ => query.Direction == SortDirection.Asc
                 ? source.OrderBy(a => a.EffectiveLastSeenAt)
                 : source.OrderByDescending(a => a.EffectiveLastSeenAt),
@@ -421,6 +465,22 @@ public static class AlertListPaging
             AlertSortColumn.AlertId => query.Direction == SortDirection.Asc
                 ? idCmp > 0
                 : idCmp < 0,
+            AlertSortColumn.TaskType => AfterScalar(
+                string.Compare(alert.TaskType, cursor.TaskType, StringComparison.Ordinal),
+                idCmp,
+                query.Direction),
+            AlertSortColumn.Sublot => AfterScalar(
+                string.Compare(alert.Sublot, cursor.Sublot, StringComparison.Ordinal),
+                idCmp,
+                query.Direction),
+            AlertSortColumn.DemandId => AfterScalar(
+                string.Compare(alert.DemandId, cursor.DemandId, StringComparison.Ordinal),
+                idCmp,
+                query.Direction),
+            AlertSortColumn.Message => AfterScalar(
+                string.Compare(alert.Message, cursor.Message, StringComparison.Ordinal),
+                idCmp,
+                query.Direction),
             _ => AfterScalar(
                 alert.EffectiveLastSeenAt.CompareTo(cursor.Time ?? DateTimeOffset.MinValue),
                 idCmp,

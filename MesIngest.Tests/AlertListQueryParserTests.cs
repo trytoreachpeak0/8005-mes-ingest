@@ -15,6 +15,10 @@ public class AlertListQueryParserTests
     [InlineData("code", AlertSortColumn.Code)]
     [InlineData("severity", AlertSortColumn.Severity)]
     [InlineData("alertId", AlertSortColumn.AlertId)]
+    [InlineData("taskType", AlertSortColumn.TaskType)]
+    [InlineData("sublot", AlertSortColumn.Sublot)]
+    [InlineData("demandId", AlertSortColumn.DemandId)]
+    [InlineData("message", AlertSortColumn.Message)]
     public void TryParseSortBy_accepts_alert_allow_list(string? raw, AlertSortColumn expected)
     {
         Assert.True(AlertListQueryParser.TryParseSortBy(raw, out var sortBy, out var error));
@@ -24,9 +28,9 @@ public class AlertListQueryParserTests
 
     [Theory]
     [InlineData("dates")]
-    [InlineData("demandId")]
     [InlineData("goneAt")]
     [InlineData("package")]
+    [InlineData("createdAt")]
     public void TryParseSortBy_rejects_demand_only_columns(string raw)
     {
         Assert.False(AlertListQueryParser.TryParseSortBy(raw, out _, out var error));

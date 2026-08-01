@@ -111,6 +111,53 @@ public class MainWindowStartupTests
     }
 
     [Fact]
+    public void Every_visible_alert_column_is_user_sortable()
+    {
+        Exception? caught = null;
+        var ok = false;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var window = new MainWindow(
+                    new MesIngestApiClient(http),
+                    new WatchOptions
+                    {
+                        BaseUrl = "http://127.0.0.1:9",
+                        RefreshSeconds = 60,
+                    });
+                var alerts = (DataGrid)window.FindName("AlertsGrid");
+                var disabledHeaders = alerts.Columns
+                    .Where(column => !column.CanUserSort)
+                    .Select(column => column.Header?.ToString() ?? "")
+                    .ToArray();
+
+                if (!alerts.CanUserSortColumns || disabledHeaders.Length != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"All visible Alerts columns must sort; disabled=[{string.Join(",", disabledHeaders)}]");
+                }
+
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA constructor thread did not finish");
+        Assert.Null(caught);
+        Assert.True(ok);
+    }
+
+    [Fact]
     public void Alert_view_details_menu_and_double_click_open_same_detail_window()
     {
         Exception? caught = null;

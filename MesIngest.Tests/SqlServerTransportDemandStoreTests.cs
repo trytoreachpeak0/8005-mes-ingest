@@ -738,6 +738,42 @@ public class SqlServerTransportDemandStoreTests
     }
 
     [SqlServerAvailabilityFact]
+    public void Alert_query_pages_new_sort_columns_on_the_shared_contract()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
+        var store = new SqlServerTransportDemandStore(cs, clock: () => now);
+        store.ReplaceState(ProjectionState.Empty,
+        [
+            new IngestAlert(AlertCodes.FieldDrift, TaskType: "T-B", Sublot: "S-B"),
+            new IngestAlert(AlertCodes.FieldDrift, TaskType: "T-A", Sublot: "S-A"),
+            new IngestAlert(AlertCodes.FieldDrift, TaskType: "T-C", Sublot: "S-C"),
+        ]);
+
+        var first = store.QueryAlerts(new AlertListQuery
+        {
+            SortBy = AlertSortColumn.TaskType,
+            Direction = SortDirection.Asc,
+            Limit = 2,
+            UseDefaultPrioritySort = false,
+        });
+        var second = store.QueryAlerts(new AlertListQuery
+        {
+            SortBy = AlertSortColumn.TaskType,
+            Direction = SortDirection.Asc,
+            Limit = 2,
+            Cursor = first.NextCursor,
+            UseDefaultPrioritySort = false,
+        });
+
+        Assert.Equal(new[] { "T-A", "T-B" }, first.Items.Select(alert => alert.TaskType));
+        Assert.True(first.HasMore);
+        Assert.Equal(new[] { "T-C" }, second.Items.Select(alert => alert.TaskType));
+        Assert.False(second.HasMore);
+    }
+
+    [SqlServerAvailabilityFact]
     public void Query_page_uses_read_path_indexes_and_keyset_pagination()
     {
         var cs = SqlServerTestEnv.ConnectionString!;

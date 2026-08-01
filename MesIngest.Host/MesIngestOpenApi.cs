@@ -194,7 +194,8 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
             "List ingest alert incidents (paginated)",
             """
             Filters: active, code, severity (ERROR|WARNING), from/to, sortBy allow-list
-            (lastSeenAt|firstSeenAt|code|severity|alertId), direction, limit (1-200), cursor.
+            (lastSeenAt|firstSeenAt|code|severity|alertId|taskType|sublot|demandId|message),
+            direction, limit (1-200), cursor. AlertId is the stable tie-break for every primary sort.
             Default sort prefers active ERROR/WARNING then LastSeenAt.
             """,
             exampleQuery: "?active=true&severity=ERROR&limit=100",
@@ -287,7 +288,7 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
                     if (string.Equals(path, "/api/alerts", StringComparison.Ordinal))
                     {
                         parameter.Description =
-                            "Allow-list: lastSeenAt (default), firstSeenAt, code, severity, alertId.";
+                            "Allow-list: lastSeenAt (default), firstSeenAt, code, severity, alertId, taskType, sublot, demandId, message. AlertId is the stable tie-break.";
                         parameter.Example = new OpenApiString("lastSeenAt");
                     }
                     else

@@ -26,6 +26,10 @@ internal sealed record WatchAlertBrowseQuery(
             "AlertId" => "alertId",
             "last seen" => "lastSeenAt",
             "first seen" => "firstSeenAt",
+            "TASK_TYPE" => "taskType",
+            "SUBLOT" => "sublot",
+            "DemandId" => "demandId",
+            "Message" => "message",
             _ => null,
         };
 
@@ -36,6 +40,10 @@ internal sealed record WatchAlertBrowseQuery(
         "code",
         "severity",
         "alertId",
+        "taskType",
+        "sublot",
+        "demandId",
+        "message",
     ];
 
     public string ToRelativeUrl()

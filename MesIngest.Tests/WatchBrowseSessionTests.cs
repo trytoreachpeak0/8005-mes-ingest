@@ -253,18 +253,28 @@ public class WatchBrowseSessionTests
         Assert.Equal("a-1", session.Alerts[0].AlertId);
     }
 
-    [Fact]
-    public void Alert_sort_rejects_non_allow_list_columns()
+    [Theory]
+    [InlineData("Code", "code")]
+    [InlineData("Severity", "severity")]
+    [InlineData("AlertId", "alertId")]
+    [InlineData("first seen", "firstSeenAt")]
+    [InlineData("last seen", "lastSeenAt")]
+    [InlineData("TASK_TYPE", "taskType")]
+    [InlineData("SUBLOT", "sublot")]
+    [InlineData("DemandId", "demandId")]
+    [InlineData("Message", "message")]
+    public void Every_visible_alert_column_toggles_server_sort(string header, string token)
     {
         var session = new WatchBrowseSession(new MesIngestApiClient(CreateHttp(new StubHandler((_, _) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))))));
 
-        Assert.False(session.TryApplyAlertSort("TASK_TYPE"));
-        Assert.False(session.TryApplyAlertSort("SUBLOT"));
-        Assert.False(session.TryApplyAlertSort("DemandId"));
-        Assert.False(session.TryApplyAlertSort("Message"));
-        Assert.False(session.TryApplyAlertSort("created"));
-        Assert.Null(session.AlertQuery.SortBy);
+        Assert.True(session.TryApplyAlertSort(header));
+        Assert.Equal(token, session.AlertQuery.SortBy);
+        Assert.Equal("asc", session.AlertQuery.Direction);
+
+        Assert.True(session.TryApplyAlertSort(header));
+        Assert.Equal(token, session.AlertQuery.SortBy);
+        Assert.Equal("desc", session.AlertQuery.Direction);
     }
 
     [Fact]
@@ -295,8 +305,8 @@ public class WatchBrowseSessionTests
                 error);
         }
 
-        Assert.False(MesIngest.Core.AlertListQueryParser.TryParseSortBy("taskType", out _, out _));
-        Assert.Null(WatchAlertBrowseQuery.SortToken("TASK_TYPE"));
+        Assert.Equal(Enum.GetValues<MesIngest.Core.AlertSortColumn>().Length, alertTokens.Length);
+        Assert.Equal("taskType", WatchAlertBrowseQuery.SortToken("TASK_TYPE"));
         Assert.Null(WatchDemandBrowseQuery.SortToken("PACKAGE"));
         Assert.Null(WatchDemandBrowseQuery.SortToken("status"));
     }

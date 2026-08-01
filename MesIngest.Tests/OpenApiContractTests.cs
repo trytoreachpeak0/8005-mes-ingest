@@ -330,16 +330,27 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     private static void AssertAlertSortByAllowList(JsonElement root)
     {
         var description = SortByParameterDescription(root, "/api/alerts");
-        Assert.Contains("lastSeenAt", description, StringComparison.Ordinal);
-        Assert.Contains("firstSeenAt", description, StringComparison.Ordinal);
-        Assert.Contains("code", description, StringComparison.Ordinal);
-        Assert.Contains("severity", description, StringComparison.Ordinal);
-        Assert.Contains("alertId", description, StringComparison.Ordinal);
+        var tokens = new[]
+        {
+            "lastSeenAt",
+            "firstSeenAt",
+            "code",
+            "severity",
+            "alertId",
+            "taskType",
+            "sublot",
+            "demandId",
+            "message",
+        };
+        foreach (var token in tokens)
+        {
+            Assert.Contains(token, description, StringComparison.Ordinal);
+        }
+
         Assert.DoesNotContain("dates", description, StringComparison.Ordinal);
-        Assert.DoesNotContain("demandId", description, StringComparison.Ordinal);
 
         // Runtime allow-list must accept every column advertised in OpenAPI.
-        foreach (var token in new[] { "lastSeenAt", "firstSeenAt", "code", "severity", "alertId" })
+        foreach (var token in tokens)
         {
             Assert.True(
                 AlertListQueryParser.TryParseSortBy(token, out _, out _),

@@ -314,7 +314,7 @@ public class WatchAlertBrowsePagingTests
     }
 }
 
-/// <summary>Real Host HTTP contract for ticket 13 Alert cursor traversal.</summary>
+/// <summary>Real Host HTTP contract for ticket 13 paging and ticket 14 server sorting.</summary>
 public class WatchAlertBrowsePagingLiveHostTests : IClassFixture<WebApplicationFactory<Program>>
 {
     private readonly WebApplicationFactory<Program> _factory;
@@ -325,7 +325,7 @@ public class WatchAlertBrowsePagingLiveHostTests : IClassFixture<WebApplicationF
     }
 
     [Fact]
-    public async Task More_than_one_hundred_alerts_are_reachable_without_gaps_or_duplicates()
+    public async Task Watch_reaches_all_alerts_in_server_sorted_order_and_preserves_sort_on_refresh()
     {
         var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
         var alerts = Enumerable.Range(0, 205)
@@ -363,6 +363,7 @@ public class WatchAlertBrowsePagingLiveHostTests : IClassFixture<WebApplicationF
             using var http = factory.CreateClient();
             var session = new WatchBrowseSession(new MesIngestApiClient(http), pageSize: 100);
 
+            Assert.True(session.TryApplyAlertSort("SUBLOT"));
             await session.RefreshAsync(WatchBrowseRefreshKind.Reset, WatchDemandBrowseQuery.Default);
             Assert.Equal(100, session.Alerts.Count);
             Assert.True(session.AlertsHasMore);
@@ -373,9 +374,19 @@ public class WatchAlertBrowsePagingLiveHostTests : IClassFixture<WebApplicationF
             var ids = session.Alerts.Select(alert => alert.AlertId).ToArray();
             Assert.Equal(205, ids.Length);
             Assert.Equal(205, ids.Distinct(StringComparer.Ordinal).Count());
-            Assert.Contains(session.Alerts, alert => alert.Sublot == "Q204");
+            Assert.Equal(
+                Enumerable.Range(0, 205).Select(index => $"Q{index:D3}"),
+                session.Alerts.Select(alert => alert.Sublot));
             Assert.False(session.AlertsHasMore);
             Assert.Null(session.AlertsNextCursor);
+
+            await session.RefreshAsync(WatchBrowseRefreshKind.PreserveWindow, WatchDemandBrowseQuery.Default);
+
+            Assert.Equal("sublot", session.AlertQuery.SortBy);
+            Assert.Equal("asc", session.AlertQuery.Direction);
+            Assert.Equal(
+                Enumerable.Range(0, 205).Select(index => $"Q{index:D3}"),
+                session.Alerts.Select(alert => alert.Sublot));
         }
         finally
         {

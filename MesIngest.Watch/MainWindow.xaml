@@ -154,6 +154,7 @@
                           AutoGenerateColumns="False"
                           IsReadOnly="True"
                           CanUserAddRows="False"
+                          CanUserSortColumns="True"
                           HeadersVisibility="Column"
                           Sorting="OnAlertsSorting"
                           MouseDoubleClick="OnAlertsDoubleClick"
@@ -164,10 +165,10 @@
                         <DataGridTextColumn Header="AlertId" Binding="{Binding AlertId}" Width="180" CanUserSort="True" />
                         <DataGridTextColumn Header="last seen" Binding="{Binding LastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
                         <DataGridTextColumn Header="first seen" Binding="{Binding FirstSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                        <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="False" />
-                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="False" />
-                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="False" />
-                        <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="False" />
+                        <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="True" />
+                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" />
+                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
+                        <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
                     </DataGrid.Columns>
                     <DataGrid.ContextMenu>
                         <ContextMenu>
