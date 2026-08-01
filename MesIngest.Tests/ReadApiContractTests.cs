@@ -277,7 +277,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
             MesSnapshotOutcome.Success([row with { Package = "PKG-REAPPEAR" }]),
             now.AddMinutes(3),
             baseline,
-            isGoneTransportDemandKey: store.HasGoneTransportDemandKey).State);
+            getLatestGoneDemandId: store.GetLatestGoneDemandId).State);
 
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
         await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);

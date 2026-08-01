@@ -12,7 +12,7 @@
           "Alerts"
         ],
         "summary": "List ingest alert incidents (paginated)",
-        "description": "Filters: active, code, severity (ERROR|WARNING), from/to, sortBy, direction, limit (1-200), cursor.\nDefault sort prefers active ERROR/WARNING then LastSeenAt.\n\nExample: GET /api/alerts?active=true&severity=ERROR&limit=100",
+        "description": "Filters: active, code, severity (ERROR|WARNING), from/to, sortBy allow-list\n(lastSeenAt|firstSeenAt|code|severity|alertId), direction, limit (1-200), cursor.\nDefault sort prefers active ERROR/WARNING then LastSeenAt.\n\nExample: GET /api/alerts?active=true&severity=ERROR&limit=100",
         "operationId": "ListAlerts",
         "parameters": [
           {
@@ -53,11 +53,11 @@
           {
             "name": "sortBy",
             "in": "query",
-            "description": "Allow-list: dates (default), demandId, goneAt, taskType, sublot, createdAt, mesLastSeenAt.",
+            "description": "Allow-list: lastSeenAt (default), firstSeenAt, code, severity, alertId.",
             "schema": {
               "type": "string"
             },
-            "example": "dates"
+            "example": "lastSeenAt"
           },
           {
             "name": "direction",

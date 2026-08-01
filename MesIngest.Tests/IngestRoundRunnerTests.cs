@@ -50,8 +50,61 @@ public class IngestRoundRunnerTests
         var alert = Assert.Single(store.ListAlerts());
         Assert.Equal("REAPPEAR_AFTER_GONE", alert.Code);
         Assert.Equal("new", alert.DemandId);
+        Assert.Equal(
+            AlertDetailsBuilder.Reappear("old", "new"),
+            alert.Details);
         Assert.Contains(store.List(), d => d.DemandId == "new" && d.Status == DemandStatus.Visible);
         Assert.Contains(store.List(), d => d.DemandId == "old" && d.Status == DemandStatus.Gone);
+    }
+
+    [Fact]
+    public async Task RunOnce_reappear_details_use_store_lookup_when_hot_state_omits_gone()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "old-gone",
+                TaskType = "WIRE_TO_GATE",
+                Sublot = "Q1",
+                Area = "N01",
+                Eqp = "EQ",
+                Step = "关卡",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Gone,
+                MesLastSeenAt = now,
+                DisappearCount = 2,
+                GoneAt = now,
+            },
+        ]));
+
+        // Hot GetState() excludes GONE; runner must resolve previous id via store lookup.
+        Assert.Empty(store.GetState().Demands);
+        Assert.Equal("old-gone", store.GetLatestGoneDemandId("WIRE_TO_GATE", "Q1"));
+
+        var row = new MesSnapshotRow(
+            "WIRE_TO_GATE",
+            "Q1",
+            "N01",
+            "EQ",
+            "关卡",
+            Baseline.AddHours(2),
+            "PKG2");
+        var runner = new IngestRoundRunner(
+            new FixedMesSnapshotSource(MesSnapshotOutcome.Success([row])),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator("brand-new")),
+            store,
+            Baseline,
+            clock: () => now.AddMinutes(1));
+
+        await runner.RunOnceAsync();
+
+        var alert = Assert.Single(store.ListAlerts());
+        Assert.Equal("REAPPEAR_AFTER_GONE", alert.Code);
+        Assert.Equal(AlertDetailsBuilder.Reappear("old-gone", "brand-new"), alert.Details);
     }
 
     [Fact]
@@ -607,6 +660,9 @@ public class IngestRoundRunnerTests
 
         public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
             _inner.HasGoneTransportDemandKey(taskType, sublot);
+
+        public string? GetLatestGoneDemandId(string taskType, string sublot) =>
+            _inner.GetLatestGoneDemandId(taskType, sublot);
 
         public TransportDemand? GetById(string demandId) => _inner.GetById(demandId);
 

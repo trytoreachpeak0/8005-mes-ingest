@@ -142,6 +142,62 @@ public class WatchConnectionEventJournalTests
         Assert.True(File.Exists(newer) || Directory.GetFiles(dir.Path, "*.jsonl").Length >= 1);
     }
 
+    [Fact]
+    public void Retention_deletes_latency_log_files_older_than_retention_days()
+    {
+        using var dir = new TempDirectory();
+        var oldLog = Path.Combine(dir.Path, "watch-latency-20260101.log");
+        File.WriteAllText(oldLog, "old\n");
+        File.SetLastWriteTimeUtc(oldLog, DateTime.UtcNow.AddDays(-40));
+
+        var journal = new WatchConnectionEventJournal(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 100 * 1024 * 1024,
+            utcNow: () => DateTimeOffset.UtcNow);
+
+        journal.Append(new WatchConnectionEvent(
+            WatchConnectionEventKind.Failure,
+            DateTimeOffset.UtcNow,
+            "/api/demands",
+            "HTTP_CONNECT",
+            100,
+            30,
+            "Connection refused",
+            1,
+            null));
+
+        Assert.False(File.Exists(oldLog));
+    }
+
+    [Fact]
+    public void Size_cap_counts_latency_log_toward_directory_budget()
+    {
+        using var dir = new TempDirectory();
+        var oldLog = Path.Combine(dir.Path, "watch-latency-20260701.log");
+        File.WriteAllBytes(oldLog, new byte[4_800]);
+        File.SetLastWriteTimeUtc(oldLog, DateTime.UtcNow.AddDays(-10));
+
+        var journal = new WatchConnectionEventJournal(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 5_000,
+            utcNow: () => DateTimeOffset.UtcNow);
+
+        journal.Append(new WatchConnectionEvent(
+            WatchConnectionEventKind.Failure,
+            DateTimeOffset.UtcNow,
+            "/api/alerts",
+            "HTTP_CONNECT",
+            50,
+            30,
+            "refused",
+            1,
+            null));
+
+        Assert.False(File.Exists(oldLog));
+    }
+
     private sealed class TempDirectory : IDisposable
     {
         public string Path { get; } = System.IO.Path.Combine(

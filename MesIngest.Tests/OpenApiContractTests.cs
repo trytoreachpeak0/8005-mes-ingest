@@ -72,6 +72,8 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
             AssertBearerSecurityScheme(root);
             AssertNoWriteOperations(root);
             AssertErrorResponsesDocumented(root);
+            AssertAlertSortByAllowList(root);
+            AssertDemandSortByAllowList(root);
         }
         finally
         {
@@ -135,6 +137,8 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
         AssertNoWriteOperations(doc.RootElement);
         AssertInfoSemantics(doc.RootElement);
         AssertErrorResponsesDocumented(doc.RootElement);
+        AssertAlertSortByAllowList(doc.RootElement);
+        AssertDemandSortByAllowList(doc.RootElement);
 
         var publish = File.ReadAllText(Path.Combine(PackRoot, "Publish-MesIngest.ps1"));
         Assert.Contains("openapi", publish, StringComparison.OrdinalIgnoreCase);
@@ -198,10 +202,77 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
                 live.RootElement.GetProperty("info").GetProperty("description").GetString(),
                 packed.RootElement.GetProperty("info").GetProperty("description").GetString());
 
+            AssertAlertSortByAllowList(live.RootElement);
+            AssertAlertSortByAllowList(packed.RootElement);
+            AssertDemandSortByAllowList(live.RootElement);
+            AssertDemandSortByAllowList(packed.RootElement);
+
+            Assert.Equal(
+                SortByParameterDescription(live.RootElement, "/api/alerts"),
+                SortByParameterDescription(packed.RootElement, "/api/alerts"));
+            Assert.Equal(
+                SortByParameterDescription(live.RootElement, "/api/demands"),
+                SortByParameterDescription(packed.RootElement, "/api/demands"));
+
             AssertBearerSecurityScheme(live.RootElement);
             AssertBearerSecurityScheme(packed.RootElement);
             AssertErrorResponsesDocumented(live.RootElement);
             AssertErrorResponsesDocumented(packed.RootElement);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Alerts_sortBy_accepts_allow_list_and_rejects_demand_dates()
+    {
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(
+            ProjectionState.Empty,
+            [
+                new IngestAlert(
+                    Code: "POLL_FAILURE",
+                    Message: "a",
+                    Severity: "ERROR",
+                    CreatedAt: now.AddMinutes(-2)),
+                new IngestAlert(
+                    Code: "REAPPEAR_AFTER_GONE",
+                    Message: "b",
+                    Severity: "WARNING",
+                    DemandId: "d1",
+                    CreatedAt: now.AddMinutes(-1)),
+            ]);
+
+        var path = await WriteEmptyCsvAsync();
+        try
+        {
+            await using var factory = CreateFactory(
+                path,
+                urls: "http://127.0.0.1:5088",
+                sharedSecret: "",
+                store: store);
+            var client = factory.CreateClient();
+
+            var dates = await client.GetAsync("/api/alerts?sortBy=dates");
+            Assert.Equal(HttpStatusCode.BadRequest, dates.StatusCode);
+
+            var byCode = await client.GetAsync("/api/alerts?sortBy=code&direction=asc&limit=10");
+            Assert.Equal(HttpStatusCode.OK, byCode.StatusCode);
+            using var doc = JsonDocument.Parse(await byCode.Content.ReadAsStringAsync());
+            var codes = doc.RootElement.GetProperty("items")
+                .EnumerateArray()
+                .Select(i => i.GetProperty("code").GetString())
+                .ToArray();
+            Assert.Equal(2, codes.Length);
+            Assert.True(
+                string.CompareOrdinal(codes[0], codes[1]) <= 0,
+                $"Expected ascending code order, got {codes[0]}, {codes[1]}");
+
+            var byLastSeen = await client.GetAsync("/api/alerts?sortBy=lastSeenAt&direction=desc");
+            Assert.Equal(HttpStatusCode.OK, byLastSeen.StatusCode);
         }
         finally
         {
@@ -254,6 +325,50 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             throw new InvalidOperationException("Could not locate mes/ingest/csharp/pack from test base directory.");
         }
+    }
+
+    private static void AssertAlertSortByAllowList(JsonElement root)
+    {
+        var description = SortByParameterDescription(root, "/api/alerts");
+        Assert.Contains("lastSeenAt", description, StringComparison.Ordinal);
+        Assert.Contains("firstSeenAt", description, StringComparison.Ordinal);
+        Assert.Contains("code", description, StringComparison.Ordinal);
+        Assert.Contains("severity", description, StringComparison.Ordinal);
+        Assert.Contains("alertId", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("dates", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("demandId", description, StringComparison.Ordinal);
+
+        // Runtime allow-list must accept every column advertised in OpenAPI.
+        foreach (var token in new[] { "lastSeenAt", "firstSeenAt", "code", "severity", "alertId" })
+        {
+            Assert.True(
+                AlertListQueryParser.TryParseSortBy(token, out _, out _),
+                $"OpenAPI advertises Alert sortBy={token} but parser rejects it");
+        }
+
+        Assert.False(AlertListQueryParser.TryParseSortBy("dates", out _, out _));
+    }
+
+    private static void AssertDemandSortByAllowList(JsonElement root)
+    {
+        var description = SortByParameterDescription(root, "/api/demands");
+        Assert.Contains("dates", description, StringComparison.Ordinal);
+        Assert.Contains("demandId", description, StringComparison.Ordinal);
+        Assert.True(DemandListQueryParser.TryParseSortBy("dates", out _, out _));
+    }
+
+    private static string SortByParameterDescription(JsonElement root, string path)
+    {
+        var parameters = root.GetProperty("paths").GetProperty(path).GetProperty("get").GetProperty("parameters");
+        foreach (var parameter in parameters.EnumerateArray())
+        {
+            if (string.Equals(parameter.GetProperty("name").GetString(), "sortBy", StringComparison.OrdinalIgnoreCase))
+            {
+                return parameter.GetProperty("description").GetString() ?? "";
+            }
+        }
+
+        throw new InvalidOperationException($"OpenAPI path {path} is missing sortBy parameter");
     }
 
     private static void AssertPaths(JsonElement root, IReadOnlyList<string> expected)

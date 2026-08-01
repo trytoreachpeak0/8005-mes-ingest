@@ -66,20 +66,32 @@ public class MainWindowStartupTests
                 var demands = (DataGrid)window.FindName("DemandsGrid");
                 var alerts = (DataGrid)window.FindName("AlertsGrid");
 
+                var demandHeaders = demands.ContextMenu.Items
+                    .OfType<MenuItem>()
+                    .Select(i => i.Header?.ToString() ?? "")
+                    .ToArray();
+                var alertHeaders = alerts.ContextMenu.Items
+                    .OfType<MenuItem>()
+                    .Select(i => i.Header?.ToString() ?? "")
+                    .ToArray();
+
                 if (demands.SelectionUnit != DataGridSelectionUnit.CellOrRowHeader
                     || alerts.SelectionUnit != DataGridSelectionUnit.CellOrRowHeader
                     || demands.ClipboardCopyMode != DataGridClipboardCopyMode.None
                     || alerts.ClipboardCopyMode != DataGridClipboardCopyMode.None
-                    || demands.ContextMenu is null
-                    || demands.ContextMenu.Items.Count != 3
-                    || alerts.ContextMenu is null
-                    || alerts.ContextMenu.Items.Count != 3
+                    || !demandHeaders.SequenceEqual(
+                        new[] { "复制单元格", "复制整行", "复制整行（含列名）" })
+                    || !alertHeaders.SequenceEqual(
+                        new[] { "查看详情", "复制单元格", "复制整行", "复制整行（含列名）" })
                     || !demands.CommandBindings.OfType<CommandBinding>()
                         .Any(b => ReferenceEquals(b.Command, ApplicationCommands.Copy))
                     || !alerts.CommandBindings.OfType<CommandBinding>()
                         .Any(b => ReferenceEquals(b.Command, ApplicationCommands.Copy)))
                 {
-                    throw new InvalidOperationException("Clipboard wiring incomplete on Demands/Alerts grids.");
+                    throw new InvalidOperationException(
+                        "Clipboard wiring incomplete on Demands/Alerts grids."
+                        + $" demands=[{string.Join(",", demandHeaders)}]"
+                        + $" alerts=[{string.Join(",", alertHeaders)}]");
                 }
 
                 ok = true;

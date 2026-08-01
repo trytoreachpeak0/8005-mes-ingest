@@ -119,7 +119,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         }
     }
 
-    public bool HasGoneTransportDemandKey(string taskType, string sublot)
+    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
+        GetLatestGoneDemandId(taskType, sublot) is not null;
+
+    public string? GetLatestGoneDemandId(string taskType, string sublot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(taskType);
         ArgumentException.ThrowIfNullOrWhiteSpace(sublot);
@@ -129,16 +132,17 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             using var conn = Open();
             using var cmd = new SqlCommand(
                 """
-                SELECT TOP (1) 1
+                SELECT TOP (1) DemandId
                 FROM dbo.TransportDemands
                 WHERE TaskType = @TaskType
                   AND Sublot = @Sublot
-                  AND Status = N'GONE';
+                  AND Status = N'GONE'
+                ORDER BY COALESCE(GoneAt, CreatedAt) DESC;
                 """,
                 conn);
             cmd.Parameters.AddWithValue("@TaskType", taskType);
             cmd.Parameters.AddWithValue("@Sublot", sublot);
-            return cmd.ExecuteScalar() is not null;
+            return cmd.ExecuteScalar() as string;
         }
     }
 

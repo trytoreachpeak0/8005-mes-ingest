@@ -20,7 +20,7 @@ public sealed class TransportDemandReconciler
         int zeroDropEnterThreshold = 10,
         int zeroDropClearStreak = DefaultZeroDropClearStreak,
         RestartRecovery? restartRecovery = null,
-        Func<string, string, bool>? isGoneTransportDemandKey = null)
+        Func<string, string, string?>? getLatestGoneDemandId = null)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
@@ -183,18 +183,17 @@ public sealed class TransportDemandReconciler
                 GoneAt = null,
             });
 
-            var reappeared =
-                goneKeys.Contains(key)
-                || (isGoneTransportDemandKey?.Invoke(row.TaskType, row.Sublot) ?? false);
+            var previousDemandId = prior.Demands
+                .Where(d => d.Status == DemandStatus.Gone
+                    && string.Equals(d.TaskType, row.TaskType, StringComparison.Ordinal)
+                    && string.Equals(d.Sublot, row.Sublot, StringComparison.Ordinal))
+                .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
+                .Select(d => d.DemandId)
+                .FirstOrDefault()
+                ?? getLatestGoneDemandId?.Invoke(row.TaskType, row.Sublot);
+            var reappeared = previousDemandId is not null || goneKeys.Contains(key);
             if (reappeared)
             {
-                var previousDemandId = prior.Demands
-                    .Where(d => d.Status == DemandStatus.Gone
-                        && string.Equals(d.TaskType, row.TaskType, StringComparison.Ordinal)
-                        && string.Equals(d.Sublot, row.Sublot, StringComparison.Ordinal))
-                    .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
-                    .Select(d => d.DemandId)
-                    .FirstOrDefault();
                 alerts.Add(new IngestAlert(
                     Code: AlertCodes.ReappearAfterGone,
                     TaskType: row.TaskType,

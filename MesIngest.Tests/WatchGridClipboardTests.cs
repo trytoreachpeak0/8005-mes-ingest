@@ -133,6 +133,26 @@ public class WatchGridClipboardTests
     }
 
     [Fact]
+    public void Context_menu_headers_preserve_view_details_with_clipboard_actions()
+    {
+        var headers = WatchGridClipboardBehavior.ComposeContextMenuHeaders(["查看详情"]);
+
+        Assert.Equal(
+            ["查看详情", "复制单元格", "复制整行", "复制整行（含列名）"],
+            headers);
+    }
+
+    [Fact]
+    public void Context_menu_headers_without_existing_items_are_clipboard_only()
+    {
+        var headers = WatchGridClipboardBehavior.ComposeContextMenuHeaders(null);
+
+        Assert.Equal(
+            ["复制单元格", "复制整行", "复制整行（含列名）"],
+            headers);
+    }
+
+    [Fact]
     public void Projects_alert_row_preserving_column_order()
     {
         var alert = new WatchAlertDto(

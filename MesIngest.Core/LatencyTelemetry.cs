@@ -214,6 +214,12 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
             () => _inner.HasGoneTransportDemandKey(taskType, sublot),
             rows: found => found ? 1 : 0);
 
+    public string? GetLatestGoneDemandId(string taskType, string sublot) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.GetLatestGoneDemandId(taskType, sublot),
+            rows: id => id is null ? 0 : 1);
+
     public TransportDemand? GetById(string demandId) =>
         Measure(LatencyStages.SqlQuery, () => _inner.GetById(demandId), rows: d => d is null ? 0 : 1);
 

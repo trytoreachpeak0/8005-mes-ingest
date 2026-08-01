@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using MesIngest.Core;
+using Microsoft.Extensions.Configuration;
 
 namespace MesIngest.Watch;
 
@@ -21,11 +22,32 @@ internal partial class App : Application
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
         }
 
+        var journal = WatchConnectionEventJournal.FromOptions(options);
         var client = new MesIngestApiClient(
             http,
             options.RequestTimeoutSeconds,
-            telemetry: WatchLatencyFileTelemetry.FromOptions(options));
-        var journal = WatchConnectionEventJournal.FromOptions(options);
+            telemetry: WatchLatencyFileTelemetry.FromOptions(
+                options,
+                onWriteFailure: ex =>
+                {
+                    try
+                    {
+                        journal.Append(new WatchConnectionEvent(
+                            Kind: WatchConnectionEventKind.Failure,
+                            At: DateTimeOffset.UtcNow,
+                            Endpoint: "watch-latency",
+                            Stage: "TELEMETRY_IO",
+                            ElapsedMs: null,
+                            TimeoutSeconds: null,
+                            Message: LatencyLogFormatter.Sanitize(ex.Message),
+                            FailureCount: 1,
+                            OutageDurationMs: null));
+                    }
+                    catch
+                    {
+                        // Diagnostic journal write is best-effort.
+                    }
+                }));
         var window = new MainWindow(client, options, journal);
         window.Show();
     }

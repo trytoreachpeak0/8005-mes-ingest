@@ -142,6 +142,104 @@ public class LatencyTelemetryTests
     }
 
     [Fact]
+    public async Task Watch_success_survives_throwing_latency_telemetry()
+    {
+        var handler = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
+            }
+
+            if (path.EndsWith("/api/demands", StringComparison.Ordinal))
+            {
+                return Task.FromResult(JsonResponse(
+                    path,
+                    """{"items":[],"nextCursor":null,"hasMore":false}"""));
+            }
+
+            if (path.EndsWith("/api/alerts", StringComparison.Ordinal))
+            {
+                return Task.FromResult(JsonResponse(path, """{"items":[],"nextCursor":null,"hasMore":false}"""));
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        });
+
+        using var http = CreateHttp(handler);
+        var client = new MesIngestApiClient(
+            http,
+            requestTimeoutSeconds: 30,
+            telemetry: new ThrowingLatencyTelemetry());
+
+        var snapshot = await client.FetchSnapshotAsync();
+
+        Assert.Null(snapshot.FetchError);
+        Assert.Empty(snapshot.Demands);
+    }
+
+    [Fact]
+    public void Watch_latency_file_telemetry_swallows_io_and_reports_write_failure()
+    {
+        using var dir = new TempLatencyDir();
+        Exception? observed = null;
+        var telemetry = new WatchLatencyFileTelemetry(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 1024,
+            onWriteFailure: ex => observed = ex);
+
+        // Make the directory a file so CreateDirectory / AppendAllText fails.
+        Directory.Delete(dir.Path);
+        File.WriteAllText(dir.Path, "not-a-directory");
+
+        telemetry.Record(new LatencyEvent(
+            CorrelationId: "c1",
+            Component: LatencyComponents.Watch,
+            Stage: LatencyStages.HttpOk,
+            ElapsedMs: 1,
+            StatusCode: 200,
+            RowCount: 0,
+            Bytes: 0,
+            Endpoint: "/api/demands",
+            Detail: null));
+
+        Assert.NotNull(observed);
+        Assert.True(observed is IOException or UnauthorizedAccessException);
+    }
+
+    [Fact]
+    public void Watch_latency_file_telemetry_enforces_log_retention_by_age()
+    {
+        using var dir = new TempLatencyDir();
+        var oldLog = Path.Combine(dir.Path, "watch-latency-20260101.log");
+        File.WriteAllText(oldLog, "old\n");
+        File.SetLastWriteTimeUtc(oldLog, DateTime.UtcNow.AddDays(-40));
+
+        var now = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
+        var telemetry = new WatchLatencyFileTelemetry(
+            dir.Path,
+            retentionDays: 30,
+            maxSizeBytes: 100 * 1024 * 1024,
+            utcNow: () => now);
+
+        telemetry.Record(new LatencyEvent(
+            CorrelationId: "c1",
+            Component: LatencyComponents.Watch,
+            Stage: LatencyStages.HttpOk,
+            ElapsedMs: 1,
+            StatusCode: 200,
+            RowCount: 0,
+            Bytes: 0,
+            Endpoint: "/api/demands",
+            Detail: null));
+
+        Assert.False(File.Exists(oldLog));
+        Assert.True(File.Exists(Path.Combine(dir.Path, "watch-latency-20260731.log")));
+    }
+
+    [Fact]
     public async Task Oracle_query_timeout_sets_poll_health_and_alert_stage_ORACLE_QUERY()
     {
         var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.FromHours(8));
@@ -346,6 +444,44 @@ public class LatencyTelemetryTests
         {
             await Task.Delay(Timeout.Infinite, cancellationToken);
             return MesSnapshotOutcome.Success([]);
+        }
+    }
+
+    private sealed class ThrowingLatencyTelemetry : ILatencyTelemetry
+    {
+        public void Record(LatencyEvent evt) =>
+            throw new IOException("simulated latency log write failure");
+    }
+
+    private sealed class TempLatencyDir : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            "MesIngestLatencyTests-" + Guid.NewGuid().ToString("N"));
+
+        public TempLatencyDir() => Directory.CreateDirectory(Path);
+
+        public void Dispose()
+        {
+            try
+            {
+                if (Directory.Exists(Path))
+                {
+                    Directory.Delete(Path, recursive: true);
+                }
+                else if (File.Exists(Path))
+                {
+                    File.Delete(Path);
+                }
+            }
+            catch (IOException)
+            {
+                // best-effort cleanup
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // best-effort cleanup
+            }
         }
     }
 }

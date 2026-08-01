@@ -479,6 +479,59 @@ public class TransportDemandReconcilerTests
         Assert.Equal("STAGING_TO_WIRE", alert.TaskType);
         Assert.Equal("Q400-1", alert.Sublot);
         Assert.Equal("new-id", alert.DemandId);
+        Assert.Equal(AlertDetailsBuilder.Reappear("old-gone", "new-id"), alert.Details);
+    }
+
+    [Fact]
+    public void Reappear_via_store_lookup_fills_previous_demand_id_when_prior_hot_state_has_no_gone()
+    {
+        var prior = ProjectionState.Empty;
+        var reappeared = Row(
+            "STAGING_TO_WIRE",
+            "Q400-1",
+            "N05-01",
+            "EQ4-NEW",
+            "焊线",
+            Baseline.AddHours(3),
+            "PKG-NEW");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("new-id"));
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([reappeared]),
+            Now.AddMinutes(10),
+            Baseline,
+            getLatestGoneDemandId: (taskType, sublot) =>
+                taskType == "STAGING_TO_WIRE" && sublot == "Q400-1" ? "hist-gone" : null);
+
+        var alert = Assert.Single(result.Alerts);
+        Assert.Equal("REAPPEAR_AFTER_GONE", alert.Code);
+        Assert.Equal(AlertDetailsBuilder.Reappear("hist-gone", "new-id"), alert.Details);
+    }
+
+    [Fact]
+    public void First_create_without_gone_history_does_not_raise_reappear()
+    {
+        var prior = ProjectionState.Empty;
+        var row = Row(
+            "DIE_TO_OVEN",
+            "Q-NEW",
+            "N01-01",
+            "EQ1",
+            "烘箱",
+            Baseline.AddHours(1),
+            "PKG");
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator("fresh"));
+        var result = reconciler.Reconcile(
+            prior,
+            MesSnapshotOutcome.Success([row]),
+            Now,
+            Baseline,
+            getLatestGoneDemandId: (_, _) => null);
+
+        Assert.DoesNotContain(result.Alerts, a => a.Code == "REAPPEAR_AFTER_GONE");
+        Assert.Equal("fresh", Assert.Single(result.State.Demands).DemandId);
     }
 
     [Fact]

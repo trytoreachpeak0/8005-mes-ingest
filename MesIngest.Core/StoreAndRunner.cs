@@ -34,6 +34,12 @@ public interface ITransportDemandStore
     /// </summary>
     bool HasGoneTransportDemandKey(string taskType, string sublot);
 
+    /// <summary>
+    /// Latest GONE DemandId for a TransportDemandKey, without loading the full GONE history.
+    /// Used to populate REAPPEAR_AFTER_GONE alert details when hot GetState() excludes GONE.
+    /// </summary>
+    string? GetLatestGoneDemandId(string taskType, string sublot);
+
     TransportDemand? GetById(string demandId);
     IReadOnlyList<TransportDemand> List(
         DemandStatus? status = null,
@@ -110,10 +116,17 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     }
 
     public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
-        _state.Demands.Any(d =>
-            d.Status == DemandStatus.Gone
-            && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
-            && string.Equals(d.Sublot, sublot, StringComparison.Ordinal));
+        GetLatestGoneDemandId(taskType, sublot) is not null;
+
+    public string? GetLatestGoneDemandId(string taskType, string sublot) =>
+        _state.Demands
+            .Where(d =>
+                d.Status == DemandStatus.Gone
+                && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
+                && string.Equals(d.Sublot, sublot, StringComparison.Ordinal))
+            .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
+            .Select(d => d.DemandId)
+            .FirstOrDefault();
 
     public TransportDemand? GetById(string demandId) =>
         _state.Demands.FirstOrDefault(d => d.DemandId == demandId);
@@ -321,7 +334,7 @@ public sealed class IngestRoundRunner
             _zeroDropEnterThreshold,
             _zeroDropClearStreak,
             restartRecovery: restartRecovery,
-            isGoneTransportDemandKey: _store.HasGoneTransportDemandKey);
+            getLatestGoneDemandId: _store.GetLatestGoneDemandId);
         sw.Stop();
         var endedAt = _clock();
 

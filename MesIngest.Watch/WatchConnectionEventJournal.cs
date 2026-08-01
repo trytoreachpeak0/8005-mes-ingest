@@ -205,39 +205,8 @@ internal sealed class WatchConnectionEventJournal
         }
     }
 
-    private void EnforceRetention()
-    {
-        if (!Directory.Exists(_directory))
-        {
-            return;
-        }
-
-        var cutoff = _utcNow().UtcDateTime.AddDays(-_retentionDays);
-        foreach (var file in Directory.EnumerateFiles(_directory, "*.jsonl"))
-        {
-            if (File.GetLastWriteTimeUtc(file) < cutoff)
-            {
-                TryDelete(file);
-            }
-        }
-
-        while (true)
-        {
-            var files = Directory.EnumerateFiles(_directory, "*.jsonl")
-                .Select(path => new FileInfo(path))
-                .Where(info => info.Exists)
-                .OrderBy(info => info.LastWriteTimeUtc)
-                .ToList();
-
-            var total = files.Sum(info => info.Length);
-            if (total <= _maxSizeBytes || files.Count == 0)
-            {
-                break;
-            }
-
-            TryDelete(files[0].FullName);
-        }
-    }
+    private void EnforceRetention() =>
+        WatchLocalLogRetention.Enforce(_directory, _retentionDays, _maxSizeBytes, _utcNow);
 
     internal static string? Sanitize(string? message)
     {
@@ -249,21 +218,5 @@ internal sealed class WatchConnectionEventJournal
         var cleaned = BearerToken.Replace(message, "Bearer [redacted]");
         cleaned = SharedSecretAssignment.Replace(cleaned, "SharedSecret=[redacted]");
         return cleaned;
-    }
-
-    private static void TryDelete(string path)
-    {
-        try
-        {
-            File.Delete(path);
-        }
-        catch (IOException)
-        {
-            // best-effort
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // best-effort
-        }
     }
 }

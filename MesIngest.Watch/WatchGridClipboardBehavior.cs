@@ -10,6 +10,13 @@ namespace MesIngest.Watch;
 /// </summary>
 internal static class WatchGridClipboardBehavior
 {
+    internal static readonly string[] ClipboardMenuHeaders =
+    [
+        "复制单元格",
+        "复制整行",
+        "复制整行（含列名）",
+    ];
+
     public static void Attach(DataGrid grid)
     {
         grid.SelectionUnit = DataGridSelectionUnit.CellOrRowHeader;
@@ -34,11 +41,29 @@ internal static class WatchGridClipboardBehavior
 
         grid.PreviewMouseRightButtonDown += (_, e) => SelectUnderMouse(grid, e);
 
-        var menu = new ContextMenu();
-        menu.Items.Add(CreateMenuItem("复制单元格", () => CopyCell(grid)));
-        menu.Items.Add(CreateMenuItem("复制整行", () => CopyRow(grid, includeHeaders: false)));
-        menu.Items.Add(CreateMenuItem("复制整行（含列名）", () => CopyRow(grid, includeHeaders: true)));
+        // Preserve XAML / caller menu items (e.g. 「查看详情」) then append clipboard actions.
+        var menu = grid.ContextMenu ?? new ContextMenu();
+        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[0], () => CopyCell(grid)));
+        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[1], () => CopyRow(grid, includeHeaders: false)));
+        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[2], () => CopyRow(grid, includeHeaders: true)));
         grid.ContextMenu = menu;
+    }
+
+    /// <summary>
+    /// Pure header projection for the context-menu composition seam
+    /// (preserved items + clipboard actions).
+    /// </summary>
+    internal static IReadOnlyList<string> ComposeContextMenuHeaders(
+        IReadOnlyList<string>? preservedHeaders)
+    {
+        var headers = new List<string>();
+        if (preservedHeaders is { Count: > 0 })
+        {
+            headers.AddRange(preservedHeaders);
+        }
+
+        headers.AddRange(ClipboardMenuHeaders);
+        return headers;
     }
 
     private static MenuItem CreateMenuItem(string header, Action action)

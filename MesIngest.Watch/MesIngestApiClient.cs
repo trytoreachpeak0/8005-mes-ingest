@@ -629,16 +629,23 @@ internal sealed class MesIngestApiClient
     {
         var resolvedStage = stage
             ?? (statusCode is >= 400 ? LatencyStages.HttpStatus : LatencyStages.HttpOk);
-        _telemetry.Record(new LatencyEvent(
-            CorrelationId: correlationId,
-            Component: LatencyComponents.Watch,
-            Stage: resolvedStage,
-            ElapsedMs: elapsedMs,
-            StatusCode: statusCode,
-            RowCount: rowCount,
-            Bytes: bytes,
-            Endpoint: endpoint,
-            Detail: detail));
+        try
+        {
+            _telemetry.Record(new LatencyEvent(
+                CorrelationId: correlationId,
+                Component: LatencyComponents.Watch,
+                Stage: resolvedStage,
+                ElapsedMs: elapsedMs,
+                StatusCode: statusCode,
+                RowCount: rowCount,
+                Bytes: bytes,
+                Endpoint: endpoint,
+                Detail: detail));
+        }
+        catch (Exception)
+        {
+            // Telemetry must never turn a completed Host fetch into a UI failure.
+        }
     }
 
     private static WatchEndpointFetchException Classify(string endpoint, TimeSpan elapsed, Exception ex)
