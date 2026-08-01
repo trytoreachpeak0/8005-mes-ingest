@@ -39,7 +39,10 @@ public sealed record MesSnapshotRow(
     string? Eqp,
     string? Step,
     DateTimeOffset Dates,
-    string? Package);
+    string? Package)
+{
+    internal TransportDemandKey Key => new(TaskType, Sublot);
+}
 
 public sealed class MesSnapshotOutcome
 {
@@ -95,6 +98,8 @@ public sealed record TransportDemand
     public string? LocationRiskCode { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset? GoneAt { get; init; }
+
+    internal TransportDemandKey Key => new(TaskType, Sublot);
 }
 
 public sealed record TaskTypePauseState(

@@ -31,7 +31,7 @@ public sealed class TransportDemandReconciler
         var isBarrierRound = restartRecovery.Phase == RestartRecoveryPhase.BarrierRound;
 
         var rowsByKey = snapshot.Rows
-            .GroupBy(r => new TransportDemandKey(r.TaskType, r.Sublot))
+            .GroupBy(r => r.Key)
             .ToDictionary(g => g.Key, g => g.ToList());
         var duplicateKeys = rowsByKey
             .Where(kv => kv.Value.Count > 1)
@@ -65,7 +65,7 @@ public sealed class TransportDemandReconciler
         var visibleKeys = new HashSet<TransportDemandKey>();
         var goneKeys = prior.Demands
             .Where(d => d.Status == DemandStatus.Gone)
-            .Select(d => new TransportDemandKey(d.TaskType, d.Sublot))
+            .Select(d => d.Key)
             .ToHashSet();
         var alerts = new List<IngestAlert>();
         var alertedDuplicateKeys = new HashSet<TransportDemandKey>();
@@ -97,7 +97,7 @@ public sealed class TransportDemandReconciler
                 continue;
             }
 
-            var key = new TransportDemandKey(demand.TaskType, demand.Sublot);
+            var key = demand.Key;
             visibleKeys.Add(key);
 
             if (duplicateKeys.Contains(key))
@@ -185,7 +185,7 @@ public sealed class TransportDemandReconciler
 
             var previousDemandId = prior.Demands
                 .Where(d => d.Status == DemandStatus.Gone
-                    && new TransportDemandKey(d.TaskType, d.Sublot) == key)
+                    && d.Key == key)
                 .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
                 .Select(d => d.DemandId)
                 .FirstOrDefault()
@@ -214,7 +214,7 @@ public sealed class TransportDemandReconciler
         IReadOnlyList<MesSnapshotRow> rows,
         DateTimeOffset goLiveBaseline) =>
         rows
-            .GroupBy(r => new TransportDemandKey(r.TaskType, r.Sublot))
+            .GroupBy(r => r.Key)
             .Where(g => g.Count() == 1)
             .Select(g => g.First())
             .Where(r => r.Dates >= goLiveBaseline)

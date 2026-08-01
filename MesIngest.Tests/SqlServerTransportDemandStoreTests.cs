@@ -105,6 +105,37 @@ public class SqlServerTransportDemandStoreTests
     }
 
     [SqlServerAvailabilityFact]
+    public void Gone_history_lookup_uses_ordinal_transport_demand_key_equality()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "gone-key-equality",
+                TaskType = "WIRE_TO_GATE",
+                Sublot = "Q-1",
+                Dates = now,
+                Status = DemandStatus.Gone,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+                GoneAt = now,
+            },
+        ]));
+
+        Assert.Equal(
+            "gone-key-equality",
+            store.GetLatestGoneDemandId(new TransportDemandKey("WIRE_TO_GATE", "Q-1")));
+        Assert.Null(store.GetLatestGoneDemandId(new TransportDemandKey("wire_to_gate", "Q-1")));
+        Assert.Null(store.GetLatestGoneDemandId(new TransportDemandKey("WIRE_TO_GATE", "q-1")));
+        Assert.Null(store.GetLatestGoneDemandId(new TransportDemandKey("WIRE_TO_GATE", "Q-1 ")));
+    }
+
+    [SqlServerAvailabilityFact]
     public void ReplaceState_appends_change_feed_in_same_transaction_for_created_and_gone()
     {
         var cs = SqlServerTestEnv.ConnectionString!;

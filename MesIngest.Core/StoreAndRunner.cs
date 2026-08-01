@@ -135,7 +135,7 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
             return _state.Demands
                 .Where(d =>
                     d.Status == DemandStatus.Gone
-                    && new TransportDemandKey(d.TaskType, d.Sublot) == key)
+                    && d.Key == key)
                 .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
                 .Select(d => d.DemandId)
                 .FirstOrDefault();

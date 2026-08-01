@@ -135,6 +135,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 FROM dbo.TransportDemands
                 WHERE TaskType = @TaskType
                   AND Sublot = @Sublot
+                  AND TaskType COLLATE Latin1_General_100_BIN2 = @TaskType COLLATE Latin1_General_100_BIN2
+                  AND Sublot COLLATE Latin1_General_100_BIN2 = @Sublot COLLATE Latin1_General_100_BIN2
+                  AND DATALENGTH(TaskType) = DATALENGTH(@TaskType)
+                  AND DATALENGTH(Sublot) = DATALENGTH(@Sublot)
                   AND Status = N'GONE'
                 ORDER BY COALESCE(GoneAt, CreatedAt) DESC;
                 """,
