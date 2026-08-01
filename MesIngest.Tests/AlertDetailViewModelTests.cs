@@ -136,8 +136,12 @@ public class AlertDetailViewModelTests
         var vm = AlertDetailViewModel.From(alert, Beijing);
 
         Assert.True(vm.HasReappearDemandTargets);
-        Assert.Equal("gone-demand-1", vm.PreviousDemandId);
-        Assert.Equal("visible-demand-2", vm.NewDemandId);
+        Assert.Equal(
+            new AlertDemandTarget("gone-demand-1", AlertDemandTargetKind.PreviousGone),
+            vm.ReappearTargets.Previous);
+        Assert.Equal(
+            new AlertDemandTarget("visible-demand-2", AlertDemandTargetKind.NewVisible),
+            vm.ReappearTargets.New);
     }
 
     [Fact]
@@ -149,7 +153,6 @@ public class AlertDetailViewModelTests
         var vm = AlertDetailViewModel.From(alert, Beijing);
 
         Assert.False(vm.HasReappearDemandTargets);
-        Assert.Null(vm.PreviousDemandId);
-        Assert.Null(vm.NewDemandId);
+        Assert.Equal(ReappearDemandTargets.Empty, vm.ReappearTargets);
     }
 }

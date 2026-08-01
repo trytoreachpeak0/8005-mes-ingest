@@ -5,13 +5,13 @@ namespace MesIngest.Watch;
 
 internal partial class AlertDetailWindow : Window
 {
-    private readonly Action<string>? _locateDemand;
+    private readonly Action<AlertDemandTarget>? _locateDemand;
     private readonly Action<string> _copyText;
     private AlertDetailViewModel _viewModel;
 
     public AlertDetailWindow(
         AlertDetailViewModel viewModel,
-        Action<string>? locateDemand = null,
+        Action<AlertDemandTarget>? locateDemand = null,
         Action<string>? copyText = null)
     {
         InitializeComponent();
@@ -81,13 +81,13 @@ internal partial class AlertDetailWindow : Window
         GenericDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Collapsed : Visibility.Visible;
         ReappearDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Visible : Visibility.Collapsed;
         ApplyDemandTarget(
-            _viewModel.PreviousDemandId,
+            _viewModel.ReappearTargets.Previous,
             PreviousDemandActionsPanel,
             PreviousDemandIdText,
             CopyPreviousDemandIdButton,
             LocatePreviousDemandButton);
         ApplyDemandTarget(
-            _viewModel.NewDemandId,
+            _viewModel.ReappearTargets.New,
             NewDemandActionsPanel,
             NewDemandIdText,
             CopyNewDemandIdButton,
@@ -119,15 +119,15 @@ internal partial class AlertDetailWindow : Window
     }
 
     private void ApplyDemandTarget(
-        string? demandId,
+        AlertDemandTarget? target,
         FrameworkElement panel,
         TextBlock text,
         Button copyButton,
         Button locateButton)
     {
-        var available = !string.IsNullOrWhiteSpace(demandId);
+        var available = target is not null;
         panel.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
-        text.Text = demandId ?? string.Empty;
+        text.Text = target?.DemandId ?? string.Empty;
         copyButton.IsEnabled = available;
         locateButton.IsEnabled = available && _locateDemand is not null;
     }
@@ -147,10 +147,10 @@ internal partial class AlertDetailWindow : Window
     }
 
     private void OnCopyPreviousDemandId(object sender, RoutedEventArgs e) =>
-        CopyDemandId(_viewModel.PreviousDemandId);
+        CopyDemandId(_viewModel.ReappearTargets.Previous?.DemandId);
 
     private void OnCopyNewDemandId(object sender, RoutedEventArgs e) =>
-        CopyDemandId(_viewModel.NewDemandId);
+        CopyDemandId(_viewModel.ReappearTargets.New?.DemandId);
 
     private void OnLocateDemand(object sender, RoutedEventArgs e)
     {
@@ -159,14 +159,14 @@ internal partial class AlertDetailWindow : Window
             return;
         }
 
-        _locateDemand(_viewModel.DemandId);
+        _locateDemand(new AlertDemandTarget(_viewModel.DemandId, AlertDemandTargetKind.Generic));
     }
 
     private void OnLocatePreviousDemand(object sender, RoutedEventArgs e) =>
-        LocateDemand(_viewModel.PreviousDemandId);
+        LocateDemand(_viewModel.ReappearTargets.Previous);
 
     private void OnLocateNewDemand(object sender, RoutedEventArgs e) =>
-        LocateDemand(_viewModel.NewDemandId);
+        LocateDemand(_viewModel.ReappearTargets.New);
 
     private void CopyDemandId(string? demandId)
     {
@@ -176,11 +176,11 @@ internal partial class AlertDetailWindow : Window
         }
     }
 
-    private void LocateDemand(string? demandId)
+    private void LocateDemand(AlertDemandTarget? target)
     {
-        if (!string.IsNullOrWhiteSpace(demandId) && _locateDemand is not null)
+        if (target is not null && _locateDemand is not null)
         {
-            _locateDemand(demandId);
+            _locateDemand(target);
         }
     }
 }

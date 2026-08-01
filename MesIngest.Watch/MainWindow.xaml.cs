@@ -475,7 +475,7 @@ internal partial class MainWindow : Window
         AlertDetailWindow? window = null;
         window = new AlertDetailWindow(
             AlertDetailViewModel.From(alert),
-            locateDemand: demandId => LocateDemandFromAlert(demandId, window));
+            locateDemand: target => LocateDemandFromAlert(target, window));
         window.Owner = this;
         window.Closed += (_, _) => UnregisterAlertDetail(window);
 
@@ -530,15 +530,16 @@ internal partial class MainWindow : Window
         }
     }
 
-    private async void LocateDemandFromAlert(string demandId, AlertDetailWindow? window)
+    private async void LocateDemandFromAlert(AlertDemandTarget target, AlertDetailWindow? window)
     {
+        var demandId = target.DemandId;
         window?.SetLocateHint(null);
         try
         {
             var found = await _client.FetchDemandByIdAsync(demandId).ConfigureAwait(true);
             if (found is null)
             {
-                var missing = AlertDemandLocateHints.NotFound(demandId);
+                var missing = AlertDemandLocateHints.NotFound(target);
                 window?.SetLocateHint(missing);
                 MessageBox.Show(this, missing, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
@@ -560,7 +561,7 @@ internal partial class MainWindow : Window
                 return;
             }
 
-            var hint = AlertDemandLocateHints.OutsideCurrentBrowse(found.DemandId, found.Status);
+            var hint = AlertDemandLocateHints.OutsideCurrentBrowse(target, found.Status);
             window?.SetLocateHint(hint);
             MessageBox.Show(this, hint, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
         }

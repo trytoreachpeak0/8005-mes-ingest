@@ -20,7 +20,7 @@ public class AlertDetailWindowActionTests
             try
             {
                 var copied = new List<string>();
-                var located = new List<string>();
+                var located = new List<AlertDemandTarget>();
                 var alert = new WatchAlertDto(
                     AlertId: "reappear-1",
                     Code: "REAPPEAR_AFTER_GONE",
@@ -62,7 +62,21 @@ public class AlertDetailWindowActionTests
                 Assert.Equal("new-visible-id", copied[1]);
                 Assert.Contains("AlertId=reappear-1", copied[2], StringComparison.Ordinal);
                 Assert.Equal(alert.Details, copied[3]);
-                Assert.Equal(["previous-gone-id", "new-visible-id"], located);
+                Assert.Equal(
+                    [
+                        new AlertDemandTarget("previous-gone-id", AlertDemandTargetKind.PreviousGone),
+                        new AlertDemandTarget("new-visible-id", AlertDemandTargetKind.NewVisible),
+                    ],
+                    located);
+
+                var historicalHint = AlertDemandLocateHints.OutsideCurrentBrowse(located[0], "GONE");
+                window.SetLocateHint(historicalHint);
+                var hintText = (TextBlock)window.FindName("LocateHintText");
+                Assert.Equal(Visibility.Visible, hintText.Visibility);
+                Assert.Equal(historicalHint, hintText.Text);
+
+                window.SetLocateHint(null);
+                Assert.Equal(Visibility.Collapsed, hintText.Visibility);
                 window.Close();
             }
             catch (Exception ex)

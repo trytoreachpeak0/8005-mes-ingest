@@ -206,6 +206,24 @@ internal enum UnifiedEventSourceFilter
 /// <summary>
 /// View-model for a non-modal Host IngestAlert detail window.
 /// </summary>
+internal enum AlertDemandTargetKind
+{
+    Generic,
+    PreviousGone,
+    NewVisible,
+}
+
+internal sealed record AlertDemandTarget(string DemandId, AlertDemandTargetKind Kind);
+
+internal sealed record ReappearDemandTargets(
+    AlertDemandTarget? Previous,
+    AlertDemandTarget? New)
+{
+    public static ReappearDemandTargets Empty { get; } = new(null, null);
+
+    public bool HasAny => Previous is not null || New is not null;
+}
+
 internal sealed record AlertDetailViewModel(
     string? AlertId,
     string Code,
@@ -216,8 +234,7 @@ internal sealed record AlertDetailViewModel(
     string? TaskType,
     string? Sublot,
     string? DemandId,
-    string? PreviousDemandId,
-    string? NewDemandId,
+    ReappearDemandTargets ReappearTargets,
     string? Message,
     string FirstSeenAtText,
     string LastSeenAtText,
@@ -235,15 +252,13 @@ internal sealed record AlertDetailViewModel(
         _ => Source.ToString(),
     };
 
-    public bool HasReappearDemandTargets =>
-        string.Equals(Code, "REAPPEAR_AFTER_GONE", StringComparison.Ordinal)
-        && (!string.IsNullOrWhiteSpace(PreviousDemandId) || !string.IsNullOrWhiteSpace(NewDemandId));
+    public bool HasReappearDemandTargets => ReappearTargets.HasAny;
 
     public static AlertDetailViewModel From(WatchAlertDto alert, TimeZoneInfo? timeZone = null)
     {
         var zone = timeZone ?? TimeZoneInfo.Local;
         var projection = AlertDetailsProjection.From(alert.Code, alert.Details);
-        var (previousDemandId, newDemandId) = ResolveReappearDemandIds(alert, projection);
+        var reappearTargets = ResolveReappearDemandTargets(alert, projection);
         return new AlertDetailViewModel(
             AlertId: alert.AlertId,
             Code: alert.Code,
@@ -254,8 +269,7 @@ internal sealed record AlertDetailViewModel(
             TaskType: alert.TaskType,
             Sublot: alert.Sublot,
             DemandId: alert.DemandId,
-            PreviousDemandId: previousDemandId,
-            NewDemandId: newDemandId,
+            ReappearTargets: reappearTargets,
             Message: alert.Message,
             FirstSeenAtText: WatchTimeDisplay.FormatNullable(alert.FirstSeenAt ?? alert.CreatedAt, zone),
             LastSeenAtText: WatchTimeDisplay.FormatNullable(alert.LastSeenAt ?? alert.CreatedAt, zone),
@@ -267,18 +281,24 @@ internal sealed record AlertDetailViewModel(
             SnapshotStatusText: "live");
     }
 
-    private static (string? PreviousDemandId, string? NewDemandId) ResolveReappearDemandIds(
+    private static ReappearDemandTargets ResolveReappearDemandTargets(
         WatchAlertDto alert,
         AlertDetailsProjection projection)
     {
         if (!string.Equals(alert.Code, "REAPPEAR_AFTER_GONE", StringComparison.Ordinal))
         {
-            return (null, null);
+            return ReappearDemandTargets.Empty;
         }
 
         var previousDemandId = ReadDemandId(projection, "previousDemandId");
         var newDemandId = ReadDemandId(projection, "newDemandId") ?? NormalizeDemandId(alert.DemandId);
-        return (previousDemandId, newDemandId);
+        return new ReappearDemandTargets(
+            Previous: previousDemandId is null
+                ? null
+                : new AlertDemandTarget(previousDemandId, AlertDemandTargetKind.PreviousGone),
+            New: newDemandId is null
+                ? null
+                : new AlertDemandTarget(newDemandId, AlertDemandTargetKind.NewVisible));
     }
 
     private static string? ReadDemandId(AlertDetailsProjection projection, string key) =>
