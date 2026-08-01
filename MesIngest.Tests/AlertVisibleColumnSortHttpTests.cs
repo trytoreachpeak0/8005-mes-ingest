@@ -179,10 +179,10 @@ public class AlertVisibleColumnSortHttpTests : IClassFixture<WebApplicationFacto
         public ProjectionState GetState() => _otherState.GetState();
         public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null) =>
             _otherState.ReplaceState(state, alerts);
-        public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
-            _otherState.HasGoneTransportDemandKey(taskType, sublot);
-        public string? GetLatestGoneDemandId(string taskType, string sublot) =>
-            _otherState.GetLatestGoneDemandId(taskType, sublot);
+        public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
+            _otherState.HasGoneTransportDemandKey(key);
+        public string? GetLatestGoneDemandId(TransportDemandKey key) =>
+            _otherState.GetLatestGoneDemandId(key);
         public TransportDemand? GetById(string demandId) => _otherState.GetById(demandId);
         public IReadOnlyList<TransportDemand> List(
             DemandStatus? status = null,

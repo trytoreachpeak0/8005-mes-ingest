@@ -119,13 +119,12 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         }
     }
 
-    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
-        GetLatestGoneDemandId(taskType, sublot) is not null;
+    public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
+        GetLatestGoneDemandId(key) is not null;
 
-    public string? GetLatestGoneDemandId(string taskType, string sublot)
+    public string? GetLatestGoneDemandId(TransportDemandKey key)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(taskType);
-        ArgumentException.ThrowIfNullOrWhiteSpace(sublot);
+        ArgumentNullException.ThrowIfNull(key);
 
         lock (_gate)
         {
@@ -140,8 +139,8 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 ORDER BY COALESCE(GoneAt, CreatedAt) DESC;
                 """,
                 conn);
-            cmd.Parameters.AddWithValue("@TaskType", taskType);
-            cmd.Parameters.AddWithValue("@Sublot", sublot);
+            cmd.Parameters.AddWithValue("@TaskType", key.TaskType);
+            cmd.Parameters.AddWithValue("@Sublot", key.Sublot);
             return cmd.ExecuteScalar() as string;
         }
     }

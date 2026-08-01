@@ -32,13 +32,13 @@ public interface ITransportDemandStore
     /// Indexed existence check for reappear detection without loading all GONE rows.
     /// Key is TransportDemandKey (TASK_TYPE + SUBLOT).
     /// </summary>
-    bool HasGoneTransportDemandKey(string taskType, string sublot);
+    bool HasGoneTransportDemandKey(TransportDemandKey key);
 
     /// <summary>
     /// Latest GONE DemandId for a TransportDemandKey, without loading the full GONE history.
     /// Used to populate REAPPEAR_AFTER_GONE alert details when hot GetState() excludes GONE.
     /// </summary>
-    string? GetLatestGoneDemandId(string taskType, string sublot);
+    string? GetLatestGoneDemandId(TransportDemandKey key);
 
     TransportDemand? GetById(string demandId);
     IReadOnlyList<TransportDemand> List(
@@ -124,18 +124,18 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         }
     }
 
-    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
-        GetLatestGoneDemandId(taskType, sublot) is not null;
+    public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
+        GetLatestGoneDemandId(key) is not null;
 
-    public string? GetLatestGoneDemandId(string taskType, string sublot)
+    public string? GetLatestGoneDemandId(TransportDemandKey key)
     {
+        ArgumentNullException.ThrowIfNull(key);
         lock (_gate)
         {
             return _state.Demands
                 .Where(d =>
                     d.Status == DemandStatus.Gone
-                    && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
-                    && string.Equals(d.Sublot, sublot, StringComparison.Ordinal))
+                    && new TransportDemandKey(d.TaskType, d.Sublot) == key)
                 .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
                 .Select(d => d.DemandId)
                 .FirstOrDefault();

@@ -96,7 +96,8 @@ public class SchemaUpgradeTests
             var store = new SqlServerTransportDemandStore(cs);
             Assert.Equal("keep-me-visible", store.GetById("keep-me-visible")?.DemandId);
             Assert.Equal("keep-me-gone", store.GetById("keep-me-gone")?.DemandId);
-            Assert.True(store.HasGoneTransportDemandKey("DIE_TO_OVEN", "Q-GONE-P1"));
+            Assert.True(store.HasGoneTransportDemandKey(
+                new TransportDemandKey("DIE_TO_OVEN", "Q-GONE-P1")));
         }
         finally
         {

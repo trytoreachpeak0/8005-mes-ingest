@@ -213,16 +213,16 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
             rows: n => n,
             alsoWrite: true);
 
-    public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
+    public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
         Measure(
             LatencyStages.SqlQuery,
-            () => _inner.HasGoneTransportDemandKey(taskType, sublot),
+            () => _inner.HasGoneTransportDemandKey(key),
             rows: found => found ? 1 : 0);
 
-    public string? GetLatestGoneDemandId(string taskType, string sublot) =>
+    public string? GetLatestGoneDemandId(TransportDemandKey key) =>
         Measure(
             LatencyStages.SqlQuery,
-            () => _inner.GetLatestGoneDemandId(taskType, sublot),
+            () => _inner.GetLatestGoneDemandId(key),
             rows: id => id is null ? 0 : 1);
 
     public TransportDemand? GetById(string demandId) =>

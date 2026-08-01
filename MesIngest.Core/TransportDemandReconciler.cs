@@ -20,7 +20,7 @@ public sealed class TransportDemandReconciler
         int zeroDropEnterThreshold = 10,
         int zeroDropClearStreak = DefaultZeroDropClearStreak,
         RestartRecovery? restartRecovery = null,
-        Func<string, string, string?>? getLatestGoneDemandId = null)
+        Func<TransportDemandKey, string?>? getLatestGoneDemandId = null)
     {
         if (snapshot.Kind != SnapshotOutcomeKind.Success)
         {
@@ -31,7 +31,7 @@ public sealed class TransportDemandReconciler
         var isBarrierRound = restartRecovery.Phase == RestartRecoveryPhase.BarrierRound;
 
         var rowsByKey = snapshot.Rows
-            .GroupBy(r => (r.TaskType, r.Sublot))
+            .GroupBy(r => new TransportDemandKey(r.TaskType, r.Sublot))
             .ToDictionary(g => g.Key, g => g.ToList());
         var duplicateKeys = rowsByKey
             .Where(kv => kv.Value.Count > 1)
@@ -62,13 +62,13 @@ public sealed class TransportDemandReconciler
             .ToHashSet(StringComparer.Ordinal);
 
         var next = new List<TransportDemand>();
-        var visibleKeys = new HashSet<(string TaskType, string Sublot)>();
+        var visibleKeys = new HashSet<TransportDemandKey>();
         var goneKeys = prior.Demands
             .Where(d => d.Status == DemandStatus.Gone)
-            .Select(d => (d.TaskType, d.Sublot))
+            .Select(d => new TransportDemandKey(d.TaskType, d.Sublot))
             .ToHashSet();
         var alerts = new List<IngestAlert>();
-        var alertedDuplicateKeys = new HashSet<(string TaskType, string Sublot)>();
+        var alertedDuplicateKeys = new HashSet<TransportDemandKey>();
 
         foreach (var pause in nextPauses.Where(p => p.PausedZeroDrop).OrderBy(p => p.TaskType, StringComparer.Ordinal))
         {
@@ -97,7 +97,7 @@ public sealed class TransportDemandReconciler
                 continue;
             }
 
-            var key = (demand.TaskType, demand.Sublot);
+            var key = new TransportDemandKey(demand.TaskType, demand.Sublot);
             visibleKeys.Add(key);
 
             if (duplicateKeys.Contains(key))
@@ -185,12 +185,11 @@ public sealed class TransportDemandReconciler
 
             var previousDemandId = prior.Demands
                 .Where(d => d.Status == DemandStatus.Gone
-                    && string.Equals(d.TaskType, row.TaskType, StringComparison.Ordinal)
-                    && string.Equals(d.Sublot, row.Sublot, StringComparison.Ordinal))
+                    && new TransportDemandKey(d.TaskType, d.Sublot) == key)
                 .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
                 .Select(d => d.DemandId)
                 .FirstOrDefault()
-                ?? getLatestGoneDemandId?.Invoke(row.TaskType, row.Sublot);
+                ?? getLatestGoneDemandId?.Invoke(key);
             var reappeared = previousDemandId is not null || goneKeys.Contains(key);
             if (reappeared)
             {
@@ -215,7 +214,7 @@ public sealed class TransportDemandReconciler
         IReadOnlyList<MesSnapshotRow> rows,
         DateTimeOffset goLiveBaseline) =>
         rows
-            .GroupBy(r => (r.TaskType, r.Sublot))
+            .GroupBy(r => new TransportDemandKey(r.TaskType, r.Sublot))
             .Where(g => g.Count() == 1)
             .Select(g => g.First())
             .Where(r => r.Dates >= goLiveBaseline)
@@ -340,8 +339,8 @@ public sealed class TransportDemandReconciler
 
     private static void TryAddDuplicateAlert(
         List<IngestAlert> alerts,
-        HashSet<(string TaskType, string Sublot)> alertedDuplicateKeys,
-        (string TaskType, string Sublot) key,
+        HashSet<TransportDemandKey> alertedDuplicateKeys,
+        TransportDemandKey key,
         string? demandId,
         IReadOnlyList<MesSnapshotRow> rows)
     {

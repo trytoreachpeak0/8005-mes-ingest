@@ -13,6 +13,25 @@ public enum SnapshotOutcomeKind
     Incomplete,
 }
 
+/// <summary>
+/// Business identity of a transport demand. Components are compared ordinally and
+/// case-sensitively; non-blank values are preserved without normalization.
+/// </summary>
+public sealed record TransportDemandKey
+{
+    public TransportDemandKey(string taskType, string sublot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(taskType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sublot);
+
+        TaskType = taskType;
+        Sublot = sublot;
+    }
+
+    public string TaskType { get; }
+    public string Sublot { get; }
+}
+
 public sealed record MesSnapshotRow(
     string TaskType,
     string Sublot,

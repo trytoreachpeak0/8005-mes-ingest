@@ -83,7 +83,9 @@ public class IngestRoundRunnerTests
 
         // Hot GetState() excludes GONE; runner must resolve previous id via store lookup.
         Assert.Empty(store.GetState().Demands);
-        Assert.Equal("old-gone", store.GetLatestGoneDemandId("WIRE_TO_GATE", "Q1"));
+        Assert.Equal(
+            "old-gone",
+            store.GetLatestGoneDemandId(new TransportDemandKey("WIRE_TO_GATE", "Q1")));
 
         var row = new MesSnapshotRow(
             "WIRE_TO_GATE",
@@ -658,11 +660,11 @@ public class IngestRoundRunnerTests
             _inner.ReplaceState(state, alerts);
         }
 
-        public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
-            _inner.HasGoneTransportDemandKey(taskType, sublot);
+        public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
+            _inner.HasGoneTransportDemandKey(key);
 
-        public string? GetLatestGoneDemandId(string taskType, string sublot) =>
-            _inner.GetLatestGoneDemandId(taskType, sublot);
+        public string? GetLatestGoneDemandId(TransportDemandKey key) =>
+            _inner.GetLatestGoneDemandId(key);
 
         public TransportDemand? GetById(string demandId) => _inner.GetById(demandId);
 

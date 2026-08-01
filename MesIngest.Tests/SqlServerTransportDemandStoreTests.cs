@@ -86,12 +86,12 @@ public class SqlServerTransportDemandStoreTests
         Assert.Null(gone.Area);
         Assert.Equal(now.AddHours(-3), gone.CreatedAt);
         Assert.Equal(now.AddMinutes(-15), gone.GoneAt);
-        Assert.True(reader.HasGoneTransportDemandKey("DIE_TO_OVEN", "Q-GONE"));
+        Assert.True(reader.HasGoneTransportDemandKey(new TransportDemandKey("DIE_TO_OVEN", "Q-GONE")));
         Assert.Equal(
             Assert.Single(reader.List(DemandStatus.Gone, taskType: "DIE_TO_OVEN", sublot: "Q-GONE")).DemandId,
-            reader.GetLatestGoneDemandId("DIE_TO_OVEN", "Q-GONE"));
-        Assert.False(reader.HasGoneTransportDemandKey("DIE_TO_WIRE_STAGING", "Q-VIS"));
-        Assert.Null(reader.GetLatestGoneDemandId("DIE_TO_WIRE_STAGING", "Q-VIS"));
+            reader.GetLatestGoneDemandId(new TransportDemandKey("DIE_TO_OVEN", "Q-GONE")));
+        Assert.False(reader.HasGoneTransportDemandKey(new TransportDemandKey("DIE_TO_WIRE_STAGING", "Q-VIS")));
+        Assert.Null(reader.GetLatestGoneDemandId(new TransportDemandKey("DIE_TO_WIRE_STAGING", "Q-VIS")));
 
         var pause = Assert.Single(reloaded.TaskTypePauses);
         Assert.Equal("DIE_TO_OVEN", pause.TaskType);

@@ -118,6 +118,38 @@ public class TransportDemandReconcilerTests
     }
 
     [Fact]
+    public void Same_sublot_with_different_task_types_creates_independent_demands()
+    {
+        var rows = new[]
+        {
+            Row("WIRE_TO_GATE", "Q-SHARED", "N01-01", "EQ1", "关卡", Baseline.AddHours(1), "PKG"),
+            Row("WIRE_TO_NITROGEN", "Q-SHARED", "N02-02", "EQ2", "入库", Baseline.AddHours(2), "PKG"),
+        };
+        var reconciler = new TransportDemandReconciler(
+            new SequentialDemandIdAllocator("gate-id", "nitrogen-id"));
+
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success(rows),
+            Now,
+            Baseline);
+
+        Assert.Collection(
+            result.State.Demands.OrderBy(d => d.TaskType, StringComparer.Ordinal),
+            demand =>
+            {
+                Assert.Equal("gate-id", demand.DemandId);
+                Assert.Equal("WIRE_TO_GATE", demand.TaskType);
+            },
+            demand =>
+            {
+                Assert.Equal("nitrogen-id", demand.DemandId);
+                Assert.Equal("WIRE_TO_NITROGEN", demand.TaskType);
+            });
+        Assert.DoesNotContain(result.Alerts, alert => alert.Code == AlertCodes.DuplicateReconcileKey);
+    }
+
+    [Fact]
     public void Package_is_frozen_even_when_unmatched_in_capacity_table()
     {
         var row = Row(
@@ -501,8 +533,8 @@ public class TransportDemandReconcilerTests
             MesSnapshotOutcome.Success([reappeared]),
             Now.AddMinutes(10),
             Baseline,
-            getLatestGoneDemandId: (taskType, sublot) =>
-                taskType == "STAGING_TO_WIRE" && sublot == "Q400-1" ? "hist-gone" : null);
+            getLatestGoneDemandId: key =>
+                key == new TransportDemandKey("STAGING_TO_WIRE", "Q400-1") ? "hist-gone" : null);
 
         var alert = Assert.Single(result.Alerts);
         Assert.Equal("REAPPEAR_AFTER_GONE", alert.Code);
@@ -528,7 +560,7 @@ public class TransportDemandReconcilerTests
             MesSnapshotOutcome.Success([row]),
             Now,
             Baseline,
-            getLatestGoneDemandId: (_, _) => null);
+            getLatestGoneDemandId: _ => null);
 
         Assert.DoesNotContain(result.Alerts, a => a.Code == "REAPPEAR_AFTER_GONE");
         Assert.Equal("fresh", Assert.Single(result.State.Demands).DemandId);
