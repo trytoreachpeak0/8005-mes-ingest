@@ -498,62 +498,30 @@ public static class DemandListPaging
         SortDirection direction,
         DemandListCursor.CursorPayload cursor)
     {
-        var cmp = sortBy switch
+        // DemandId is always the ascending tie-break (see ApplySort / SQL ORDER BY).
+        // Desc flips only the primary column — never the DemandId secondary key.
+        if (sortBy == DemandSortColumn.DemandId)
         {
-            DemandSortColumn.Dates => CompareOffset(demand.Dates, cursor.Dates ?? default, demand.DemandId, cursor.DemandId),
-            DemandSortColumn.GoneAt => CompareOffset(
-                demand.GoneAt ?? DateTimeOffset.MinValue,
-                cursor.GoneAt ?? DateTimeOffset.MinValue,
-                demand.DemandId,
-                cursor.DemandId),
-            DemandSortColumn.CreatedAt => CompareOffset(
-                demand.CreatedAt,
-                cursor.CreatedAt ?? default,
-                demand.DemandId,
-                cursor.DemandId),
-            DemandSortColumn.MesLastSeenAt => CompareOffset(
-                demand.MesLastSeenAt,
-                cursor.MesLastSeenAt ?? default,
-                demand.DemandId,
-                cursor.DemandId),
-            DemandSortColumn.TaskType => CompareString(
-                demand.TaskType,
-                cursor.TaskType ?? "",
-                demand.DemandId,
-                cursor.DemandId),
-            DemandSortColumn.Sublot => CompareString(
-                demand.Sublot,
-                cursor.Sublot ?? "",
-                demand.DemandId,
-                cursor.DemandId),
-            DemandSortColumn.DemandId => string.Compare(demand.DemandId, cursor.DemandId, StringComparison.Ordinal),
-            _ => CompareOffset(demand.Dates, cursor.Dates ?? default, demand.DemandId, cursor.DemandId),
+            var idCmp = string.Compare(demand.DemandId, cursor.DemandId, StringComparison.Ordinal);
+            return direction == SortDirection.Asc ? idCmp > 0 : idCmp < 0;
+        }
+
+        var primary = sortBy switch
+        {
+            DemandSortColumn.GoneAt => (demand.GoneAt ?? DateTimeOffset.MinValue)
+                .CompareTo(cursor.GoneAt ?? DateTimeOffset.MinValue),
+            DemandSortColumn.CreatedAt => demand.CreatedAt.CompareTo(cursor.CreatedAt ?? default),
+            DemandSortColumn.MesLastSeenAt => demand.MesLastSeenAt.CompareTo(cursor.MesLastSeenAt ?? default),
+            DemandSortColumn.TaskType => string.Compare(demand.TaskType, cursor.TaskType ?? "", StringComparison.Ordinal),
+            DemandSortColumn.Sublot => string.Compare(demand.Sublot, cursor.Sublot ?? "", StringComparison.Ordinal),
+            _ => demand.Dates.CompareTo(cursor.Dates ?? default),
         };
 
-        return direction == SortDirection.Asc ? cmp > 0 : cmp < 0;
-    }
+        if (primary != 0)
+        {
+            return direction == SortDirection.Asc ? primary > 0 : primary < 0;
+        }
 
-    private static int CompareOffset(
-        DateTimeOffset value,
-        DateTimeOffset cursorValue,
-        string demandId,
-        string cursorDemandId)
-    {
-        var primary = value.CompareTo(cursorValue);
-        return primary != 0
-            ? primary
-            : string.Compare(demandId, cursorDemandId, StringComparison.Ordinal);
-    }
-
-    private static int CompareString(
-        string value,
-        string cursorValue,
-        string demandId,
-        string cursorDemandId)
-    {
-        var primary = string.Compare(value, cursorValue, StringComparison.Ordinal);
-        return primary != 0
-            ? primary
-            : string.Compare(demandId, cursorDemandId, StringComparison.Ordinal);
+        return string.Compare(demand.DemandId, cursor.DemandId, StringComparison.Ordinal) > 0;
     }
 }

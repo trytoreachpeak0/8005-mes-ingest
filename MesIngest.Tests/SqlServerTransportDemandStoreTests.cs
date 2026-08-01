@@ -824,6 +824,124 @@ public class SqlServerTransportDemandStoreTests
             new[] { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
             second.Items.Select(d => d.DemandId).ToArray());
     }
+
+    [SqlServerAvailabilityFact]
+    public void Query_page_desc_with_tied_primary_values_has_no_gap_or_dup()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+        [
+            SqlDemand("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", now),
+            SqlDemand("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now),
+            SqlDemand("cccccccccccccccccccccccccccccccc", now),
+            SqlDemand("dddddddddddddddddddddddddddddddd", now),
+            SqlDemand("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", now),
+        ]));
+
+        var collected = new List<string>();
+        string? cursor = null;
+        for (var pages = 0; pages < 10; pages++)
+        {
+            var page = store.QueryPage(new DemandListQuery
+            {
+                Status = DemandStatus.Visible,
+                SortBy = DemandSortColumn.Dates,
+                Direction = SortDirection.Desc,
+                Limit = 2,
+                Cursor = cursor,
+                AsOf = now,
+            });
+            collected.AddRange(page.Items.Select(d => d.DemandId));
+            if (!page.HasMore)
+            {
+                break;
+            }
+
+            cursor = page.NextCursor;
+        }
+
+        Assert.Equal(
+            new[]
+            {
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "cccccccccccccccccccccccccccccccc",
+                "dddddddddddddddddddddddddddddddd",
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            },
+            collected);
+        Assert.Equal(collected.Count, collected.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [SqlServerAvailabilityFact]
+    public void Query_page_desc_page_boundary_inside_tie_group_has_no_gap_or_dup()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var earlier = now.AddHours(-1);
+        var later = now.AddHours(1);
+        var store = new SqlServerTransportDemandStore(cs);
+        store.ReplaceState(new ProjectionState(
+        [
+            SqlDemand("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", earlier),
+            SqlDemand("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", now),
+            SqlDemand("cccccccccccccccccccccccccccccccc", now),
+            SqlDemand("dddddddddddddddddddddddddddddddd", now),
+            SqlDemand("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", later),
+        ]));
+
+        var collected = new List<string>();
+        string? cursor = null;
+        for (var pages = 0; pages < 10; pages++)
+        {
+            var page = store.QueryPage(new DemandListQuery
+            {
+                Status = DemandStatus.Visible,
+                SortBy = DemandSortColumn.Dates,
+                Direction = SortDirection.Desc,
+                Limit = 2,
+                Cursor = cursor,
+                AsOf = now,
+            });
+            collected.AddRange(page.Items.Select(d => d.DemandId));
+            if (!page.HasMore)
+            {
+                break;
+            }
+
+            cursor = page.NextCursor;
+        }
+
+        Assert.Equal(
+            new[]
+            {
+                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "cccccccccccccccccccccccccccccccc",
+                "dddddddddddddddddddddddddddddddd",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
+            collected);
+        Assert.Equal(collected.Count, collected.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    private static TransportDemand SqlDemand(string id, DateTimeOffset dates) =>
+        new()
+        {
+            DemandId = id,
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "Q1",
+            Dates = dates,
+            Status = DemandStatus.Visible,
+            MesLastSeenAt = dates,
+            CreatedAt = dates,
+        };
 }
 
 internal static class SqlServerTestEnv

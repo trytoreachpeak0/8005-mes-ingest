@@ -49,6 +49,47 @@ public class PaginatedDemandApiTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
+    public async Task List_default_dates_desc_pages_through_tied_primary_values_without_gap_or_dup()
+    {
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            Demand("id-00", DemandStatus.Visible, now, "DIE_TO_OVEN", "Q0"),
+            Demand("id-01", DemandStatus.Visible, now, "DIE_TO_OVEN", "Q1"),
+            Demand("id-02", DemandStatus.Visible, now, "DIE_TO_OVEN", "Q2"),
+            Demand("id-03", DemandStatus.Visible, now, "DIE_TO_OVEN", "Q3"),
+            Demand("id-04", DemandStatus.Visible, now, "DIE_TO_OVEN", "Q4"),
+        ]));
+
+        await using var factory = await CreateFactoryAsync(store);
+        var client = factory.CreateClient();
+
+        var collected = new List<string>();
+        string? cursor = null;
+        for (var pages = 0; pages < 10; pages++)
+        {
+            var url = cursor is null
+                ? "/api/demands?limit=2"
+                : $"/api/demands?limit=2&cursor={Uri.EscapeDataString(cursor)}";
+            var page = await client.GetFromJsonAsync<JsonElement>(url);
+            collected.AddRange(page.GetProperty("items").EnumerateArray()
+                .Select(d => d.GetProperty("demandId").GetString()!));
+            if (!page.GetProperty("hasMore").GetBoolean())
+            {
+                Assert.Equal(JsonValueKind.Null, page.GetProperty("nextCursor").ValueKind);
+                break;
+            }
+
+            cursor = page.GetProperty("nextCursor").GetString();
+            Assert.False(string.IsNullOrWhiteSpace(cursor));
+        }
+
+        Assert.Equal(new[] { "id-00", "id-01", "id-02", "id-03", "id-04" }, collected);
+        Assert.Equal(collected.Count, collected.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Fact]
     public async Task List_enforces_page_size_hard_cap_and_paginates_without_dup_or_gap()
     {
         var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
