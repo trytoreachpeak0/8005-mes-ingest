@@ -816,6 +816,68 @@ public class TransportDemandReconcilerTests
     }
 
     [Fact]
+    public void Zero_drop_does_not_count_key_duplicated_across_pre_and_post_baseline()
+    {
+        // Create path treats TASK_TYPE+SUBLOT uniqueness on the full snapshot first;
+        // a pre-baseline sibling still blocks projection of the post-baseline row.
+        var rows = new List<MesSnapshotRow>
+        {
+            Row("DIE_TO_OVEN", "SAME-KEY", "N01-01", "EQ1", "烘箱", Baseline.AddDays(-1), "PKG"),
+            Row("DIE_TO_OVEN", "SAME-KEY", "N01-01", "EQ1", "烘箱", Baseline.AddHours(1), "PKG"),
+        };
+        // Pad with enough post-baseline unique rows that a wrong filter would clear threshold.
+        rows.AddRange(Enumerable.Range(1, 10).Select(i => Row(
+            "DIE_TO_OVEN",
+            $"Q-{i}",
+            "N01-01",
+            "EQ1",
+            "烘箱",
+            Baseline.AddHours(1),
+            "PKG")));
+
+        var reconciler = new TransportDemandReconciler(
+            new SequentialDemandIdAllocator(Enumerable.Range(1, 10).Select(i => $"d{i}").ToArray()));
+        var after = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success(rows),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10);
+
+        Assert.Equal(10, after.State.Demands.Count);
+        Assert.Equal(10, Assert.Single(after.State.TaskTypePauses).LastHealthyNonZeroCount);
+        Assert.DoesNotContain(after.State.Demands, d => d.Sublot == "SAME-KEY");
+    }
+
+    [Fact]
+    public void Zero_drop_does_not_raise_healthy_count_from_post_baseline_duplicate_keys_only()
+    {
+        var postBaselineDuplicates = Enumerable.Range(1, 12)
+            .Select(_ => Row(
+                "DIE_TO_OVEN",
+                "SAME-KEY",
+                "N01-01",
+                "EQ1",
+                "烘箱",
+                Baseline.AddHours(1),
+                "PKG"))
+            .ToList();
+
+        var reconciler = new TransportDemandReconciler(new SequentialDemandIdAllocator());
+        var result = reconciler.Reconcile(
+            ProjectionState.Empty,
+            MesSnapshotOutcome.Success(postBaselineDuplicates),
+            Now,
+            Baseline,
+            zeroDropEnterThreshold: 10);
+
+        Assert.Empty(result.State.Demands);
+        Assert.DoesNotContain(result.State.TaskTypePauses, p => p.LastHealthyNonZeroCount > 0);
+        Assert.DoesNotContain(result.Alerts, a => a.Code == "PAUSED_ZERO_DROP");
+        Assert.Contains(result.Alerts, a => a.Code == "DUPLICATE_RECONCILE_KEY");
+    }
+
+    [Fact]
     public void Zero_drop_does_not_raise_healthy_count_from_pre_baseline_rows_or_duplicates()
     {
         var preBaselineDuplicates = Enumerable.Range(1, 12)

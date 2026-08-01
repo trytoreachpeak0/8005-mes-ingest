@@ -55,6 +55,121 @@ public class IngestRoundRunnerTests
     }
 
     [Fact]
+    public async Task Restart_barrier_valid_post_baseline_rows_still_seed_pause_when_next_round_empty()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        var validRows = Enumerable.Range(1, 10)
+            .Select(i => new MesSnapshotRow(
+                "DIE_TO_OVEN",
+                $"Q-{i}",
+                "N01-01",
+                "EQ1",
+                "烘箱",
+                Baseline.AddHours(1),
+                "PKG"))
+            .ToList();
+
+        var source = new QueueMesSnapshotSource(
+            MesSnapshotOutcome.Success(validRows),
+            MesSnapshotOutcome.Success([]));
+        var runner = new IngestRoundRunner(
+            source,
+            new TransportDemandReconciler(new SequentialDemandIdAllocator(
+                Enumerable.Range(1, 10).Select(i => $"d{i}").ToArray())),
+            store,
+            Baseline,
+            zeroDropEnterThreshold: 10,
+            clock: () => now);
+
+        await runner.RunOnceAsync();
+        Assert.Equal(10, store.List().Count);
+        Assert.Equal(10, Assert.Single(store.GetState().TaskTypePauses).LastHealthyNonZeroCount);
+        Assert.False(Assert.Single(store.GetState().TaskTypePauses).PausedZeroDrop);
+
+        await runner.RunOnceAsync();
+        Assert.True(Assert.Single(store.GetState().TaskTypePauses).PausedZeroDrop);
+        Assert.Equal(10, Assert.Single(store.GetState().TaskTypePauses).LastHealthyNonZeroCount);
+        Assert.Contains(store.ListAlerts(), a => a.Code == "PAUSED_ZERO_DROP");
+    }
+
+    [Fact]
+    public async Task Restart_barrier_duplicate_keys_only_do_not_seed_healthy_baseline_or_pause_on_next_empty()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        var duplicateOnly = Enumerable.Range(1, 12)
+            .Select(_ => new MesSnapshotRow(
+                "DIE_TO_OVEN",
+                "SAME-KEY",
+                "N01-01",
+                "EQ1",
+                "烘箱",
+                Baseline.AddHours(1),
+                "PKG"))
+            .ToList();
+
+        var source = new QueueMesSnapshotSource(
+            MesSnapshotOutcome.Success(duplicateOnly),
+            MesSnapshotOutcome.Success([]));
+        var runner = new IngestRoundRunner(
+            source,
+            new TransportDemandReconciler(new SequentialDemandIdAllocator()),
+            store,
+            Baseline,
+            zeroDropEnterThreshold: 10,
+            clock: () => now);
+
+        await runner.RunOnceAsync();
+        Assert.Empty(store.List());
+        Assert.DoesNotContain(
+            store.GetState().TaskTypePauses,
+            p => p.LastHealthyNonZeroCount > 0);
+
+        await runner.RunOnceAsync();
+        Assert.DoesNotContain(store.GetState().TaskTypePauses, p => p.PausedZeroDrop);
+        Assert.DoesNotContain(store.ListAlerts(), a => a.Code == "PAUSED_ZERO_DROP");
+    }
+
+    [Fact]
+    public async Task Restart_barrier_pre_baseline_only_rows_do_not_seed_healthy_baseline_or_pause_on_next_empty()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        var preBaselineOnly = Enumerable.Range(1, 12)
+            .Select(i => new MesSnapshotRow(
+                "DIE_TO_OVEN",
+                $"Q-{i}",
+                "N01-01",
+                "EQ1",
+                "烘箱",
+                Baseline.AddDays(-1),
+                "PKG"))
+            .ToList();
+
+        var source = new QueueMesSnapshotSource(
+            MesSnapshotOutcome.Success(preBaselineOnly),
+            MesSnapshotOutcome.Success([]));
+        var runner = new IngestRoundRunner(
+            source,
+            new TransportDemandReconciler(new SequentialDemandIdAllocator()),
+            store,
+            Baseline,
+            zeroDropEnterThreshold: 10,
+            clock: () => now);
+
+        await runner.RunOnceAsync();
+        Assert.Empty(store.List());
+        Assert.DoesNotContain(
+            store.GetState().TaskTypePauses,
+            p => p.LastHealthyNonZeroCount > 0);
+
+        await runner.RunOnceAsync();
+        Assert.DoesNotContain(store.GetState().TaskTypePauses, p => p.PausedZeroDrop);
+        Assert.DoesNotContain(store.ListAlerts(), a => a.Code == "PAUSED_ZERO_DROP");
+    }
+
+    [Fact]
     public async Task Process_restart_first_successful_round_is_barrier_second_resumes_disappear()
     {
         var now = Baseline.AddHours(12);

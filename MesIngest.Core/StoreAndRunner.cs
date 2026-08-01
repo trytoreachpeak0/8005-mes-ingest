@@ -469,9 +469,9 @@ public sealed class IngestRoundRunner
     {
         if (_nextPhase == RestartRecoveryPhase.BarrierRound)
         {
-            _barrierRoundCountsByType = snapshot.Rows
-                .GroupBy(r => r.TaskType)
-                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+            _barrierRoundCountsByType = TransportDemandReconciler.CountProjectedRowsByType(
+                snapshot.Rows,
+                _goLiveBaseline);
             _nextPhase = RestartRecoveryPhase.PostBarrierRound;
             return;
         }

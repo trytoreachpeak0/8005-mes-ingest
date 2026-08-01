@@ -42,12 +42,9 @@ public sealed class TransportDemandReconciler
             .Select(kv => kv.Key)
             .ToHashSet();
 
-        // Same go-live gate as create: zero-drop counts must match projected visibility,
-        // so pre-baseline backlog cannot inflate LastHealthy or suppress PAUSED_ZERO_DROP.
-        var countsByType = snapshot.Rows
-            .Where(r => r.Dates >= goLiveBaseline)
-            .GroupBy(r => r.TaskType)
-            .ToDictionary(g => g.Key, g => g.Count());
+        // Same uniqueness-then-go-live gate as create: zero-drop / barrier health counts
+        // must match rows that can enter the projection (duplicate keys and pre-baseline excluded).
+        var countsByType = CountProjectedRowsByType(snapshot.Rows, goLiveBaseline);
         var pausePrior = restartRecovery.Phase == RestartRecoveryPhase.PostBarrierRound
             ? AdoptBarrierRoundBaseline(prior.TaskTypePauses, restartRecovery.BarrierRoundCountsByType)
             : prior.TaskTypePauses;
@@ -210,6 +207,21 @@ public sealed class TransportDemandReconciler
 
         return new ReconcileResult(new ProjectionState(next, nextPauses), alerts);
     }
+
+    /// <summary>
+    /// Per-TASK_TYPE counts of rows that can become VISIBLE: unique on TASK_TYPE+SUBLOT
+    /// across the full snapshot (same duplicate gate as create), then Dates &gt;= go-live.
+    /// </summary>
+    public static IReadOnlyDictionary<string, int> CountProjectedRowsByType(
+        IReadOnlyList<MesSnapshotRow> rows,
+        DateTimeOffset goLiveBaseline) =>
+        rows
+            .GroupBy(r => (r.TaskType, r.Sublot))
+            .Where(g => g.Count() == 1)
+            .Select(g => g.First())
+            .Where(r => r.Dates >= goLiveBaseline)
+            .GroupBy(r => r.TaskType, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
 
     private static IReadOnlyList<TaskTypePauseState> AdoptBarrierRoundBaseline(
         IReadOnlyList<TaskTypePauseState> priorPauses,
