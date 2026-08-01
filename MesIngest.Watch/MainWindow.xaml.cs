@@ -19,7 +19,7 @@ internal partial class MainWindow : Window
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
     private readonly DispatcherTimer _bannerHoldTimer;
-    private readonly SemaphoreSlim _refreshGate = new(1, 1);
+    private readonly WatchRefreshAdmission _refreshAdmission = new();
     private readonly Dictionary<string, AlertDetailWindow> _openAlertDetails = new(StringComparer.Ordinal);
     private readonly List<WeakReference<AlertDetailWindow>> _openAlertDetailsWithoutId = [];
 
@@ -98,7 +98,6 @@ internal partial class MainWindow : Window
             _timer.Stop();
             _bannerHoldTimer.Stop();
             _demandIdDebounceTimer.Stop();
-            _refreshGate.Dispose();
         };
     }
 
@@ -236,7 +235,7 @@ internal partial class MainWindow : Window
 
     private async Task RefreshAsync(WatchBrowseRefreshKind kind)
     {
-        if (!await _refreshGate.WaitAsync(0).ConfigureAwait(true))
+        if (!await _refreshAdmission.WaitAsync(kind).ConfigureAwait(true))
         {
             return;
         }
@@ -330,7 +329,7 @@ internal partial class MainWindow : Window
         }
         finally
         {
-            _refreshGate.Release();
+            _refreshAdmission.Release();
         }
     }
 
