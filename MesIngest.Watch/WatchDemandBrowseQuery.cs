@@ -21,6 +21,31 @@ internal sealed record WatchDemandBrowseQuery(
 {
     public static WatchDemandBrowseQuery Default { get; } = new();
 
+    /// <summary>Demand grid headers that map to Host sortBy allow-list tokens.</summary>
+    public static IReadOnlyList<string> SortableHeaderTokens { get; } =
+    [
+        "DemandId",
+        "TASK_TYPE",
+        "SUBLOT",
+        "last seen",
+        "当前工序进入时间 (DATES)",
+        "created",
+        "gone at",
+    ];
+
+    public static string? SortToken(string? header) =>
+        header switch
+        {
+            "DemandId" => "demandId",
+            "TASK_TYPE" => "taskType",
+            "SUBLOT" => "sublot",
+            "last seen" => "mesLastSeenAt",
+            "当前工序进入时间 (DATES)" => "dates",
+            "created" => "createdAt",
+            "gone at" => "goneAt",
+            _ => null,
+        };
+
     public static bool IsDemandIdFilterReady(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))

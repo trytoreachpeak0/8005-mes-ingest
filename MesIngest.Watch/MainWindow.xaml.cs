@@ -9,6 +9,7 @@ internal partial class MainWindow : Window
     private static readonly TimeSpan DemandIdDebounce = TimeSpan.FromMilliseconds(300);
 
     private readonly MesIngestApiClient _client;
+    private readonly WatchBrowseSession _browse;
     private readonly WatchOptions _options;
     private readonly WatchConnectionEventRecorder _connectionRecorder;
     private readonly WatchConnectionEventJournal _connectionJournal;
@@ -20,18 +21,12 @@ internal partial class MainWindow : Window
     private readonly Dictionary<string, AlertDetailWindow> _openAlertDetails = new(StringComparer.Ordinal);
     private readonly List<WeakReference<AlertDetailWindow>> _openAlertDetailsWithoutId = [];
 
-    private IReadOnlyList<WatchDemandDto> _demands = [];
-    private IReadOnlyList<WatchAlertDto> _alerts = [];
     private WatchPollHealthDto? _health;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
     private string _sortBy = "dates";
     private string _direction = "desc";
-    private string? _nextCursor;
-    private bool _hasMore;
     private string? _appliedDemandId;
-    private string _alertSortColumn = "created";
-    private bool _alertSortAscending;
     private UnifiedEventsWindow? _eventsWindow;
 
     public MainWindow(
@@ -45,6 +40,7 @@ internal partial class MainWindow : Window
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
+        _browse = new WatchBrowseSession(client);
         _options = options;
         _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(options);
@@ -59,7 +55,7 @@ internal partial class MainWindow : Window
         {
             Interval = TimeSpan.FromSeconds(_options.RefreshSeconds),
         };
-        _timer.Tick += async (_, _) => await RefreshAsync(resetPage: true).ConfigureAwait(true);
+        _timer.Tick += async (_, _) => await RefreshAsync(WatchBrowseRefreshKind.PreserveWindow).ConfigureAwait(true);
 
         _bannerHoldTimer = new DispatcherTimer
         {
@@ -79,14 +75,14 @@ internal partial class MainWindow : Window
             }
 
             _appliedDemandId = typed;
-            await RefreshAsync(resetPage: true).ConfigureAwait(true);
+            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
         };
 
         Loaded += async (_, _) =>
         {
             ApplyDemandSortGlyphs();
             ApplyAlertSortGlyphs();
-            await RefreshAsync(resetPage: true).ConfigureAwait(true);
+            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
             _timer.Start();
         };
         Closed += (_, _) =>
@@ -153,7 +149,7 @@ internal partial class MainWindow : Window
         }
 
         UpdateGoneWindowVisibility();
-        _ = RefreshAsync(resetPage: true);
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
 
     private void OnDemandIdTextChanged(object sender, TextChangedEventArgs e)
@@ -168,7 +164,7 @@ internal partial class MainWindow : Window
         {
             _demandIdDebounceTimer.Stop();
             _appliedDemandId = null;
-            _ = RefreshAsync(resetPage: true);
+            _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
             return;
         }
 
@@ -179,7 +175,7 @@ internal partial class MainWindow : Window
     private void OnDemandsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        var sortToken = DemandSortToken(e.Column.Header?.ToString());
+        var sortToken = WatchDemandBrowseQuery.SortToken(e.Column.Header?.ToString());
         if (sortToken is null)
         {
             return;
@@ -196,42 +192,32 @@ internal partial class MainWindow : Window
         }
 
         ApplyDemandSortGlyphs();
-        _ = RefreshAsync(resetPage: true);
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
 
     private void OnAlertsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        var header = e.Column.Header?.ToString();
-        if (header is null)
+        if (!_browse.TryApplyAlertSort(e.Column.Header?.ToString()))
         {
             return;
         }
 
-        if (string.Equals(_alertSortColumn, header, StringComparison.Ordinal))
-        {
-            _alertSortAscending = !_alertSortAscending;
-        }
-        else
-        {
-            _alertSortColumn = header;
-            _alertSortAscending = true;
-        }
-
-        ApplyProjection();
+        ApplyAlertSortGlyphs();
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
 
     private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
     {
-        if (!_hasMore || string.IsNullOrWhiteSpace(_nextCursor))
+        if (!_browse.HasMore || string.IsNullOrWhiteSpace(_browse.NextCursor))
         {
             return;
         }
 
-        await RefreshAsync(resetPage: false).ConfigureAwait(true);
+        await RefreshAsync(WatchBrowseRefreshKind.Append).ConfigureAwait(true);
     }
 
-    private async Task RefreshAsync(bool resetPage)
+    private async Task RefreshAsync(WatchBrowseRefreshKind kind)
     {
         if (!await _refreshGate.WaitAsync(0).ConfigureAwait(true))
         {
@@ -240,62 +226,29 @@ internal partial class MainWindow : Window
 
         try
         {
-            var query = BuildBrowseQuery(resetPage ? null : _nextCursor);
+            var query = BuildBrowseQuery();
             var now = DateTimeOffset.UtcNow;
 
-            if (!resetPage)
+            await _browse.RefreshAsync(kind, query).ConfigureAwait(true);
+            var snapshot = _browse.LastSnapshot;
+
+            if (kind == WatchBrowseRefreshKind.Append && !_browse.LastRefreshIncludedSnapshot)
             {
-                try
+                // Partial page success must not clear a still-failing endpoint banner.
+                _refreshState = _refreshState.ApplyPartialSuccess(now);
+                if (_refreshState.FetchError is null)
                 {
-                    var page = await _client.FetchDemandPageAsync(query).ConfigureAwait(true);
-                    _demands = _demands.Concat(page.Items).ToList();
-                    _nextCursor = page.NextCursor;
-                    _hasMore = page.HasMore;
-                    // Partial page success must not clear a still-failing endpoint banner.
-                    _refreshState = _refreshState.ApplyPartialSuccess(now);
-                    if (_refreshState.FetchError is null)
-                    {
-                        RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
-                    }
-                    ApplyProjection();
-                    return;
+                    RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
                 }
-                catch (WatchEndpointFetchException ex) when (
-                    ex.InnerException is HttpRequestException http
-                    && http.StatusCode == System.Net.HttpStatusCode.BadRequest)
-                {
-                    // Fall through to first-page reload.
-                    query = BuildBrowseQuery(cursor: null);
-                }
-                catch (WatchEndpointFetchException ex)
-                {
-                    var message = ex.FormatForBanner(
-                        _options.RequestTimeoutSeconds,
-                        Guid.NewGuid().ToString("N"));
-                    _refreshState = _refreshState.ApplyFailure(message);
-                    RecordConnectionEvent(_connectionRecorder.ObserveFailure(
-                        now,
-                        endpoint: ex.Endpoint,
-                        stage: ex.Stage,
-                        elapsed: ex.Elapsed,
-                        timeoutSeconds: _options.RequestTimeoutSeconds,
-                        message: message));
-                    ApplyProjection();
-                    return;
-                }
+
+                ApplyProjection();
+                return;
             }
 
-            var snapshot = await _client.FetchSnapshotAsync(query).ConfigureAwait(true);
-            if (snapshot.DemandsSucceeded)
+            if (snapshot is null)
             {
-                _demands = snapshot.Demands;
-                _nextCursor = snapshot.DemandsNextCursor;
-                _hasMore = snapshot.DemandsHasMore;
-            }
-
-            if (snapshot.AlertsSucceeded)
-            {
-                _alerts = snapshot.Alerts;
+                ApplyProjection();
+                return;
             }
 
             if (snapshot.PollHealthSucceeded)
@@ -326,6 +279,22 @@ internal partial class MainWindow : Window
 
             ApplyProjection();
         }
+        catch (WatchEndpointFetchException ex)
+        {
+            var now = DateTimeOffset.UtcNow;
+            var message = ex.FormatForBanner(
+                _options.RequestTimeoutSeconds,
+                Guid.NewGuid().ToString("N"));
+            _refreshState = _refreshState.ApplyFailure(message);
+            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                now,
+                endpoint: ex.Endpoint,
+                stage: ex.Stage,
+                elapsed: ex.Elapsed,
+                timeoutSeconds: _options.RequestTimeoutSeconds,
+                message: message));
+            ApplyProjection();
+        }
         catch (Exception ex)
         {
             var now = DateTimeOffset.UtcNow;
@@ -347,7 +316,7 @@ internal partial class MainWindow : Window
         }
     }
 
-    private WatchDemandBrowseQuery BuildBrowseQuery(string? cursor)
+    private WatchDemandBrowseQuery BuildBrowseQuery()
     {
         var status = (FilterStatus.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "VISIBLE";
         DateTimeOffset? goneAtFrom = null;
@@ -373,7 +342,7 @@ internal partial class MainWindow : Window
             SortBy: _sortBy,
             Direction: _direction,
             Limit: 100,
-            Cursor: cursor);
+            Cursor: null);
     }
 
     private void RecordConnectionEvent(WatchConnectionEvent? connectionEvent)
@@ -396,19 +365,19 @@ internal partial class MainWindow : Window
     private void ApplyProjection()
     {
         UpdateGoneWindowVisibility();
-        DemandsGrid.ItemsSource = _demands;
-        AlertsGrid.ItemsSource = SortAlerts(_alerts);
-        LoadMoreButton.IsEnabled = _hasMore && !string.IsNullOrWhiteSpace(_nextCursor);
-        RowCountText.Text = _hasMore
-            ? $"loaded {_demands.Count} · more available"
-            : $"loaded {_demands.Count} · end of results";
+        DemandsGrid.ItemsSource = _browse.Demands;
+        AlertsGrid.ItemsSource = _browse.Alerts;
+        LoadMoreButton.IsEnabled = _browse.HasMore && !string.IsNullOrWhiteSpace(_browse.NextCursor);
+        RowCountText.Text = _browse.HasMore
+            ? $"loaded {_browse.Demands.Count} · more available"
+            : $"loaded {_browse.Demands.Count} · end of results";
 
         var now = DateTimeOffset.UtcNow;
         var banner = WatchBannerProjection.Project(
             _bannerHold,
             _health,
             _refreshState.FetchError,
-            _alerts,
+            _browse.Alerts,
             now);
         _bannerHold = banner.HoldState;
 
@@ -421,7 +390,7 @@ internal partial class MainWindow : Window
         var status = WatchStatusBarState.Project(
             _health,
             _refreshState,
-            _alerts,
+            _browse.Alerts,
             _options.BaseUrl,
             now,
             recoveryMessage: banner.RecoveryMessage);
@@ -517,7 +486,7 @@ internal partial class MainWindow : Window
 
     private void SyncOpenAlertDetails()
     {
-        var byId = _alerts
+        var byId = _browse.Alerts
             .Where(a => !string.IsNullOrWhiteSpace(a.AlertId))
             .GroupBy(a => a.AlertId!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -561,9 +530,9 @@ internal partial class MainWindow : Window
             FilterDemandId.Text = found.DemandId;
             _appliedDemandId = found.DemandId;
             _demandIdDebounceTimer.Stop();
-            await RefreshAsync(resetPage: true).ConfigureAwait(true);
+            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
 
-            var match = _demands.FirstOrDefault(d =>
+            var match = _browse.Demands.FirstOrDefault(d =>
                 string.Equals(d.DemandId, found.DemandId, StringComparison.OrdinalIgnoreCase));
             if (match is not null)
             {
@@ -622,7 +591,7 @@ internal partial class MainWindow : Window
     private IReadOnlyList<UnifiedWatchEvent> LoadUnifiedEvents()
     {
         var zone = TimeZoneInfo.Local;
-        var host = _alerts.Select(a => UnifiedWatchEvent.FromAlert(a, zone));
+        var host = _browse.Alerts.Select(a => UnifiedWatchEvent.FromAlert(a, zone));
         IEnumerable<UnifiedWatchEvent> watch;
         try
         {
@@ -646,29 +615,6 @@ internal partial class MainWindow : Window
     private void OnOpenLogDirectoryClick(object sender, RoutedEventArgs e) =>
         WatchLogDirectory.Open(this, _connectionJournal.DirectoryPath);
 
-    private IReadOnlyList<WatchAlertDto> SortAlerts(IReadOnlyList<WatchAlertDto> source)
-    {
-        IOrderedEnumerable<WatchAlertDto> ordered = _alertSortColumn switch
-        {
-            "Code" => OrderAlerts(source, a => a.Code ?? string.Empty),
-            "created" => OrderAlerts(source, a => a.LastSeenAt ?? a.CreatedAt ?? DateTimeOffset.MinValue),
-            "TASK_TYPE" => OrderAlerts(source, a => a.TaskType ?? string.Empty),
-            "SUBLOT" => OrderAlerts(source, a => a.Sublot ?? string.Empty),
-            "DemandId" => OrderAlerts(source, a => a.DemandId ?? string.Empty),
-            "Message" => OrderAlerts(source, a => a.Message ?? string.Empty),
-            _ => OrderAlerts(source, a => a.LastSeenAt ?? a.CreatedAt ?? DateTimeOffset.MinValue),
-        };
-
-        return ordered.ThenBy(a => a.DemandId ?? string.Empty, StringComparer.Ordinal).ToList();
-    }
-
-    private IOrderedEnumerable<WatchAlertDto> OrderAlerts<TKey>(
-        IEnumerable<WatchAlertDto> source,
-        Func<WatchAlertDto, TKey> keySelector) =>
-        _alertSortAscending
-            ? source.OrderBy(keySelector)
-            : source.OrderByDescending(keySelector);
-
     private void UpdateGoneWindowVisibility()
     {
         var status = (FilterStatus.SelectedItem as ComboBoxItem)?.Content?.ToString();
@@ -681,7 +627,7 @@ internal partial class MainWindow : Window
     {
         foreach (var column in DemandsGrid.Columns)
         {
-            var token = DemandSortToken(column.Header?.ToString());
+            var token = WatchDemandBrowseQuery.SortToken(column.Header?.ToString());
             if (token is null)
             {
                 column.SortDirection = null;
@@ -698,29 +644,19 @@ internal partial class MainWindow : Window
 
     private void ApplyAlertSortGlyphs()
     {
+        var alertSort = _browse.AlertQuery.SortBy;
+        var ascending = string.Equals(_browse.AlertQuery.Direction, "asc", StringComparison.Ordinal);
         foreach (var column in AlertsGrid.Columns)
         {
-            var header = column.Header?.ToString();
-            column.SortDirection = string.Equals(header, _alertSortColumn, StringComparison.Ordinal)
-                ? (_alertSortAscending
+            var token = WatchAlertBrowseQuery.SortToken(column.Header?.ToString());
+            column.SortDirection = token is not null
+                && string.Equals(token, alertSort, StringComparison.Ordinal)
+                ? (ascending
                     ? System.ComponentModel.ListSortDirection.Ascending
                     : System.ComponentModel.ListSortDirection.Descending)
                 : null;
         }
     }
-
-    private static string? DemandSortToken(string? header) =>
-        header switch
-        {
-            "DemandId" => "demandId",
-            "TASK_TYPE" => "taskType",
-            "SUBLOT" => "sublot",
-            "last seen" => "mesLastSeenAt",
-            "当前工序进入时间 (DATES)" => "dates",
-            "created" => "createdAt",
-            "gone at" => "goneAt",
-            _ => null,
-        };
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

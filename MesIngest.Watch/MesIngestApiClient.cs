@@ -93,12 +93,21 @@ internal sealed class MesIngestApiClient
     }
 
     public Task<WatchSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) =>
-        FetchSnapshotAsync(WatchDemandBrowseQuery.Default, cancellationToken);
+        FetchSnapshotAsync(WatchDemandBrowseQuery.Default, WatchAlertBrowseQuery.Default, cancellationToken);
+
+    public Task<WatchSnapshot> FetchSnapshotAsync(
+        WatchDemandBrowseQuery demandQuery,
+        CancellationToken cancellationToken = default) =>
+        FetchSnapshotAsync(demandQuery, WatchAlertBrowseQuery.Default, cancellationToken);
 
     public async Task<WatchSnapshot> FetchSnapshotAsync(
         WatchDemandBrowseQuery demandQuery,
+        WatchAlertBrowseQuery alertQuery,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(demandQuery);
+        ArgumentNullException.ThrowIfNull(alertQuery);
+
         var correlationId = Guid.NewGuid().ToString("N");
         IReadOnlyList<WatchDemandDto> demands = [];
         IReadOnlyList<WatchAlertDto> alerts = [];
@@ -161,7 +170,7 @@ internal sealed class MesIngestApiClient
 
         try
         {
-            var alertPage = await FetchAlertPageAsync(correlationId, cancellationToken)
+            var alertPage = await FetchAlertPageAsync(alertQuery, correlationId, cancellationToken)
                 .ConfigureAwait(false);
             alerts = alertPage.Items;
             alertsOk = true;
@@ -371,10 +380,12 @@ internal sealed class MesIngestApiClient
     }
 
     private async Task<WatchAlertPage> FetchAlertPageAsync(
+        WatchAlertBrowseQuery query,
         string correlationId,
         CancellationToken cancellationToken)
     {
-        const string endpoint = "/api/alerts";
+        var endpoint = query.ToRelativeUrl();
+        const string pathForTelemetry = "/api/alerts";
         var sw = Stopwatch.StartNew();
         try
         {
@@ -387,14 +398,14 @@ internal sealed class MesIngestApiClient
             {
                 RecordWatch(
                     correlationId,
-                    endpoint,
+                    pathForTelemetry,
                     sw.ElapsedMilliseconds,
                     (int)response.StatusCode,
                     rowCount: 0,
                     bytes,
                     stage: LatencyStages.HttpStatus,
                     detail: LatencyLogFormatter.Sanitize(body));
-                throw Classify(endpoint, sw.Elapsed, new HttpRequestException(
+                throw Classify(pathForTelemetry, sw.Elapsed, new HttpRequestException(
                     $"HTTP {(int)response.StatusCode}: {LatencyLogFormatter.Sanitize(body)}",
                     null,
                     response.StatusCode));
@@ -403,7 +414,7 @@ internal sealed class MesIngestApiClient
             var page = DeserializeAlertPage(body);
             RecordWatch(
                 correlationId,
-                endpoint,
+                pathForTelemetry,
                 sw.ElapsedMilliseconds,
                 (int)response.StatusCode,
                 rowCount: page.Items.Count,
@@ -416,14 +427,14 @@ internal sealed class MesIngestApiClient
             var stage = WatchHttpStageClassifier.Classify(ex);
             RecordWatch(
                 correlationId,
-                endpoint,
+                pathForTelemetry,
                 sw.ElapsedMilliseconds,
                 statusCode: null,
                 rowCount: 0,
                 bytes: 0,
                 stage: stage,
                 detail: LatencyLogFormatter.Sanitize(ex.Message));
-            throw Classify(endpoint, sw.Elapsed, ex);
+            throw Classify(pathForTelemetry, sw.Elapsed, ex);
         }
     }
 
