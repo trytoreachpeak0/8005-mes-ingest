@@ -59,6 +59,7 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 {
     public const int DefaultAlertLimit = 100;
 
+    private readonly object _gate = new();
     private ProjectionState _state = ProjectionState.Empty;
     private readonly List<IngestAlert> _alerts = new();
     private readonly List<DemandChangeFeedEntry> _changeFeed = new();
@@ -78,58 +79,76 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public ProjectionState GetState() =>
-        new(
-            _state.Demands.Where(d => d.Status == DemandStatus.Visible).ToList(),
-            _state.TaskTypePauses);
+    public ProjectionState GetState()
+    {
+        lock (_gate)
+        {
+            return new(
+                _state.Demands.Where(d => d.Status == DemandStatus.Visible).ToList(),
+                _state.TaskTypePauses);
+        }
+    }
 
     public void ReplaceState(ProjectionState state, IReadOnlyList<IngestAlert>? alerts = null)
     {
         ArgumentNullException.ThrowIfNull(state);
-        var priorById = _state.Demands.ToDictionary(d => d.DemandId, StringComparer.Ordinal);
-        var now = _clock();
-        var incomingIds = state.Demands.Select(d => d.DemandId).ToHashSet(StringComparer.Ordinal);
-        var retainedGone = _state.Demands
-            .Where(d => d.Status == DemandStatus.Gone && !incomingIds.Contains(d.DemandId))
-            .ToList();
-
-        foreach (var demand in state.Demands)
+        lock (_gate)
         {
-            if (!priorById.TryGetValue(demand.DemandId, out var prior))
+            var priorById = _state.Demands.ToDictionary(d => d.DemandId, StringComparer.Ordinal);
+            var now = _clock();
+            var incomingIds = state.Demands.Select(d => d.DemandId).ToHashSet(StringComparer.Ordinal);
+            var retainedGone = _state.Demands
+                .Where(d => d.Status == DemandStatus.Gone && !incomingIds.Contains(d.DemandId))
+                .ToList();
+
+            foreach (var demand in state.Demands)
             {
-                AppendChange(DemandChangeType.Created, demand, now);
-                continue;
+                if (!priorById.TryGetValue(demand.DemandId, out var prior))
+                {
+                    AppendChange(DemandChangeType.Created, demand, now);
+                    continue;
+                }
+
+                if (prior.Status != DemandStatus.Gone
+                    && demand.Status == DemandStatus.Gone)
+                {
+                    AppendChange(DemandChangeType.Gone, demand, now);
+                }
             }
 
-            if (prior.Status != DemandStatus.Gone
-                && demand.Status == DemandStatus.Gone)
-            {
-                AppendChange(DemandChangeType.Gone, demand, now);
-            }
+            _state = new ProjectionState(
+                state.Demands.Concat(retainedGone).ToList(),
+                state.TaskTypePauses);
+            PurgeChangeFeed(now);
+            ApplyAlertObservations(alerts ?? Array.Empty<IngestAlert>(), IngestAlertCatalog.SuccessRoundManagedCodes, now);
         }
-
-        _state = new ProjectionState(
-            state.Demands.Concat(retainedGone).ToList(),
-            state.TaskTypePauses);
-        PurgeChangeFeed(now);
-        ApplyAlertObservations(alerts ?? Array.Empty<IngestAlert>(), IngestAlertCatalog.SuccessRoundManagedCodes, now);
     }
 
     public bool HasGoneTransportDemandKey(string taskType, string sublot) =>
         GetLatestGoneDemandId(taskType, sublot) is not null;
 
-    public string? GetLatestGoneDemandId(string taskType, string sublot) =>
-        _state.Demands
-            .Where(d =>
-                d.Status == DemandStatus.Gone
-                && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
-                && string.Equals(d.Sublot, sublot, StringComparison.Ordinal))
-            .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
-            .Select(d => d.DemandId)
-            .FirstOrDefault();
+    public string? GetLatestGoneDemandId(string taskType, string sublot)
+    {
+        lock (_gate)
+        {
+            return _state.Demands
+                .Where(d =>
+                    d.Status == DemandStatus.Gone
+                    && string.Equals(d.TaskType, taskType, StringComparison.Ordinal)
+                    && string.Equals(d.Sublot, sublot, StringComparison.Ordinal))
+                .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
+                .Select(d => d.DemandId)
+                .FirstOrDefault();
+        }
+    }
 
-    public TransportDemand? GetById(string demandId) =>
-        _state.Demands.FirstOrDefault(d => d.DemandId == demandId);
+    public TransportDemand? GetById(string demandId)
+    {
+        lock (_gate)
+        {
+            return _state.Demands.FirstOrDefault(d => d.DemandId == demandId);
+        }
+    }
 
     public IReadOnlyList<TransportDemand> List(
         DemandStatus? status = null,
@@ -137,31 +156,34 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         string? sublot = null,
         string? demandId = null)
     {
-        IEnumerable<TransportDemand> query = _state.Demands;
-        if (status is not null)
+        lock (_gate)
         {
-            query = query.Where(d => d.Status == status);
-        }
+            IEnumerable<TransportDemand> query = _state.Demands;
+            if (status is not null)
+            {
+                query = query.Where(d => d.Status == status);
+            }
 
-        if (!string.IsNullOrWhiteSpace(taskType))
-        {
-            query = query.Where(d => string.Equals(d.TaskType, taskType, StringComparison.Ordinal));
-        }
+            if (!string.IsNullOrWhiteSpace(taskType))
+            {
+                query = query.Where(d => string.Equals(d.TaskType, taskType, StringComparison.Ordinal));
+            }
 
-        if (!string.IsNullOrWhiteSpace(sublot))
-        {
-            query = query.Where(d => string.Equals(d.Sublot, sublot, StringComparison.Ordinal));
-        }
+            if (!string.IsNullOrWhiteSpace(sublot))
+            {
+                query = query.Where(d => string.Equals(d.Sublot, sublot, StringComparison.Ordinal));
+            }
 
-        if (!string.IsNullOrWhiteSpace(demandId))
-        {
-            query = query.Where(d => string.Equals(d.DemandId, demandId, StringComparison.Ordinal));
-        }
+            if (!string.IsNullOrWhiteSpace(demandId))
+            {
+                query = query.Where(d => string.Equals(d.DemandId, demandId, StringComparison.Ordinal));
+            }
 
-        return query
-            .OrderByDescending(d => d.Dates)
-            .ThenBy(d => d.DemandId, StringComparer.Ordinal)
-            .ToList();
+            return query
+                .OrderByDescending(d => d.Dates)
+                .ThenBy(d => d.DemandId, StringComparer.Ordinal)
+                .ToList();
+        }
     }
 
     public DemandListPage QueryPage(DemandListQuery query)
@@ -174,39 +196,45 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
 
         DemandListCursor.CursorPayload? cursorPayload =
             string.IsNullOrWhiteSpace(query.Cursor) ? null : cursor;
-        return DemandListPaging.Page(_state.Demands, query, cursorPayload);
+        lock (_gate)
+        {
+            return DemandListPaging.Page(_state.Demands, query, cursorPayload);
+        }
     }
 
     public DemandChangeFeedPage QueryChangeFeed(DemandChangeFeedQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
-        PurgeChangeFeed(query.AsOf);
-
-        // Monotonic even when retention has emptied the ledger (_nextSequence - 1).
-        long highWatermark = _nextSequence - 1;
-        long? earliest = _changeFeed.Count == 0 ? null : _changeFeed[0].Sequence;
-        long contiguousFrom = earliest ?? highWatermark + 1;
-        if (query.AfterSequence < contiguousFrom - 1)
+        lock (_gate)
         {
-            throw new SyncCursorExpiredException(query.AfterSequence, earliest, highWatermark);
-        }
+            PurgeChangeFeed(query.AsOf);
 
-        var matched = _changeFeed
-            .Where(e => e.Sequence > query.AfterSequence)
-            .Take(query.Limit + 1)
-            .ToList();
-        var hasMore = matched.Count > query.Limit;
-        if (hasMore)
-        {
-            matched.RemoveAt(matched.Count - 1);
-        }
+            // Monotonic even when retention has emptied the ledger (_nextSequence - 1).
+            long highWatermark = _nextSequence - 1;
+            long? earliest = _changeFeed.Count == 0 ? null : _changeFeed[0].Sequence;
+            long contiguousFrom = earliest ?? highWatermark + 1;
+            if (query.AfterSequence < contiguousFrom - 1)
+            {
+                throw new SyncCursorExpiredException(query.AfterSequence, earliest, highWatermark);
+            }
 
-        return new DemandChangeFeedPage(
-            matched,
-            hasMore ? matched[^1].Sequence : null,
-            hasMore,
-            highWatermark,
-            earliest);
+            var matched = _changeFeed
+                .Where(e => e.Sequence > query.AfterSequence)
+                .Take(query.Limit + 1)
+                .ToList();
+            var hasMore = matched.Count > query.Limit;
+            if (hasMore)
+            {
+                matched.RemoveAt(matched.Count - 1);
+            }
+
+            return new DemandChangeFeedPage(
+                matched,
+                hasMore ? matched[^1].Sequence : null,
+                hasMore,
+                highWatermark,
+                earliest);
+        }
     }
 
     private void AppendChange(DemandChangeType changeType, TransportDemand demand, DateTimeOffset changedAt)
@@ -234,7 +262,10 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
     public void AppendAlerts(IReadOnlyList<IngestAlert> alerts)
     {
         ArgumentNullException.ThrowIfNull(alerts);
-        ApplyAlertObservations(alerts, IngestAlertCatalog.PollCodes, _clock());
+        lock (_gate)
+        {
+            ApplyAlertObservations(alerts, IngestAlertCatalog.PollCodes, _clock());
+        }
     }
 
     public IReadOnlyList<IngestAlert> ListAlerts(int? limit = null)
@@ -255,7 +286,11 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
             throw new ArgumentException(error ?? "cursor is invalid", nameof(query));
         }
 
-        return AlertListPaging.Page(_alerts, query, cursor);
+        lock (_gate)
+        {
+            // Snapshot so paging cannot observe a mid-mutation alert list.
+            return AlertListPaging.Page(_alerts.ToList(), query, cursor);
+        }
     }
 
     private void ApplyAlertObservations(
@@ -273,9 +308,21 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         _alerts.AddRange(next);
     }
 
-    public void SetLatestPollHealth(PollHealth health) => _latestPollHealth = health;
+    public void SetLatestPollHealth(PollHealth health)
+    {
+        lock (_gate)
+        {
+            _latestPollHealth = health;
+        }
+    }
 
-    public PollHealth? GetLatestPollHealth() => _latestPollHealth;
+    public PollHealth? GetLatestPollHealth()
+    {
+        lock (_gate)
+        {
+            return _latestPollHealth;
+        }
+    }
 }
 
 public sealed class IngestRoundRunner
