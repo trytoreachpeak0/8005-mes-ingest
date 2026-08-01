@@ -7,7 +7,7 @@ namespace MesIngest.Tests;
 public class WatchConnectionEventJournalTests
 {
     [Fact]
-    public void Append_writes_jsonl_without_shared_secret_or_bearer()
+    public async Task Append_writes_jsonl_without_shared_secret_or_bearer()
     {
         using var dir = new TempDirectory();
         var journal = new WatchConnectionEventJournal(
@@ -26,6 +26,7 @@ public class WatchConnectionEventJournalTests
             Message: "Authorization: Bearer super-secret-token timed out; SharedSecret=leak",
             FailureCount: 1,
             OutageDurationMs: null));
+        await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         var files = Directory.GetFiles(dir.Path, "*.jsonl");
         Assert.Single(files);
@@ -82,7 +83,7 @@ public class WatchConnectionEventJournalTests
     }
 
     [Fact]
-    public void Retention_deletes_files_older_than_retention_days()
+    public async Task Retention_deletes_files_older_than_retention_days()
     {
         using var dir = new TempDirectory();
         var oldFile = Path.Combine(dir.Path, "watch-connection-20260101.jsonl");
@@ -105,13 +106,14 @@ public class WatchConnectionEventJournalTests
             "Connection refused",
             1,
             null));
+        await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldFile));
         Assert.NotEmpty(Directory.GetFiles(dir.Path, "*.jsonl"));
     }
 
     [Fact]
-    public void Size_cap_deletes_oldest_files_first()
+    public async Task Size_cap_deletes_oldest_files_first()
     {
         using var dir = new TempDirectory();
         var older = Path.Combine(dir.Path, "watch-connection-20260701.jsonl");
@@ -137,13 +139,14 @@ public class WatchConnectionEventJournalTests
             "refused",
             1,
             null));
+        await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(older));
         Assert.True(File.Exists(newer) || Directory.GetFiles(dir.Path, "*.jsonl").Length >= 1);
     }
 
     [Fact]
-    public void Retention_deletes_latency_log_files_older_than_retention_days()
+    public async Task Retention_deletes_latency_log_files_older_than_retention_days()
     {
         using var dir = new TempDirectory();
         var oldLog = Path.Combine(dir.Path, "watch-latency-20260101.log");
@@ -166,12 +169,13 @@ public class WatchConnectionEventJournalTests
             "Connection refused",
             1,
             null));
+        await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldLog));
     }
 
     [Fact]
-    public void Size_cap_counts_latency_log_toward_directory_budget()
+    public async Task Size_cap_counts_latency_log_toward_directory_budget()
     {
         using var dir = new TempDirectory();
         var oldLog = Path.Combine(dir.Path, "watch-latency-20260701.log");
@@ -194,6 +198,7 @@ public class WatchConnectionEventJournalTests
             "refused",
             1,
             null));
+        await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldLog));
     }

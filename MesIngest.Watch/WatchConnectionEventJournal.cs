@@ -1,40 +1,40 @@
 using System.IO;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using MesIngest.Core;
 using IOPath = System.IO.Path;
 
 namespace MesIngest.Watch;
 
 /// <summary>
-/// Appends WatchConnectionEvent records as daily JSON Lines under a local logs directory.
-/// Retention is whichever limit is hit first: age (days) or total directory size.
+/// Makes WatchConnectionEvent records immediately readable from memory, then appends them
+/// as daily JSON Lines on the bounded local-log worker. Retention uses age and total size.
 /// </summary>
 internal sealed class WatchConnectionEventJournal
 {
+    private const int RecentCapacity = 200;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    private static readonly Regex BearerToken = new(
-        @"Bearer\s+\S+",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
-    private static readonly Regex SharedSecretAssignment = new(
-        @"SharedSecret\s*=\s*\S+",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-
     private readonly string _directory;
     private readonly int _retentionDays;
     private readonly long _maxSizeBytes;
     private readonly Func<DateTimeOffset> _utcNow;
+    private readonly Action<Exception>? _onWriteFailure;
+    private readonly WatchLocalLogDispatcher _dispatcher;
+    private readonly List<WatchConnectionEvent> _recent = [];
+    private readonly object _recentGate = new();
 
     public WatchConnectionEventJournal(
         string directory,
         int retentionDays,
         long maxSizeBytes,
-        Func<DateTimeOffset>? utcNow = null)
+        Func<DateTimeOffset>? utcNow = null,
+        Action<Exception>? onWriteFailure = null,
+        WatchLocalLogDispatcher? dispatcher = null)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
@@ -55,6 +55,11 @@ internal sealed class WatchConnectionEventJournal
         _retentionDays = retentionDays;
         _maxSizeBytes = maxSizeBytes;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
+        _onWriteFailure = onWriteFailure;
+        _dispatcher = dispatcher ?? new WatchLocalLogDispatcher();
+        _dispatcher.TryEnqueue(
+            () => AddRecent(LoadRecentFromDisk(RecentCapacity)),
+            _onWriteFailure);
     }
 
     public static string DefaultDirectory =>
@@ -63,15 +68,50 @@ internal sealed class WatchConnectionEventJournal
             "MesIngest.Watch",
             "logs");
 
-    public static WatchConnectionEventJournal FromOptions(WatchOptions options, string? directory = null) =>
+    public static WatchConnectionEventJournal FromOptions(
+        WatchOptions options,
+        string? directory = null,
+        Action<Exception>? onWriteFailure = null,
+        WatchLocalLogDispatcher? dispatcher = null) =>
         new(
             directory ?? DefaultDirectory,
             options.ConnectionLogRetentionDays,
-            options.ConnectionLogMaxSizeMb * 1024L * 1024L);
+            options.ConnectionLogMaxSizeMb * 1024L * 1024L,
+            onWriteFailure: onWriteFailure,
+            dispatcher: dispatcher);
 
     public string DirectoryPath => _directory;
 
     public void Append(WatchConnectionEvent connectionEvent)
+    {
+        var sanitized = connectionEvent with
+        {
+            Message = Sanitize(connectionEvent.Message),
+        };
+        AddRecent([sanitized]);
+        _dispatcher.TryEnqueue(() => AppendCore(sanitized), _onWriteFailure);
+    }
+
+    /// <summary>
+    /// Reads the bounded in-memory view (newest first). Persisted history is loaded by the
+    /// local-log worker so this method never performs filesystem IO on the UI thread.
+    /// </summary>
+    public IReadOnlyList<WatchConnectionEvent> ReadRecent(int maxCount = 200)
+    {
+        if (maxCount < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxCount));
+        }
+
+        lock (_recentGate)
+        {
+            return _recent.Take(maxCount).ToList();
+        }
+    }
+
+    internal Task DrainAsync() => _dispatcher.DrainAsync();
+
+    private void AppendCore(WatchConnectionEvent connectionEvent)
     {
         Directory.CreateDirectory(_directory);
         EnforceRetention();
@@ -84,7 +124,7 @@ internal sealed class WatchConnectionEventJournal
             stage = connectionEvent.Stage,
             elapsedMs = connectionEvent.ElapsedMs,
             timeoutSeconds = connectionEvent.TimeoutSeconds,
-            message = Sanitize(connectionEvent.Message),
+            message = connectionEvent.Message,
             failureCount = connectionEvent.FailureCount,
             outageDurationMs = connectionEvent.OutageDurationMs,
             correlationId = connectionEvent.CorrelationId,
@@ -98,38 +138,57 @@ internal sealed class WatchConnectionEventJournal
         EnforceRetention();
     }
 
-    /// <summary>
-    /// Reads newest JSONL connection events (newest first), best-effort across daily files.
-    /// </summary>
-    public IReadOnlyList<WatchConnectionEvent> ReadRecent(int maxCount = 200)
+    private IReadOnlyList<WatchConnectionEvent> LoadRecentFromDisk(int maxCount)
     {
-        if (maxCount < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(maxCount));
-        }
-
         if (!Directory.Exists(_directory))
         {
             return [];
         }
 
+        string[] paths;
+        try
+        {
+            paths = Directory.GetFiles(_directory, "watch-connection-*.jsonl");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            WatchIoFailureReporter.TryReport(_onWriteFailure, ex);
+            return [];
+        }
+
+        var files = new List<(FileInfo Info, DateTime LastWriteTimeUtc)>();
+        foreach (var path in paths)
+        {
+            try
+            {
+                var info = new FileInfo(path);
+                if (info.Exists)
+                {
+                    files.Add((info, info.LastWriteTimeUtc));
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                WatchIoFailureReporter.TryReport(_onWriteFailure, ex);
+            }
+        }
+
         var collected = new List<WatchConnectionEvent>();
-        foreach (var file in Directory.EnumerateFiles(_directory, "watch-connection-*.jsonl")
-                     .Select(path => new FileInfo(path))
-                     .Where(info => info.Exists)
-                     .OrderByDescending(info => info.LastWriteTimeUtc))
+        foreach (var file in files.OrderByDescending(item => item.LastWriteTimeUtc))
         {
             string[] lines;
             try
             {
-                lines = File.ReadAllLines(file.FullName, Encoding.UTF8);
+                lines = File.ReadAllLines(file.Info.FullName, Encoding.UTF8);
             }
-            catch (IOException)
+            catch (IOException ex)
             {
+                WatchIoFailureReporter.TryReport(_onWriteFailure, ex);
                 continue;
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
+                WatchIoFailureReporter.TryReport(_onWriteFailure, ex);
                 continue;
             }
 
@@ -153,6 +212,19 @@ internal sealed class WatchConnectionEventJournal
         }
 
         return collected;
+    }
+
+    private void AddRecent(IEnumerable<WatchConnectionEvent> events)
+    {
+        lock (_recentGate)
+        {
+            _recent.AddRange(events);
+            _recent.Sort(static (left, right) => right.At.CompareTo(left.At));
+            if (_recent.Count > RecentCapacity)
+            {
+                _recent.RemoveRange(RecentCapacity, _recent.Count - RecentCapacity);
+            }
+        }
     }
 
     private static bool TryParse(string line, out WatchConnectionEvent connectionEvent)
@@ -206,7 +278,12 @@ internal sealed class WatchConnectionEventJournal
     }
 
     private void EnforceRetention() =>
-        WatchLocalLogRetention.Enforce(_directory, _retentionDays, _maxSizeBytes, _utcNow);
+        WatchLocalLogRetention.Enforce(
+            _directory,
+            _retentionDays,
+            _maxSizeBytes,
+            _utcNow,
+            _onWriteFailure);
 
     internal static string? Sanitize(string? message)
     {
@@ -215,8 +292,6 @@ internal sealed class WatchConnectionEventJournal
             return message;
         }
 
-        var cleaned = BearerToken.Replace(message, "Bearer [redacted]");
-        cleaned = SharedSecretAssignment.Replace(cleaned, "SharedSecret=[redacted]");
-        return cleaned;
+        return LatencyLogFormatter.Sanitize(message);
     }
 }

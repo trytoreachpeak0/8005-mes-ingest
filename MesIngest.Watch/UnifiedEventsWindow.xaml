@@ -31,7 +31,7 @@
             </WrapPanel>
             <TextBlock Margin="0,6,0,0"
                        TextWrapping="Wrap"
-                       Text="Unified viewing surface only — Host IngestAlert and Watch Connection Event stay separate sources (never uploaded to Host)." />
+                       Text="Unified viewing surface only — Host IngestAlert and Watch Connection Event stay separate sources (never uploaded to Host). TELEMETRY_IO remains visible here in memory when the local log directory fails." />
         </StackPanel>
 
         <DataGrid x:Name="EventsGrid"

@@ -180,7 +180,42 @@ public class LatencyTelemetryTests
     }
 
     [Fact]
-    public void Watch_latency_file_telemetry_swallows_io_and_reports_write_failure()
+    public async Task Watch_success_survives_unavailable_latency_directory_and_reports_TELEMETRY_IO()
+    {
+        using var dir = new TempLatencyDir();
+        Directory.Delete(dir.Path);
+        File.WriteAllText(dir.Path, "not-a-directory");
+        var diagnostics = new WatchTelemetryIoDiagnosticBuffer();
+        var telemetry = new WatchLatencyFileTelemetry(
+            dir.Path,
+            onWriteFailure: ex => diagnostics.Record("watch-latency", ex));
+        var handler = new StubHandler((request, _) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/poll-health", StringComparison.Ordinal))
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            }
+
+            return Task.FromResult(EmptyDemandsOrList(path));
+        });
+
+        using var http = CreateHttp(handler);
+        var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30, telemetry);
+
+        var snapshot = await client.FetchSnapshotAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await telemetry.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Null(snapshot.FetchError);
+        Assert.Empty(snapshot.Demands);
+        Assert.NotEmpty(diagnostics.ReadRecent());
+        Assert.All(
+            diagnostics.ReadRecent(),
+            diagnostic => Assert.Equal(WatchTelemetryIoDiagnosticBuffer.Stage, diagnostic.Stage));
+    }
+
+    [Fact]
+    public async Task Watch_latency_file_telemetry_swallows_io_and_reports_write_failure()
     {
         using var dir = new TempLatencyDir();
         Exception? observed = null;
@@ -204,13 +239,14 @@ public class LatencyTelemetryTests
             Bytes: 0,
             Endpoint: "/api/demands",
             Detail: null));
+        await telemetry.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.NotNull(observed);
         Assert.True(observed is IOException or UnauthorizedAccessException);
     }
 
     [Fact]
-    public void Watch_latency_file_telemetry_enforces_log_retention_by_age()
+    public async Task Watch_latency_file_telemetry_enforces_log_retention_by_age()
     {
         using var dir = new TempLatencyDir();
         var oldLog = Path.Combine(dir.Path, "watch-latency-20260101.log");
@@ -234,31 +270,27 @@ public class LatencyTelemetryTests
             Bytes: 0,
             Endpoint: "/api/demands",
             Detail: null));
+        await telemetry.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldLog));
         Assert.True(File.Exists(Path.Combine(dir.Path, "watch-latency-20260731.log")));
     }
 
     [Fact]
-    public void Latency_write_failure_is_recorded_as_local_connection_event_without_secrets()
+    public void Latency_write_failure_is_recorded_in_memory_without_secrets()
     {
-        using var dir = new TempLatencyDir();
         var at = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
-        var journal = new WatchConnectionEventJournal(
-            dir.Path,
-            retentionDays: 30,
-            maxSizeBytes: 100 * 1024 * 1024,
-            utcNow: () => at);
+        var diagnostics = new WatchTelemetryIoDiagnosticBuffer();
 
-        WatchLatencyWriteFailureJournal.Append(
-            journal,
+        diagnostics.Record(
+            "watch-latency",
             new IOException("disk full SharedSecret=leak-token Authorization: Bearer abc"),
             at);
 
-        var evt = Assert.Single(journal.ReadRecent(10));
+        var evt = Assert.Single(diagnostics.ReadRecent(10));
         Assert.Equal(WatchConnectionEventKind.Failure, evt.Kind);
-        Assert.Equal(WatchLatencyWriteFailureJournal.Endpoint, evt.Endpoint);
-        Assert.Equal(WatchLatencyWriteFailureJournal.Stage, evt.Stage);
+        Assert.Equal("watch-latency", evt.Endpoint);
+        Assert.Equal(WatchTelemetryIoDiagnosticBuffer.Stage, evt.Stage);
         Assert.DoesNotContain("leak-token", evt.Message!, StringComparison.Ordinal);
         Assert.DoesNotContain("Bearer abc", evt.Message!, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SharedSecret=[redacted]", evt.Message!, StringComparison.OrdinalIgnoreCase);

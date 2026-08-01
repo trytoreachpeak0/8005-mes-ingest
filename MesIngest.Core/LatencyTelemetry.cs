@@ -111,19 +111,23 @@ public static class SqlFailureClassifier
 public static class LatencyLogFormatter
 {
     private static readonly Regex BearerToken = new(
-        @"Bearer\s+\S+",
+        @"Bearer\s+(?:""[^""]*""|'[^']*'|\S+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex SharedSecretAssignment = new(
-        @"SharedSecret\s*=\s*\S+",
+        @"(SharedSecret\s*[:=]\s*)(?:""[^""]*""|'[^']*'|[^;\s]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex PasswordAssignment = new(
-        @"(Password|Pwd)\s*=\s*[^;\s]+",
+        @"((?:Password|Pwd)\s*[:=]\s*)(?:""[^""]*""|'[^']*'|[^;\s]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex ExplicitConnectionString = new(
+        @"((?:Connection\s*String|ConnectionString)\s*[:=]\s*)(?:""[^""]*""|'[^']*'|.+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex ConnectionStringShape = new(
-        @"((Data\s*Source|Server|Initial\s*Catalog|User\s*ID|UID)\s*=\s*)([^;]+)",
+        @"((?:Data\s*Source|Server|Initial\s*Catalog|Database|User\s*ID|UID|DSN|Trusted_Connection|Integrated\s*Security)\s*=\s*)(?:""[^""]*""|'[^']*'|[^;\s]+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public static string Format(LatencyEvent evt)
@@ -172,8 +176,9 @@ public static class LatencyLogFormatter
         }
 
         var cleaned = BearerToken.Replace(message, "Bearer [redacted]");
-        cleaned = SharedSecretAssignment.Replace(cleaned, "SharedSecret=[redacted]");
-        cleaned = PasswordAssignment.Replace(cleaned, "$1=[redacted]");
+        cleaned = SharedSecretAssignment.Replace(cleaned, "$1[redacted]");
+        cleaned = PasswordAssignment.Replace(cleaned, "$1[redacted]");
+        cleaned = ExplicitConnectionString.Replace(cleaned, "$1[redacted]");
         cleaned = ConnectionStringShape.Replace(cleaned, "$1[redacted]");
         return cleaned;
     }

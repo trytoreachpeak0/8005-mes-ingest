@@ -14,7 +14,8 @@ internal static class WatchLocalLogRetention
         string directory,
         int retentionDays,
         long maxSizeBytes,
-        Func<DateTimeOffset> utcNow)
+        Func<DateTimeOffset> utcNow,
+        Action<Exception>? onFailure = null)
     {
         if (!Directory.Exists(directory))
         {
@@ -22,56 +23,90 @@ internal static class WatchLocalLogRetention
         }
 
         var cutoff = utcNow().UtcDateTime.AddDays(-retentionDays);
-        foreach (var file in EnumerateFiles(directory))
+        foreach (var file in SnapshotFiles(directory, onFailure))
         {
-            if (File.GetLastWriteTimeUtc(file) < cutoff)
+            if (file.LastWriteTimeUtc < cutoff)
             {
-                TryDelete(file);
+                TryDelete(file.Path, onFailure);
             }
         }
 
-        while (true)
-        {
-            var files = EnumerateFiles(directory)
-                .Select(path => new FileInfo(path))
-                .Where(info => info.Exists)
-                .OrderBy(info => info.LastWriteTimeUtc)
-                .ToList();
+        var files = SnapshotFiles(directory, onFailure)
+            .OrderBy(file => file.LastWriteTimeUtc)
+            .ToList();
+        var total = files.Aggregate(
+            0L,
+            static (sum, file) => sum > long.MaxValue - file.Length
+                ? long.MaxValue
+                : sum + file.Length);
 
-            var total = files.Sum(info => info.Length);
-            if (total <= maxSizeBytes || files.Count == 0)
+        // Each candidate is attempted at most once. A locked/undeletable oldest file
+        // cannot cause an unbounded no-progress loop, and later candidates still get a turn.
+        foreach (var file in files)
+        {
+            if (total <= maxSizeBytes)
             {
                 break;
             }
 
-            TryDelete(files[0].FullName);
-        }
-    }
-
-    private static IEnumerable<string> EnumerateFiles(string directory)
-    {
-        foreach (var pattern in Patterns)
-        {
-            foreach (var file in Directory.EnumerateFiles(directory, pattern))
+            if (TryDelete(file.Path, onFailure))
             {
-                yield return file;
+                total -= file.Length;
             }
         }
     }
 
-    private static void TryDelete(string path)
+    private static IReadOnlyList<LogFile> SnapshotFiles(
+        string directory,
+        Action<Exception>? onFailure)
+    {
+        var files = new List<LogFile>();
+        foreach (var pattern in Patterns)
+        {
+            string[] paths;
+            try
+            {
+                paths = Directory.GetFiles(directory, pattern);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                WatchIoFailureReporter.TryReport(onFailure, ex);
+                continue;
+            }
+
+            foreach (var path in paths)
+            {
+                try
+                {
+                    var info = new FileInfo(path);
+                    if (info.Exists)
+                    {
+                        files.Add(new LogFile(path, info.LastWriteTimeUtc, info.Length));
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    WatchIoFailureReporter.TryReport(onFailure, ex);
+                }
+            }
+        }
+
+        return files;
+    }
+
+    private static bool TryDelete(string path, Action<Exception>? onFailure)
     {
         try
         {
             File.Delete(path);
+            return true;
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // best-effort
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // best-effort
+            WatchIoFailureReporter.TryReport(onFailure, ex);
+            return false;
         }
     }
+
+    private sealed record LogFile(string Path, DateTime LastWriteTimeUtc, long Length);
 }

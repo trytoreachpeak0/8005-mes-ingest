@@ -16,14 +16,15 @@ internal sealed class WatchLatencyFileTelemetry : ILatencyTelemetry
     private readonly long _maxSizeBytes;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Action<Exception>? _onWriteFailure;
-    private readonly object _gate = new();
+    private readonly WatchLocalLogDispatcher _dispatcher;
 
     public WatchLatencyFileTelemetry(
         string directory,
         int retentionDays = 30,
         long maxSizeBytes = 100L * 1024 * 1024,
         Func<DateTimeOffset>? utcNow = null,
-        Action<Exception>? onWriteFailure = null)
+        Action<Exception>? onWriteFailure = null,
+        WatchLocalLogDispatcher? dispatcher = null)
     {
         if (string.IsNullOrWhiteSpace(directory))
         {
@@ -45,37 +46,42 @@ internal sealed class WatchLatencyFileTelemetry : ILatencyTelemetry
         _maxSizeBytes = maxSizeBytes;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _onWriteFailure = onWriteFailure;
+        _dispatcher = dispatcher ?? new WatchLocalLogDispatcher();
     }
 
     public static WatchLatencyFileTelemetry FromOptions(
         WatchOptions options,
         string? directory = null,
-        Action<Exception>? onWriteFailure = null)
+        Action<Exception>? onWriteFailure = null,
+        WatchLocalLogDispatcher? dispatcher = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         return new(
             directory ?? WatchConnectionEventJournal.DefaultDirectory,
             options.ConnectionLogRetentionDays,
             options.ConnectionLogMaxSizeMb * 1024L * 1024L,
-            onWriteFailure: onWriteFailure);
+            onWriteFailure: onWriteFailure,
+            dispatcher: dispatcher);
     }
 
     public void Record(LatencyEvent evt)
     {
-        lock (_gate)
-        {
-            try
+        var line = LatencyLogFormatter.Format(evt);
+        _dispatcher.TryEnqueue(
+            () =>
             {
                 Directory.CreateDirectory(_directory);
-                var line = LatencyLogFormatter.Format(evt);
                 var path = IOPath.Combine(_directory, $"watch-latency-{_utcNow():yyyyMMdd}.log");
                 File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
-                WatchLocalLogRetention.Enforce(_directory, _retentionDays, _maxSizeBytes, _utcNow);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                _onWriteFailure?.Invoke(ex);
-            }
-        }
+                WatchLocalLogRetention.Enforce(
+                    _directory,
+                    _retentionDays,
+                    _maxSizeBytes,
+                    _utcNow,
+                    _onWriteFailure);
+            },
+            _onWriteFailure);
     }
+
+    internal Task DrainAsync() => _dispatcher.DrainAsync();
 }

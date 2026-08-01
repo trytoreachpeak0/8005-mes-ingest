@@ -13,6 +13,8 @@ internal partial class MainWindow : Window
     private readonly WatchOptions _options;
     private readonly WatchConnectionEventRecorder _connectionRecorder;
     private readonly WatchConnectionEventJournal _connectionJournal;
+    private readonly WatchTelemetryIoDiagnosticBuffer _telemetryIoDiagnostics;
+    private readonly WatchUnifiedEventFeed _eventFeed;
     private readonly string _layoutPreferencesPath;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
@@ -34,7 +36,8 @@ internal partial class MainWindow : Window
         WatchOptions options,
         WatchConnectionEventJournal? connectionJournal = null,
         WatchConnectionEventRecorder? connectionRecorder = null,
-        string? layoutPreferencesPath = null)
+        string? layoutPreferencesPath = null,
+        WatchTelemetryIoDiagnosticBuffer? telemetryIoDiagnostics = null)
     {
         InitializeComponent();
         WatchGridClipboardBehavior.Attach(DemandsGrid);
@@ -43,7 +46,11 @@ internal partial class MainWindow : Window
         _browse = new WatchBrowseSession(client);
         _options = options;
         _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
-        _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(options);
+        _telemetryIoDiagnostics = telemetryIoDiagnostics ?? new WatchTelemetryIoDiagnosticBuffer();
+        _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(
+            options,
+            onWriteFailure: ex => _telemetryIoDiagnostics.Record("watch-connection", ex));
+        _eventFeed = new WatchUnifiedEventFeed(_connectionJournal, _telemetryIoDiagnostics);
         _connectionRecorder = connectionRecorder
             ?? new WatchConnectionEventRecorder(TimeSpan.FromMinutes(5));
         Title = $"MesIngest Watch — {_options.BaseUrl}";
@@ -356,9 +363,9 @@ internal partial class MainWindow : Window
         {
             _connectionJournal.Append(connectionEvent);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Local journal must not break the watch loop.
+            _telemetryIoDiagnostics.Record("watch-connection", ex);
         }
     }
 
@@ -589,28 +596,7 @@ internal partial class MainWindow : Window
     }
 
     private IReadOnlyList<UnifiedWatchEvent> LoadUnifiedEvents()
-    {
-        var zone = TimeZoneInfo.Local;
-        var host = _browse.Alerts.Select(a => UnifiedWatchEvent.FromAlert(a, zone));
-        IEnumerable<UnifiedWatchEvent> watch;
-        try
-        {
-            watch = _connectionJournal.ReadRecent(200)
-                .Select(e => UnifiedWatchEvent.FromConnectionEvent(e, zone));
-        }
-        catch (IOException)
-        {
-            watch = [];
-        }
-        catch (UnauthorizedAccessException)
-        {
-            watch = [];
-        }
-
-        return host.Concat(watch)
-            .OrderByDescending(e => e.At)
-            .ToList();
-    }
+        => _eventFeed.Load(_browse.Alerts, TimeZoneInfo.Local);
 
     private void OnOpenLogDirectoryClick(object sender, RoutedEventArgs e) =>
         WatchLogDirectory.Open(this, _connectionJournal.DirectoryPath);

@@ -5,6 +5,8 @@ namespace MesIngest.Watch;
 
 internal partial class App : Application
 {
+    private WatchLocalLogDispatcher? _logDispatcher;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -22,24 +24,30 @@ internal partial class App : Application
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
         }
 
-        var journal = WatchConnectionEventJournal.FromOptions(options);
+        _logDispatcher = new WatchLocalLogDispatcher();
+        var telemetryIoDiagnostics = new WatchTelemetryIoDiagnosticBuffer();
+        var journal = WatchConnectionEventJournal.FromOptions(
+            options,
+            onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-connection", ex),
+            dispatcher: _logDispatcher);
         var client = new MesIngestApiClient(
             http,
             options.RequestTimeoutSeconds,
             telemetry: WatchLatencyFileTelemetry.FromOptions(
                 options,
-                onWriteFailure: ex =>
-                {
-                    try
-                    {
-                        WatchLatencyWriteFailureJournal.Append(journal, ex);
-                    }
-                    catch
-                    {
-                        // Diagnostic journal write is best-effort.
-                    }
-                }));
-        var window = new MainWindow(client, options, journal);
+                onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-latency", ex),
+                dispatcher: _logDispatcher));
+        var window = new MainWindow(
+            client,
+            options,
+            journal,
+            telemetryIoDiagnostics: telemetryIoDiagnostics);
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        _logDispatcher?.Dispose();
+        base.OnExit(e);
     }
 }
