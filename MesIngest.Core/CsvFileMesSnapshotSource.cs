@@ -28,7 +28,8 @@ public sealed class CsvFileMesSnapshotSource : IMesSnapshotSource
         var lines = await File.ReadAllLinesAsync(_path, Encoding.UTF8, cancellationToken);
         if (lines.Length == 0)
         {
-            return MesSnapshotOutcome.Success(Array.Empty<MesSnapshotRow>());
+            // Zero-byte / truncated write window — not a complete empty result.
+            return MesSnapshotOutcome.Incomplete();
         }
 
         var header = ParseCsvLine(lines[0]);

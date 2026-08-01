@@ -151,4 +151,45 @@ public class CsvFileMesSnapshotSourceTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public async Task Zero_byte_file_returns_incomplete_outcome()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mes-csv-{Guid.NewGuid():N}.csv");
+        await File.WriteAllBytesAsync(path, Array.Empty<byte>());
+
+        try
+        {
+            var source = new CsvFileMesSnapshotSource(path);
+            var outcome = await source.ReadAsync();
+            Assert.Equal(SnapshotOutcomeKind.Incomplete, outcome.Kind);
+            Assert.Empty(outcome.Rows);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Header_only_empty_result_returns_success_with_no_rows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"mes-csv-{Guid.NewGuid():N}.csv");
+        await File.WriteAllTextAsync(
+            path,
+            "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n",
+            Encoding.UTF8);
+
+        try
+        {
+            var source = new CsvFileMesSnapshotSource(path);
+            var outcome = await source.ReadAsync();
+            Assert.Equal(SnapshotOutcomeKind.Success, outcome.Kind);
+            Assert.Empty(outcome.Rows);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

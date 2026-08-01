@@ -55,6 +55,32 @@ public class OracleMesSnapshotSourceTests
     }
 
     [Fact]
+    public async Task Empty_result_set_with_required_columns_returns_success()
+    {
+        var sqlPath = await WriteTempSqlAsync("SELECT 1 FROM DUAL");
+        var executor = new FakeOracleQueryExecutor(
+            new OracleQueryResult(
+                ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"],
+                []));
+
+        try
+        {
+            var source = new OracleMesSnapshotSource(
+                new OracleSnapshotOptions { QuerySqlPath = sqlPath },
+                executor);
+
+            var outcome = await source.ReadAsync();
+
+            Assert.Equal(SnapshotOutcomeKind.Success, outcome.Kind);
+            Assert.Empty(outcome.Rows);
+        }
+        finally
+        {
+            File.Delete(sqlPath);
+        }
+    }
+
+    [Fact]
     public async Task Missing_required_column_returns_incomplete()
     {
         var sqlPath = await WriteTempSqlAsync("SELECT 1 FROM DUAL");

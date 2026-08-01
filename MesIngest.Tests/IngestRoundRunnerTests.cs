@@ -442,6 +442,57 @@ public class IngestRoundRunnerTests
     }
 
     [Fact]
+    public async Task Csv_zero_byte_file_is_poll_incomplete_without_mutating_presence()
+    {
+        var now = Baseline.AddHours(12);
+        var store = new InMemoryTransportDemandStore();
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "d1",
+                TaskType = "DIE_TO_OVEN",
+                Sublot = "Q-1",
+                Area = "N01-01",
+                Eqp = "EQ1",
+                Step = "烘箱",
+                Dates = Baseline.AddHours(1),
+                Package = "PKG",
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                DisappearCount = 1,
+            },
+        ]));
+
+        var path = Path.Combine(Path.GetTempPath(), $"mes-runner-csv-{Guid.NewGuid():N}.csv");
+        await File.WriteAllBytesAsync(path, Array.Empty<byte>());
+
+        try
+        {
+            var runner = new IngestRoundRunner(
+                new CsvFileMesSnapshotSource(path),
+                new TransportDemandReconciler(new SequentialDemandIdAllocator("new")),
+                store,
+                Baseline,
+                clock: () => now.AddMinutes(1));
+
+            await runner.RunOnceAsync();
+
+            var demand = Assert.Single(store.List());
+            Assert.Equal("d1", demand.DemandId);
+            Assert.Equal(DemandStatus.Visible, demand.Status);
+            Assert.Equal(1, demand.DisappearCount);
+            Assert.Equal(now, demand.MesLastSeenAt);
+            Assert.Equal("POLL_INCOMPLETE", Assert.Single(store.ListAlerts()).Code);
+            Assert.Equal("INCOMPLETE", store.GetLatestPollHealth()!.Outcome);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Query_timeout_is_recorded_as_poll_failure_without_mutating_projection()
     {
         var now = Baseline.AddHours(12);
