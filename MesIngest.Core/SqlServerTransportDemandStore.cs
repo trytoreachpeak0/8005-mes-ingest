@@ -277,9 +277,14 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             using (var bounds = new SqlCommand(
                        """
                        SELECT
-                           ISNULL(MAX([Sequence]), 0),
-                           MIN([Sequence])
-                       FROM dbo.DemandChangeFeed;
+                           ISNULL(
+                               (SELECT MAX([Sequence]) FROM dbo.DemandChangeFeed),
+                               ISNULL(CONVERT(BIGINT, (
+                                   SELECT last_value
+                                   FROM sys.identity_columns
+                                   WHERE object_id = OBJECT_ID(N'dbo.DemandChangeFeed')
+                               )), 0)),
+                           (SELECT MIN([Sequence]) FROM dbo.DemandChangeFeed);
                        """,
                        conn,
                        tx))
@@ -290,11 +295,10 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                 earliest = reader.IsDBNull(1) ? null : reader.GetInt64(1);
             }
 
-            if (earliest is long e
-                && query.AfterSequence > 0
-                && query.AfterSequence < e - 1)
+            long contiguousFrom = earliest ?? highWatermark + 1;
+            if (query.AfterSequence < contiguousFrom - 1)
             {
-                throw new SyncCursorExpiredException(query.AfterSequence, e, highWatermark);
+                throw new SyncCursorExpiredException(query.AfterSequence, earliest, highWatermark);
             }
 
             using var cmd = new SqlCommand(

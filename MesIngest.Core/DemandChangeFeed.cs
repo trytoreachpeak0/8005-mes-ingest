@@ -74,10 +74,13 @@ public sealed class SyncCursorExpiredException : Exception
 {
     public const string ErrorCode = "SYNC_CURSOR_EXPIRED";
 
-    public SyncCursorExpiredException(long afterSequence, long earliestAvailableSequence, long highWatermark)
+    public SyncCursorExpiredException(long afterSequence, long? earliestAvailableSequence, long highWatermark)
         : base(
-            $"{ErrorCode}: afterSequence {afterSequence} is earlier than retained feed " +
-            $"(earliestAvailableSequence={earliestAvailableSequence}). Bootstrap required.")
+            earliestAvailableSequence is long earliest
+                ? $"{ErrorCode}: afterSequence {afterSequence} is earlier than retained feed " +
+                  $"(earliestAvailableSequence={earliest}). Bootstrap required."
+                : $"{ErrorCode}: afterSequence {afterSequence} is earlier than retained feed " +
+                  $"(ledger empty; highWatermark={highWatermark}). Bootstrap required.")
     {
         AfterSequence = afterSequence;
         EarliestAvailableSequence = earliestAvailableSequence;
@@ -85,7 +88,7 @@ public sealed class SyncCursorExpiredException : Exception
     }
 
     public long AfterSequence { get; }
-    public long EarliestAvailableSequence { get; }
+    public long? EarliestAvailableSequence { get; }
     public long HighWatermark { get; }
 }
 

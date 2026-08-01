@@ -304,18 +304,100 @@ public class SqlServerTransportDemandStoreTests
             cs,
             changeFeedRetention: TimeSpan.FromHours(48),
             clock: () => clock);
-        var page = reader.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = clock });
-        Assert.Equal(1, page.Items.Count);
-        Assert.Equal("d", page.Items[0].DemandId);
-        Assert.Equal(page.Items[0].Sequence, page.EarliestAvailableSequence);
-        Assert.Equal(page.Items[0].Sequence, page.HighWatermark);
-        Assert.True(page.EarliestAvailableSequence >= 4);
-        Assert.Throws<SyncCursorExpiredException>(() =>
+
+        // Default afterSequence=0 must not silently resume mid-ledger after purge.
+        var fromStart = Assert.Throws<SyncCursorExpiredException>(() =>
+            reader.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 0, AsOf = clock }));
+        Assert.True(fromStart.EarliestAvailableSequence >= 4);
+        Assert.Equal(fromStart.EarliestAvailableSequence, fromStart.HighWatermark);
+
+        var gap = Assert.Throws<SyncCursorExpiredException>(() =>
             reader.QueryChangeFeed(new DemandChangeFeedQuery
             {
-                AfterSequence = page.EarliestAvailableSequence!.Value - 2,
+                AfterSequence = fromStart.EarliestAvailableSequence!.Value - 2,
                 AsOf = clock,
             }));
+        Assert.Equal(fromStart.EarliestAvailableSequence, gap.EarliestAvailableSequence);
+
+        var catchUp = reader.QueryChangeFeed(new DemandChangeFeedQuery
+        {
+            AfterSequence = fromStart.EarliestAvailableSequence!.Value - 1,
+            AsOf = clock,
+        });
+        Assert.Equal(1, catchUp.Items.Count);
+        Assert.Equal("d", catchUp.Items[0].DemandId);
+        Assert.Equal(catchUp.Items[0].Sequence, catchUp.EarliestAvailableSequence);
+        Assert.Equal(catchUp.Items[0].Sequence, catchUp.HighWatermark);
+    }
+
+    [SqlServerAvailabilityFact]
+    public void Change_feed_full_purge_keeps_monotonic_watermark_and_expires_stale_cursors()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var clock = now;
+        var store = new SqlServerTransportDemandStore(
+            cs,
+            changeFeedRetention: TimeSpan.FromHours(48),
+            clock: () => clock);
+
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+        store.ReplaceState(new ProjectionState(
+        [
+            new TransportDemand
+            {
+                DemandId = "a",
+                TaskType = "T",
+                Sublot = "S1",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+            new TransportDemand
+            {
+                DemandId = "b",
+                TaskType = "T",
+                Sublot = "S2",
+                Dates = now,
+                Status = DemandStatus.Visible,
+                MesLastSeenAt = now,
+                CreatedAt = now,
+            },
+        ]));
+
+        var beforePurge = store.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = clock });
+        var highWatermark = beforePurge.HighWatermark;
+        Assert.True(highWatermark >= 2);
+
+        clock = now.AddHours(49);
+        var empty = store.QueryChangeFeed(new DemandChangeFeedQuery
+        {
+            AfterSequence = highWatermark,
+            AsOf = clock,
+        });
+        Assert.Empty(empty.Items);
+        Assert.Null(empty.EarliestAvailableSequence);
+        Assert.Equal(highWatermark, empty.HighWatermark);
+
+        var expired = Assert.Throws<SyncCursorExpiredException>(() =>
+            store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 0, AsOf = clock }));
+        Assert.Null(expired.EarliestAvailableSequence);
+        Assert.Equal(highWatermark, expired.HighWatermark);
     }
 
     [SqlServerAvailabilityFact]

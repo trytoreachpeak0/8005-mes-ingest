@@ -105,12 +105,68 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
         await using var factory = await CreateFactoryAsync(store);
         var client = factory.CreateClient();
 
-        var response = await client.GetAsync("/api/demand-changes?afterSequence=2");
+        var response = await client.GetAsync("/api/demand-changes?afterSequence=0");
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        var fromStart = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(SyncCursorExpiredException.ErrorCode, fromStart.GetProperty("code").GetString());
+        Assert.Equal(0, fromStart.GetProperty("afterSequence").GetInt64());
+        Assert.Equal(4, fromStart.GetProperty("earliestAvailableSequence").GetInt64());
+        Assert.Equal(4, fromStart.GetProperty("highWatermark").GetInt64());
+
+        response = await client.GetAsync("/api/demand-changes?afterSequence=2");
         Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(SyncCursorExpiredException.ErrorCode, body.GetProperty("code").GetString());
         Assert.Equal(4, body.GetProperty("earliestAvailableSequence").GetInt64());
         Assert.Equal(4, body.GetProperty("highWatermark").GetInt64());
+
+        var catchUp = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes?afterSequence=3");
+        Assert.Equal(1, catchUp.GetProperty("items").GetArrayLength());
+        Assert.Equal("d", catchUp.GetProperty("items")[0].GetProperty("demandId").GetString());
+        Assert.Equal(4, catchUp.GetProperty("highWatermark").GetInt64());
+    }
+
+    [Fact]
+    public async Task Demand_changes_full_purge_returns_monotonic_watermark_and_410_for_stale_cursors()
+    {
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var clock = now;
+        var store = new InMemoryTransportDemandStore(
+            changeFeedRetention: TimeSpan.FromHours(48),
+            clock: () => clock);
+
+        store.ReplaceState(new ProjectionState([Demand("a", DemandStatus.Visible, now, "T", "S1")]));
+        store.ReplaceState(new ProjectionState(
+        [
+            Demand("a", DemandStatus.Visible, now, "T", "S1"),
+            Demand("b", DemandStatus.Visible, now, "T", "S2"),
+        ]));
+
+        await using var factory = await CreateFactoryAsync(store);
+        var client = factory.CreateClient();
+
+        var before = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes");
+        Assert.Equal(2, before.GetProperty("highWatermark").GetInt64());
+
+        clock = now.AddHours(49);
+        // Same projection, no new CREATED/GONE — ReplaceState still applies retention purge.
+        store.ReplaceState(new ProjectionState(
+        [
+            Demand("a", DemandStatus.Visible, now, "T", "S1"),
+            Demand("b", DemandStatus.Visible, now, "T", "S2"),
+        ]));
+
+        var caughtUp = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes?afterSequence=2");
+        Assert.Equal(0, caughtUp.GetProperty("items").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, caughtUp.GetProperty("earliestAvailableSequence").ValueKind);
+        Assert.Equal(2, caughtUp.GetProperty("highWatermark").GetInt64());
+
+        var expired = await client.GetAsync("/api/demand-changes?afterSequence=0");
+        Assert.Equal(HttpStatusCode.Gone, expired.StatusCode);
+        var body = await expired.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(SyncCursorExpiredException.ErrorCode, body.GetProperty("code").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("earliestAvailableSequence").ValueKind);
+        Assert.Equal(2, body.GetProperty("highWatermark").GetInt64());
     }
 
     [Fact]

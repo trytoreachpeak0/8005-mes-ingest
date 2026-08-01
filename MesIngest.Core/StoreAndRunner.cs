@@ -169,13 +169,13 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
         ArgumentNullException.ThrowIfNull(query);
         PurgeChangeFeed(query.AsOf);
 
-        long highWatermark = _changeFeed.Count == 0 ? 0 : _changeFeed[^1].Sequence;
+        // Monotonic even when retention has emptied the ledger (_nextSequence - 1).
+        long highWatermark = _nextSequence - 1;
         long? earliest = _changeFeed.Count == 0 ? null : _changeFeed[0].Sequence;
-        if (earliest is long e
-            && query.AfterSequence > 0
-            && query.AfterSequence < e - 1)
+        long contiguousFrom = earliest ?? highWatermark + 1;
+        if (query.AfterSequence < contiguousFrom - 1)
         {
-            throw new SyncCursorExpiredException(query.AfterSequence, e, highWatermark);
+            throw new SyncCursorExpiredException(query.AfterSequence, earliest, highWatermark);
         }
 
         var matched = _changeFeed

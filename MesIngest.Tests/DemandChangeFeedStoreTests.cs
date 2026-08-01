@@ -112,9 +112,10 @@ public class DemandChangeFeedStoreTests
             Demand("d", DemandStatus.Visible, clock, "T", "S4"),
         ]));
 
-        var fromStart = store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 0, AsOf = clock });
-        Assert.Equal(1, fromStart.Items.Count);
-        Assert.Equal("d", fromStart.Items[0].DemandId);
+        // afterSequence == 0 is not a free pass once earliest > 1 — same 410 as any gap.
+        var fromStart = Assert.Throws<SyncCursorExpiredException>(() =>
+            store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 0, AsOf = clock }));
+        Assert.Equal(0, fromStart.AfterSequence);
         Assert.Equal(4, fromStart.EarliestAvailableSequence);
         Assert.Equal(4, fromStart.HighWatermark);
 
@@ -128,6 +129,44 @@ public class DemandChangeFeedStoreTests
         // Checkpoint exactly at earliest-1 is still contiguous.
         var catchUp = store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 3, AsOf = clock });
         Assert.Equal(new[] { "d" }, catchUp.Items.Select(i => i.DemandId).ToArray());
+        Assert.Equal(4, catchUp.HighWatermark);
+    }
+
+    [Fact]
+    public void QueryChangeFeed_full_purge_keeps_monotonic_watermark_and_expires_stale_cursors()
+    {
+        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
+        var clock = now;
+        var store = new InMemoryTransportDemandStore(
+            changeFeedRetention: TimeSpan.FromHours(48),
+            clock: () => clock);
+
+        store.ReplaceState(new ProjectionState([Demand("a", DemandStatus.Visible, now, "T", "S1")]));
+        store.ReplaceState(new ProjectionState(
+        [
+            Demand("a", DemandStatus.Visible, now, "T", "S1"),
+            Demand("b", DemandStatus.Visible, now, "T", "S2"),
+        ]));
+
+        var beforePurge = store.QueryChangeFeed(new DemandChangeFeedQuery { AsOf = clock });
+        Assert.Equal(2, beforePurge.HighWatermark);
+
+        // Advance past retention with no new feed rows → ledger empty, watermark must not fall to 0.
+        clock = now.AddHours(49);
+        var empty = store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 2, AsOf = clock });
+        Assert.Empty(empty.Items);
+        Assert.Null(empty.EarliestAvailableSequence);
+        Assert.Equal(2, empty.HighWatermark);
+
+        var expired = Assert.Throws<SyncCursorExpiredException>(() =>
+            store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 0, AsOf = clock }));
+        Assert.Equal(0, expired.AfterSequence);
+        Assert.Null(expired.EarliestAvailableSequence);
+        Assert.Equal(2, expired.HighWatermark);
+
+        var midGap = Assert.Throws<SyncCursorExpiredException>(() =>
+            store.QueryChangeFeed(new DemandChangeFeedQuery { AfterSequence = 1, AsOf = clock }));
+        Assert.Equal(2, midGap.HighWatermark);
     }
 
     [Fact]
