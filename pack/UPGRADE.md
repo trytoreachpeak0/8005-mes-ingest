@@ -37,10 +37,10 @@
    ```powershell
    Start-Service MesIngest
    ```
-4. Host 启动时 `EnsureSchema` **幂等、仅增量**：
+4. Host 启动时 `EnsureSchema` **幂等、仅增量、单事务**：
    - 不为 TransportDemands 做 DROP/重建
    - 修改 Phase-1 `IngestAlerts` 前先写入 `IngestAlerts_LegacyArchive`，再补 incident 列并就地迁移
-   - 创建 ChangeFeed / 索引 / `MesIngestSchemaVersion`；中途失败可再次启动以完成剩余幂等步骤
+   - 创建 ChangeFeed / 索引 / `MesIngestSchemaVersion`；全部 DDL 在同一显式事务中提交，中途失败回滚到升级前一致点（无半迁移），修复条件后可再次启动完成升级
 5. 冒烟：
    - `GET /api/contract` 的 `contractVersion` 与同包 Watch 一致
    - `GET /api/poll-health`、`GET /api/demands`、`GET /api/alerts`
@@ -73,7 +73,7 @@
 | DemandChangeFeed | 新建或幂等补齐；保留期默认 48h |
 | 客户 Oracle / 批准 MES SQL | **只读**；本升级不部署任何 Oracle DDL |
 
-DDL 逐步执行且各步幂等：中途失败再启 Host 会继续补齐剩余步骤，**不会** DROP/重建 `TransportDemands`。半迁移 schema 的业务回滚依赖升级前库备份（见上）。
+DDL 在单事务中执行且各步幂等：中途失败整批回滚，不留下半套列/半套对象；修复条件后再启 Host 可安全重入完成升级，**不会** DROP/重建 `TransportDemands`。业务级回滚（回到旧版二进制）仍依赖升级前库备份（见上）。
 
 ## 版本不匹配
 

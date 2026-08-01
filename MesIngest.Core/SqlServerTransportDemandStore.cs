@@ -623,10 +623,14 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
     private void EnsureSchema()
     {
         using var conn = Open();
-        using var cmd = conn.CreateCommand();
-        // Dynamic SQL so CREATE is not compile-validated when the table already exists.
-        var schemaVersion = MesIngestApiContract.SchemaVersion;
-        cmd.CommandText = $"""
+        using var tx = conn.BeginTransaction();
+        try
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            // Dynamic SQL so CREATE is not compile-validated when the table already exists.
+            var schemaVersion = MesIngestApiContract.SchemaVersion;
+            cmd.CommandText = $"""
             IF OBJECT_ID(N'dbo.TransportDemands', N'U') IS NULL
             EXEC(N'
                 CREATE TABLE dbo.TransportDemands
@@ -917,7 +921,14 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             WHEN MATCHED THEN UPDATE SET SchemaVersion = src.SchemaVersion, AppliedAt = src.AppliedAt
             WHEN NOT MATCHED THEN INSERT (Id, SchemaVersion, AppliedAt) VALUES (src.Id, src.SchemaVersion, src.AppliedAt);
             """;
-        cmd.ExecuteNonQuery();
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+        }
+        catch
+        {
+            tx.Rollback();
+            throw;
+        }
     }
 
     private static void AppendChangeFeed(

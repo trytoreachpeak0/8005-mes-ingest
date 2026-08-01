@@ -4,8 +4,9 @@ using Microsoft.Data.SqlClient;
 namespace MesIngest.Tests;
 
 /// <summary>
-/// Ticket 14 seams: Phase-1 SQL fixture upgrade preserves projection history;
-/// EnsureSchema is additive/idempotent (no DROP/rebuild of TransportDemands).
+/// Ticket 14 / remediation 04 seams: Phase-1 SQL fixture upgrade preserves projection history;
+/// EnsureSchema is additive/idempotent (no DROP/rebuild of TransportDemands) and transactional
+/// (mid-upgrade failure rolls back; no half-migration).
 /// </summary>
 [Collection("SqlServer")]
 public class SchemaUpgradeTests
@@ -109,6 +110,58 @@ public class SchemaUpgradeTests
             cmd.ExecuteNonQuery();
         }
     }
+
+    [SqlServerAvailabilityFact]
+    public void Mid_upgrade_failure_leaves_no_half_migration_and_recovers_on_rerun()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        Phase1SchemaFixture.ResetToPhase1(cs);
+        Phase1SchemaFixture.Seed(
+            cs,
+            visibleDemandId: "tx-visible-001",
+            goneDemandId: "tx-gone-001",
+            pauseTaskType: "DIE_TO_OVEN",
+            alertCode: "POLL_FAILURE",
+            alertMessage: "injected-upgrade-failure",
+            pollStarted: DateTimeOffset.Parse("2026-07-15T03:00:00Z"),
+            pollEnded: DateTimeOffset.Parse("2026-07-15T03:00:08Z"));
+
+        Phase1SchemaFixture.InstallLateUpgradeFailureTrigger(cs);
+        try
+        {
+            var ex = Assert.ThrowsAny<Exception>(() => _ = new SqlServerTransportDemandStore(cs));
+            Assert.Contains("Injected schema upgrade failure", ex.Message, StringComparison.Ordinal);
+
+            // Incomplete upgrade: version must not claim current schema, and early DDL must not stick.
+            Assert.False(Phase1SchemaFixture.HasCurrentSchemaVersion(cs));
+            Assert.Null(Phase1SchemaFixture.ColumnLength(cs, "TransportDemands", "CreatedAt"));
+            Assert.Null(Phase1SchemaFixture.ColumnLength(cs, "IngestAlerts", "AlertId"));
+            Assert.False(Phase1SchemaFixture.ObjectExists(cs, "DemandChangeFeed"));
+            Assert.False(Phase1SchemaFixture.ObjectExists(cs, "IngestAlerts_LegacyArchive"));
+            Assert.Equal(2, Phase1SchemaFixture.DemandRowCount(cs));
+            Assert.Equal(1, Phase1SchemaFixture.PauseRowCount(cs));
+            Assert.Equal(1, Phase1SchemaFixture.AlertRowCount(cs));
+            Assert.Equal(1, Phase1SchemaFixture.PollHealthRowCount(cs));
+        }
+        finally
+        {
+            Phase1SchemaFixture.DropLateUpgradeFailureTrigger(cs);
+        }
+
+        // Condition restored: re-run completes and preserves Phase-1 history.
+        var store = new SqlServerTransportDemandStore(cs);
+        Assert.True(Phase1SchemaFixture.HasCurrentSchemaVersion(cs));
+        Assert.Contains(store.GetState().Demands, d => d.DemandId == "tx-visible-001");
+        Assert.Contains(store.List(DemandStatus.Gone), d => d.DemandId == "tx-gone-001");
+        Assert.Contains(store.GetState().TaskTypePauses, p => p.TaskType == "DIE_TO_OVEN" && p.PausedZeroDrop);
+        Assert.Contains(store.ListAlerts(), a => a.Code == "POLL_FAILURE" && a.Message == "injected-upgrade-failure");
+        Assert.Equal("SUCCESS", store.GetLatestPollHealth()?.Outcome);
+
+        // Success path stays idempotent.
+        _ = new SqlServerTransportDemandStore(cs);
+        Assert.Equal(1, store.List(DemandStatus.Visible).Count(d => d.DemandId == "tx-visible-001"));
+        Assert.Equal(1, store.List(DemandStatus.Gone).Count(d => d.DemandId == "tx-gone-001"));
+    }
 }
 
 /// <summary>
@@ -119,6 +172,7 @@ internal static class Phase1SchemaFixture
 {
     public static void ResetToPhase1(string connectionString)
     {
+        DropLateUpgradeFailureTrigger(connectionString);
         using var conn = new SqlConnection(connectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
@@ -302,6 +356,103 @@ internal static class Phase1SchemaFixture
             ELSE
                 SELECT COUNT(*) FROM dbo.IngestAlerts_LegacyArchive;
             """;
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    public static void InstallLateUpgradeFailureTrigger(string connectionString)
+    {
+        DropLateUpgradeFailureTrigger(connectionString);
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        // Fail on a late additive object so earlier Phase-1→current DDL would otherwise stick.
+        cmd.CommandText = """
+            EXEC(N'
+                CREATE TRIGGER TR_MesIngest_BlockDemandChangeFeed
+                ON DATABASE
+                FOR CREATE_TABLE
+                AS
+                BEGIN
+                    DECLARE @name sysname =
+                        EVENTDATA().value(N''(/EVENT_INSTANCE/ObjectName)[1]'', N''sysname'');
+                    IF @name = N''DemandChangeFeed''
+                        THROW 50002, N''Injected schema upgrade failure before ChangeFeed.'', 1;
+                END
+            ');
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    public static void DropLateUpgradeFailureTrigger(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            IF EXISTS (
+                SELECT 1
+                FROM sys.triggers
+                WHERE name = N'TR_MesIngest_BlockDemandChangeFeed'
+                  AND parent_class_desc = N'DATABASE')
+                DROP TRIGGER TR_MesIngest_BlockDemandChangeFeed ON DATABASE;
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    public static bool HasCurrentSchemaVersion(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            IF OBJECT_ID(N'dbo.MesIngestSchemaVersion', N'U') IS NULL
+                SELECT CAST(0 AS INT);
+            ELSE
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.MesIngestSchemaVersion
+                    WHERE Id = 1 AND SchemaVersion = @SchemaVersion)
+                    THEN 1 ELSE 0 END;
+            """;
+        cmd.Parameters.AddWithValue("@SchemaVersion", MesIngestApiContract.SchemaVersion);
+        return Convert.ToInt32(cmd.ExecuteScalar()) == 1;
+    }
+
+    public static int? ColumnLength(string connectionString, string table, string column)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COL_LENGTH(@Table, @Column);";
+        cmd.Parameters.AddWithValue("@Table", "dbo." + table);
+        cmd.Parameters.AddWithValue("@Column", column);
+        var value = cmd.ExecuteScalar();
+        return value is null or DBNull ? null : Convert.ToInt32(value);
+    }
+
+    public static bool ObjectExists(string connectionString, string table)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT CASE WHEN OBJECT_ID(@Object, N'U') IS NULL THEN 0 ELSE 1 END;";
+        cmd.Parameters.AddWithValue("@Object", "dbo." + table);
+        return Convert.ToInt32(cmd.ExecuteScalar()) == 1;
+    }
+
+    public static int DemandRowCount(string connectionString) => ScalarCount(connectionString, "SELECT COUNT(*) FROM dbo.TransportDemands;");
+
+    public static int PauseRowCount(string connectionString) => ScalarCount(connectionString, "SELECT COUNT(*) FROM dbo.TaskTypePauses;");
+
+    public static int AlertRowCount(string connectionString) => ScalarCount(connectionString, "SELECT COUNT(*) FROM dbo.IngestAlerts;");
+
+    public static int PollHealthRowCount(string connectionString) => ScalarCount(connectionString, "SELECT COUNT(*) FROM dbo.PollHealth;");
+
+    private static int ScalarCount(string connectionString, string sql)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 }
