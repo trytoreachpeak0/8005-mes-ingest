@@ -11,6 +11,7 @@
 - [ ] `request-metrics.jsonl` 与 `api/`：包含 demands 首/后续页、exact/prefix、alerts、poll-health、ChangeFeed/Bootstrap、Swagger/OpenAPI
 - [ ] `dates-samples.tsv`：每个 TASK_TYPE 至少一条，人工确认列不再为 `PENDING`
 - [ ] `host-latency.log` 与 `watch-latency.log`：能对照 Oracle、SQL Server、Host endpoint、Watch total latency 和 correlation id；缺项须在执行日志解释
+- [ ] manifest 状态为 `technical-capture-completed` 且 `missing_required_evidence` 为空；`technical-capture-incomplete` 不得作为通过证据
 - [ ] `sha256.txt`：回传前复核文件哈希
 - [ ] 每轮在 manifest 中记录 **耗时**（`duration_ms`）、**行数**（`row_count`）、**成败**（`success` / `outcome`）
 - [ ] 脱敏日志：至少含探针日志；也可附 API JSON 中的健康/告警摘要

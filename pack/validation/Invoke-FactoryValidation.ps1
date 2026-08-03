@@ -21,6 +21,12 @@ param(
     [ValidateRange(1, 300)]
     [int] $RequestTimeoutSeconds = 30,
 
+    [ValidateRange(1, 20)]
+    [int] $PollSampleCount = 3,
+
+    [ValidateRange(0, 300)]
+    [int] $PollSampleIntervalSeconds = 12,
+
     [string] $SharedSecretEnvironmentVariable = "MES_INGEST_SHARED_SECRET",
 
     [ValidateRange(0, 300)]
@@ -198,7 +204,34 @@ try {
     [void](Invoke-ValidationGet -Label "swagger" -RelativePath "/swagger/index.html" -OutputFile "api/swagger.html")
     [void](Invoke-ValidationGet -Label "openapi" -RelativePath "/openapi/v1.json" -OutputFile "api/openapi-v1.json")
     [void](Invoke-ValidationGet -Label "contract" -RelativePath "/api/contract" -OutputFile "api/contract.json")
-    $pollHealth = Invoke-ValidationGet -Label "poll-health" -RelativePath "/api/poll-health" -OutputFile "api/poll-health.json"
+    $pollRounds = New-Object System.Collections.ArrayList
+    for ($round = 1; $round -le $PollSampleCount; $round++) {
+        $pollHealthFile = "api/poll-health-round-{0:D3}.json" -f $round
+        $pollHealth = Invoke-ValidationGet -Label ("poll-health-round-{0:D3}" -f $round) -RelativePath "/api/poll-health" -OutputFile $pollHealthFile
+        [void]$pollRounds.Add([PSCustomObject][ordered]@{
+            round = $round
+            captured_at = [string]$pollHealth.Json.endedAt
+            duration_ms = $pollHealth.Json.durationMs
+            oracle_duration_ms = $pollHealth.Json.oracleDurationMs
+            row_count = $pollHealth.Json.rowCount
+            success = $pollHealth.Json.success
+            outcome = [string]$pollHealth.Json.outcome
+            failure_stage = [string]$pollHealth.Json.failureStage
+            poll_health_file = $pollHealthFile
+        })
+        if ($round -lt $PollSampleCount -and $PollSampleIntervalSeconds -gt 0) {
+            Start-Sleep -Seconds $PollSampleIntervalSeconds
+        }
+    }
+
+    # Always probe a real first/subsequent cursor pair when at least two VISIBLE rows exist.
+    $demandPageProbeFirst = Invoke-ValidationGet -Label "demands-page-probe-first" -RelativePath "/api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=1" -OutputFile "api/demands-page-probe-first.json"
+    $demandSubsequentPageSampled = $false
+    if ([bool]$demandPageProbeFirst.Json.hasMore -and -not [string]::IsNullOrWhiteSpace([string]$demandPageProbeFirst.Json.nextCursor)) {
+        $probeCursor = [Uri]::EscapeDataString([string]$demandPageProbeFirst.Json.nextCursor)
+        [void](Invoke-ValidationGet -Label "demands-page-probe-subsequent" -RelativePath ("/api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=1&cursor=$probeCursor") -OutputFile "api/demands-page-probe-subsequent.json")
+        $demandSubsequentPageSampled = $true
+    }
 
     $visibleItems = Invoke-PagedGet -Label "demands-visible" -InitialRelativePath "/api/demands?status=VISIBLE&sortBy=dates&direction=desc&limit=100" -FileStem "demands-visible"
 
@@ -293,13 +326,47 @@ try {
     $metrics | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath $metricsPath -Encoding UTF8
 
     $hostLatencyText = @($hostLatencyLines) -join "`n"
+    $hostEndpointSeen = $hostLatencyText.Contains("component=Host")
+    $oracleQuerySeen = $hostLatencyText.Contains("ORACLE_QUERY")
+    $sqlQuerySeen = $hostLatencyText.Contains("SQL_QUERY")
+    $sqlWriteSeen = $hostLatencyText.Contains("SQL_WRITE")
+    $watchLatencySeen = $watchLines.Count -gt 0
+    $responseCorrelationComplete = @($metrics | Where-Object {
+        [string]::IsNullOrWhiteSpace([string]$_.response_correlation_id) -or
+        -not [string]::Equals([string]$_.correlation_id, [string]$_.response_correlation_id, [StringComparison]::Ordinal)
+    }).Count -eq 0
+
+    $missingRequiredEvidence = New-Object System.Collections.ArrayList
+    if (-not $hostEndpointSeen) { [void]$missingRequiredEvidence.Add("HOST_ENDPOINT_LATENCY") }
+    if (-not $oracleQuerySeen) { [void]$missingRequiredEvidence.Add("ORACLE_QUERY") }
+    if (-not $sqlQuerySeen) { [void]$missingRequiredEvidence.Add("SQL_QUERY") }
+    if (-not $sqlWriteSeen) { [void]$missingRequiredEvidence.Add("SQL_WRITE") }
+    if (-not $watchLatencySeen) { [void]$missingRequiredEvidence.Add("WATCH_TOTAL_LATENCY") }
+    if (-not $responseCorrelationComplete) { [void]$missingRequiredEvidence.Add("CORRELATION_ID") }
+    if (-not $demandSubsequentPageSampled) { [void]$missingRequiredEvidence.Add("DEMANDS_SUBSEQUENT_PAGE") }
+    if ([string]::IsNullOrWhiteSpace($sampleDemandId)) { [void]$missingRequiredEvidence.Add("DEMAND_ID_EXACT_PREFIX") }
+
+    if (-not [string]::IsNullOrWhiteSpace($sharedSecret)) {
+        $secretLeak = Get-ChildItem -LiteralPath $runDirectory -Recurse -File |
+            Select-String -SimpleMatch -Pattern $sharedSecret -List -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($null -ne $secretLeak) {
+            throw "SharedSecret material was detected in validation evidence; quarantine and delete this run directory."
+        }
+    }
+
+    $captureStatus = if ($missingRequiredEvidence.Count -eq 0) {
+        "technical-capture-completed"
+    } else {
+        "technical-capture-incomplete"
+    }
     $manifest = [ordered]@{
         schema_version = 2
         run_id = $runId
         experiment_id = "mes-ingest-factory-validation"
         created_at = $startedAt.ToString("o")
         completed_at = [DateTimeOffset]::UtcNow.ToString("o")
-        status = "technical-capture-completed"
+        status = $captureStatus
         timezone = [TimeZoneInfo]::Local.Id
         environment = [ordered]@{
             platform = [Environment]::OSVersion.VersionString
@@ -307,22 +374,19 @@ try {
             shared_secret_source = $SharedSecretEnvironmentVariable
             shared_secret_present = -not [string]::IsNullOrWhiteSpace($sharedSecret)
         }
-        poll_rounds = @([ordered]@{
-            round = 1
-            captured_at = [string]$pollHealth.Json.endedAt
-            duration_ms = $pollHealth.Json.durationMs
-            oracle_duration_ms = $pollHealth.Json.oracleDurationMs
-            row_count = $pollHealth.Json.rowCount
-            success = $pollHealth.Json.success
-            outcome = [string]$pollHealth.Json.outcome
-            failure_stage = [string]$pollHealth.Json.failureStage
-            poll_health_file = "api/poll-health.json"
-        })
+        probe = [ordered]@{
+            thin = [ordered]@{ attempted = $false; result = "PENDING"; log = "probe-thin.txt" }
+            thick = [ordered]@{ attempted = $false; result = "PENDING"; log = "probe-thick.txt" }
+        }
+        poll_rounds = @($pollRounds)
         request_metrics = [ordered]@{
             file = "request-metrics.jsonl"
             count = $metrics.Count
             timeout_seconds = $RequestTimeoutSeconds
+            poll_sample_count = $PollSampleCount
             exact_demand_id_sampled = -not [string]::IsNullOrWhiteSpace($sampleDemandId)
+            subsequent_demand_page_sampled = $demandSubsequentPageSampled
+            response_correlation_complete = $responseCorrelationComplete
             visible_rows = $visibleItems.Count
             gone_last_24h_rows = $goneItems.Count
             alert_rows = $alertItems.Count
@@ -339,14 +403,17 @@ try {
             watch_file = "watch-latency.log"
             host_line_count = $hostLatencyLines.Count
             watch_line_count = $watchLines.Count
-            oracle_query_seen = $hostLatencyText.Contains("ORACLE_QUERY")
-            sql_query_seen = $hostLatencyText.Contains("SQL_QUERY")
-            sql_write_seen = $hostLatencyText.Contains("SQL_WRITE")
+            host_endpoint_seen = $hostEndpointSeen
+            oracle_query_seen = $oracleQuerySeen
+            sql_query_seen = $sqlQuerySeen
+            sql_write_seen = $sqlWriteSeen
+            watch_total_seen = $watchLatencySeen
+            missing_required_evidence = @($missingRequiredEvidence)
         }
         manual_checks = [ordered]@{
             dates_semantics_confirmed = $false
             watch_timezone_display_confirmed = $false
-            swagger_authorized_get_confirmed = ($metrics | Where-Object { $_.label -eq "contract" -and $_.status_code -eq 200 }).Count -eq 1
+            swagger_authorized_get_confirmed = $false
             endpoint_stage_timeout_reviewed = $false
         }
         safety = [ordered]@{

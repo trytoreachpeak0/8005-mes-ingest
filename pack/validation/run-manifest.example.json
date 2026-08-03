@@ -1,29 +1,26 @@
 {
   "schema_version": 2,
-  "run_id": "run-<UTC_TIMESTAMP>-<random>",
+  "run_id": "run-<UTC_TIMESTAMP>-<site>-<random>",
   "experiment_id": "mes-ingest-factory-validation",
   "created_at": "<ISO8601_TIMESTAMP>",
-  "status": "completed",
+  "completed_at": "<ISO8601_TIMESTAMP>",
+  "status": "technical-capture-incomplete",
   "timezone": "Asia/Shanghai",
-  "install": {
-    "version_txt": "VERSION.txt",
-    "host_file_version": "<FROM_VERSION_TXT_OR_FILE_PROPERTIES>"
-  },
   "environment": {
     "platform": "<OS_WITHOUT_HOSTNAME>",
-    "oracle_mode_requested": "Thin",
-    "oracle_mode_effective": "<Thin_or_Thick>",
-    "logical_site": "<FACTORY_LOGICAL_NAME_NO_HOST>"
+    "logical_site": "<A_OR_B_OR_C>",
+    "shared_secret_source": "MES_INGEST_SHARED_SECRET",
+    "shared_secret_present": false
   },
   "probe": {
     "thin": {
-      "attempted": true,
-      "result": "<ok_or_failed>",
+      "attempted": false,
+      "result": "PENDING",
       "log": "probe-thin.txt"
     },
     "thick": {
       "attempted": false,
-      "result": "<ok_or_failed_or_skipped>",
+      "result": "PENDING",
       "log": "probe-thick.txt"
     }
   },
@@ -32,19 +29,22 @@
       "round": 1,
       "captured_at": "<ISO8601_TIMESTAMP>",
       "duration_ms": 0,
+      "oracle_duration_ms": 0,
       "row_count": 0,
       "success": true,
       "outcome": "SUCCESS",
-      "poll_health_file": "api/poll-health-round-01.json",
-      "demands_visible_file": "api/demands-visible-round-01.json",
-      "alerts_file": "api/alerts-round-01.json"
+      "failure_stage": "",
+      "poll_health_file": "api/poll-health-round-001.json"
     }
   ],
   "request_metrics": {
     "file": "request-metrics.jsonl",
     "count": 0,
     "timeout_seconds": 30,
+    "poll_sample_count": 3,
     "exact_demand_id_sampled": false,
+    "subsequent_demand_page_sampled": false,
+    "response_correlation_complete": false,
     "visible_rows": 0,
     "gone_last_24h_rows": 0,
     "alert_rows": 0,
@@ -61,21 +61,35 @@
     "watch_file": "watch-latency.log",
     "host_line_count": 0,
     "watch_line_count": 0,
+    "host_endpoint_seen": false,
     "oracle_query_seen": false,
     "sql_query_seen": false,
-    "sql_write_seen": false
+    "sql_write_seen": false,
+    "watch_total_seen": false,
+    "missing_required_evidence": [
+      "HOST_ENDPOINT_LATENCY",
+      "ORACLE_QUERY",
+      "SQL_QUERY",
+      "SQL_WRITE",
+      "WATCH_TOTAL_LATENCY"
+    ]
   },
   "manual_checks": {
-    "visible_vs_snapshot_spotcheck": false,
-    "alerts_reviewed": false,
-    "wpf_list_and_banners": false,
-    "wpf_closed_service_still_serving": false
+    "dates_semantics_confirmed": false,
+    "watch_timezone_display_confirmed": false,
+    "swagger_authorized_get_confirmed": false,
+    "endpoint_stage_timeout_reviewed": false
+  },
+  "safety": {
+    "http_methods": [
+      "GET"
+    ],
+    "direct_database_connection": false,
+    "oracle_ddl_or_query_rewrite": false
   },
   "redaction": {
     "contains_secret_material": false,
     "contains_filled_local_config": false,
-    "notes": "No appsettings.Local.json; probe logs redacted by Host."
-  },
-  "returned_by": "<OPERATOR>",
-  "returned_at": "<ISO8601_TIMESTAMP>"
+    "notes": "SharedSecret is read from the process environment only; evidence stores URL paths, not BaseUrl."
+  }
 }

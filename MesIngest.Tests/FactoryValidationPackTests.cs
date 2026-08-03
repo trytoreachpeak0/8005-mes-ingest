@@ -92,6 +92,7 @@ public class FactoryValidationPackTests
 
         Assert.Contains("ValidateSet(\"A\", \"B\", \"C\")", script, StringComparison.Ordinal);
         Assert.Contains("RequestTimeoutSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("PollSampleCount", script, StringComparison.Ordinal);
         Assert.Contains("X-Correlation-Id", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Authorization", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SharedSecretEnvironmentVariable", script, StringComparison.Ordinal);
@@ -102,6 +103,7 @@ public class FactoryValidationPackTests
         Assert.Contains("/api/alerts", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("/api/demand-changes", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("nextCursor", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("limit=1", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("highWatermark", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dates-samples.tsv", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("watch-latency", script, StringComparison.OrdinalIgnoreCase);
@@ -109,6 +111,9 @@ public class FactoryValidationPackTests
         Assert.Contains("ORACLE_QUERY", script, StringComparison.Ordinal);
         Assert.Contains("SQL_QUERY", script, StringComparison.Ordinal);
         Assert.Contains("SQL_WRITE", script, StringComparison.Ordinal);
+        Assert.Contains("technical-capture-incomplete", script, StringComparison.Ordinal);
+        Assert.Contains("missing_required_evidence", script, StringComparison.Ordinal);
+        Assert.Contains("swagger_authorized_get_confirmed = $false", script, StringComparison.Ordinal);
         Assert.Contains("GET", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sqlcmd", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("OracleCommand", script, StringComparison.OrdinalIgnoreCase);
@@ -138,6 +143,10 @@ public class FactoryValidationPackTests
         Assert.True(root.TryGetProperty("request_metrics", out _));
         Assert.True(root.TryGetProperty("dates_semantics", out _));
         Assert.True(root.TryGetProperty("latency_evidence", out _));
+
+        var manualChecks = root.GetProperty("manual_checks");
+        Assert.False(manualChecks.GetProperty("swagger_authorized_get_confirmed").GetBoolean());
+        Assert.False(manualChecks.GetProperty("dates_semantics_confirmed").GetBoolean());
 
         var json = File.ReadAllText(path);
         Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
