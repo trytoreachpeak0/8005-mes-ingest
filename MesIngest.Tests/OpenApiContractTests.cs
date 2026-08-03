@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using MesIngest.Core;
 using MesIngest.Host;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -180,7 +181,7 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task Live_openapi_paths_match_static_pack_openapi()
+    public async Task Live_openapi_contract_matches_static_pack_openapi()
     {
         var path = await WriteEmptyCsvAsync();
         try
@@ -193,6 +194,14 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
             using var live = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json"));
             using var packed = JsonDocument.Parse(
                 await File.ReadAllTextAsync(Path.Combine(PackRoot, "openapi", "v1.json")));
+
+            AssertDescriptionLineEndingsAreCanonical(live.RootElement);
+            AssertDescriptionLineEndingsAreCanonical(packed.RootElement);
+            Assert.True(
+                JsonNode.DeepEquals(
+                    JsonNode.Parse(packed.RootElement.GetProperty("paths").GetRawText()),
+                    JsonNode.Parse(live.RootElement.GetProperty("paths").GetRawText())),
+                "Live and static OpenAPI paths, parameters, responses, and descriptions must match exactly.");
 
             var livePaths = PathKeys(live.RootElement).OrderBy(x => x, StringComparer.Ordinal).ToArray();
             var packedPaths = PathKeys(packed.RootElement).OrderBy(x => x, StringComparer.Ordinal).ToArray();
@@ -478,6 +487,32 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
     private static IEnumerable<string> PathKeys(JsonElement root) =>
         root.GetProperty("paths").EnumerateObject().Select(p => p.Name);
+
+    private static void AssertDescriptionLineEndingsAreCanonical(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (property.NameEquals("description") && property.Value.ValueKind == JsonValueKind.String)
+                {
+                    Assert.DoesNotContain("\r", property.Value.GetString() ?? "", StringComparison.Ordinal);
+                }
+
+                AssertDescriptionLineEndingsAreCanonical(property.Value);
+            }
+
+            return;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                AssertDescriptionLineEndingsAreCanonical(item);
+            }
+        }
+    }
 
     private static async Task<string> WriteEmptyCsvAsync()
     {

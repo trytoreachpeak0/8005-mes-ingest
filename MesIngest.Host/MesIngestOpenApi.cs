@@ -25,7 +25,7 @@ public static class MesIngestOpenApi
         "/api/demand-changes",
     ];
 
-    public const string InfoDescription =
+    public static readonly string InfoDescription =
         """
         MesIngest formal read-only HTTP API (GET only). No write, inject, or state-mutation endpoints.
 
@@ -54,7 +54,7 @@ public static class MesIngestOpenApi
         Bootstrap is a client procedure: capture highWatermark, replace local mirror with full VISIBLE plus
         GoneAt>=now-24h GONE via /api/demands, then catch up /api/demand-changes after that watermark —
         do not merge into a stale mirror.
-        """;
+        """.ReplaceLineEndings("\n");
 
     public static bool IsPublicDocumentationPath(PathString path)
     {
@@ -244,7 +244,7 @@ internal sealed class MesIngestOpenApiDocumentFilter : IDocumentFilter
         }
 
         operation.Summary = summary;
-        operation.Description = description;
+        operation.Description = description.ReplaceLineEndings("\n");
         if (!string.IsNullOrWhiteSpace(exampleQuery))
         {
             operation.Description += "\n\nExample: GET " + path + exampleQuery;
