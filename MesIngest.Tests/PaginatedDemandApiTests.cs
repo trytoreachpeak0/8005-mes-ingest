@@ -172,7 +172,7 @@ public class PaginatedDemandApiTests : IClassFixture<WebApplicationFactory<Progr
             Demand("visible", DemandStatus.Visible, now, "T", "V"),
         ]));
 
-        await using var factory = await CreateFactoryAsync(store);
+        await using var factory = await CreateFactoryAsync(store, new AdjustableTimeProvider(now));
         var client = factory.CreateClient();
 
         var goneDefault = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=GONE");
@@ -336,7 +336,9 @@ public class PaginatedDemandApiTests : IClassFixture<WebApplicationFactory<Progr
         Assert.DoesNotContain("id-99", secondIds);
     }
 
-    private async Task<WebApplicationFactory<Program>> CreateFactoryAsync(ITransportDemandStore store)
+    private async Task<WebApplicationFactory<Program>> CreateFactoryAsync(
+        ITransportDemandStore store,
+        TimeProvider? timeProvider = null)
     {
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
         await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
@@ -351,6 +353,10 @@ public class PaginatedDemandApiTests : IClassFixture<WebApplicationFactory<Progr
                     GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
                     RunOneShotOnStartup = false,
                 });
+                if (timeProvider is not null)
+                {
+                    services.AddSingleton(timeProvider);
+                }
                 services.AddSingleton(store);
             });
         });

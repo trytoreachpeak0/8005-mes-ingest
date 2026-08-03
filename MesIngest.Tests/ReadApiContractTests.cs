@@ -197,6 +197,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                         GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
                         RunOneShotOnStartup = false,
                     });
+                    services.AddSingleton<TimeProvider>(new AdjustableTimeProvider(now));
                     services.AddSingleton<ITransportDemandStore>(store);
                 });
             });
@@ -582,6 +583,7 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
                         GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
                         RunOneShotOnStartup = false,
                     });
+                    services.AddSingleton<TimeProvider>(new AdjustableTimeProvider(now));
                     services.AddSingleton<ITransportDemandStore>(store);
                 });
             });

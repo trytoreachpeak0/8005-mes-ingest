@@ -31,7 +31,7 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
             Demand("c", DemandStatus.Visible, now, "T", "S3"),
         ]));
 
-        await using var factory = await CreateFactoryAsync(store);
+        await using var factory = await CreateFactoryAsync(store, new AdjustableTimeProvider(now));
         var client = factory.CreateClient();
 
         var page = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes?limit=2");
@@ -102,7 +102,7 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
             Demand("d", DemandStatus.Visible, clock, "T", "S4"),
         ]));
 
-        await using var factory = await CreateFactoryAsync(store);
+        await using var factory = await CreateFactoryAsync(store, new AdjustableTimeProvider(clock));
         var client = factory.CreateClient();
 
         var response = await client.GetAsync("/api/demand-changes?afterSequence=0");
@@ -142,13 +142,15 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
             Demand("b", DemandStatus.Visible, now, "T", "S2"),
         ]));
 
-        await using var factory = await CreateFactoryAsync(store);
+        var timeProvider = new AdjustableTimeProvider(now);
+        await using var factory = await CreateFactoryAsync(store, timeProvider);
         var client = factory.CreateClient();
 
         var before = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes");
         Assert.Equal(2, before.GetProperty("highWatermark").GetInt64());
 
         clock = now.AddHours(49);
+        timeProvider.SetUtcNow(clock);
         // Same projection, no new CREATED/GONE — ReplaceState still applies retention purge.
         store.ReplaceState(new ProjectionState(
         [
@@ -181,7 +183,7 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
             Demand("g", DemandStatus.Gone, now.AddHours(-2), "T", "SG", goneAt: now.AddHours(-1)),
         ]));
 
-        await using var factory = await CreateFactoryAsync(store);
+        await using var factory = await CreateFactoryAsync(store, new AdjustableTimeProvider(now));
         var client = factory.CreateClient();
 
         var feed = await client.GetFromJsonAsync<JsonElement>("/api/demand-changes");
@@ -217,7 +219,9 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
         Assert.Equal("GONE", mirror["g"].GetProperty("status").GetString());
     }
 
-    private async Task<WebApplicationFactory<Program>> CreateFactoryAsync(ITransportDemandStore store)
+    private async Task<WebApplicationFactory<Program>> CreateFactoryAsync(
+        ITransportDemandStore store,
+        TimeProvider? timeProvider = null)
     {
         var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-{Guid.NewGuid():N}.csv");
         await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
@@ -233,6 +237,10 @@ public class DemandChangeFeedApiTests : IClassFixture<WebApplicationFactory<Prog
                     RunOneShotOnStartup = false,
                     ChangeFeedRetentionHours = 48,
                 });
+                if (timeProvider is not null)
+                {
+                    services.AddSingleton(timeProvider);
+                }
                 services.AddSingleton(store);
             });
         });

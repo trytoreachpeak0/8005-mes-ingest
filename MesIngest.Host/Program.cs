@@ -26,6 +26,7 @@ if (!string.IsNullOrWhiteSpace(configured.Urls))
 }
 
 builder.Services.AddSingleton(configured);
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ILatencyTelemetry>(sp =>
     new LoggingLatencyTelemetry(sp.GetRequiredService<ILoggerFactory>().CreateLogger("MesIngest.Latency")));
 
@@ -35,14 +36,17 @@ builder.Services.AddSingleton<ITransportDemandStore>(sp =>
 {
     var options = sp.GetRequiredService<MesIngestHostOptions>();
     var telemetry = sp.GetRequiredService<ILatencyTelemetry>();
+    var timeProvider = sp.GetRequiredService<TimeProvider>();
     ITransportDemandStore inner = !string.IsNullOrWhiteSpace(options.SqlServerConnectionString)
         ? new SqlServerTransportDemandStore(
             options.SqlServerConnectionString,
             telemetry,
             TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+            clock: timeProvider.GetUtcNow,
             alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)))
         : new InMemoryTransportDemandStore(
             TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+            clock: timeProvider.GetUtcNow,
             alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)));
     return new ObservingTransportDemandStore(inner, telemetry);
 });
@@ -64,6 +68,7 @@ builder.Services.AddSingleton(sp =>
         zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
         zeroDropClearStreak: options.ZeroDropClearStreak,
         queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)),
+        clock: sp.GetRequiredService<TimeProvider>().GetUtcNow,
         telemetry: sp.GetRequiredService<ILatencyTelemetry>());
 });
 
@@ -148,6 +153,7 @@ app.MapGet("/api/contract", () =>
 
 app.MapGet("/api/demands", (
     ITransportDemandStore store,
+    TimeProvider timeProvider,
     string? status,
     string? taskType,
     string? sublot,
@@ -225,7 +231,7 @@ app.MapGet("/api/demands", (
         Direction = parsedDirection,
         Limit = parsedLimit,
         Cursor = cursor,
-        AsOf = DateTimeOffset.UtcNow,
+        AsOf = timeProvider.GetUtcNow(),
     };
 
     var alerts = store.ListAlerts();
@@ -346,6 +352,7 @@ app.MapGet("/api/poll-health", (ITransportDemandStore store) =>
 
 app.MapGet("/api/demand-changes", (
     ITransportDemandStore store,
+    TimeProvider timeProvider,
     string? afterSequence,
     int? limit) =>
 {
@@ -365,7 +372,7 @@ app.MapGet("/api/demand-changes", (
         {
             AfterSequence = parsedAfter,
             Limit = parsedLimit,
-            AsOf = DateTimeOffset.UtcNow,
+            AsOf = timeProvider.GetUtcNow(),
         });
         return Results.Ok(DemandChangeFeedPageDto.From(page));
     }
