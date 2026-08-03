@@ -273,7 +273,11 @@ public class LatencyTelemetryTests
         await telemetry.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldLog));
-        Assert.True(File.Exists(Path.Combine(dir.Path, "watch-latency-20260731.log")));
+        var currentLog = Path.Combine(dir.Path, "watch-latency-20260731.log");
+        Assert.True(File.Exists(currentLog));
+        Assert.StartsWith(
+            "recordedAt=2026-07-31T10:00:00.0000000+00:00 ",
+            File.ReadAllText(currentLog));
     }
 
     [Fact]

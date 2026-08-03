@@ -29,12 +29,25 @@
 
 ## 人工核验
 
+- [ ] A/B/C 三个逻辑地点均有独立 run；请求耗时、行数、correlation id 已对照
+- [ ] `dates-samples.tsv` 已逐 TASK_TYPE 与 MES 页面/客户 IT 对照：DATES=当前工序进入时间、STEP=下一工序
+- [ ] Oracle DATES 的 UTC+08:00 解释与 Watch 实际系统时区显示正确
+- [ ] Host 日志含 Oracle round、SQL Server read/write、Host endpoint 分阶段证据；Watch 日志含 total latency
+- [ ] `/api/demands` 首/后续页、DemandId exact/prefix、alerts、poll-health、ChangeFeed/Bootstrap 均已采样
+- [ ] Watch timeout 现场配置值已记录，错误指向真实 endpoint/stage，未用无限增大 timeout 规避
+- [ ] Swagger + SharedSecret 已实际执行只读 GET
 - [ ] 原始快照行数（探针/`poll-health`）与 VISIBLE 条数对照，并抽查 TASK_TYPE+SUBLOT
 - [ ] 告警已查看（失败 / 漂移 / 重复键 / PAUSED_ZERO_DROP / 重现）
 - [ ] WPF 列表与横幅符合预期
 - [ ] 关闭 WPF 后 Service 与 `GET /api/poll-health` 仍工作
 
 偏差与说明：
+
+| 逻辑地点 | Watch timeout(s) | Oracle/SQL/Host/Watch 证据完整 | 外部瓶颈/缺项 |
+|----------|------------------|-------------------------------|-------------|
+| A | | | |
+| B | | | |
+| C | | | |
 
 ## 脱敏自检
 

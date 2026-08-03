@@ -66,12 +66,13 @@ internal sealed class WatchLatencyFileTelemetry : ILatencyTelemetry
 
     public void Record(LatencyEvent evt)
     {
-        var line = LatencyLogFormatter.Format(evt);
+        var recordedAt = _utcNow();
+        var line = $"recordedAt={recordedAt:O} {LatencyLogFormatter.Format(evt)}";
         _dispatcher.TryEnqueue(
             () =>
             {
                 Directory.CreateDirectory(_directory);
-                var path = IOPath.Combine(_directory, $"watch-latency-{_utcNow():yyyyMMdd}.log");
+                var path = IOPath.Combine(_directory, $"watch-latency-{recordedAt:yyyyMMdd}.log");
                 File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
                 WatchLocalLogRetention.Enforce(
                     _directory,

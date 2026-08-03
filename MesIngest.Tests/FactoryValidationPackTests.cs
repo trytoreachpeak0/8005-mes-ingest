@@ -49,6 +49,7 @@ public class FactoryValidationPackTests
         Assert.True(File.Exists(Path.Combine(ValidationRoot, "execution-log.md")));
         Assert.True(File.Exists(Path.Combine(ValidationRoot, "RETURN-CHECKLIST.md")));
         Assert.True(File.Exists(Path.Combine(ValidationRoot, "signoff.md")));
+        Assert.True(File.Exists(Path.Combine(ValidationRoot, "Invoke-FactoryValidation.ps1")));
     }
 
     [Fact]
@@ -85,6 +86,38 @@ public class FactoryValidationPackTests
     }
 
     [Fact]
+    public void Factory_validation_collector_covers_ticket_15_read_only_measurements()
+    {
+        var script = File.ReadAllText(Path.Combine(ValidationRoot, "Invoke-FactoryValidation.ps1"));
+
+        Assert.Contains("ValidateSet(\"A\", \"B\", \"C\")", script, StringComparison.Ordinal);
+        Assert.Contains("RequestTimeoutSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("X-Correlation-Id", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Authorization", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SharedSecretEnvironmentVariable", script, StringComparison.Ordinal);
+        Assert.Contains("/swagger", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/openapi/v1.json", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/poll-health", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/demands", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/alerts", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/demand-changes", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("nextCursor", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("highWatermark", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dates-samples.tsv", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("watch-latency", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Get-WinEvent", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ORACLE_QUERY", script, StringComparison.Ordinal);
+        Assert.Contains("SQL_QUERY", script, StringComparison.Ordinal);
+        Assert.Contains("SQL_WRITE", script, StringComparison.Ordinal);
+        Assert.Contains("GET", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("Invoke-Sqlcmd", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("OracleCommand", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("-Method Post", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("-Method Put", script, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("-Method Delete", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Run_manifest_example_is_mes_ingest_validation_shape_without_password_fields()
     {
         var path = Path.Combine(ValidationRoot, "run-manifest.example.json");
@@ -101,6 +134,10 @@ public class FactoryValidationPackTests
         Assert.True(first.TryGetProperty("duration_ms", out _));
         Assert.True(first.TryGetProperty("row_count", out _));
         Assert.True(first.TryGetProperty("success", out _));
+
+        Assert.True(root.TryGetProperty("request_metrics", out _));
+        Assert.True(root.TryGetProperty("dates_semantics", out _));
+        Assert.True(root.TryGetProperty("latency_evidence", out _));
 
         var json = File.ReadAllText(path);
         Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);

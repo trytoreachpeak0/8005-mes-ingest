@@ -122,6 +122,8 @@ Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond l
 
 Install package also ships `FACTORY-VALIDATION.md` and `validation/` (manifest / execution-log / return checklist / signoff templates).
 
+`validation/Invoke-FactoryValidation.ps1` automates the ticket-15 read-only evidence capture per logical site A/B/C: paged demands/alerts, DemandId exact/prefix, poll-health, ChangeFeed/Bootstrap, Swagger/OpenAPI, request timing/correlation ids, DATES samples, Host/SQL/Oracle Event Log extraction, Watch latency extraction, redaction, and SHA-256 inventory. It accepts SharedSecret only through a named environment variable, never a command-line value.
+
 Plant flow: fill Local config → Thin `--probe-oracle` → on failure switch Thick and retry → start Service → sample multi-round `/api/poll-health` → manually check VISIBLE vs snapshot feel, alerts, WPF banners → close WPF and confirm Service/HTTP still work → return redacted bundle only.
 
 Repo import: copy to `mes/evidence/runs/<run_id>/` per `mes/experiments/definitions/mes-ingest-factory-validation/plan.md`. Do **not** use `meslab import-run` or promote to `samples/`. “验证包已就绪” ≠ “工厂已签字通过”.

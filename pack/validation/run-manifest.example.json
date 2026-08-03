@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "run_id": "run-<UTC_TIMESTAMP>-<random>",
   "experiment_id": "mes-ingest-factory-validation",
   "created_at": "<ISO8601_TIMESTAMP>",
@@ -40,6 +40,31 @@
       "alerts_file": "api/alerts-round-01.json"
     }
   ],
+  "request_metrics": {
+    "file": "request-metrics.jsonl",
+    "count": 0,
+    "timeout_seconds": 30,
+    "exact_demand_id_sampled": false,
+    "visible_rows": 0,
+    "gone_last_24h_rows": 0,
+    "alert_rows": 0,
+    "bootstrap_high_watermark": 0
+  },
+  "dates_semantics": {
+    "samples_file": "dates-samples.tsv",
+    "task_type_sample_count": 0,
+    "customer_confirmation": "PENDING",
+    "watch_local_display_confirmation": "PENDING"
+  },
+  "latency_evidence": {
+    "host_file": "host-latency.log",
+    "watch_file": "watch-latency.log",
+    "host_line_count": 0,
+    "watch_line_count": 0,
+    "oracle_query_seen": false,
+    "sql_query_seen": false,
+    "sql_write_seen": false
+  },
   "manual_checks": {
     "visible_vs_snapshot_spotcheck": false,
     "alerts_reviewed": false,
