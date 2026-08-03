@@ -27,6 +27,9 @@ param(
     [ValidateRange(0, 300)]
     [int] $PollSampleIntervalSeconds = 12,
 
+    [ValidateRange(1, 1800)]
+    [int] $PollSampleWaitTimeoutSeconds = 120,
+
     [string] $SharedSecretEnvironmentVariable = "MES_INGEST_SHARED_SECRET",
 
     [ValidateRange(0, 300)]
@@ -205,22 +208,44 @@ try {
     [void](Invoke-ValidationGet -Label "openapi" -RelativePath "/openapi/v1.json" -OutputFile "api/openapi-v1.json")
     [void](Invoke-ValidationGet -Label "contract" -RelativePath "/api/contract" -OutputFile "api/contract.json")
     $pollRounds = New-Object System.Collections.ArrayList
-    for ($round = 1; $round -le $PollSampleCount; $round++) {
-        $pollHealthFile = "api/poll-health-round-{0:D3}.json" -f $round
-        $pollHealth = Invoke-ValidationGet -Label ("poll-health-round-{0:D3}" -f $round) -RelativePath "/api/poll-health" -OutputFile $pollHealthFile
-        [void]$pollRounds.Add([PSCustomObject][ordered]@{
-            round = $round
-            captured_at = [string]$pollHealth.Json.endedAt
-            duration_ms = $pollHealth.Json.durationMs
-            oracle_duration_ms = $pollHealth.Json.oracleDurationMs
-            row_count = $pollHealth.Json.rowCount
-            success = $pollHealth.Json.success
-            outcome = [string]$pollHealth.Json.outcome
-            failure_stage = [string]$pollHealth.Json.failureStage
-            poll_health_file = $pollHealthFile
-        })
-        if ($round -lt $PollSampleCount -and $PollSampleIntervalSeconds -gt 0) {
+    $lastPollEndedAt = $null
+    :PollRoundLoop for ($round = 1; $round -le $PollSampleCount; $round++) {
+        if ($round -gt 1 -and $PollSampleIntervalSeconds -gt 0) {
             Start-Sleep -Seconds $PollSampleIntervalSeconds
+        }
+
+        $waitDeadline = [DateTimeOffset]::UtcNow.AddSeconds($PollSampleWaitTimeoutSeconds)
+        $attempt = 0
+        while ($true) {
+            $attempt++
+            $pollHealthFile = "api/poll-health-round-{0:D3}-attempt-{1:D3}.json" -f $round, $attempt
+            $pollHealth = Invoke-ValidationGet -Label ("poll-health-round-{0:D3}-attempt-{1:D3}" -f $round, $attempt) -RelativePath "/api/poll-health" -OutputFile $pollHealthFile
+            $pollEndedAt = [string]$pollHealth.Json.endedAt
+            if (-not [string]::IsNullOrWhiteSpace($pollEndedAt) -and
+                ($null -eq $lastPollEndedAt -or -not [string]::Equals($lastPollEndedAt, $pollEndedAt, [StringComparison]::Ordinal))) {
+                [void]$pollRounds.Add([PSCustomObject][ordered]@{
+                    round = $round
+                    captured_at = $pollEndedAt
+                    duration_ms = $pollHealth.Json.durationMs
+                    oracle_duration_ms = $pollHealth.Json.oracleDurationMs
+                    row_count = $pollHealth.Json.rowCount
+                    success = $pollHealth.Json.success
+                    outcome = [string]$pollHealth.Json.outcome
+                    failure_stage = [string]$pollHealth.Json.failureStage
+                    poll_health_file = $pollHealthFile
+                })
+                $lastPollEndedAt = $pollEndedAt
+                break
+            }
+
+            if ([DateTimeOffset]::UtcNow -ge $waitDeadline) {
+                break PollRoundLoop
+            }
+            if ($PollSampleIntervalSeconds -gt 0) {
+                Start-Sleep -Seconds $PollSampleIntervalSeconds
+            } else {
+                Start-Sleep -Milliseconds 250
+            }
         }
     }
 
@@ -343,6 +368,7 @@ try {
     if (-not $sqlWriteSeen) { [void]$missingRequiredEvidence.Add("SQL_WRITE") }
     if (-not $watchLatencySeen) { [void]$missingRequiredEvidence.Add("WATCH_TOTAL_LATENCY") }
     if (-not $responseCorrelationComplete) { [void]$missingRequiredEvidence.Add("CORRELATION_ID") }
+    if ($pollRounds.Count -lt $PollSampleCount) { [void]$missingRequiredEvidence.Add("DISTINCT_POLL_ROUNDS") }
     if (-not $demandSubsequentPageSampled) { [void]$missingRequiredEvidence.Add("DEMANDS_SUBSEQUENT_PAGE") }
     if ([string]::IsNullOrWhiteSpace($sampleDemandId)) { [void]$missingRequiredEvidence.Add("DEMAND_ID_EXACT_PREFIX") }
 
@@ -384,6 +410,7 @@ try {
             count = $metrics.Count
             timeout_seconds = $RequestTimeoutSeconds
             poll_sample_count = $PollSampleCount
+            distinct_poll_sample_count = $pollRounds.Count
             exact_demand_id_sampled = -not [string]::IsNullOrWhiteSpace($sampleDemandId)
             subsequent_demand_page_sampled = $demandSubsequentPageSampled
             response_correlation_complete = $responseCorrelationComplete

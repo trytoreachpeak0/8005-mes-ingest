@@ -93,6 +93,9 @@ public class FactoryValidationPackTests
         Assert.Contains("ValidateSet(\"A\", \"B\", \"C\")", script, StringComparison.Ordinal);
         Assert.Contains("RequestTimeoutSeconds", script, StringComparison.Ordinal);
         Assert.Contains("PollSampleCount", script, StringComparison.Ordinal);
+        Assert.Contains("PollSampleWaitTimeoutSeconds", script, StringComparison.Ordinal);
+        Assert.Contains("lastPollEndedAt", script, StringComparison.Ordinal);
+        Assert.Contains("DISTINCT_POLL_ROUNDS", script, StringComparison.Ordinal);
         Assert.Contains("X-Correlation-Id", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Authorization", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SharedSecretEnvironmentVariable", script, StringComparison.Ordinal);

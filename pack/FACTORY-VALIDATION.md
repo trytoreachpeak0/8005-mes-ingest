@@ -71,7 +71,7 @@ cd <安装根>
 ```
 
 - [ ] 每个 run 都有 `run-manifest.json`、`request-metrics.jsonl`、`dates-samples.tsv`、`host-latency.log`、`watch-latency.log`、`sha256.txt` 和 `api/`
-- [ ] 采集器默认间隔 12 秒保存 3 轮 `poll-health`；只在排障复跑时显式调整 `-PollSampleCount` / `-PollSampleIntervalSeconds`
+- [ ] 采集器默认按 `endedAt` 去重并有界等待 3 轮不同的 `poll-health`；只在排障复跑时显式调整 `-PollSampleCount` / `-PollSampleIntervalSeconds` / `-PollSampleWaitTimeoutSeconds`
 - [ ] `request-metrics.jsonl` 含 `/api/demands` 首/后续页、DemandId exact/prefix、alerts、poll-health、ChangeFeed/Bootstrap 的路径、耗时、行数、状态码和 correlation id
 - [ ] `host-latency.log` 含 `ORACLE_QUERY` 及 `SQL_QUERY`/`SQL_WRITE`；远程事件日志无权限时，在 `execution-log.md` 记录并由 Host 机补采
 - [ ] `run-manifest.json.status=technical-capture-completed`；若为 `technical-capture-incomplete`，按 `latency_evidence.missing_required_evidence` 补采，不得签字放行

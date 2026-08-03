@@ -42,6 +42,7 @@
     "count": 0,
     "timeout_seconds": 30,
     "poll_sample_count": 3,
+    "distinct_poll_sample_count": 0,
     "exact_demand_id_sampled": false,
     "subsequent_demand_page_sampled": false,
     "response_correlation_complete": false,
@@ -71,7 +72,8 @@
       "ORACLE_QUERY",
       "SQL_QUERY",
       "SQL_WRITE",
-      "WATCH_TOTAL_LATENCY"
+      "WATCH_TOTAL_LATENCY",
+      "DISTINCT_POLL_ROUNDS"
     ]
   },
   "manual_checks": {
