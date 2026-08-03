@@ -769,6 +769,29 @@ public class SqlServerTransportDemandStoreTests
     }
 
     [SqlServerAvailabilityFact]
+    public void ReplaceState_does_not_rewrite_unchanged_resolved_alert_history()
+    {
+        var cs = SqlServerTestEnv.ConnectionString!;
+        SqlServerTestEnv.WipeProjection(cs);
+        var now = new DateTimeOffset(2026, 8, 3, 12, 0, 0, TimeSpan.Zero);
+        var store = new SqlServerTransportDemandStore(cs, clock: () => now);
+        var alert = new IngestAlert(
+            AlertCodes.FieldDrift,
+            TaskType: "TYPE",
+            Sublot: "Q-1",
+            DemandId: "d-1",
+            Message: "drift");
+
+        store.ReplaceState(ProjectionState.Empty, [alert]);
+        store.ReplaceState(ProjectionState.Empty, []);
+        SqlServerTestEnv.InstallAlertWriteAudit(cs);
+
+        store.ReplaceState(ProjectionState.Empty, []);
+
+        Assert.Empty(SqlServerTestEnv.ReadAlertWriteAudit(cs));
+    }
+
+    [SqlServerAvailabilityFact]
     public void Alert_query_pages_new_sort_columns_on_the_shared_contract()
     {
         var cs = SqlServerTestEnv.ConnectionString!;
@@ -1181,6 +1204,10 @@ internal static class SqlServerTestEnv
                 DROP TRIGGER dbo.TR_TransportDemands_WriteAudit;
             IF OBJECT_ID(N'dbo.DemandWriteAudit', N'U') IS NOT NULL
                 DROP TABLE dbo.DemandWriteAudit;
+            IF OBJECT_ID(N'dbo.TR_IngestAlerts_WriteAudit', N'TR') IS NOT NULL
+                DROP TRIGGER dbo.TR_IngestAlerts_WriteAudit;
+            IF OBJECT_ID(N'dbo.AlertWriteAudit', N'U') IS NOT NULL
+                DROP TABLE dbo.AlertWriteAudit;
             IF OBJECT_ID(N'dbo.CK_TransportDemands_Status_Guard', N'C') IS NOT NULL
                 ALTER TABLE dbo.TransportDemands DROP CONSTRAINT CK_TransportDemands_Status_Guard;
             DELETE FROM dbo.TransportDemands;
@@ -1239,6 +1266,60 @@ internal static class SqlServerTestEnv
         cmd.CommandText = "SELECT DemandId, Op FROM dbo.DemandWriteAudit ORDER BY Id;";
         using var reader = cmd.ExecuteReader();
         var list = new List<(string DemandId, string Op)>();
+        while (reader.Read())
+        {
+            list.Add((reader.GetString(0), reader.GetString(1)));
+        }
+
+        return list;
+    }
+
+    public static void InstallAlertWriteAudit(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            IF OBJECT_ID(N'dbo.TR_IngestAlerts_WriteAudit', N'TR') IS NOT NULL
+                DROP TRIGGER dbo.TR_IngestAlerts_WriteAudit;
+            IF OBJECT_ID(N'dbo.AlertWriteAudit', N'U') IS NOT NULL
+                DROP TABLE dbo.AlertWriteAudit;
+            CREATE TABLE dbo.AlertWriteAudit
+            (
+                Id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                AlertId NVARCHAR(64) NOT NULL,
+                Op NVARCHAR(16) NOT NULL
+            );
+            EXEC(N'
+                CREATE TRIGGER dbo.TR_IngestAlerts_WriteAudit
+                ON dbo.IngestAlerts
+                AFTER INSERT, UPDATE, DELETE
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+                    INSERT INTO dbo.AlertWriteAudit (AlertId, Op)
+                    SELECT AlertId, N''INSERT'' FROM inserted
+                    WHERE NOT EXISTS (SELECT 1 FROM deleted d WHERE d.AlertId = inserted.AlertId);
+                    INSERT INTO dbo.AlertWriteAudit (AlertId, Op)
+                    SELECT AlertId, N''UPDATE'' FROM inserted
+                    WHERE EXISTS (SELECT 1 FROM deleted d WHERE d.AlertId = inserted.AlertId);
+                    INSERT INTO dbo.AlertWriteAudit (AlertId, Op)
+                    SELECT AlertId, N''DELETE'' FROM deleted
+                    WHERE NOT EXISTS (SELECT 1 FROM inserted i WHERE i.AlertId = deleted.AlertId);
+                END
+            ');
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    public static IReadOnlyList<(string AlertId, string Op)> ReadAlertWriteAudit(string connectionString)
+    {
+        using var conn = new SqlConnection(connectionString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT AlertId, Op FROM dbo.AlertWriteAudit ORDER BY Id;";
+        using var reader = cmd.ExecuteReader();
+        var list = new List<(string AlertId, string Op)>();
         while (reader.Read())
         {
             list.Add((reader.GetString(0), reader.GetString(1)));

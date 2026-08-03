@@ -225,6 +225,13 @@ public sealed class ObservingTransportDemandStore : ITransportDemandStore
             () => _inner.GetLatestGoneDemandId(key),
             rows: id => id is null ? 0 : 1);
 
+    public IReadOnlyDictionary<TransportDemandKey, string> GetLatestGoneDemandIds(
+        IReadOnlyCollection<TransportDemandKey> keys) =>
+        Measure(
+            LatencyStages.SqlQuery,
+            () => _inner.GetLatestGoneDemandIds(keys),
+            rows: items => items.Count);
+
     public TransportDemand? GetById(string demandId) =>
         Measure(LatencyStages.SqlQuery, () => _inner.GetById(demandId), rows: d => d is null ? 0 : 1);
 

@@ -625,6 +625,40 @@ public class IngestRoundRunnerTests
         Assert.Equal("FAILURE", store.GetLatestPollHealth()!.Outcome);
     }
 
+    [Fact]
+    public async Task RunOnce_does_not_issue_one_gone_history_lookup_per_new_demand()
+    {
+        const int rowCount = 500;
+        var now = Baseline.AddHours(2);
+        var rows = Enumerable.Range(0, rowCount)
+            .Select(i => new MesSnapshotRow(
+                TaskType: "TYPE",
+                Sublot: $"Q-{i:D4}",
+                Area: "N01-01",
+                Eqp: "EQ1",
+                Step: "NEXT",
+                Dates: Baseline.AddHours(1),
+                Package: "PKG"))
+            .ToArray();
+        var ids = Enumerable.Range(0, rowCount)
+            .Select(i => $"new-{i:D4}")
+            .ToArray();
+        var store = new CountingReplaceStore();
+        var runner = new IngestRoundRunner(
+            new FixedMesSnapshotSource(MesSnapshotOutcome.Success(rows)),
+            new TransportDemandReconciler(new SequentialDemandIdAllocator(ids)),
+            store,
+            Baseline,
+            clock: () => now);
+
+        await runner.RunOnceAsync();
+        await runner.RunOnceAsync();
+
+        Assert.Equal(rowCount, store.GetState().Demands.Count);
+        Assert.Equal(0, store.LatestGoneLookupCount);
+        Assert.Equal(1, store.LatestGoneBatchLookupCount);
+    }
+
     private sealed class QueueMesSnapshotSource : IMesSnapshotSource
     {
         private readonly Queue<MesSnapshotOutcome> _outcomes;
@@ -651,6 +685,8 @@ public class IngestRoundRunnerTests
     {
         private readonly InMemoryTransportDemandStore _inner = new();
         public int ReplaceCount { get; set; }
+        public int LatestGoneLookupCount { get; private set; }
+        public int LatestGoneBatchLookupCount { get; private set; }
 
         public ProjectionState GetState() => _inner.GetState();
 
@@ -663,8 +699,18 @@ public class IngestRoundRunnerTests
         public bool HasGoneTransportDemandKey(TransportDemandKey key) =>
             _inner.HasGoneTransportDemandKey(key);
 
-        public string? GetLatestGoneDemandId(TransportDemandKey key) =>
-            _inner.GetLatestGoneDemandId(key);
+        public string? GetLatestGoneDemandId(TransportDemandKey key)
+        {
+            LatestGoneLookupCount++;
+            return _inner.GetLatestGoneDemandId(key);
+        }
+
+        public IReadOnlyDictionary<TransportDemandKey, string> GetLatestGoneDemandIds(
+            IReadOnlyCollection<TransportDemandKey> keys)
+        {
+            LatestGoneBatchLookupCount++;
+            return _inner.GetLatestGoneDemandIds(keys);
+        }
 
         public TransportDemand? GetById(string demandId) => _inner.GetById(demandId);
 

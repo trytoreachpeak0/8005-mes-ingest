@@ -5,6 +5,8 @@ namespace MesIngest.Core;
 
 public sealed class SqlServerTransportDemandStore : ITransportDemandStore
 {
+    private const int MaxGoneHistoryKeysPerQuery = 900;
+    private const int MaxDemandIdsPerQuery = 1800;
     private readonly string _connectionString;
     private readonly ILatencyTelemetry _telemetry;
     private readonly TimeSpan _changeFeedRetention;
@@ -54,6 +56,13 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             var now = _clock();
             var existingVisible = LoadDemands(conn, visibleOnly: true, tx)
                 .ToDictionary(d => d.DemandId, StringComparer.Ordinal);
+            var existingOther = LoadDemandsByIds(
+                    conn,
+                    tx,
+                    state.Demands
+                        .Where(demand => !existingVisible.ContainsKey(demand.DemandId))
+                        .Select(demand => demand.DemandId))
+                .ToDictionary(d => d.DemandId, StringComparer.Ordinal);
             var existingPauses = LoadPauses(conn, tx)
                 .ToDictionary(p => p.TaskType, StringComparer.Ordinal);
 
@@ -80,7 +89,7 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
                     continue;
                 }
 
-                var prior = LoadDemandById(conn, tx, demand.DemandId);
+                existingOther.TryGetValue(demand.DemandId, out var prior);
                 if (prior is null)
                 {
                     InsertDemand(conn, tx, demand);
@@ -125,27 +134,34 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
     public string? GetLatestGoneDemandId(TransportDemandKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        return GetLatestGoneDemandIds([key]).GetValueOrDefault(key);
+    }
+
+    public IReadOnlyDictionary<TransportDemandKey, string> GetLatestGoneDemandIds(
+        IReadOnlyCollection<TransportDemandKey> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var distinctKeys = keys.Distinct().ToArray();
+        if (distinctKeys.Length == 0)
+        {
+            return new Dictionary<TransportDemandKey, string>();
+        }
 
         lock (_gate)
         {
             using var conn = Open();
-            using var cmd = new SqlCommand(
-                """
-                SELECT TOP (1) DemandId
-                FROM dbo.TransportDemands
-                WHERE TaskType = @TaskType
-                  AND Sublot = @Sublot
-                  AND TaskType COLLATE Latin1_General_100_BIN2 = @TaskType COLLATE Latin1_General_100_BIN2
-                  AND Sublot COLLATE Latin1_General_100_BIN2 = @Sublot COLLATE Latin1_General_100_BIN2
-                  AND DATALENGTH(TaskType) = DATALENGTH(@TaskType)
-                  AND DATALENGTH(Sublot) = DATALENGTH(@Sublot)
-                  AND Status = N'GONE'
-                ORDER BY COALESCE(GoneAt, CreatedAt) DESC;
-                """,
-                conn);
-            cmd.Parameters.AddWithValue("@TaskType", key.TaskType);
-            cmd.Parameters.AddWithValue("@Sublot", key.Sublot);
-            return cmd.ExecuteScalar() as string;
+            var results = new Dictionary<TransportDemandKey, string>();
+            foreach (var chunk in distinctKeys.Chunk(MaxGoneHistoryKeysPerQuery))
+            {
+                using var cmd = BuildLatestGoneDemandIdsCommand(conn, chunk);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    results[new TransportDemandKey(reader.GetString(0), reader.GetString(1))] = reader.GetString(2);
+                }
+            }
+
+            return results;
         }
     }
 
@@ -443,15 +459,19 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
             delete.ExecuteNonQuery();
         }
 
-        var existingIds = existing
+        var existingById = existing
             .Where(a => a.AlertId is not null)
-            .Select(a => a.AlertId!)
-            .ToHashSet(StringComparer.Ordinal);
+            .ToDictionary(a => a.AlertId!, StringComparer.Ordinal);
 
         foreach (var alert in next)
         {
-            if (existingIds.Contains(alert.AlertId!))
+            if (existingById.TryGetValue(alert.AlertId!, out var prior))
             {
+                if (prior == alert)
+                {
+                    continue;
+                }
+
                 using var update = new SqlCommand(
                     """
                     UPDATE dbo.IngestAlerts
@@ -1329,23 +1349,83 @@ public sealed class SqlServerTransportDemandStore : ITransportDemandStore
         cmd.Parameters.AddWithValue("@GoneAt", (object?)demand.GoneAt ?? DBNull.Value);
     }
 
-    private static TransportDemand? LoadDemandById(
+    private static SqlCommand BuildLatestGoneDemandIdsCommand(
+        SqlConnection conn,
+        IReadOnlyList<TransportDemandKey> keys)
+    {
+        var sql = new StringBuilder(
+            "SELECT requested.TaskType, requested.Sublot, latest.DemandId FROM (VALUES ");
+        var cmd = new SqlCommand { Connection = conn };
+        for (var i = 0; i < keys.Count; i++)
+        {
+            if (i > 0)
+            {
+                sql.Append(',');
+            }
+
+            var taskTypeParameter = $"@TaskType{i}";
+            var sublotParameter = $"@Sublot{i}";
+            sql.Append('(')
+                .Append(taskTypeParameter)
+                .Append(',')
+                .Append(sublotParameter)
+                .Append(')');
+            cmd.Parameters.Add(taskTypeParameter, System.Data.SqlDbType.NVarChar, 128).Value = keys[i].TaskType;
+            cmd.Parameters.Add(sublotParameter, System.Data.SqlDbType.NVarChar, 128).Value = keys[i].Sublot;
+        }
+
+        sql.Append(
+            """
+            ) AS requested(TaskType, Sublot)
+            CROSS APPLY
+            (
+                SELECT TOP (1) demand.DemandId
+                FROM dbo.TransportDemands AS demand
+                WHERE demand.TaskType = requested.TaskType
+                  AND demand.Sublot = requested.Sublot
+                  AND demand.TaskType COLLATE Latin1_General_100_BIN2 = requested.TaskType COLLATE Latin1_General_100_BIN2
+                  AND demand.Sublot COLLATE Latin1_General_100_BIN2 = requested.Sublot COLLATE Latin1_General_100_BIN2
+                  AND DATALENGTH(demand.TaskType) = DATALENGTH(requested.TaskType)
+                  AND DATALENGTH(demand.Sublot) = DATALENGTH(requested.Sublot)
+                  AND demand.Status = N'GONE'
+                ORDER BY COALESCE(demand.GoneAt, demand.CreatedAt) DESC
+            ) AS latest;
+            """);
+        cmd.CommandText = sql.ToString();
+        return cmd;
+    }
+
+    private static IReadOnlyList<TransportDemand> LoadDemandsByIds(
         SqlConnection conn,
         SqlTransaction tx,
-        string demandId)
+        IEnumerable<string> demandIds)
     {
-        using var cmd = new SqlCommand(
-            """
-            SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
-                   MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
-            FROM dbo.TransportDemands
-            WHERE DemandId = @DemandId;
-            """,
-            conn,
-            tx);
-        cmd.Parameters.AddWithValue("@DemandId", demandId);
-        using var reader = cmd.ExecuteReader();
-        return reader.Read() ? ReadDemand(reader) : null;
+        var rows = new List<TransportDemand>();
+        foreach (var chunk in demandIds.Distinct(StringComparer.Ordinal).Chunk(MaxDemandIdsPerQuery))
+        {
+            if (chunk.Length == 0)
+            {
+                continue;
+            }
+
+            var parameterNames = new string[chunk.Length];
+            using var cmd = new SqlCommand { Connection = conn, Transaction = tx };
+            for (var i = 0; i < chunk.Length; i++)
+            {
+                parameterNames[i] = $"@DemandId{i}";
+                cmd.Parameters.Add(parameterNames[i], System.Data.SqlDbType.NVarChar, 64).Value = chunk[i];
+            }
+
+            cmd.CommandText = $"""
+                SELECT DemandId, TaskType, Sublot, Area, Eqp, Step, Dates, Package, Status,
+                       MesLastSeenAt, DisappearCount, LocationRisk, LocationRiskCode, CreatedAt, GoneAt
+                FROM dbo.TransportDemands
+                WHERE DemandId IN ({string.Join(',', parameterNames)});
+                """;
+            rows.AddRange(ReadDemands(cmd));
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<TransportDemand> LoadDemands(

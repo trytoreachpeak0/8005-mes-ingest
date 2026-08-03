@@ -40,6 +40,17 @@ public interface ITransportDemandStore
     /// </summary>
     string? GetLatestGoneDemandId(TransportDemandKey key);
 
+    /// <summary>
+    /// Batch form of <see cref="GetLatestGoneDemandId"/> for one snapshot round. SQL-backed
+    /// implementations override this to avoid one remote round trip per new reconcile key.
+    /// </summary>
+    IReadOnlyDictionary<TransportDemandKey, string> GetLatestGoneDemandIds(
+        IReadOnlyCollection<TransportDemandKey> keys) =>
+        keys.Distinct()
+            .Select(key => (Key: key, DemandId: GetLatestGoneDemandId(key)))
+            .Where(item => item.DemandId is not null)
+            .ToDictionary(item => item.Key, item => item.DemandId!);
+
     TransportDemand? GetById(string demandId);
     IReadOnlyList<TransportDemand> List(
         DemandStatus? status = null,
@@ -139,6 +150,25 @@ public sealed class InMemoryTransportDemandStore : ITransportDemandStore
                 .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
                 .Select(d => d.DemandId)
                 .FirstOrDefault();
+        }
+    }
+
+    public IReadOnlyDictionary<TransportDemandKey, string> GetLatestGoneDemandIds(
+        IReadOnlyCollection<TransportDemandKey> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var requested = keys.ToHashSet();
+        lock (_gate)
+        {
+            return _state.Demands
+                .Where(d => d.Status == DemandStatus.Gone && requested.Contains(d.Key))
+                .GroupBy(d => d.Key)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group
+                        .OrderByDescending(d => d.GoneAt ?? d.CreatedAt)
+                        .Select(d => d.DemandId)
+                        .First());
         }
     }
 
@@ -372,8 +402,15 @@ public sealed class IngestRoundRunner
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var snapshot = await ReadSnapshotAsync(correlationId, cancellationToken);
         var restartRecovery = ResolveRestartRecovery();
+        var prior = _store.GetState();
+        var goneHistoryKeys = snapshot.Kind == SnapshotOutcomeKind.Success
+            ? SelectNewReconcileKeys(snapshot.Rows, prior, _goLiveBaseline)
+            : [];
+        var latestGoneDemandIds = goneHistoryKeys.Count > 0
+            ? _store.GetLatestGoneDemandIds(goneHistoryKeys)
+            : new Dictionary<TransportDemandKey, string>();
         var result = _reconciler.Reconcile(
-            _store.GetState(),
+            prior,
             snapshot,
             _clock(),
             _goLiveBaseline,
@@ -381,7 +418,7 @@ public sealed class IngestRoundRunner
             _zeroDropEnterThreshold,
             _zeroDropClearStreak,
             restartRecovery: restartRecovery,
-            getLatestGoneDemandId: _store.GetLatestGoneDemandId);
+            getLatestGoneDemandId: key => latestGoneDemandIds.GetValueOrDefault(key));
         sw.Stop();
         var endedAt = _clock();
 
@@ -459,6 +496,24 @@ public sealed class IngestRoundRunner
         }
 
         return result.State;
+    }
+
+    private static IReadOnlyCollection<TransportDemandKey> SelectNewReconcileKeys(
+        IReadOnlyList<MesSnapshotRow> rows,
+        ProjectionState prior,
+        DateTimeOffset goLiveBaseline)
+    {
+        var visibleKeys = prior.Demands
+            .Where(demand => demand.Status == DemandStatus.Visible)
+            .Select(demand => demand.Key)
+            .ToHashSet();
+        return rows
+            .GroupBy(row => row.Key)
+            .Where(group => group.Count() == 1)
+            .Select(group => group.First())
+            .Where(row => row.Dates >= goLiveBaseline && !visibleKeys.Contains(row.Key))
+            .Select(row => row.Key)
+            .ToArray();
     }
 
     private async Task<MesSnapshotOutcome> ReadSnapshotAsync(
