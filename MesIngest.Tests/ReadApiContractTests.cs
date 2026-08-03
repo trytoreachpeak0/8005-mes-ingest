@@ -300,7 +300,9 @@ public class ReadApiContractTests : IClassFixture<WebApplicationFactory<Program>
 
             var client = factory.CreateClient();
 
-            var gone = await client.GetFromJsonAsync<JsonElement>("/api/demands?status=GONE");
+            var goneAtFrom = Uri.EscapeDataString(baseline.ToString("O"));
+            var gone = await client.GetFromJsonAsync<JsonElement>(
+                $"/api/demands?status=GONE&goneAtFrom={goneAtFrom}");
             Assert.Equal(1, gone.GetProperty("items").GetArrayLength());
             Assert.Equal("d1", gone.GetProperty("items")[0].GetProperty("demandId").GetString());
 
