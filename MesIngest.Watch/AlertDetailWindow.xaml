@@ -3,10 +3,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Alert detail"
-        Height="560"
-        Width="720"
-        MinHeight="360"
-        MinWidth="520"
+        Height="760"
+        Width="1040"
+        MinHeight="520"
+        MinWidth="760"
         ShowInTaskbar="True"
         WindowStartupLocation="CenterOwner">
     <DockPanel Margin="12">
@@ -94,6 +94,37 @@
                         </WrapPanel>
                     </StackPanel>
                 </Border>
+
+                <TextBlock Text="Related TransportDemand snapshots" FontWeight="SemiBold" Margin="0,0,0,6" />
+                <TextBlock x:Name="RelatedDemandStatusText"
+                           Foreground="#455A64"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,6" />
+                <DataGrid x:Name="RelatedDemandGrid"
+                          AutoGenerateColumns="False"
+                          IsReadOnly="True"
+                          CanUserAddRows="False"
+                          HeadersVisibility="Column"
+                          MaxHeight="420"
+                          Visibility="Collapsed"
+                          Margin="0,0,0,12">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsDifferent}" Value="True">
+                                    <Setter Property="Background" Value="#FFFFE0B2" />
+                                    <Setter Property="FontWeight" Value="SemiBold" />
+                                    <Setter Property="ToolTip" Value="Previous and current values differ" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Field" Binding="{Binding Field}" Width="160" />
+                        <DataGridTextColumn Header="Previous (GONE)" Binding="{Binding PreviousValue}" Width="*" />
+                        <DataGridTextColumn Header="Current (VISIBLE)" Binding="{Binding CurrentValue}" Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
 
                 <TextBlock Text="Details" FontWeight="SemiBold" Margin="0,0,0,6" />
                 <TextBlock x:Name="LegacyDetailsText" Visibility="Collapsed" TextWrapping="Wrap" Margin="0,0,0,8" />

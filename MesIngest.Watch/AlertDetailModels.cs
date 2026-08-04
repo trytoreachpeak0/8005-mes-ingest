@@ -224,6 +224,75 @@ internal sealed record ReappearDemandTargets(
     public bool HasAny => Previous is not null || New is not null;
 }
 
+internal sealed record AlertDemandComparisonRow(
+    string Field,
+    string PreviousValue,
+    string CurrentValue,
+    bool IsDifferent);
+
+/// <summary>
+/// Projects complete related TransportDemand snapshots into stable, side-by-side rows.
+/// Rows are never filtered by difference so operators retain the full record context.
+/// </summary>
+internal static class AlertDemandComparisonProjection
+{
+    public static IReadOnlyList<AlertDemandComparisonRow> Compare(
+        WatchDemandDto? previous,
+        WatchDemandDto? current,
+        TimeZoneInfo? timeZone = null) =>
+        Project(previous, current, compareValues: true, timeZone ?? TimeZoneInfo.Local);
+
+    public static IReadOnlyList<AlertDemandComparisonRow> Single(
+        WatchDemandDto current,
+        TimeZoneInfo? timeZone = null) =>
+        Project(null, current, compareValues: false, timeZone ?? TimeZoneInfo.Local);
+
+    private static IReadOnlyList<AlertDemandComparisonRow> Project(
+        WatchDemandDto? previous,
+        WatchDemandDto? current,
+        bool compareValues,
+        TimeZoneInfo timeZone)
+    {
+        var values = new (string Field, string Previous, string Current)[]
+        {
+            ("DemandId", Text(previous?.DemandId), Text(current?.DemandId)),
+            ("TASK_TYPE", Text(previous?.TaskType), Text(current?.TaskType)),
+            ("SUBLOT", Text(previous?.Sublot), Text(current?.Sublot)),
+            ("AREA", Text(previous?.Area), Text(current?.Area)),
+            ("EQP", Text(previous?.Eqp), Text(current?.Eqp)),
+            ("STEP", Text(previous?.Step), Text(current?.Step)),
+            ("DATES", Time(previous?.Dates, timeZone), Time(current?.Dates, timeZone)),
+            ("PACKAGE", Text(previous?.Package), Text(current?.Package)),
+            ("Status", Text(previous?.Status), Text(current?.Status)),
+            ("MesLastSeenAt", Time(previous?.MesLastSeenAt, timeZone), Time(current?.MesLastSeenAt, timeZone)),
+            ("DisappearCount", Number(previous?.DisappearCount), Number(current?.DisappearCount)),
+            ("LocationRisk", Boolean(previous?.LocationRisk), Boolean(current?.LocationRisk)),
+            ("LocationRiskCode", Text(previous?.LocationRiskCode), Text(current?.LocationRiskCode)),
+            ("CreatedAt", Time(previous?.CreatedAt, timeZone), Time(current?.CreatedAt, timeZone)),
+            ("GoneAt", Time(previous?.GoneAt, timeZone), Time(current?.GoneAt, timeZone)),
+        };
+
+        return values
+            .Select(value => new AlertDemandComparisonRow(
+                value.Field,
+                value.Previous,
+                value.Current,
+                compareValues && !string.Equals(value.Previous, value.Current, StringComparison.Ordinal)))
+            .ToList();
+    }
+
+    private static string Text(string? value) => value ?? "null";
+
+    private static string Number(int? value) =>
+        value?.ToString(CultureInfo.InvariantCulture) ?? "null";
+
+    private static string Boolean(bool? value) =>
+        value is null ? "null" : value.Value ? "true" : "false";
+
+    private static string Time(DateTimeOffset? value, TimeZoneInfo timeZone) =>
+        value is null ? "null" : WatchTimeDisplay.Format(value.Value, timeZone);
+}
+
 internal sealed record AlertDetailViewModel(
     string? AlertId,
     string Code,

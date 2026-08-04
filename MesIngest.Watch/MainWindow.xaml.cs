@@ -475,7 +475,8 @@ internal partial class MainWindow : Window
         AlertDetailWindow? window = null;
         window = new AlertDetailWindow(
             AlertDetailViewModel.From(alert),
-            locateDemand: target => LocateDemandFromAlert(target, window));
+            locateDemand: target => LocateDemandFromAlert(target, window),
+            loadDemand: _client.FetchDemandByIdAsync);
         window.Owner = this;
         window.Closed += (_, _) => UnregisterAlertDetail(window);
 

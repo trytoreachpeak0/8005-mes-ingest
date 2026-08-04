@@ -11,6 +11,124 @@ namespace MesIngest.Tests;
 public class AlertDetailWindowActionTests
 {
     [Fact]
+    public void Reappear_detail_loads_complete_previous_and_new_demands_and_marks_changed_rows()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var requestedIds = new List<string>();
+                var previous = Demand(
+                    demandId: "previous-gone-id",
+                    status: "GONE",
+                    area: "A",
+                    goneAt: new DateTimeOffset(2026, 8, 3, 2, 0, 0, TimeSpan.Zero));
+                var current = Demand(
+                    demandId: "new-visible-id",
+                    status: "VISIBLE",
+                    area: "B");
+                var demands = new Dictionary<string, WatchDemandDto>(StringComparer.Ordinal)
+                {
+                    [previous.DemandId] = previous,
+                    [current.DemandId] = current,
+                };
+                var alert = Alert(
+                    code: "REAPPEAR_AFTER_GONE",
+                    demandId: current.DemandId,
+                    details: """{"previousDemandId":"previous-gone-id","newDemandId":"new-visible-id"}""");
+                var window = new AlertDetailWindow(
+                    AlertDetailViewModel.From(alert),
+                    loadDemand: (demandId, _) =>
+                    {
+                        requestedIds.Add(demandId);
+                        return Task.FromResult<WatchDemandDto?>(demands[demandId]);
+                    });
+
+                window.Show();
+
+                var grid = (DataGrid)window.FindName("RelatedDemandGrid");
+                var rows = Assert.IsAssignableFrom<IEnumerable<AlertDemandComparisonRow>>(grid.ItemsSource).ToList();
+                Assert.Equal(["previous-gone-id", "new-visible-id"], requestedIds);
+                Assert.Equal(15, rows.Count);
+                Assert.Contains(rows, row => row is
+                {
+                    Field: "TASK_TYPE",
+                    PreviousValue: "DIE_TO_OVEN",
+                    CurrentValue: "DIE_TO_OVEN",
+                    IsDifferent: false,
+                });
+                Assert.Contains(rows, row => row is
+                {
+                    Field: "AREA",
+                    PreviousValue: "A",
+                    CurrentValue: "B",
+                    IsDifferent: true,
+                });
+                Assert.Contains(rows, row => row is
+                {
+                    Field: "DemandId",
+                    PreviousValue: "previous-gone-id",
+                    CurrentValue: "new-visible-id",
+                    IsDifferent: true,
+                });
+                Assert.Equal(Visibility.Visible, grid.Visibility);
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA complete comparison test did not finish");
+        Assert.Null(caught);
+    }
+
+    [Fact]
+    public void Ordinary_alert_detail_loads_one_complete_related_demand_snapshot()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var demand = Demand("ordinary-id", "VISIBLE", "A");
+                var window = new AlertDetailWindow(
+                    AlertDetailViewModel.From(Alert("FIELD_DRIFT", demand.DemandId, "{}")),
+                    loadDemand: (demandId, _) => Task.FromResult<WatchDemandDto?>(
+                        demandId == demand.DemandId ? demand : null));
+
+                window.Show();
+
+                var grid = (DataGrid)window.FindName("RelatedDemandGrid");
+                var rows = Assert.IsAssignableFrom<IEnumerable<AlertDemandComparisonRow>>(grid.ItemsSource).ToList();
+                Assert.Equal(15, rows.Count);
+                Assert.All(rows, row => Assert.False(row.IsDifferent));
+                Assert.Equal(Visibility.Collapsed, grid.Columns[1].Visibility);
+                Assert.Equal("Value", grid.Columns[2].Header);
+                Assert.Contains(rows, row => row is { Field: "AREA", CurrentValue: "A" });
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA single snapshot test did not finish");
+        Assert.Null(caught);
+    }
+
+    [Fact]
     public void Reappear_actions_copy_and_locate_previous_and_new_ids_without_ambiguity()
     {
         Exception? caught = null;
@@ -159,6 +277,28 @@ public class AlertDetailWindowActionTests
             IsActive: true,
             ResolvedAt: null,
             CreatedAt: null);
+
+    private static WatchDemandDto Demand(
+        string demandId,
+        string status,
+        string? area,
+        DateTimeOffset? goneAt = null) =>
+        new(
+            DemandId: demandId,
+            TaskType: "DIE_TO_OVEN",
+            Sublot: "S1",
+            Area: area,
+            Eqp: "EQ-1",
+            Step: "STEP-1",
+            Dates: new DateTimeOffset(2026, 8, 3, 1, 0, 0, TimeSpan.Zero),
+            Package: "PKG-1",
+            Status: status,
+            MesLastSeenAt: new DateTimeOffset(2026, 8, 3, 1, 5, 0, TimeSpan.Zero),
+            DisappearCount: status == "GONE" ? 2 : 0,
+            LocationRisk: false,
+            LocationRiskCode: null,
+            CreatedAt: new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero),
+            GoneAt: goneAt);
 
     private static void Click(AlertDetailWindow window, string buttonName) =>
         ((Button)window.FindName(buttonName)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

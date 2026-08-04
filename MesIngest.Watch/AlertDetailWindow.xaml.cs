@@ -7,17 +7,23 @@ internal partial class AlertDetailWindow : Window
 {
     private readonly Action<AlertDemandTarget>? _locateDemand;
     private readonly Action<string> _copyText;
+    private readonly Func<string, CancellationToken, Task<WatchDemandDto?>>? _loadDemand;
+    private CancellationTokenSource? _relatedDemandLoadCts;
     private AlertDetailViewModel _viewModel;
 
     public AlertDetailWindow(
         AlertDetailViewModel viewModel,
         Action<AlertDemandTarget>? locateDemand = null,
-        Action<string>? copyText = null)
+        Action<string>? copyText = null,
+        Func<string, CancellationToken, Task<WatchDemandDto?>>? loadDemand = null)
     {
         InitializeComponent();
         _viewModel = viewModel;
         _locateDemand = locateDemand;
         _copyText = copyText ?? Clipboard.SetText;
+        _loadDemand = loadDemand;
+        Loaded += OnLoaded;
+        Closed += OnClosed;
         ApplyViewModel();
     }
 
@@ -27,6 +33,10 @@ internal partial class AlertDetailWindow : Window
     {
         _viewModel = _viewModel.ApplyUpdate(alert);
         ApplyViewModel();
+        if (IsLoaded)
+        {
+            _ = RefreshRelatedDemandsAsync();
+        }
     }
 
     public void MarkHistorical()
@@ -116,6 +126,107 @@ internal partial class AlertDetailWindow : Window
                 EmptyDetailsText.Visibility = Visibility.Visible;
                 break;
         }
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e) =>
+        await RefreshRelatedDemandsAsync().ConfigureAwait(true);
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        _relatedDemandLoadCts?.Cancel();
+        _relatedDemandLoadCts?.Dispose();
+        _relatedDemandLoadCts = null;
+    }
+
+    private async Task RefreshRelatedDemandsAsync()
+    {
+        _relatedDemandLoadCts?.Cancel();
+        _relatedDemandLoadCts?.Dispose();
+        _relatedDemandLoadCts = new CancellationTokenSource();
+        var cancellationToken = _relatedDemandLoadCts.Token;
+
+        RelatedDemandGrid.Visibility = Visibility.Collapsed;
+        RelatedDemandGrid.ItemsSource = null;
+
+        var isComparison = _viewModel.HasReappearDemandTargets;
+        var previousId = isComparison ? _viewModel.ReappearTargets.Previous?.DemandId : null;
+        var currentId = isComparison
+            ? _viewModel.ReappearTargets.New?.DemandId
+            : _viewModel.DemandId;
+
+        if (string.IsNullOrWhiteSpace(previousId) && string.IsNullOrWhiteSpace(currentId))
+        {
+            RelatedDemandStatusText.Text = "This alert code has no related DemandId.";
+            return;
+        }
+
+        if (_loadDemand is null)
+        {
+            RelatedDemandStatusText.Text = "Related Demand lookup is unavailable.";
+            return;
+        }
+
+        RelatedDemandStatusText.Text = isComparison
+            ? "Loading complete previous and current Demand snapshots…"
+            : "Loading complete related Demand snapshot…";
+
+        try
+        {
+            var previousTask = LoadDemandAsync(previousId, cancellationToken);
+            var currentTask = LoadDemandAsync(currentId, cancellationToken);
+            await Task.WhenAll(previousTask, currentTask).ConfigureAwait(true);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var previous = await previousTask.ConfigureAwait(true);
+            var current = await currentTask.ConfigureAwait(true);
+            IReadOnlyList<AlertDemandComparisonRow> rows;
+            if (isComparison)
+            {
+                rows = AlertDemandComparisonProjection.Compare(previous, current);
+                RelatedDemandGrid.Columns[1].Visibility = Visibility.Visible;
+                RelatedDemandGrid.Columns[1].Header = "Previous (GONE)";
+                RelatedDemandGrid.Columns[2].Header = "New (VISIBLE)";
+                RelatedDemandStatusText.Text = DemandComparisonStatus(previousId, previous, currentId, current);
+            }
+            else if (current is not null)
+            {
+                rows = AlertDemandComparisonProjection.Single(current);
+                RelatedDemandGrid.Columns[1].Visibility = Visibility.Collapsed;
+                RelatedDemandGrid.Columns[2].Header = "Value";
+                RelatedDemandStatusText.Text = $"Complete snapshot for DemandId {current.DemandId}.";
+            }
+            else
+            {
+                RelatedDemandStatusText.Text = $"DemandId {currentId} was not found.";
+                return;
+            }
+
+            RelatedDemandGrid.ItemsSource = rows;
+            RelatedDemandGrid.Visibility = Visibility.Visible;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            RelatedDemandStatusText.Text = $"Unable to load related Demand snapshot: {ex.Message}";
+        }
+    }
+
+    private Task<WatchDemandDto?> LoadDemandAsync(string? demandId, CancellationToken cancellationToken) =>
+        string.IsNullOrWhiteSpace(demandId)
+            ? Task.FromResult<WatchDemandDto?>(null)
+            : _loadDemand!(demandId, cancellationToken);
+
+    private static string DemandComparisonStatus(
+        string? previousId,
+        WatchDemandDto? previous,
+        string? currentId,
+        WatchDemandDto? current)
+    {
+        var previousStatus = previous is null ? $"previous {previousId ?? "(missing ID)"} not found" : "previous loaded";
+        var currentStatus = current is null ? $"new {currentId ?? "(missing ID)"} not found" : "new loaded";
+        return $"Complete comparison: {previousStatus}; {currentStatus}. Highlighted rows differ.";
     }
 
     private void ApplyDemandTarget(
