@@ -451,6 +451,24 @@ internal partial class MainWindow : Window
         }
     }
 
+    private void OnAlertsPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject origin
+            && ItemsControl.ContainerFromElement(AlertsGrid, origin) is DataGridRow row)
+        {
+            AlertsGrid.SelectedItem = row.Item;
+            row.Focus();
+        }
+    }
+
+    private void OnAlertViewDetailsClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: WatchAlertDto alert })
+        {
+            OpenAlertDetail(alert);
+        }
+    }
+
     private void OnAlertViewDetailsMenu(object sender, RoutedEventArgs e) => OpenSelectedAlertDetail();
 
     private void OpenSelectedAlertDetail()

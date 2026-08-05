@@ -1,5 +1,8 @@
 ﻿using MesIngest.Core;
 using Microsoft.Extensions.Configuration;
+using System.IO;
+using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace MesIngest.Watch;
 
@@ -12,6 +15,10 @@ internal partial class App : Application
         base.OnStartup(e);
 
         var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
+        if (options.RenderingMode == WatchRenderingMode.SoftwareOnly)
+        {
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        }
 
         var http = new HttpClient
         {
@@ -26,8 +33,12 @@ internal partial class App : Application
 
         _logDispatcher = new WatchLocalLogDispatcher();
         var telemetryIoDiagnostics = new WatchTelemetryIoDiagnosticBuffer();
+        var logDirectory = string.IsNullOrWhiteSpace(options.LogDirectory)
+            ? null
+            : Path.GetFullPath(options.LogDirectory);
         var journal = WatchConnectionEventJournal.FromOptions(
             options,
+            directory: logDirectory,
             onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-connection", ex),
             dispatcher: _logDispatcher);
         var client = new MesIngestApiClient(
@@ -35,6 +46,7 @@ internal partial class App : Application
             options.RequestTimeoutSeconds,
             telemetry: WatchLatencyFileTelemetry.FromOptions(
                 options,
+                directory: logDirectory,
                 onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-latency", ex),
                 dispatcher: _logDispatcher));
         var window = new MainWindow(

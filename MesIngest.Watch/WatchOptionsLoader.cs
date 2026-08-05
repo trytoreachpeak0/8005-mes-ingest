@@ -15,9 +15,22 @@ internal static class WatchOptionsLoader
     public static WatchOptions Load(IConfiguration config)
     {
         var options = new WatchOptions();
-        config.GetSection(SectionName).Bind(options);
-        // Flat MesIngestWatch__* keys land at the configuration root after prefix strip.
-        config.Bind(options);
+        try
+        {
+            config.GetSection(SectionName).Bind(options);
+            // Flat MesIngestWatch__* keys land at the configuration root after prefix strip.
+            config.Bind(options);
+        }
+        catch (InvalidOperationException ex)
+            when (ex.Message.Contains(nameof(WatchOptions.RenderingMode), StringComparison.Ordinal))
+        {
+            var value = config[nameof(WatchOptions.RenderingMode)]
+                ?? config[$"{SectionName}:{nameof(WatchOptions.RenderingMode)}"]
+                ?? string.Empty;
+            throw new InvalidOperationException(
+                $"Watch:RenderingMode must be SoftwareOnly or Auto; got '{value}'.",
+                ex);
+        }
 
         if (options.RefreshSeconds < 1)
         {

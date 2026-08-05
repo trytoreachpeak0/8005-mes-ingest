@@ -120,7 +120,7 @@ public class WatchBannerProjectionTests
     }
 
     [Fact]
-    public void Active_warning_alert_shows_orange_warning_banner()
+    public void Active_warning_alert_stays_in_alerts_grid_not_notification_banner()
     {
         var alerts = new[]
         {
@@ -149,9 +149,7 @@ public class WatchBannerProjectionTests
             now: T(0));
 
         Assert.False(projected.ShowError);
-        Assert.True(projected.ShowWarning);
-        Assert.Equal("WARNING", projected.WarningSeverity);
-        Assert.Contains("REAPPEAR_AFTER_GONE", projected.WarningMessage, StringComparison.Ordinal);
+        Assert.False(projected.ShowWarning);
     }
 
     [Fact]
@@ -234,7 +232,7 @@ public class WatchBannerProjectionTests
     }
 
     [Fact]
-    public void Active_error_alert_shows_red_error_banner()
+    public void Active_error_alert_stays_in_alerts_grid_not_notification_banner()
     {
         var alerts = new[]
         {
@@ -262,14 +260,12 @@ public class WatchBannerProjectionTests
             alerts,
             now: T(0));
 
-        Assert.True(projected.ShowError);
-        Assert.Equal("ERROR", projected.ErrorSeverity);
-        Assert.Contains("FIELD_DRIFT", projected.ErrorMessage, StringComparison.Ordinal);
+        Assert.False(projected.ShowError);
         Assert.False(projected.ShowWarning);
     }
 
     [Fact]
-    public void Recovery_message_only_when_all_banners_cleared()
+    public void Alert_does_not_block_recovery_after_fault_banner_clears()
     {
         var paused = Healthy() with
         {
@@ -294,7 +290,7 @@ public class WatchBannerProjectionTests
                 CreatedAt: T(0)),
         };
 
-        var both = WatchBannerProjection.Project(
+        var pausedWithAlert = WatchBannerProjection.Project(
             WatchBannerHoldState.Empty,
             paused,
             fetchError: null,
@@ -302,17 +298,17 @@ public class WatchBannerProjectionTests
             now: T(0),
             minHold: MinHold);
 
-        var pauseClearedWarningRemains = WatchBannerProjection.Project(
-            both.HoldState,
+        var pauseCleared = WatchBannerProjection.Project(
+            pausedWithAlert.HoldState,
             Healthy(),
             fetchError: null,
             warningAlerts,
             now: T(6),
             minHold: MinHold);
 
-        Assert.False(pauseClearedWarningRemains.ShowError);
-        Assert.True(pauseClearedWarningRemains.ShowWarning);
-        Assert.Null(pauseClearedWarningRemains.RecoveryMessage);
+        Assert.False(pauseCleared.ShowError);
+        Assert.False(pauseCleared.ShowWarning);
+        Assert.Equal("已恢复", pauseCleared.RecoveryMessage);
     }
 
     [Fact]

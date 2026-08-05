@@ -11,9 +11,9 @@ internal sealed record WatchBannerState(
     string? WarningMessage = null)
 {
     /// <summary>
-    /// Banner conditions from latest poll health, optional HTTP fetch error, and current alerts.
+    /// Banner conditions from latest poll health and an optional HTTP fetch error.
     /// PAUSED_ZERO_DROP uses current <see cref="WatchPollHealthDto.TaskTypePauses"/> only —
-    /// historical / resolved alerts are not used.
+    /// Host alerts remain in the Alerts grid and never participate in notification banners.
     /// Null health with no fetch error means poll-health is not ready yet.
     /// </summary>
     public static WatchBannerState From(WatchPollHealthDto? health, string? fetchError) =>
@@ -24,6 +24,8 @@ internal sealed record WatchBannerState(
         string? fetchError,
         IReadOnlyList<WatchAlertDto> alerts)
     {
+        ArgumentNullException.ThrowIfNull(alerts);
+
         string? failureMessage = null;
         string? failureKey = null;
         if (!string.IsNullOrWhiteSpace(fetchError))
@@ -70,47 +72,6 @@ internal sealed record WatchBannerState(
             }
         }
 
-        var activeErrorCodes = alerts
-            .Where(a => a.IsActive
-                        && string.Equals(a.Severity, "ERROR", StringComparison.OrdinalIgnoreCase))
-            .Select(a => a.Code)
-            .Where(c => !string.IsNullOrWhiteSpace(c))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (activeErrorCodes.Count > 0)
-        {
-            var alertKey = "error-alert:" + string.Join(",", activeErrorCodes);
-            var alertMessage = $"Active ERROR — {string.Join(", ", activeErrorCodes)}";
-            if (errorKey is null)
-            {
-                errorKey = alertKey;
-                errorMessage = alertMessage;
-            }
-            else
-            {
-                errorKey += "|" + alertKey;
-                errorMessage += " | " + alertMessage;
-            }
-        }
-
-        var warningCodes = alerts
-            .Where(a => a.IsActive
-                        && string.Equals(a.Severity, "WARNING", StringComparison.OrdinalIgnoreCase))
-            .Select(a => a.Code)
-            .Where(c => !string.IsNullOrWhiteSpace(c))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(c => c, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        string? warningKey = null;
-        string? warningMessage = null;
-        if (warningCodes.Count > 0)
-        {
-            warningKey = "warn:" + string.Join(",", warningCodes);
-            warningMessage = $"Active WARNING — {string.Join(", ", warningCodes)}";
-        }
-
         return new WatchBannerState(
             ShowFetchFailure: failureMessage is not null,
             FetchFailureMessage: failureMessage,
@@ -118,8 +79,8 @@ internal sealed record WatchBannerState(
             PausedTaskTypes: paused,
             ErrorKey: errorKey,
             ErrorMessage: errorMessage,
-            WarningKey: warningKey,
-            WarningMessage: warningMessage);
+            WarningKey: null,
+            WarningMessage: null);
     }
 
     private static string StableFetchErrorKey(string fetchError)

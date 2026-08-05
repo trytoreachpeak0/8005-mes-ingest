@@ -31,7 +31,7 @@
 1. 用新发布包覆盖安装目录中的 `service/`、`watch/`、`queries/`、`openapi/`、文档与脚本（保留现场 `service/appsettings.Local.json` 与 Watch 本机配置）。
 2. 对照 `templates/appsettings.Local.json.example` 与 `templates/watch.appsettings.Local.json.example`，确认新增键已写入现场配置：
    - Host：`ChangeFeedRetentionHours`（默认 48）、`AlertRetentionDays`（默认 365）
-   - Watch：`RequestTimeoutSeconds`（默认 30）、`ConnectionLogRetentionDays` / `ConnectionLogMaxSizeMb`
+   - Watch：`RequestTimeoutSeconds`（默认 30）、`ConnectionLogRetentionDays` / `ConnectionLogMaxSizeMb`、`RenderingMode`（默认 `SoftwareOnly`）
    - 分页 `limit` 硬上限 1–200（默认 100）写在 OpenAPI / 代码中，不是 appsettings 键
 3. 启动 Host：
    ```powershell

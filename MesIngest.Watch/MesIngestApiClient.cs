@@ -8,10 +8,17 @@ using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
+internal enum WatchRenderingMode
+{
+    SoftwareOnly,
+    Auto,
+}
+
 internal sealed class WatchOptions
 {
     public string BaseUrl { get; set; } = "http://127.0.0.1:5088";
     public int RefreshSeconds { get; set; } = 2;
+    public WatchRenderingMode RenderingMode { get; set; } = WatchRenderingMode.SoftwareOnly;
 
     /// <summary>
     /// HttpClient timeout for each Watch refresh request (seconds). Default 30; legal range 1–300.
@@ -33,6 +40,13 @@ internal sealed class WatchOptions
     /// Sent as Authorization: Bearer.
     /// </summary>
     public string SharedSecret { get; set; } = "";
+
+    /// <summary>
+    /// Optional directory for connection and latency logs. Empty keeps the legacy
+    /// per-user LocalApplicationData location.
+    /// </summary>
+    public string LogDirectory { get; set; } = "";
+
 }
 
 internal static class WatchHttpStageClassifier

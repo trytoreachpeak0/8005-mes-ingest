@@ -6,6 +6,34 @@ namespace MesIngest.Tests;
 public class WatchOptionsLoaderTests
 {
     [Fact]
+    public void RenderingMode_defaults_to_software_only()
+    {
+        var config = new ConfigurationBuilder().Build();
+
+        var options = WatchOptionsLoader.Load(config);
+
+        Assert.Equal(WatchRenderingMode.SoftwareOnly, options.RenderingMode);
+    }
+
+    [Fact]
+    public void Invalid_RenderingMode_fails_startup_with_key_value_and_allowed_values()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Watch:RenderingMode"] = "Gpu",
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => WatchOptionsLoader.Load(config));
+
+        Assert.Contains("Watch:RenderingMode", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Gpu", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SoftwareOnly", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Auto", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Flat_MesIngestWatch_env_keys_override_Watch_section_BaseUrl()
     {
         var config = new ConfigurationBuilder()

@@ -98,11 +98,12 @@ dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 dotnet run --project MesIngest.Watch
 # optional overrides:
 # $env:MesIngestWatch__BaseUrl = "http://127.0.0.1:5088"
+# $env:MesIngestWatch__RenderingMode = "SoftwareOnly" # default; use Auto to restore WPF default rendering
 # $env:MesIngestWatch__RefreshSeconds = "2"
 # $env:MesIngestWatch__RequestTimeoutSeconds = "30"
 ```
 
-Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, DemandId, time window), recent alerts, a bottom health status bar (Watch last success vs Host poll end, connection/stale, active alerts/paused counts, timezone), and current-condition banners (ERROR red / WARNING orange, min 5s hold, brief 已恢复). Every visible Alerts column sorts through Host across the full result set with AlertId as the stable tie-break. Demand and Alert panes each expose their own loaded count and Load more cursor; automatic refresh preserves each loaded window while unchanged filter/sort queries remain active. HTTP timeout defaults to 30s (`Watch:RequestTimeoutSeconds`, range 1–300; invalid values fail startup). On fetch failure Watch keeps last successful data per endpoint, shows last-success/stale in the status bar, and appends local WatchConnectionEvent JSONL under `%LocalAppData%\MesIngest.Watch\logs\` (first failure / 5-minute summary / recovery; not Host IngestAlerts).
+Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, DemandId, time window), recent alerts, a bottom health status bar (Watch last success vs Host poll end, connection/stale, active alerts/paused counts, timezone), and current-condition banners (ERROR red / WARNING orange, min 5s hold, brief 已恢复). Every visible Alerts column sorts through Host across the full result set with AlertId as the stable tie-break. Demand and Alert panes each expose their own loaded count and Load more cursor; automatic refresh preserves each loaded window while unchanged filter/sort queries remain active. HTTP timeout defaults to 30s (`Watch:RequestTimeoutSeconds`, range 1–300; invalid values fail startup). Watch defaults to WPF software rendering (`Watch:RenderingMode=SoftwareOnly`) so virtual/remote display drivers cannot leave an undrawn client area; `Auto` restores the platform default. On fetch failure Watch keeps last successful data per endpoint, shows last-success/stale in the status bar, and appends local WatchConnectionEvent JSONL under `%LocalAppData%\MesIngest.Watch\logs\` (or `MesIngestWatch__LogDirectory`; first failure / 5-minute summary / recovery; not Host IngestAlerts).
 
 ## Ticket 10 — factory install package + secure config
 
