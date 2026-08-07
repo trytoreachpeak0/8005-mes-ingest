@@ -10,6 +10,7 @@ internal partial class MainWindow : Window
 
     private IWatchReadQueries _client;
     private WatchBrowseSession _browse;
+    private WatchOverviewSession _overview;
     private readonly WatchHostSession _hostSession;
     private readonly WatchOptions _options;
     private readonly WatchConnectionEventRecorder _connectionRecorder;
@@ -49,6 +50,7 @@ internal partial class MainWindow : Window
         _client = client;
         _bootstrapClient = client;
         _browse = new WatchBrowseSession(client);
+        _overview = new WatchOverviewSession(client);
         if (hostAdapterFactory is null)
         {
             var bootstrapAvailable = true;
@@ -157,6 +159,27 @@ internal partial class MainWindow : Window
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void OnOverviewAlertsClick(object sender, RoutedEventArgs e)
+    {
+        _browse = new WatchBrowseSession(_hostSession);
+        PrimaryNavigation.SelectedIndex = 2;
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+    }
+
+    private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
+    {
+        _browse = new WatchBrowseSession(_hostSession);
+        _sortBy = "dates";
+        _direction = "desc";
+        _appliedDemandId = null;
+        FilterStatus.SelectedIndex = 0;
+        FilterTaskType.Clear();
+        FilterSublot.Clear();
+        FilterDemandId.Clear();
+        PrimaryNavigation.SelectedIndex = 1;
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+    }
+
     private async void OnApplyHostClick(object sender, RoutedEventArgs e)
     {
         SettingsValidationText.Text = string.Empty;
@@ -211,6 +234,7 @@ internal partial class MainWindow : Window
         _appliedDemandId = null;
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
+        _overview = new WatchOverviewSession(_hostSession);
 
         foreach (var detail in _openAlertDetails.Values.ToArray())
         {
@@ -252,6 +276,7 @@ internal partial class MainWindow : Window
 
             var state = _hostSession.State;
             _health = state.PollHealth;
+            _overview.SeedPollHealth(state.PollHealth, state.LastSuccessfulAt);
             if (state.Status == WatchHostConnectionStatus.Failed)
             {
                 _refreshState = _refreshState.ApplyFailure(FormatHostFailure(state));
@@ -412,6 +437,7 @@ internal partial class MainWindow : Window
     {
         var generation = _hostGeneration;
         var browse = _browse;
+        var overview = _overview;
         var cancellation = new CancellationTokenSource();
         var previous = Interlocked.Exchange(ref _refreshCancellation, cancellation);
         previous?.Cancel();
@@ -434,6 +460,31 @@ internal partial class MainWindow : Window
         {
             var query = BuildBrowseQuery();
             var now = DateTimeOffset.UtcNow;
+
+            if (PrimaryNavigation.SelectedIndex == 0
+                && kind is not WatchBrowseRefreshKind.Append
+                && kind is not WatchBrowseRefreshKind.AppendAlerts)
+            {
+                await overview.RefreshAsync(cancellation.Token).ConfigureAwait(true);
+                if (generation != _hostGeneration || !ReferenceEquals(overview, _overview))
+                {
+                    return;
+                }
+
+                var overviewSnapshot = overview.LastSnapshot;
+                if (overviewSnapshot is not null)
+                {
+                    if (overviewSnapshot.PollHealthSucceeded)
+                    {
+                        _health = overviewSnapshot.PollHealth;
+                    }
+
+                    ApplySnapshotRefreshState(overviewSnapshot, now);
+                }
+
+                ApplyProjection();
+                return;
+            }
 
             await browse.RefreshAsync(kind, query, cancellation.Token).ConfigureAwait(true);
             if (generation != _hostGeneration || !ReferenceEquals(browse, _browse))
@@ -468,26 +519,7 @@ internal partial class MainWindow : Window
                 _health = snapshot.PollHealth;
             }
 
-            if (snapshot.AllEndpointsSucceeded)
-            {
-                _refreshState = _refreshState.ApplySuccess(now);
-                RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
-            }
-            else if (snapshot.FetchError is not null)
-            {
-                // Keep last-success clock when any endpoint still works.
-                _refreshState = snapshot.DemandsSucceeded || snapshot.AlertsSucceeded || snapshot.PollHealthSucceeded
-                    ? _refreshState.ApplyPartialSuccess(now).ApplyFailure(snapshot.FetchError)
-                    : _refreshState.ApplyFailure(snapshot.FetchError);
-                RecordConnectionEvent(_connectionRecorder.ObserveFailure(
-                    now,
-                    endpoint: snapshot.FailedEndpoint ?? "(unknown)",
-                    stage: snapshot.FailedStage ?? "HTTP_ERROR",
-                    elapsed: snapshot.FailedElapsed ?? TimeSpan.Zero,
-                    timeoutSeconds: _options.RequestTimeoutSeconds,
-                    message: snapshot.FetchError,
-                    correlationId: snapshot.CorrelationId));
-            }
+            ApplySnapshotRefreshState(snapshot, now);
 
             ApplyProjection();
         }
@@ -536,6 +568,34 @@ internal partial class MainWindow : Window
             Interlocked.CompareExchange(ref _refreshCancellation, null, cancellation);
             cancellation.Dispose();
         }
+    }
+
+    private void ApplySnapshotRefreshState(WatchSnapshot snapshot, DateTimeOffset now)
+    {
+        if (snapshot.AllEndpointsSucceeded)
+        {
+            _refreshState = _refreshState.ApplySuccess(now);
+            RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+            return;
+        }
+
+        if (snapshot.FetchError is null)
+        {
+            return;
+        }
+
+        // Keep last-success clock when any endpoint still works.
+        _refreshState = snapshot.DemandsSucceeded || snapshot.AlertsSucceeded || snapshot.PollHealthSucceeded
+            ? _refreshState.ApplyPartialSuccess(now).ApplyFailure(snapshot.FetchError)
+            : _refreshState.ApplyFailure(snapshot.FetchError);
+        RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+            now,
+            endpoint: snapshot.FailedEndpoint ?? "(unknown)",
+            stage: snapshot.FailedStage ?? "HTTP_ERROR",
+            elapsed: snapshot.FailedElapsed ?? TimeSpan.Zero,
+            timeoutSeconds: _options.RequestTimeoutSeconds,
+            message: snapshot.FetchError,
+            correlationId: snapshot.CorrelationId));
     }
 
     private WatchDemandBrowseQuery BuildBrowseQuery()
@@ -627,6 +687,8 @@ internal partial class MainWindow : Window
         CurrentHostContextText.Text = $"当前 Host：{_options.BaseUrl}";
 
         var hostState = _hostSession.State;
+        var overview = WatchOverviewProjection.Project(hostState, _overview.State);
+        OverviewConclusionText.Text = overview.ConclusionText;
         OverviewHostText.Text = hostState.Status switch
         {
             WatchHostConnectionStatus.Connecting => $"{_options.BaseUrl} · 正在验证契约",
@@ -638,10 +700,9 @@ internal partial class MainWindow : Window
                     : $" · correlation id {hostState.CorrelationId}"),
             _ => $"{_options.BaseUrl} · 尚未连接",
         };
-        OverviewPollHealthText.Text = _health is null
-            ? "尚无成功轮询"
-            : $"{_health.Outcome} · endedAt={WatchTimeDisplay.Format(_health.EndedAt)}"
-              + $" · durationMs={_health.DurationMs} · 最近 MES 快照行数={_health.RowCount}";
+        OverviewPollHealthText.Text = overview.PollHealthText;
+        OverviewAlertText.Text = overview.AlertsText;
+        OverviewDemandText.Text = overview.DemandsText;
 
         var needsHoldTick = banner.ShowError
             || banner.ShowWarning

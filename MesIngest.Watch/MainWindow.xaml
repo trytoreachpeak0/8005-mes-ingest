@@ -49,19 +49,76 @@
             <Grid x:Name="OverviewPage" Grid.Row="1" Visibility="Visible">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 <StackPanel Margin="12,8,12,12">
                     <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
-                    <TextBlock x:Name="OverviewHostText" Margin="0,8,0,0" TextWrapping="Wrap" />
+                    <TextBlock x:Name="OverviewConclusionText"
+                               AutomationProperties.Name="概览健康结论"
+                               Margin="0,8,0,0"
+                               FontSize="18"
+                               FontWeight="SemiBold"
+                               Text="○ 正在连接" />
                 </StackPanel>
-                <Border Grid.Row="1" Margin="12" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
-                    <StackPanel>
-                        <TextBlock Text="最近轮询健康" FontSize="16" FontWeight="SemiBold" />
-                        <TextBlock x:Name="OverviewPollHealthText" Margin="0,8,0,0" Text="尚无成功轮询" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <UniformGrid Columns="2" Margin="6">
+                        <Border Margin="6" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <TextBlock Text="Host 接入状态" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock x:Name="OverviewHostText"
+                                           AutomationProperties.Name="Host 接入状态"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Border Margin="6" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
+                            <StackPanel>
+                                <TextBlock Text="最近轮询健康" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock x:Name="OverviewPollHealthText"
+                                           AutomationProperties.Name="最近轮询健康"
+                                           Margin="0,8,0,0"
+                                           Text="尚无成功轮询"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="OverviewAlertsButton"
+                                AutomationProperties.Name="查看活动 IngestAlert 默认查询"
+                                Margin="6"
+                                Padding="16"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Background="White"
+                                BorderBrush="#D8DEE4"
+                                Click="OnOverviewAlertsClick">
+                            <StackPanel>
+                                <TextBlock Text="活动 IngestAlert" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock x:Name="OverviewAlertText"
+                                           Margin="0,8,0,0"
+                                           Text="活动告警：0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="进入活动告警默认查询 →" Margin="0,12,0,0" Foreground="#1565C0" />
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="OverviewDemandsButton"
+                                AutomationProperties.Name="查看 VISIBLE TransportDemand 默认查询"
+                                Margin="6"
+                                Padding="16"
+                                HorizontalContentAlignment="Stretch"
+                                VerticalContentAlignment="Stretch"
+                                Background="White"
+                                BorderBrush="#D8DEE4"
+                                Click="OnOverviewDemandsClick">
+                            <StackPanel>
+                                <TextBlock Text="VISIBLE TransportDemand" FontSize="16" FontWeight="SemiBold" />
+                                <TextBlock x:Name="OverviewDemandText"
+                                           Margin="0,8,0,0"
+                                           Text="VISIBLE TransportDemand：0"
+                                           TextWrapping="Wrap" />
+                                <TextBlock Text="进入 VISIBLE 默认查询 →" Margin="0,12,0,0" Foreground="#1565C0" />
+                            </StackPanel>
+                        </Button>
+                    </UniformGrid>
+                </ScrollViewer>
             </Grid>
 
             <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">

@@ -7,6 +7,58 @@ namespace MesIngest.Tests;
 public class MesIngestApiClientFetchTests
 {
     [Fact]
+    public async Task Overview_snapshot_starts_all_three_resource_requests_concurrently()
+    {
+        var sync = new object();
+        var started = new HashSet<string>(StringComparer.Ordinal);
+        var allStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new StubHandler(async (request, cancellationToken) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return WatchHttpTestStubs.MatchingContract(path);
+            }
+
+            lock (sync)
+            {
+                started.Add(path);
+                if (started.Count == 3)
+                {
+                    allStarted.TrySetResult();
+                }
+            }
+
+            await release.Task.WaitAsync(cancellationToken);
+            return EmptyPageOrList(path);
+        });
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1:5088/"),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30);
+
+        var fetch = client.FetchSnapshotAsync();
+        try
+        {
+            var completed = await Task.WhenAny(allStarted.Task, Task.Delay(TimeSpan.FromSeconds(1)));
+            Assert.Same(allStarted.Task, completed);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        var snapshot = await fetch;
+        Assert.True(snapshot.AllEndpointsSucceeded);
+        Assert.Equal(
+            new[] { "/api/alerts", "/api/demands", "/api/poll-health" },
+            started.OrderBy(path => path, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
     public async Task Timeout_on_demands_reports_endpoint_stage_elapsed_and_timeout()
     {
         var handler = new StubHandler((request, _) =>

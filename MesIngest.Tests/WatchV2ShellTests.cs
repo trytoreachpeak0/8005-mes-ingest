@@ -104,7 +104,10 @@ public class WatchV2ShellTests
             Assert.Equal(string.Empty, taskType.Text);
             Assert.Equal(string.Empty, sublot.Text);
             Assert.Equal(string.Empty, demandId.Text);
-            Assert.Equal("尚无成功轮询", ((TextBlock)window.FindName("OverviewPollHealthText")).Text);
+            Assert.StartsWith(
+                "尚无成功轮询",
+                ((TextBlock)window.FindName("OverviewPollHealthText")).Text,
+                StringComparison.Ordinal);
 
             window.Close();
         });
