@@ -84,7 +84,7 @@ internal static class WatchHttpStageClassifier
     }
 }
 
-internal sealed class MesIngestApiClient
+internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -95,16 +95,69 @@ internal sealed class MesIngestApiClient
     private readonly HttpClient _http;
     private readonly int _requestTimeoutSeconds;
     private readonly ILatencyTelemetry _telemetry;
+    private readonly string _sensitiveValue;
 
     public MesIngestApiClient(
         HttpClient http,
         int requestTimeoutSeconds = 30,
-        ILatencyTelemetry? telemetry = null)
+        ILatencyTelemetry? telemetry = null,
+        string? sensitiveValue = null)
     {
         _http = http;
         _requestTimeoutSeconds = requestTimeoutSeconds;
         _telemetry = telemetry ?? NullLatencyTelemetry.Instance;
+        _sensitiveValue = sensitiveValue ?? string.Empty;
     }
+
+    public static MesIngestApiClient CreateForHost(
+        WatchHostSettings settings,
+        ILatencyTelemetry? telemetry = null,
+        HttpMessageHandler? handler = null)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        var http = handler is null ? new HttpClient() : new HttpClient(handler);
+        http.BaseAddress = new Uri(settings.BaseUrl + "/");
+        http.Timeout = TimeSpan.FromSeconds(settings.RequestTimeoutSeconds);
+        if (!string.IsNullOrWhiteSpace(settings.Credential))
+        {
+            http.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", settings.Credential);
+        }
+
+        return new MesIngestApiClient(
+            http,
+            settings.RequestTimeoutSeconds,
+            telemetry,
+            settings.Credential);
+    }
+
+    public async Task VerifyContractAsync(CancellationToken cancellationToken)
+    {
+        var correlationId = Guid.NewGuid().ToString("N");
+        try
+        {
+            await EnsureContractCompatibleAsync(correlationId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            throw WatchHostQueryFailure.From(ex, correlationId, Redact);
+        }
+    }
+
+    public async Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken)
+    {
+        var correlationId = Guid.NewGuid().ToString("N");
+        try
+        {
+            return await FetchPollHealthAsync(correlationId, cancellationToken).ConfigureAwait(false);
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            throw WatchHostQueryFailure.From(ex, correlationId, Redact);
+        }
+    }
+
+    public void Dispose() => _http.Dispose();
 
     public Task<WatchSnapshot> FetchSnapshotAsync(CancellationToken cancellationToken = default) =>
         FetchSnapshotAsync(WatchDemandBrowseQuery.Default, WatchAlertBrowseQuery.Default, cancellationToken);
@@ -149,7 +202,7 @@ internal sealed class MesIngestApiClient
                 Demands: [],
                 Alerts: [],
                 PollHealth: null,
-                FetchError: ex.FormatForBanner(_requestTimeoutSeconds, correlationId),
+                FetchError: FormatForBanner(ex, correlationId),
                 FailedEndpoint: ex.Endpoint,
                 FailedStage: ex.Stage,
                 FailedElapsed: ex.Elapsed,
@@ -170,7 +223,7 @@ internal sealed class MesIngestApiClient
         }
         catch (WatchEndpointFetchException ex)
         {
-            fetchError = ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            fetchError = FormatForBanner(ex, correlationId);
             failedEndpoint = ex.Endpoint;
             failedStage = ex.Stage;
             failedElapsed = ex.Elapsed;
@@ -179,7 +232,7 @@ internal sealed class MesIngestApiClient
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
             fetchError =
-                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {Redact(ex.Message)}";
             failedStage = stage;
             failedElapsed = TimeSpan.Zero;
         }
@@ -195,7 +248,7 @@ internal sealed class MesIngestApiClient
         }
         catch (WatchEndpointFetchException ex)
         {
-            fetchError ??= ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            fetchError ??= FormatForBanner(ex, correlationId);
             failedEndpoint ??= ex.Endpoint;
             failedStage ??= ex.Stage;
             failedElapsed ??= ex.Elapsed;
@@ -204,7 +257,7 @@ internal sealed class MesIngestApiClient
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
             fetchError ??=
-                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {Redact(ex.Message)}";
             failedStage ??= stage;
             failedElapsed ??= TimeSpan.Zero;
         }
@@ -217,7 +270,7 @@ internal sealed class MesIngestApiClient
         }
         catch (WatchEndpointFetchException ex)
         {
-            fetchError ??= ex.FormatForBanner(_requestTimeoutSeconds, correlationId);
+            fetchError ??= FormatForBanner(ex, correlationId);
             failedEndpoint ??= ex.Endpoint;
             failedStage ??= ex.Stage;
             failedElapsed ??= ex.Elapsed;
@@ -226,7 +279,7 @@ internal sealed class MesIngestApiClient
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
             fetchError ??=
-                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {ex.Message}";
+                $"endpoint=(unknown) stage={stage} timeoutSeconds={_requestTimeoutSeconds} elapsedMs=0 correlationId={correlationId} {Redact(ex.Message)}";
             failedStage ??= stage;
             failedElapsed ??= TimeSpan.Zero;
         }
@@ -676,7 +729,7 @@ internal sealed class MesIngestApiClient
                 RowCount: rowCount,
                 Bytes: bytes,
                 Endpoint: endpoint,
-                Detail: detail));
+                Detail: detail is null ? null : LatencyLogFormatter.Sanitize(Redact(detail))));
         }
         catch (Exception)
         {
@@ -689,6 +742,14 @@ internal sealed class MesIngestApiClient
         var stage = WatchHttpStageClassifier.Classify(ex);
         return new WatchEndpointFetchException(endpoint, stage, elapsed, ex);
     }
+
+    private string FormatForBanner(WatchEndpointFetchException exception, string correlationId) =>
+        Redact(exception.FormatForBanner(_requestTimeoutSeconds, correlationId));
+
+    private string Redact(string value) =>
+        string.IsNullOrEmpty(_sensitiveValue)
+            ? value
+            : value.Replace(_sensitiveValue, "(masked)", StringComparison.Ordinal);
 }
 
 internal sealed class WatchEndpointFetchException : Exception

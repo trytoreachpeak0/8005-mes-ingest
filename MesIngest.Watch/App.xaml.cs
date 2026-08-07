@@ -20,17 +20,6 @@ internal partial class App : Application
             RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         }
 
-        var http = new HttpClient
-        {
-            BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(options.RequestTimeoutSeconds),
-        };
-        if (!string.IsNullOrWhiteSpace(options.SharedSecret))
-        {
-            http.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.SharedSecret);
-        }
-
         _logDispatcher = new WatchLocalLogDispatcher();
         var telemetryIoDiagnostics = new WatchTelemetryIoDiagnosticBuffer();
         var logDirectory = string.IsNullOrWhiteSpace(options.LogDirectory)
@@ -41,19 +30,22 @@ internal partial class App : Application
             directory: logDirectory,
             onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-connection", ex),
             dispatcher: _logDispatcher);
-        var client = new MesIngestApiClient(
-            http,
-            options.RequestTimeoutSeconds,
-            telemetry: WatchLatencyFileTelemetry.FromOptions(
-                options,
-                directory: logDirectory,
-                onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-latency", ex),
-                dispatcher: _logDispatcher));
+        var telemetry = WatchLatencyFileTelemetry.FromOptions(
+            options,
+            directory: logDirectory,
+            onWriteFailure: ex => telemetryIoDiagnostics.Record("watch-latency", ex),
+            dispatcher: _logDispatcher);
+        var initialSettings = new WatchHostSettings(
+            options.BaseUrl,
+            options.SharedSecret,
+            options.RequestTimeoutSeconds);
+        var client = MesIngestApiClient.CreateForHost(initialSettings, telemetry);
         var window = new MainWindow(
             client,
             options,
             journal,
-            telemetryIoDiagnostics: telemetryIoDiagnostics);
+            telemetryIoDiagnostics: telemetryIoDiagnostics,
+            hostAdapterFactory: settings => MesIngestApiClient.CreateForHost(settings, telemetry));
         window.Show();
     }
 

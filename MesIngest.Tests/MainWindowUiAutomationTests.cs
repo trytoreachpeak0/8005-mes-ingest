@@ -65,6 +65,11 @@ public class MainWindowUiAutomationTests
 
             automation = new UIA3Automation();
             var window = automation.FromHandle(mainHandle).AsWindow();
+            var navigation = window.FindFirstDescendant(
+                    condition => condition.ByAutomationId("PrimaryNavigation"))
+                ?.AsListBox()
+                ?? throw new InvalidOperationException("Primary navigation did not appear");
+            navigation.Items[2].Select();
             var detailsButton = Retry.WhileNull(
                 () => window.FindFirstDescendant(
                         condition => condition.ByAutomationId("AlertDetailsButton"))

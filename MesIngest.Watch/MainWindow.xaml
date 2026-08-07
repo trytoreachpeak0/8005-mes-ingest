@@ -11,7 +11,96 @@
     <Window.Resources>
         <local:LocalDateTimeOffsetConverter x:Key="LocalTime" />
     </Window.Resources>
-    <DockPanel Margin="12">
+    <Grid Margin="12">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230" />
+            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="#F3F5F7" CornerRadius="6" Padding="10">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="4,8,4,18">
+                    <TextBlock Text="MesIngestWatch" FontSize="19" FontWeight="SemiBold" />
+                    <TextBlock Text="单 Host · 只读运维台" Margin="0,4,0,0" Foreground="#5F6B76" />
+                </StackPanel>
+                <ListBox x:Name="PrimaryNavigation"
+                         SelectedIndex="0"
+                         SelectionChanged="OnPrimaryNavigationChanged"
+                         BorderThickness="0"
+                         Background="Transparent">
+                    <ListBoxItem Content="概览" Padding="10,8" />
+                    <ListBoxItem Content="MES 任务 / TransportDemand" Padding="10,8" />
+                    <ListBoxItem Content="IngestAlert" Padding="10,8" />
+                    <ListBoxItem Content="设置" Padding="10,8" />
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <Grid Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Margin="12,0,12,8" Padding="10,6" Background="#F7F8FA" CornerRadius="4">
+                <TextBlock x:Name="CurrentHostContextText" TextTrimming="CharacterEllipsis" />
+            </Border>
+
+            <Grid x:Name="OverviewPage" Grid.Row="1" Visibility="Visible">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel Margin="12,8,12,12">
+                    <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
+                    <TextBlock x:Name="OverviewHostText" Margin="0,8,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+                <Border Grid.Row="1" Margin="12" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
+                    <StackPanel>
+                        <TextBlock Text="最近轮询健康" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock x:Name="OverviewPollHealthText" Margin="0,8,0,0" Text="尚无成功轮询" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <Grid x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
+                <StackPanel>
+                    <TextBlock Text="IngestAlert" FontSize="26" FontWeight="SemiBold" />
+                    <TextBlock Margin="0,8,0,0" Text="告警浏览将在后续实现票中接入；当前会话切换会清除此视图状态。" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="设置" FontSize="26" FontWeight="SemiBold" />
+                <StackPanel Grid.Row="1" Margin="0,22,0,0">
+                    <TextBlock Text="Host 基址" />
+                    <TextBox x:Name="HostBaseUrlInput" Margin="0,6,0,0" Padding="8,5" />
+                </StackPanel>
+                <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                    <TextBlock Text="只读 API 凭据" />
+                    <PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Margin="0,6,0,0" Padding="8,5" />
+                    <TextBlock Text="凭据始终掩码，不写入页面、错误或日志。" Foreground="#5F6B76" Margin="0,4,0,0" />
+                </StackPanel>
+                <StackPanel Grid.Row="3" Margin="0,16,0,0">
+                    <TextBlock Text="请求超时（秒）" />
+                    <TextBox x:Name="RequestTimeoutInput" ToolTip="1–300 秒" Width="160" HorizontalAlignment="Left" Margin="0,6,0,0" Padding="8,5" />
+                </StackPanel>
+                <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,20,0,0">
+                    <Button x:Name="ApplyHostButton" Content="应用" Padding="18,7" Click="OnApplyHostClick" />
+                    <TextBlock x:Name="SettingsValidationText" Margin="12,7,0,0" Foreground="#C62828" TextWrapping="Wrap" />
+                </StackPanel>
+            </Grid>
+
+            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed">
         <StatusBar x:Name="WatchStatusBar"
                    DockPanel.Dock="Bottom"
                    Margin="0,8,0,0"
@@ -86,14 +175,6 @@
                         Padding="10,2"
                         Click="OnLoadMoreClick"
                         IsEnabled="False" />
-                <Button Content="Events"
-                        Margin="0,0,12,4"
-                        Padding="10,2"
-                        Click="OnOpenEventsClick" />
-                <Button Content="Open log directory"
-                        Margin="0,0,12,4"
-                        Padding="10,2"
-                        Click="OnOpenLogDirectoryClick" />
                 <TextBlock x:Name="RowCountText" VerticalAlignment="Center" Margin="8,0,0,0" />
             </WrapPanel>
         </StackPanel>
@@ -210,5 +291,7 @@
                 </Grid>
             </GroupBox>
         </Grid>
-    </DockPanel>
+            </DockPanel>
+        </Grid>
+    </Grid>
 </Window>

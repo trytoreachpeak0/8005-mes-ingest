@@ -21,10 +21,10 @@ internal enum WatchBrowseRefreshKind
 /// </summary>
 internal sealed class WatchBrowseSession
 {
-    private readonly MesIngestApiClient _client;
+    private readonly IWatchReadQueries _client;
     private readonly int _pageSize;
 
-    public WatchBrowseSession(MesIngestApiClient client, int pageSize = 100)
+    public WatchBrowseSession(IWatchReadQueries client, int pageSize = 100)
     {
         _client = client;
         _pageSize = pageSize < 1 ? 100 : pageSize;

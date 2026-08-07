@@ -8,13 +8,13 @@ internal partial class MainWindow : Window
 {
     private static readonly TimeSpan DemandIdDebounce = TimeSpan.FromMilliseconds(300);
 
-    private readonly MesIngestApiClient _client;
-    private readonly WatchBrowseSession _browse;
+    private IWatchReadQueries _client;
+    private WatchBrowseSession _browse;
+    private readonly WatchHostSession _hostSession;
     private readonly WatchOptions _options;
     private readonly WatchConnectionEventRecorder _connectionRecorder;
     private readonly WatchConnectionEventJournal _connectionJournal;
     private readonly WatchTelemetryIoDiagnosticBuffer _telemetryIoDiagnostics;
-    private readonly WatchUnifiedEventFeed _eventFeed;
     private readonly string _layoutPreferencesPath;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _demandIdDebounceTimer;
@@ -29,7 +29,10 @@ internal partial class MainWindow : Window
     private string _sortBy = "dates";
     private string _direction = "desc";
     private string? _appliedDemandId;
-    private UnifiedEventsWindow? _eventsWindow;
+    private CancellationTokenSource? _refreshCancellation;
+    private long _hostGeneration;
+    private bool _isApplyingHost;
+    private MesIngestApiClient? _bootstrapClient;
 
     public MainWindow(
         MesIngestApiClient client,
@@ -37,23 +40,47 @@ internal partial class MainWindow : Window
         WatchConnectionEventJournal? connectionJournal = null,
         WatchConnectionEventRecorder? connectionRecorder = null,
         string? layoutPreferencesPath = null,
-        WatchTelemetryIoDiagnosticBuffer? telemetryIoDiagnostics = null)
+        WatchTelemetryIoDiagnosticBuffer? telemetryIoDiagnostics = null,
+        Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null)
     {
         InitializeComponent();
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
+        _bootstrapClient = client;
         _browse = new WatchBrowseSession(client);
+        if (hostAdapterFactory is null)
+        {
+            var bootstrapAvailable = true;
+            _hostSession = new WatchHostSession(settings =>
+            {
+                if (bootstrapAvailable)
+                {
+                    bootstrapAvailable = false;
+                    _bootstrapClient = null;
+                    return client;
+                }
+
+                return MesIngestApiClient.CreateForHost(settings);
+            });
+        }
+        else
+        {
+            _hostSession = new WatchHostSession(hostAdapterFactory);
+        }
         _options = options;
         _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
         _telemetryIoDiagnostics = telemetryIoDiagnostics ?? new WatchTelemetryIoDiagnosticBuffer();
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(
             options,
             onWriteFailure: ex => _telemetryIoDiagnostics.Record("watch-connection", ex));
-        _eventFeed = new WatchUnifiedEventFeed(_connectionJournal, _telemetryIoDiagnostics);
         _connectionRecorder = connectionRecorder
             ?? new WatchConnectionEventRecorder(TimeSpan.FromMinutes(5));
         Title = $"MesIngest Watch — {_options.BaseUrl}";
+        HostBaseUrlInput.Text = _options.BaseUrl;
+        HostCredentialInput.Password = _options.SharedSecret;
+        RequestTimeoutInput.Text = _options.RequestTimeoutSeconds.ToString(
+            System.Globalization.CultureInfo.InvariantCulture);
 
         ApplyPaneRatio(WatchLayoutPreferences.LoadDemandShare(_layoutPreferencesPath));
         PanesSplitter.DragCompleted += (_, _) => ConvertPaneHeightsToStars();
@@ -89,17 +116,164 @@ internal partial class MainWindow : Window
         {
             ApplyDemandSortGlyphs();
             ApplyAlertSortGlyphs();
-            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
-            _timer.Start();
+            await ApplyHostSessionAsync(
+                    new WatchHostSettings(
+                        _options.BaseUrl,
+                        _options.SharedSecret,
+                        _options.RequestTimeoutSeconds),
+                    refreshOverview: true)
+                .ConfigureAwait(true);
+            if (_hostSession.State.Status == WatchHostConnectionStatus.Connected)
+            {
+                _timer.Start();
+            }
         };
         Closed += (_, _) =>
         {
             SavePaneRatio();
+            _refreshCancellation?.Cancel();
+            _refreshCancellation?.Dispose();
+            _hostSession.Dispose();
+            _bootstrapClient?.Dispose();
+            _bootstrapClient = null;
             _timer.Stop();
             _bannerHoldTimer.Stop();
             _demandIdDebounceTimer.Stop();
         };
     }
+
+    private void OnPrimaryNavigationChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (OverviewPage is null || DemandsPage is null || AlertsPage is null || SettingsPage is null)
+        {
+            return;
+        }
+
+        _refreshCancellation?.Cancel();
+        var selected = PrimaryNavigation.SelectedIndex;
+        OverviewPage.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
+        DemandsPage.Visibility = selected is 1 or 2 ? Visibility.Visible : Visibility.Collapsed;
+        AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
+        SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void OnApplyHostClick(object sender, RoutedEventArgs e)
+    {
+        SettingsValidationText.Text = string.Empty;
+        if (!int.TryParse(
+                RequestTimeoutInput.Text,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var timeoutSeconds))
+        {
+            SettingsValidationText.Text = "请求超时必须是 1–300 之间的整数。";
+            return;
+        }
+
+        WatchHostSettings settings;
+        try
+        {
+            settings = new WatchHostSettings(
+                HostBaseUrlInput.Text,
+                HostCredentialInput.Password,
+                timeoutSeconds);
+        }
+        catch (ArgumentException ex)
+        {
+            SettingsValidationText.Text = ex.Message;
+            return;
+        }
+
+        ApplyHostButton.IsEnabled = false;
+        try
+        {
+            await ApplyHostSessionAsync(settings, refreshOverview: true).ConfigureAwait(true);
+        }
+        finally
+        {
+            ApplyHostButton.IsEnabled = true;
+        }
+    }
+
+    private async Task ApplyHostSessionAsync(WatchHostSettings settings, bool refreshOverview)
+    {
+        _isApplyingHost = true;
+        var generation = ++_hostGeneration;
+        _refreshCancellation?.Cancel();
+        _refreshCancellation?.Dispose();
+        _refreshCancellation = null;
+
+        _health = null;
+        _refreshState = WatchRefreshState.Empty;
+        _bannerHold = WatchBannerHoldState.Empty;
+        _sortBy = "dates";
+        _direction = "desc";
+        _appliedDemandId = null;
+        _client = _hostSession;
+        _browse = new WatchBrowseSession(_hostSession);
+
+        foreach (var detail in _openAlertDetails.Values.ToArray())
+        {
+            detail.Close();
+        }
+        _openAlertDetails.Clear();
+        foreach (var weak in _openAlertDetailsWithoutId.ToArray())
+        {
+            if (weak.TryGetTarget(out var detail))
+            {
+                detail.Close();
+            }
+        }
+        _openAlertDetailsWithoutId.Clear();
+        FilterTaskType.Clear();
+        FilterSublot.Clear();
+        FilterDemandId.Clear();
+        FilterStatus.SelectedIndex = 0;
+        GoneWindowHours.SelectedIndex = 0;
+        DemandsGrid.SelectedItem = null;
+        AlertsGrid.SelectedItem = null;
+        PrimaryNavigation.SelectedIndex = 0;
+
+        _options.BaseUrl = settings.BaseUrl;
+        _options.SharedSecret = settings.Credential;
+        _options.RequestTimeoutSeconds = settings.RequestTimeoutSeconds;
+        Title = $"MesIngest Watch — {settings.BaseUrl}";
+        ApplyProjection();
+
+        try
+        {
+            await _hostSession.ApplyAsync(settings).ConfigureAwait(true);
+            _bootstrapClient?.Dispose();
+            _bootstrapClient = null;
+            if (generation != _hostGeneration)
+            {
+                return;
+            }
+
+            var state = _hostSession.State;
+            _health = state.PollHealth;
+            if (state.Status == WatchHostConnectionStatus.Failed)
+            {
+                _refreshState = _refreshState.ApplyFailure(FormatHostFailure(state));
+                ApplyProjection();
+                return;
+            }
+
+            if (refreshOverview)
+            {
+                await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
+            }
+        }
+        finally
+        {
+            _isApplyingHost = false;
+            ApplyProjection();
+        }
+    }
+
+    private static string FormatHostFailure(WatchHostSessionState state) =>
+        $"endpoint={state.Endpoint ?? "(unknown)"} kind={state.FailureKind} "
+        + $"correlationId={state.CorrelationId ?? "(none)"} {state.ErrorMessage}";
 
     private void ApplyPaneRatio(double demandShare)
     {
@@ -114,8 +288,12 @@ internal partial class MainWindow : Window
     /// </summary>
     private void ConvertPaneHeightsToStars()
     {
-        var demand = DemandsRow.ActualHeight;
-        var alert = AlertsRow.ActualHeight;
+        var demand = DemandsRow.ActualHeight > 0
+            ? DemandsRow.ActualHeight
+            : DemandsRow.Height.Value;
+        var alert = AlertsRow.ActualHeight > 0
+            ? AlertsRow.ActualHeight
+            : AlertsRow.Height.Value;
         var total = demand + alert;
         if (total <= 0)
         {
@@ -149,7 +327,7 @@ internal partial class MainWindow : Window
     {
         // ComboBox IsSelected in XAML raises SelectionChanged during InitializeComponent,
         // before later-named controls exist.
-        if (!IsLoaded)
+        if (!IsLoaded || _isApplyingHost)
         {
             return;
         }
@@ -160,7 +338,7 @@ internal partial class MainWindow : Window
 
     private void OnDemandIdTextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _isApplyingHost)
         {
             return;
         }
@@ -232,7 +410,22 @@ internal partial class MainWindow : Window
 
     private async Task RefreshAsync(WatchBrowseRefreshKind kind)
     {
-        if (!await _refreshAdmission.WaitAsync(kind).ConfigureAwait(true))
+        var generation = _hostGeneration;
+        var browse = _browse;
+        var cancellation = new CancellationTokenSource();
+        var previous = Interlocked.Exchange(ref _refreshCancellation, cancellation);
+        previous?.Cancel();
+        previous?.Dispose();
+        var admitted = false;
+        try
+        {
+            admitted = await _refreshAdmission.WaitAsync(kind, cancellation.Token).ConfigureAwait(true);
+            if (!admitted)
+            {
+                return;
+            }
+        }
+        catch (OperationCanceledException)
         {
             return;
         }
@@ -242,11 +435,16 @@ internal partial class MainWindow : Window
             var query = BuildBrowseQuery();
             var now = DateTimeOffset.UtcNow;
 
-            await _browse.RefreshAsync(kind, query).ConfigureAwait(true);
-            var snapshot = _browse.LastSnapshot;
+            await browse.RefreshAsync(kind, query, cancellation.Token).ConfigureAwait(true);
+            if (generation != _hostGeneration || !ReferenceEquals(browse, _browse))
+            {
+                return;
+            }
+
+            var snapshot = browse.LastSnapshot;
 
             if (kind is WatchBrowseRefreshKind.Append or WatchBrowseRefreshKind.AppendAlerts
-                && !_browse.LastRefreshIncludedSnapshot)
+                && !browse.LastRefreshIncludedSnapshot)
             {
                 // Partial page success must not clear a still-failing endpoint banner.
                 _refreshState = _refreshState.ApplyPartialSuccess(now);
@@ -293,6 +491,10 @@ internal partial class MainWindow : Window
 
             ApplyProjection();
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // A navigation, newer refresh, explicit cancel, or Host replacement owns the UI now.
+        }
         catch (WatchEndpointFetchException ex)
         {
             var now = DateTimeOffset.UtcNow;
@@ -326,7 +528,13 @@ internal partial class MainWindow : Window
         }
         finally
         {
-            _refreshAdmission.Release();
+            if (admitted)
+            {
+                _refreshAdmission.Release();
+            }
+
+            Interlocked.CompareExchange(ref _refreshCancellation, null, cancellation);
+            cancellation.Dispose();
         }
     }
 
@@ -416,6 +624,24 @@ internal partial class MainWindow : Window
             recoveryMessage: banner.RecoveryMessage);
         StatusBarText.Text = status.CompactLine;
         StatusBarText.ToolTip = status.Tooltip;
+        CurrentHostContextText.Text = $"当前 Host：{_options.BaseUrl}";
+
+        var hostState = _hostSession.State;
+        OverviewHostText.Text = hostState.Status switch
+        {
+            WatchHostConnectionStatus.Connecting => $"{_options.BaseUrl} · 正在验证契约",
+            WatchHostConnectionStatus.Connected => $"{_options.BaseUrl} · 已连接 · 契约兼容",
+            WatchHostConnectionStatus.Failed =>
+                $"{_options.BaseUrl} · {hostState.FailureKind} · {hostState.ErrorMessage}"
+                + (string.IsNullOrWhiteSpace(hostState.CorrelationId)
+                    ? string.Empty
+                    : $" · correlation id {hostState.CorrelationId}"),
+            _ => $"{_options.BaseUrl} · 尚未连接",
+        };
+        OverviewPollHealthText.Text = _health is null
+            ? "尚无成功轮询"
+            : $"{_health.Outcome} · endedAt={WatchTimeDisplay.Format(_health.EndedAt)}"
+              + $" · durationMs={_health.DurationMs} · 最近 MES 快照行数={_health.RowCount}";
 
         var needsHoldTick = banner.ShowError
             || banner.ShowWarning
@@ -437,7 +663,6 @@ internal partial class MainWindow : Window
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
         SyncOpenAlertDetails();
-        _eventsWindow?.Reload();
     }
 
     private void OnAlertsDoubleClick(object sender, MouseButtonEventArgs e) => OpenSelectedAlertDetail();
@@ -603,32 +828,6 @@ internal partial class MainWindow : Window
             }
         }
     }
-
-    private void OnOpenEventsClick(object sender, RoutedEventArgs e)
-    {
-        if (_eventsWindow is { IsVisible: true })
-        {
-            _eventsWindow.Reload();
-            _eventsWindow.Activate();
-            return;
-        }
-
-        _eventsWindow = new UnifiedEventsWindow(
-            loadEvents: LoadUnifiedEvents,
-            openAlertDetail: OpenAlertDetail,
-            logDirectory: _connectionJournal.DirectoryPath)
-        {
-            Owner = this,
-        };
-        _eventsWindow.Closed += (_, _) => _eventsWindow = null;
-        _eventsWindow.Show();
-    }
-
-    private IReadOnlyList<UnifiedWatchEvent> LoadUnifiedEvents()
-        => _eventFeed.Load(_browse.Alerts, TimeZoneInfo.Local);
-
-    private void OnOpenLogDirectoryClick(object sender, RoutedEventArgs e) =>
-        WatchLogDirectory.Open(this, _connectionJournal.DirectoryPath);
 
     private void UpdateGoneWindowVisibility()
     {

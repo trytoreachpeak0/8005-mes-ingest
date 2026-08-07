@@ -1,0 +1,165 @@
+using MesIngest.Watch;
+using System.Windows;
+using System.Windows.Controls;
+
+namespace MesIngest.Tests;
+
+public class WatchV2ShellTests
+{
+    [Fact]
+    public void Shell_starts_on_overview_and_exposes_only_the_four_approved_pages()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var window = new MainWindow(
+                    new MesIngestApiClient(http),
+                    new WatchOptions { BaseUrl = "http://127.0.0.1:9", RefreshSeconds = 60 },
+                    layoutPreferencesPath: Path.Combine(Path.GetTempPath(), $"watch-v2-{Guid.NewGuid():N}.json"));
+
+                var navigation = (ListBox)window.FindName("PrimaryNavigation");
+                var labels = navigation.Items
+                    .OfType<ListBoxItem>()
+                    .Select(item => item.Content?.ToString())
+                    .ToArray();
+                var overview = (FrameworkElement)window.FindName("OverviewPage");
+
+                Assert.Equal(
+                    new[] { "概览", "MES 任务 / TransportDemand", "IngestAlert", "设置" },
+                    labels);
+                Assert.Equal(0, navigation.SelectedIndex);
+                Assert.Equal(Visibility.Visible, overview.Visibility);
+                Assert.DoesNotContain(labels, label => label is "性能分析" or "诊断" or "遥测");
+
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA shell test did not finish");
+        Assert.Null(caught);
+    }
+
+    [Fact]
+    public void Settings_masks_credential_and_exposes_legal_timeout_range()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var window = new MainWindow(
+                    new MesIngestApiClient(http),
+                    new WatchOptions { BaseUrl = "http://127.0.0.1:9", RefreshSeconds = 60 },
+                    layoutPreferencesPath: Path.Combine(Path.GetTempPath(), $"watch-v2-{Guid.NewGuid():N}.json"));
+
+                var credential = (PasswordBox)window.FindName("HostCredentialInput");
+                var timeout = (TextBox)window.FindName("RequestTimeoutInput");
+
+                Assert.Equal('\u25cf', credential.PasswordChar);
+                Assert.Equal("30", timeout.Text);
+                Assert.Equal("1–300 秒", timeout.ToolTip);
+
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA settings test did not finish");
+        Assert.Null(caught);
+    }
+
+    [Fact]
+    public void Applying_host_immediately_clears_old_business_state_and_returns_to_overview()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var window = new MainWindow(
+                    new MesIngestApiClient(http),
+                    new WatchOptions { BaseUrl = "http://old-host:5088", RefreshSeconds = 60 },
+                    layoutPreferencesPath: Path.Combine(Path.GetTempPath(), $"watch-v2-{Guid.NewGuid():N}.json"),
+                    hostAdapterFactory: _ => new ImmediateHostAdapter());
+
+                var navigation = (ListBox)window.FindName("PrimaryNavigation");
+                var demands = (DataGrid)window.FindName("DemandsGrid");
+                var alerts = (DataGrid)window.FindName("AlertsGrid");
+                var taskType = (TextBox)window.FindName("FilterTaskType");
+                var sublot = (TextBox)window.FindName("FilterSublot");
+                var demandId = (TextBox)window.FindName("FilterDemandId");
+                var oldDemand = new object();
+                var oldAlert = new object();
+                demands.ItemsSource = new[] { oldDemand };
+                alerts.ItemsSource = new[] { oldAlert };
+                demands.SelectedItem = oldDemand;
+                alerts.SelectedItem = oldAlert;
+                taskType.Text = "OLD_TASK";
+                sublot.Text = "OLD_SUBLOT";
+                demandId.Text = "old-demand";
+                navigation.SelectedIndex = 3;
+
+                ((TextBox)window.FindName("HostBaseUrlInput")).Text = "http://new-host:5088";
+                ((PasswordBox)window.FindName("HostCredentialInput")).Password = "new-secret";
+                ((TextBox)window.FindName("RequestTimeoutInput")).Text = "20";
+                ((Button)window.FindName("ApplyHostButton")).RaiseEvent(
+                    new RoutedEventArgs(Button.ClickEvent));
+
+                Assert.Equal(0, navigation.SelectedIndex);
+                Assert.Empty(demands.Items);
+                Assert.Empty(alerts.Items);
+                Assert.Null(demands.SelectedItem);
+                Assert.Null(alerts.SelectedItem);
+                Assert.Equal(string.Empty, taskType.Text);
+                Assert.Equal(string.Empty, sublot.Text);
+                Assert.Equal(string.Empty, demandId.Text);
+                Assert.Equal("尚无成功轮询", ((TextBlock)window.FindName("OverviewPollHealthText")).Text);
+
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA Host apply test did not finish");
+        Assert.Null(caught);
+    }
+
+    private sealed class ImmediateHostAdapter : IWatchHostQueryAdapter
+    {
+        public Task VerifyContractAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<WatchPollHealthDto?>(null);
+
+        public void Dispose()
+        {
+        }
+    }
+}
