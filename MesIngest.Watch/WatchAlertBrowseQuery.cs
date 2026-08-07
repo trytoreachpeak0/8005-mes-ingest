@@ -10,7 +10,8 @@ internal sealed record WatchAlertBrowseQuery(
     string? SortBy = null,
     string Direction = "desc",
     int Limit = 100,
-    string? Cursor = null)
+    string? Cursor = null,
+    bool? Active = true)
 {
     public static WatchAlertBrowseQuery Default { get; } = new();
 
@@ -52,6 +53,11 @@ internal sealed record WatchAlertBrowseQuery(
         {
             Pair("limit", Limit.ToString(CultureInfo.InvariantCulture)),
         };
+
+        if (Active is bool active)
+        {
+            parts.Add(Pair("active", active ? "true" : "false"));
+        }
 
         if (!string.IsNullOrWhiteSpace(SortBy))
         {

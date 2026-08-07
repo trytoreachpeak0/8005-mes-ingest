@@ -9,6 +9,51 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchCompositionRootTests
 {
     [Fact]
+    public void Slow_overview_refresh_exposes_busy_state_and_cancel()
+    {
+        RunInSta(() =>
+        {
+            var health = new WatchPollHealthDto(
+                DateTimeOffset.Parse("2026-08-08T09:29:59+08:00"),
+                DateTimeOffset.Parse("2026-08-08T09:30:00+08:00"),
+                1000,
+                1,
+                true,
+                "SUCCESS",
+                []);
+            var gate = new FakeHostGate();
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("slow-overview")
+            {
+                PollHealth = FakeHostReply.Sequence<FakeHostUnit, WatchPollHealthDto?>(
+                    FakeHostReply.Return<WatchPollHealthDto?>(health),
+                    FakeHostReply.After<WatchPollHealthDto?>(gate, health)),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-slow-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            var cancel = (Button)window.FindName("OverviewCancelButton");
+            var busy = (TextBlock)window.FindName("OverviewBusyText");
+            PumpUntil(() => cancel.IsEnabled);
+            Assert.Equal(Visibility.Visible, busy.Visibility);
+
+            cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => !cancel.IsEnabled);
+            Assert.Equal(Visibility.Collapsed, busy.Visibility);
+            Assert.Contains(fakeHost.Timeline, entry =>
+                entry.Operation == FakeHostOperation.PollHealth
+                && entry.State == FakeHostRequestState.Canceled);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Overview_cards_show_business_summaries_and_navigate_to_default_pages()
     {
         RunInSta(() =>
@@ -34,7 +79,14 @@ public sealed class WatchCompositionRootTests
             var fakeHost = new ScriptedFakeHost(new FakeHostScenario("overview-session")
             {
                 PollHealth = FakeHostReply.Return<WatchPollHealthDto?>(health),
-                Snapshot = FakeHostReply.Return(snapshot),
+                DemandPage = FakeHostReply.Return(new WatchDemandPage(
+                    snapshot.Demands,
+                    snapshot.DemandsNextCursor,
+                    snapshot.DemandsHasMore)),
+                AlertPage = FakeHostReply.Return(new WatchAlertPage(
+                    snapshot.Alerts,
+                    snapshot.AlertsNextCursor,
+                    snapshot.AlertsHasMore)),
             });
             var testRoot = Path.Combine(Path.GetTempPath(), $"watch-overview-{Guid.NewGuid():N}");
             using var composition = WatchApplicationComposition.Create(
@@ -49,7 +101,9 @@ public sealed class WatchCompositionRootTests
 
             Assert.Contains("最近 MES 快照行数=27", ((TextBlock)window.FindName("OverviewPollHealthText")).Text);
             Assert.Contains("活动告警：100+", ((TextBlock)window.FindName("OverviewAlertText")).Text);
+            Assert.Contains("[WARNING]", ((TextBlock)window.FindName("OverviewAlertText")).Text);
             Assert.Contains("当前页：DIE_TO_OVEN 2", ((TextBlock)window.FindName("OverviewDemandText")).Text);
+            Assert.Contains("最近成功连接", ((TextBlock)window.FindName("OverviewHostText")).Text);
 
             var navigation = (ListBox)window.FindName("PrimaryNavigation");
             ((Button)window.FindName("OverviewAlertsButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

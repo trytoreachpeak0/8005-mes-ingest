@@ -97,12 +97,9 @@ internal sealed class WatchHostQueryException : Exception
     public string CorrelationId { get; }
 }
 
-internal interface IWatchReadQueries
+internal interface IWatchOverviewQueries
 {
-    Task<WatchSnapshot> FetchSnapshotAsync(
-        WatchDemandBrowseQuery demandQuery,
-        WatchAlertBrowseQuery alertQuery,
-        CancellationToken cancellationToken = default);
+    Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken = default);
 
     Task<WatchDemandPage> FetchDemandPageAsync(
         WatchDemandBrowseQuery query,
@@ -110,6 +107,14 @@ internal interface IWatchReadQueries
 
     Task<WatchAlertPage> FetchAlertPageAsync(
         WatchAlertBrowseQuery query,
+        CancellationToken cancellationToken = default);
+}
+
+internal interface IWatchReadQueries : IWatchOverviewQueries
+{
+    Task<WatchSnapshot> FetchSnapshotAsync(
+        WatchDemandBrowseQuery demandQuery,
+        WatchAlertBrowseQuery alertQuery,
         CancellationToken cancellationToken = default);
 
     Task<WatchDemandDto?> FetchDemandByIdAsync(
@@ -120,7 +125,6 @@ internal interface IWatchReadQueries
 internal interface IWatchHostQueryAdapter : IWatchReadQueries, IDisposable
 {
     Task VerifyContractAsync(CancellationToken cancellationToken);
-    Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -229,6 +233,12 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
         CancellationToken cancellationToken = default) =>
         ExecuteCurrentAsync(
             (adapter, token) => adapter.FetchSnapshotAsync(demandQuery, alertQuery, token),
+            cancellationToken);
+
+    public Task<WatchPollHealthDto?> FetchPollHealthAsync(
+        CancellationToken cancellationToken = default) =>
+        ExecuteCurrentAsync(
+            (adapter, token) => adapter.FetchPollHealthAsync(token),
             cancellationToken);
 
     public Task<WatchDemandPage> FetchDemandPageAsync(

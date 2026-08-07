@@ -2,9 +2,11 @@ namespace MesIngest.Watch;
 
 internal sealed record WatchOverviewProjectionModel(
     string ConclusionText,
+    string HostText,
     string PollHealthText,
     string AlertsText,
-    string DemandsText);
+    string DemandsText,
+    bool HasActiveError);
 
 internal static class WatchOverviewProjection
 {
@@ -17,9 +19,30 @@ internal static class WatchOverviewProjection
 
         return new WatchOverviewProjectionModel(
             Conclusion(host, overview),
+            Host(host),
             PollHealth(overview.PollHealth),
             Alerts(overview.Alerts),
-            Demands(overview.Demands));
+            Demands(overview.Demands),
+            overview.Alerts.Items.Any(alert =>
+                string.Equals(alert.Severity, "ERROR", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private static string Host(WatchHostSessionState host)
+    {
+        var lastSuccess = host.LastSuccessfulAt is null
+            ? string.Empty
+            : $" · 最近成功连接：{WatchTimeDisplay.Format(host.LastSuccessfulAt.Value)}";
+        return host.Status switch
+        {
+            WatchHostConnectionStatus.Connecting => $"{host.BaseUrl} · 正在验证契约{lastSuccess}",
+            WatchHostConnectionStatus.Connected => $"{host.BaseUrl} · 已连接 · 契约兼容{lastSuccess}",
+            WatchHostConnectionStatus.Failed =>
+                $"{host.BaseUrl} · {host.FailureKind} · {host.ErrorMessage}{lastSuccess}"
+                + (string.IsNullOrWhiteSpace(host.CorrelationId)
+                    ? string.Empty
+                    : $" · correlation id {host.CorrelationId}"),
+            _ => $"{host.BaseUrl} · 尚未连接",
+        };
     }
 
     private static string Conclusion(
@@ -97,7 +120,7 @@ internal static class WatchOverviewProjection
         var top = card.Items
             .Take(3)
             .Select(alert =>
-                $"{alert.Code} · {AlertScope(alert)} · {FormatTime(alert.LastSeenAt)}")
+                $"[{alert.Severity ?? "UNKNOWN"}] {alert.Code} · {AlertScope(alert)} · {FormatTime(alert.LastSeenAt)}")
             .ToArray();
         var details = top.Length == 0 ? "当前无活动告警" : string.Join(Environment.NewLine, top);
         return $"活动告警：{card.CountLabel}{Environment.NewLine}{details}"

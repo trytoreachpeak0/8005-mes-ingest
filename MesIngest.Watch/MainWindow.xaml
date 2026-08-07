@@ -51,15 +51,40 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <StackPanel Margin="12,8,12,12">
-                    <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
-                    <TextBlock x:Name="OverviewConclusionText"
-                               AutomationProperties.Name="概览健康结论"
-                               Margin="0,8,0,0"
-                               FontSize="18"
-                               FontWeight="SemiBold"
-                               Text="○ 正在连接" />
-                </StackPanel>
+                <Grid Margin="12,8,12,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
+                        <TextBlock x:Name="OverviewConclusionText"
+                                   AutomationProperties.Name="概览健康结论"
+                                   Margin="0,8,0,0"
+                                   FontSize="18"
+                                   FontWeight="SemiBold"
+                                   Text="○ 正在连接" />
+                        <TextBlock x:Name="OverviewBusyText"
+                                   AutomationProperties.Name="概览刷新状态"
+                                   Margin="0,4,0,0"
+                                   Text="正在刷新三个概览资源，可取消"
+                                   Visibility="Collapsed" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button x:Name="OverviewRefreshButton"
+                                AutomationProperties.Name="刷新概览"
+                                Content="刷新"
+                                Padding="16,7"
+                                Click="OnOverviewRefreshClick" />
+                        <Button x:Name="OverviewCancelButton"
+                                AutomationProperties.Name="取消概览刷新"
+                                Content="取消"
+                                Margin="8,0,0,0"
+                                Padding="16,7"
+                                IsEnabled="False"
+                                Click="OnOverviewCancelClick" />
+                    </StackPanel>
+                </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <UniformGrid Columns="2" Margin="6">
                         <Border Margin="6" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">

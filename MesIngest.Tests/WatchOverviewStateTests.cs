@@ -1,6 +1,6 @@
 using MesIngest.Watch;
 
-namespace MesIngest.Watch.UiTests;
+namespace MesIngest.Tests;
 
 public sealed class WatchOverviewStateTests
 {
@@ -26,7 +26,7 @@ public sealed class WatchOverviewStateTests
         var queries = new SnapshotQueries(snapshot);
         var overview = new WatchOverviewSession(queries, () => now);
 
-        await overview.RefreshAsync(TestContext.Current.CancellationToken);
+        await overview.RefreshAsync(cancellationToken: CancellationToken.None);
 
         Assert.Equal("100+", overview.State.Alerts.CountLabel);
         Assert.Equal("3", overview.State.Demands.CountLabel);
@@ -65,9 +65,9 @@ public sealed class WatchOverviewStateTests
             new SequenceQueries(first, partial),
             () => now);
 
-        await overview.RefreshAsync(TestContext.Current.CancellationToken);
+        await overview.RefreshAsync(cancellationToken: CancellationToken.None);
         now = secondAt;
-        await overview.RefreshAsync(TestContext.Current.CancellationToken);
+        await overview.RefreshAsync(cancellationToken: CancellationToken.None);
 
         Assert.Equal("a-1", Assert.Single(overview.State.Alerts.Items).AlertId);
         Assert.Equal(firstAt, overview.State.Alerts.LastSuccessfulAt);
@@ -79,6 +79,35 @@ public sealed class WatchOverviewStateTests
         Assert.Equal("SUCCESS_2", overview.State.PollHealth.Value?.Outcome);
         Assert.Equal(secondAt, overview.State.PollHealth.LastSuccessfulAt);
         Assert.True(overview.State.IsPartialFailure);
+    }
+
+    [Fact]
+    public async Task Fast_cards_commit_while_another_overview_resource_is_still_waiting()
+    {
+        var queries = new GatedHealthQueries();
+        var overview = new WatchOverviewSession(queries);
+        var alertsCommitted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var refresh = overview.RefreshAsync(
+            state =>
+            {
+                if (state.Alerts.LastSuccessfulAt is not null)
+                {
+                    alertsCommitted.TrySetResult();
+                }
+
+                return Task.CompletedTask;
+            });
+
+        await alertsCommitted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(refresh.IsCompleted);
+        Assert.Equal("1", overview.State.Alerts.CountLabel);
+        Assert.Equal("1", overview.State.Demands.CountLabel);
+
+        queries.ReleaseHealth();
+        await refresh;
+        Assert.Equal("SUCCESS", overview.State.PollHealth.Value?.Outcome);
     }
 
     [Fact]
@@ -216,54 +245,118 @@ public sealed class WatchOverviewStateTests
             false,
             null));
 
-    private sealed class SnapshotQueries(WatchSnapshot snapshot) : IWatchReadQueries
+    private sealed class SnapshotQueries(WatchSnapshot snapshot) : IWatchOverviewQueries
     {
-        public Task<WatchSnapshot> FetchSnapshotAsync(
-            WatchDemandBrowseQuery demandQuery,
-            WatchAlertBrowseQuery alertQuery,
+        public Task<WatchPollHealthDto?> FetchPollHealthAsync(
+            CancellationToken cancellationToken = default) =>
+            snapshot.PollHealthSucceeded
+                ? Task.FromResult(snapshot.PollHealth)
+                : Task.FromException<WatchPollHealthDto?>(Failure("/api/poll-health"));
+
+        public Task<WatchDemandPage> FetchDemandPageAsync(
+            WatchDemandBrowseQuery query,
             CancellationToken cancellationToken = default)
         {
-            Assert.Equal(WatchDemandBrowseQuery.Default, demandQuery);
-            Assert.Equal(WatchAlertBrowseQuery.Default, alertQuery);
-            return Task.FromResult(snapshot);
+            Assert.Equal(WatchDemandBrowseQuery.Default, query);
+            return snapshot.DemandsSucceeded
+                ? Task.FromResult(new WatchDemandPage(
+                    snapshot.Demands,
+                    snapshot.DemandsNextCursor,
+                    snapshot.DemandsHasMore))
+                : Task.FromException<WatchDemandPage>(Failure("/api/demands"));
+        }
+
+        public Task<WatchAlertPage> FetchAlertPageAsync(
+            WatchAlertBrowseQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.Equal(WatchAlertBrowseQuery.Default, query);
+            Assert.Contains("active=true", query.ToRelativeUrl(), StringComparison.Ordinal);
+            return snapshot.AlertsSucceeded
+                ? Task.FromResult(new WatchAlertPage(
+                    snapshot.Alerts,
+                    snapshot.AlertsNextCursor,
+                    snapshot.AlertsHasMore))
+                : Task.FromException<WatchAlertPage>(Failure("/api/alerts"));
+        }
+    }
+
+    private sealed class SequenceQueries(params WatchSnapshot[] snapshots) : IWatchOverviewQueries
+    {
+        private int _healthIndex;
+        private int _alertsIndex;
+        private int _demandsIndex;
+
+        public Task<WatchPollHealthDto?> FetchPollHealthAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = Next(ref _healthIndex);
+            return snapshot.PollHealthSucceeded
+                ? Task.FromResult(snapshot.PollHealth)
+                : Task.FromException<WatchPollHealthDto?>(Failure("/api/poll-health"));
         }
 
         public Task<WatchDemandPage> FetchDemandPageAsync(
             WatchDemandBrowseQuery query,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = Next(ref _demandsIndex);
+            return snapshot.DemandsSucceeded
+                ? Task.FromResult(new WatchDemandPage(
+                    snapshot.Demands,
+                    snapshot.DemandsNextCursor,
+                    snapshot.DemandsHasMore))
+                : Task.FromException<WatchDemandPage>(Failure("/api/demands"));
+        }
 
         public Task<WatchAlertPage> FetchAlertPageAsync(
             WatchAlertBrowseQuery query,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<WatchDemandDto?> FetchDemandByIdAsync(
-            string demandId,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
-    }
-
-    private sealed class SequenceQueries(params WatchSnapshot[] snapshots) : IWatchReadQueries
-    {
-        private int _index;
-
-        public Task<WatchSnapshot> FetchSnapshotAsync(
-            WatchDemandBrowseQuery demandQuery,
-            WatchAlertBrowseQuery alertQuery,
             CancellationToken cancellationToken = default)
         {
-            var index = Math.Min(_index++, snapshots.Length - 1);
-            return Task.FromResult(snapshots[index]);
+            var snapshot = Next(ref _alertsIndex);
+            return snapshot.AlertsSucceeded
+                ? Task.FromResult(new WatchAlertPage(
+                    snapshot.Alerts,
+                    snapshot.AlertsNextCursor,
+                    snapshot.AlertsHasMore))
+                : Task.FromException<WatchAlertPage>(Failure("/api/alerts"));
         }
+
+        private WatchSnapshot Next(ref int index) =>
+            snapshots[Math.Min(index++, snapshots.Length - 1)];
+    }
+
+    private sealed class GatedHealthQueries : IWatchOverviewQueries
+    {
+        private readonly TaskCompletionSource<WatchPollHealthDto?> _health = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void ReleaseHealth() => _health.TrySetResult(Health());
+
+        public Task<WatchPollHealthDto?> FetchPollHealthAsync(
+            CancellationToken cancellationToken = default) =>
+            _health.Task.WaitAsync(cancellationToken);
 
         public Task<WatchDemandPage> FetchDemandPageAsync(
             WatchDemandBrowseQuery query,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WatchDemandPage(
+                [Demand("d-fast", "DIE_TO_OVEN")],
+                null,
+                false));
 
         public Task<WatchAlertPage> FetchAlertPageAsync(
             WatchAlertBrowseQuery query,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
-
-        public Task<WatchDemandDto?> FetchDemandByIdAsync(
-            string demandId,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new WatchAlertPage(
+                [Alert("a-fast", "WARNING")],
+                null,
+                false));
     }
+
+    private static WatchHostQueryException Failure(string endpoint) => new(
+        WatchHostFailureKind.Network,
+        endpoint,
+        "fake-overview-failure",
+        $"{endpoint} fake failure");
 }

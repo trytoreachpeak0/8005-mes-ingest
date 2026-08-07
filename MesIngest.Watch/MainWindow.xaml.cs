@@ -25,6 +25,7 @@ internal partial class MainWindow : Window
     private readonly List<WeakReference<AlertDetailWindow>> _openAlertDetailsWithoutId = [];
 
     private WatchPollHealthDto? _health;
+    private bool _isOverviewRefreshing;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
     private string _sortBy = "dates";
@@ -157,14 +158,23 @@ internal partial class MainWindow : Window
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
         AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
+        if (IsLoaded && selected is 1 or 2)
+        {
+            _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+        }
     }
 
     private void OnOverviewAlertsClick(object sender, RoutedEventArgs e)
     {
         _browse = new WatchBrowseSession(_hostSession);
         PrimaryNavigation.SelectedIndex = 2;
-        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
+
+    private void OnOverviewRefreshClick(object sender, RoutedEventArgs e) =>
+        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+
+    private void OnOverviewCancelClick(object sender, RoutedEventArgs e) =>
+        _refreshCancellation?.Cancel();
 
     private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
     {
@@ -177,7 +187,6 @@ internal partial class MainWindow : Window
         FilterSublot.Clear();
         FilterDemandId.Clear();
         PrimaryNavigation.SelectedIndex = 1;
-        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
 
     private async void OnApplyHostClick(object sender, RoutedEventArgs e)
@@ -443,6 +452,7 @@ internal partial class MainWindow : Window
         previous?.Cancel();
         previous?.Dispose();
         var admitted = false;
+        var refreshingOverview = false;
         try
         {
             admitted = await _refreshAdmission.WaitAsync(kind, cancellation.Token).ConfigureAwait(true);
@@ -465,7 +475,16 @@ internal partial class MainWindow : Window
                 && kind is not WatchBrowseRefreshKind.Append
                 && kind is not WatchBrowseRefreshKind.AppendAlerts)
             {
-                await overview.RefreshAsync(cancellation.Token).ConfigureAwait(true);
+                refreshingOverview = true;
+                _isOverviewRefreshing = true;
+                ApplyProjection();
+                await overview.RefreshAsync(
+                        _ => Dispatcher.InvokeAsync(
+                                ApplyProjection,
+                                DispatcherPriority.DataBind)
+                            .Task,
+                        cancellation.Token)
+                    .ConfigureAwait(true);
                 if (generation != _hostGeneration || !ReferenceEquals(overview, _overview))
                 {
                     return;
@@ -567,6 +586,13 @@ internal partial class MainWindow : Window
 
             Interlocked.CompareExchange(ref _refreshCancellation, null, cancellation);
             cancellation.Dispose();
+            if (refreshingOverview
+                && generation == _hostGeneration
+                && ReferenceEquals(overview, _overview))
+            {
+                _isOverviewRefreshing = false;
+                ApplyProjection();
+            }
         }
     }
 
@@ -688,21 +714,17 @@ internal partial class MainWindow : Window
 
         var hostState = _hostSession.State;
         var overview = WatchOverviewProjection.Project(hostState, _overview.State);
-        OverviewConclusionText.Text = overview.ConclusionText;
-        OverviewHostText.Text = hostState.Status switch
-        {
-            WatchHostConnectionStatus.Connecting => $"{_options.BaseUrl} · 正在验证契约",
-            WatchHostConnectionStatus.Connected => $"{_options.BaseUrl} · 已连接 · 契约兼容",
-            WatchHostConnectionStatus.Failed =>
-                $"{_options.BaseUrl} · {hostState.FailureKind} · {hostState.ErrorMessage}"
-                + (string.IsNullOrWhiteSpace(hostState.CorrelationId)
-                    ? string.Empty
-                    : $" · correlation id {hostState.CorrelationId}"),
-            _ => $"{_options.BaseUrl} · 尚未连接",
-        };
+        OverviewConclusionText.Text = _isOverviewRefreshing ? "○ 刷新中" : overview.ConclusionText;
+        OverviewHostText.Text = overview.HostText;
         OverviewPollHealthText.Text = overview.PollHealthText;
         OverviewAlertText.Text = overview.AlertsText;
+        OverviewAlertText.Foreground = overview.HasActiveError
+            ? System.Windows.Media.Brushes.DarkRed
+            : System.Windows.Media.Brushes.Black;
         OverviewDemandText.Text = overview.DemandsText;
+        OverviewBusyText.Visibility = _isOverviewRefreshing ? Visibility.Visible : Visibility.Collapsed;
+        OverviewRefreshButton.IsEnabled = !_isOverviewRefreshing;
+        OverviewCancelButton.IsEnabled = _isOverviewRefreshing;
 
         var needsHoldTick = banner.ShowError
             || banner.ShowWarning

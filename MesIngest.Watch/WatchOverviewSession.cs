@@ -89,11 +89,12 @@ internal sealed record WatchOverviewState(
 /// </summary>
 internal sealed class WatchOverviewSession
 {
-    private readonly IWatchReadQueries _queries;
+    private readonly object _gate = new();
+    private readonly IWatchOverviewQueries _queries;
     private readonly Func<DateTimeOffset> _getNow;
 
     public WatchOverviewSession(
-        IWatchReadQueries queries,
+        IWatchOverviewQueries queries,
         Func<DateTimeOffset>? getNow = null)
     {
         _queries = queries ?? throw new ArgumentNullException(nameof(queries));
@@ -120,55 +121,184 @@ internal sealed class WatchOverviewSession
         };
     }
 
-    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    public async Task RefreshAsync(
+        Func<WatchOverviewState, Task>? onResourceCommitted = null,
+        CancellationToken cancellationToken = default)
     {
-        var snapshot = await _queries.FetchSnapshotAsync(
-                WatchDemandBrowseQuery.Default,
-                WatchAlertBrowseQuery.Default,
-                cancellationToken)
-            .ConfigureAwait(false);
-        var now = _getNow();
-        LastSnapshot = snapshot;
+        var healthTask = FetchPollHealthAsync(onResourceCommitted, cancellationToken);
+        var alertsTask = FetchAlertsAsync(onResourceCommitted, cancellationToken);
+        var demandsTask = FetchDemandsAsync(onResourceCommitted, cancellationToken);
+        await Task.WhenAll(healthTask, alertsTask, demandsTask).ConfigureAwait(false);
 
-        State = new WatchOverviewState(
-            ApplyPollHealth(State.PollHealth, snapshot, now),
-            ApplyAlerts(State.Alerts, snapshot, now),
-            ApplyDemands(State.Demands, snapshot, now));
+        var health = await healthTask.ConfigureAwait(false);
+        var alerts = await alertsTask.ConfigureAwait(false);
+        var demands = await demandsTask.ConfigureAwait(false);
+        var firstFailure = new[] { demands.Failure, alerts.Failure, health.Failure }
+            .FirstOrDefault(failure => failure is not null);
+        LastSnapshot = new WatchSnapshot(
+            demands.Value?.Items ?? [],
+            alerts.Value?.Items ?? [],
+            health.Value,
+            firstFailure?.Message,
+            FailedEndpoint: firstFailure?.Endpoint,
+            FailedStage: firstFailure?.Stage,
+            FailedElapsed: firstFailure?.Elapsed,
+            DemandsNextCursor: demands.Value?.NextCursor,
+            DemandsHasMore: demands.Value?.HasMore ?? false,
+            AlertsNextCursor: alerts.Value?.NextCursor,
+            AlertsHasMore: alerts.Value?.HasMore ?? false,
+            DemandsSucceeded: demands.Succeeded,
+            AlertsSucceeded: alerts.Succeeded,
+            PollHealthSucceeded: health.Succeeded,
+            DemandsError: demands.Failure?.Message,
+            AlertsError: alerts.Failure?.Message,
+            PollHealthError: health.Failure?.Message);
     }
 
-    private static WatchOverviewPollHealthState ApplyPollHealth(
-        WatchOverviewPollHealthState current,
-        WatchSnapshot snapshot,
-        DateTimeOffset now) =>
-        snapshot.PollHealthSucceeded
-            ? new(snapshot.PollHealth, now, false, null)
-            : current with
+    private async Task<WatchOverviewFetch<WatchPollHealthDto?>> FetchPollHealthAsync(
+        Func<WatchOverviewState, Task>? onCommitted,
+        CancellationToken cancellationToken)
+    {
+        var result = await CaptureAsync(
+                () => _queries.FetchPollHealthAsync(cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+        WatchOverviewState committed;
+        lock (_gate)
+        {
+            var current = State.PollHealth;
+            State = State with
             {
-                IsStale = current.LastSuccessfulAt is not null,
-                Error = snapshot.PollHealthError ?? snapshot.FetchError ?? "最近轮询健康读取失败",
+                PollHealth = result.Succeeded
+                    ? new(result.Value, _getNow(), false, null)
+                    : current with
+                    {
+                        IsStale = current.LastSuccessfulAt is not null,
+                        Error = result.Failure?.Message ?? "最近轮询健康读取失败",
+                    },
             };
+            committed = State;
+        }
 
-    private static WatchOverviewAlertState ApplyAlerts(
-        WatchOverviewAlertState current,
-        WatchSnapshot snapshot,
-        DateTimeOffset now) =>
-        snapshot.AlertsSucceeded
-            ? new(snapshot.Alerts, snapshot.AlertsHasMore, now, false, null)
-            : current with
-            {
-                IsStale = current.LastSuccessfulAt is not null,
-                Error = snapshot.AlertsError ?? snapshot.FetchError ?? "活动 IngestAlert 读取失败",
-            };
+        await NotifyAsync(onCommitted, committed).ConfigureAwait(false);
+        return result;
+    }
 
-    private static WatchOverviewDemandState ApplyDemands(
-        WatchOverviewDemandState current,
-        WatchSnapshot snapshot,
-        DateTimeOffset now) =>
-        snapshot.DemandsSucceeded
-            ? new(snapshot.Demands, snapshot.DemandsHasMore, now, false, null)
-            : current with
+    private async Task<WatchOverviewFetch<WatchAlertPage>> FetchAlertsAsync(
+        Func<WatchOverviewState, Task>? onCommitted,
+        CancellationToken cancellationToken)
+    {
+        var result = await CaptureAsync(
+                () => _queries.FetchAlertPageAsync(WatchAlertBrowseQuery.Default, cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+        WatchOverviewState committed;
+        lock (_gate)
+        {
+            var current = State.Alerts;
+            State = State with
             {
-                IsStale = current.LastSuccessfulAt is not null,
-                Error = snapshot.DemandsError ?? snapshot.FetchError ?? "VISIBLE TransportDemand 读取失败",
+                Alerts = result.Succeeded
+                    ? new(result.Value!.Items, result.Value.HasMore, _getNow(), false, null)
+                    : current with
+                    {
+                        IsStale = current.LastSuccessfulAt is not null,
+                        Error = result.Failure?.Message ?? "活动 IngestAlert 读取失败",
+                    },
             };
+            committed = State;
+        }
+
+        await NotifyAsync(onCommitted, committed).ConfigureAwait(false);
+        return result;
+    }
+
+    private async Task<WatchOverviewFetch<WatchDemandPage>> FetchDemandsAsync(
+        Func<WatchOverviewState, Task>? onCommitted,
+        CancellationToken cancellationToken)
+    {
+        var result = await CaptureAsync(
+                () => _queries.FetchDemandPageAsync(WatchDemandBrowseQuery.Default, cancellationToken),
+                cancellationToken)
+            .ConfigureAwait(false);
+        WatchOverviewState committed;
+        lock (_gate)
+        {
+            var current = State.Demands;
+            State = State with
+            {
+                Demands = result.Succeeded
+                    ? new(result.Value!.Items, result.Value.HasMore, _getNow(), false, null)
+                    : current with
+                    {
+                        IsStale = current.LastSuccessfulAt is not null,
+                        Error = result.Failure?.Message ?? "VISIBLE TransportDemand 读取失败",
+                    },
+            };
+            committed = State;
+        }
+
+        await NotifyAsync(onCommitted, committed).ConfigureAwait(false);
+        return result;
+    }
+
+    private static async Task<WatchOverviewFetch<T>> CaptureAsync<T>(
+        Func<Task<T>> fetch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return WatchOverviewFetch<T>.Success(await fetch().ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (WatchHostQueryException ex)
+        {
+            return WatchOverviewFetch<T>.Failed(new WatchOverviewFailure(
+                $"endpoint={ex.Endpoint} correlationId={ex.CorrelationId} {ex.Message}",
+                ex.Endpoint,
+                ex.Kind.ToString(),
+                TimeSpan.Zero));
+        }
+        catch (WatchEndpointFetchException ex)
+        {
+            return WatchOverviewFetch<T>.Failed(new WatchOverviewFailure(
+                $"endpoint={ex.Endpoint} stage={ex.Stage} {ex.Message}",
+                ex.Endpoint,
+                ex.Stage,
+                ex.Elapsed));
+        }
+        catch (Exception ex)
+        {
+            return WatchOverviewFetch<T>.Failed(new WatchOverviewFailure(
+                ex.Message,
+                null,
+                "UNKNOWN",
+                TimeSpan.Zero));
+        }
+    }
+
+    private static Task NotifyAsync(
+        Func<WatchOverviewState, Task>? onCommitted,
+        WatchOverviewState state) =>
+        onCommitted?.Invoke(state) ?? Task.CompletedTask;
+}
+
+internal sealed record WatchOverviewFailure(
+    string Message,
+    string? Endpoint,
+    string Stage,
+    TimeSpan Elapsed);
+
+internal sealed record WatchOverviewFetch<T>(
+    bool Succeeded,
+    T? Value,
+    WatchOverviewFailure? Failure)
+{
+    public static WatchOverviewFetch<T> Success(T value) => new(true, value, null);
+
+    public static WatchOverviewFetch<T> Failed(WatchOverviewFailure failure) =>
+        new(false, default, failure);
 }
