@@ -5,6 +5,10 @@ Tests create the real `WatchApplicationComposition` and replace only the Host bo
 with `ScriptedFakeHost`, so production Host-session generation, cancellation, browse,
 and atomic UI commit behavior stay in the path under test.
 
+Scenarios can repeat one response, return a deterministic response sequence, or select
+a response from the incoming query. Cursor-expiry replies use the same HTTP 400 shape
+that the production browse session recognizes for its single safe recovery.
+
 Use fake values only. Request timelines intentionally record session ids, operation
 names, states, and redacted endpoint shapes; they never record credentials, cursors,
 Demand ids, or response payloads.

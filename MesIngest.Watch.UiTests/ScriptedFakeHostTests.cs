@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http;
 using MesIngest.Watch;
 
 namespace MesIngest.Watch.UiTests;
@@ -83,16 +85,95 @@ public sealed class ScriptedFakeHostTests
         var host = new ScriptedFakeHost(scenario);
         using var adapter = host.CreateAdapter(FakeSettings(secret));
 
-        var exception = await Assert.ThrowsAsync<WatchHostQueryException>(
+        var exception = await Assert.ThrowsAsync<WatchEndpointFetchException>(
             () => adapter.FetchDemandPageAsync(
                 WatchDemandBrowseQuery.Default with { Cursor = "fake-sensitive-cursor" },
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(WatchHostFailureKind.Http, exception.Kind);
+        var http = Assert.IsType<HttpRequestException>(exception.InnerException);
+        Assert.Equal(HttpStatusCode.BadRequest, http.StatusCode);
         var timeline = string.Join(Environment.NewLine, host.Timeline);
         Assert.DoesNotContain(secret, timeline, StringComparison.Ordinal);
         Assert.DoesNotContain("fake-sensitive-cursor", timeline, StringComparison.Ordinal);
         Assert.All(host.Timeline, entry => Assert.Equal("fake-session-cursor", entry.SessionId));
+    }
+
+    [Fact]
+    public async Task Fake_host_can_script_refresh_sequences_and_query_dependent_results()
+    {
+        var first = FakeDemand("fake-demand-first");
+        var refreshed = FakeDemand("fake-demand-refreshed");
+        var pageTwo = FakeDemand("fake-demand-page-two");
+        var scenario = new FakeHostScenario("fake-session-scripted")
+        {
+            Snapshot = FakeHostReply.Sequence<FakeHostSnapshotRequest, WatchSnapshot>(
+                FakeHostReply.Return(Snapshot(first)),
+                FakeHostReply.Return(Snapshot(refreshed))),
+            DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(query =>
+                FakeHostReply.Return(query.Cursor == "fake-page-two-cursor"
+                    ? new WatchDemandPage([pageTwo], null, false)
+                    : new WatchDemandPage([first], "fake-page-two-cursor", true))),
+            ExactDemand = FakeHostReply.Select<string, WatchDemandDto?>(id =>
+                FakeHostReply.Return<WatchDemandDto?>(id == refreshed.DemandId ? refreshed : null)),
+        };
+        var host = new ScriptedFakeHost(scenario);
+        using var adapter = host.CreateAdapter(FakeSettings("fake-scripted-secret"));
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        Assert.Equal(first, (await adapter.FetchSnapshotAsync(
+            WatchDemandBrowseQuery.Default,
+            WatchAlertBrowseQuery.Default,
+            cancellationToken)).Demands.Single());
+        Assert.Equal(refreshed, (await adapter.FetchSnapshotAsync(
+            WatchDemandBrowseQuery.Default,
+            WatchAlertBrowseQuery.Default,
+            cancellationToken)).Demands.Single());
+        Assert.Equal(pageTwo, (await adapter.FetchDemandPageAsync(
+            WatchDemandBrowseQuery.Default with { Cursor = "fake-page-two-cursor" },
+            cancellationToken)).Items.Single());
+        Assert.Equal(refreshed, await adapter.FetchDemandByIdAsync(
+            refreshed.DemandId,
+            cancellationToken));
+        Assert.Null(await adapter.FetchDemandByIdAsync("fake-missing-demand", cancellationToken));
+    }
+
+    [Fact]
+    public async Task Fake_cursor_failure_drives_the_production_browse_recovery_path()
+    {
+        var initial = FakeDemand("fake-demand-before-cursor-expiry");
+        var recovered = FakeDemand("fake-demand-after-cursor-expiry");
+        var scenario = new FakeHostScenario("fake-session-cursor-recovery")
+        {
+            Snapshot = FakeHostReply.Sequence<FakeHostSnapshotRequest, WatchSnapshot>(
+                FakeHostReply.Return(Snapshot(initial) with
+                {
+                    DemandsNextCursor = "fake-expiring-cursor",
+                    DemandsHasMore = true,
+                }),
+                FakeHostReply.Return(Snapshot(recovered))),
+            DemandPage = FakeHostReply.CursorExpired<WatchDemandPage>("/api/demands"),
+        };
+        var host = new ScriptedFakeHost(scenario);
+        using var adapter = host.CreateAdapter(FakeSettings("fake-recovery-secret"));
+        var browse = new WatchBrowseSession(adapter);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await browse.RefreshAsync(
+            WatchBrowseRefreshKind.Reset,
+            WatchDemandBrowseQuery.Default,
+            cancellationToken);
+
+        await browse.RefreshAsync(
+            WatchBrowseRefreshKind.Append,
+            WatchDemandBrowseQuery.Default,
+            cancellationToken);
+
+        Assert.Equal(recovered, Assert.Single(browse.Demands));
+        Assert.True(browse.LastRefreshIncludedSnapshot);
+        Assert.Equal(
+            2,
+            host.Timeline.Count(entry =>
+                entry.Operation == FakeHostOperation.Snapshot
+                && entry.State == FakeHostRequestState.Completed));
     }
 
     [Fact]
@@ -203,6 +284,15 @@ public sealed class ScriptedFakeHostTests
         Success: true,
         Outcome: "fake-success",
         TaskTypePauses: []);
+
+    private static WatchSnapshot Snapshot(WatchDemandDto demand) => new(
+        [demand],
+        [],
+        PollHealth: null,
+        FetchError: null,
+        DemandsSucceeded: true,
+        AlertsSucceeded: true,
+        PollHealthSucceeded: true);
 
     private static WatchDemandDto FakeDemand(string id) => new(
         DemandId: id,

@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http;
 using MesIngest.Watch;
 
 namespace MesIngest.Watch.UiTests;
@@ -21,12 +23,20 @@ internal enum FakeHostRequestState
     Failed,
 }
 
-internal sealed record FakeHostRequestEvent(
-    long Sequence,
+internal readonly record struct FakeHostRequestMatch(
     string SessionId,
     FakeHostOperation Operation,
-    FakeHostRequestState State,
-    string Endpoint);
+    FakeHostRequestState State);
+
+internal sealed record FakeHostRequestEvent(
+    long Sequence,
+    FakeHostRequestMatch Request,
+    string Endpoint)
+{
+    public string SessionId => Request.SessionId;
+    public FakeHostOperation Operation => Request.Operation;
+    public FakeHostRequestState State => Request.State;
+}
 
 internal sealed class FakeHostGate
 {
@@ -43,8 +53,20 @@ internal sealed class FakeHostGate
 
 internal readonly record struct FakeHostUnit;
 
+internal sealed record FakeHostSnapshotRequest(
+    WatchDemandBrowseQuery DemandQuery,
+    WatchAlertBrowseQuery AlertQuery);
+
+internal enum FakeHostFailureShape
+{
+    None,
+    Query,
+    CursorExpired,
+}
+
 internal sealed record FakeHostReply<T>(
     T Value,
+    FakeHostFailureShape FailureShape = FakeHostFailureShape.None,
     WatchHostFailureKind? FailureKind = null,
     string Endpoint = "fake-host",
     string FailureMessage = "fake Host failure",
@@ -62,13 +84,19 @@ internal static class FakeHostReply
         WatchHostFailureKind kind,
         string endpoint,
         string message = "fake Host failure") =>
-        new(default!, kind, endpoint, message);
+        new(
+            default!,
+            FakeHostFailureShape.Query,
+            kind,
+            endpoint,
+            message);
 
     public static FakeHostReply<T> CursorExpired<T>(string endpoint) =>
-        Fail<T>(
-            WatchHostFailureKind.Http,
-            endpoint,
-            "fake Host rejected an expired cursor");
+        new(
+            default!,
+            FakeHostFailureShape.CursorExpired,
+            Endpoint: endpoint,
+            FailureMessage: "fake Host rejected an expired cursor");
 
     public static FakeHostReply<T> After<T>(
         FakeHostGate gate,
@@ -78,6 +106,61 @@ internal static class FakeHostReply
             value,
             Gate: gate ?? throw new ArgumentNullException(nameof(gate)),
             CompleteAfterCancellation: completeAfterCancellation);
+
+    public static FakeHostScript<TRequest, TResponse> Sequence<TRequest, TResponse>(
+        params FakeHostReply<TResponse>[] replies) =>
+        FakeHostScript<TRequest, TResponse>.Sequence(replies);
+
+    public static FakeHostScript<TRequest, TResponse> Select<TRequest, TResponse>(
+        Func<TRequest, FakeHostReply<TResponse>> selector) =>
+        FakeHostScript<TRequest, TResponse>.Select(selector);
+}
+
+internal sealed class FakeHostScript<TRequest, TResponse>
+{
+    private readonly object _sync = new();
+    private readonly IReadOnlyList<FakeHostReply<TResponse>>? _sequence;
+    private readonly Func<TRequest, FakeHostReply<TResponse>>? _selector;
+    private int _nextIndex;
+
+    private FakeHostScript(IReadOnlyList<FakeHostReply<TResponse>> sequence)
+    {
+        _sequence = sequence.Count > 0
+            ? sequence
+            : throw new ArgumentException("A fake Host response sequence cannot be empty.", nameof(sequence));
+    }
+
+    private FakeHostScript(Func<TRequest, FakeHostReply<TResponse>> selector)
+    {
+        _selector = selector ?? throw new ArgumentNullException(nameof(selector));
+    }
+
+    public static FakeHostScript<TRequest, TResponse> Sequence(
+        params FakeHostReply<TResponse>[] replies) =>
+        new(replies ?? throw new ArgumentNullException(nameof(replies)));
+
+    public static FakeHostScript<TRequest, TResponse> Select(
+        Func<TRequest, FakeHostReply<TResponse>> selector) =>
+        new(selector);
+
+    public FakeHostReply<TResponse> Next(TRequest request)
+    {
+        if (_selector is not null)
+        {
+            return _selector(request);
+        }
+
+        lock (_sync)
+        {
+            var index = Math.Min(_nextIndex, _sequence!.Count - 1);
+            _nextIndex++;
+            return _sequence[index];
+        }
+    }
+
+    public static implicit operator FakeHostScript<TRequest, TResponse>(
+        FakeHostReply<TResponse> reply) =>
+        Sequence(reply);
 }
 
 internal sealed class FakeHostScenario
@@ -94,12 +177,13 @@ internal sealed class FakeHostScenario
 
     public string SessionId { get; }
 
-    public FakeHostReply<FakeHostUnit> Contract { get; init; } = FakeHostReply.Success();
+    public FakeHostScript<FakeHostUnit, FakeHostUnit> Contract { get; init; } =
+        FakeHostReply.Success();
 
-    public FakeHostReply<WatchPollHealthDto?> PollHealth { get; init; } =
+    public FakeHostScript<FakeHostUnit, WatchPollHealthDto?> PollHealth { get; init; } =
         FakeHostReply.Return<WatchPollHealthDto?>(null);
 
-    public FakeHostReply<WatchSnapshot> Snapshot { get; init; } =
+    public FakeHostScript<FakeHostSnapshotRequest, WatchSnapshot> Snapshot { get; init; } =
         FakeHostReply.Return(new WatchSnapshot(
             [],
             [],
@@ -109,19 +193,19 @@ internal sealed class FakeHostScenario
             AlertsSucceeded: true,
             PollHealthSucceeded: true));
 
-    public FakeHostReply<WatchDemandPage> DemandPage { get; init; } =
+    public FakeHostScript<WatchDemandBrowseQuery, WatchDemandPage> DemandPage { get; init; } =
         FakeHostReply.Return(new WatchDemandPage([], null, false));
 
-    public FakeHostReply<WatchAlertPage> AlertPage { get; init; } =
+    public FakeHostScript<WatchAlertBrowseQuery, WatchAlertPage> AlertPage { get; init; } =
         FakeHostReply.Return(new WatchAlertPage([], null, false));
 
-    public FakeHostReply<WatchDemandDto?> ExactDemand { get; init; } =
+    public FakeHostScript<string, WatchDemandDto?> ExactDemand { get; init; } =
         FakeHostReply.Return<WatchDemandDto?>(null);
 }
 
 internal sealed class ScriptedFakeHost
 {
-    private readonly object _gate = new();
+    private readonly object _sync = new();
     private readonly Queue<FakeHostScenario> _scenarios;
     private readonly List<FakeHostRequestEvent> _timeline = [];
     private readonly List<TimelineWaiter> _waiters = [];
@@ -141,7 +225,7 @@ internal sealed class ScriptedFakeHost
     {
         get
         {
-            lock (_gate)
+            lock (_sync)
             {
                 return _timeline.ToArray();
             }
@@ -152,7 +236,7 @@ internal sealed class ScriptedFakeHost
     {
         ArgumentNullException.ThrowIfNull(settings);
         FakeHostScenario scenario;
-        lock (_gate)
+        lock (_sync)
         {
             scenario = _scenarios.Count > 0
                 ? _scenarios.Dequeue()
@@ -168,16 +252,17 @@ internal sealed class ScriptedFakeHost
         FakeHostRequestState state,
         CancellationToken cancellationToken = default)
     {
-        lock (_gate)
+        var request = new FakeHostRequestMatch(sessionId, operation, state);
+        lock (_sync)
         {
-            if (_timeline.Any(entry => Matches(entry, sessionId, operation, state)))
+            if (_timeline.Any(entry => entry.Request == request))
             {
                 return Task.CompletedTask;
             }
 
             var completion = new TaskCompletionSource(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            _waiters.Add(new TimelineWaiter(sessionId, operation, state, completion));
+            _waiters.Add(new TimelineWaiter(request, completion));
             return cancellationToken.CanBeCanceled
                 ? completion.Task.WaitAsync(cancellationToken)
                 : completion.Task;
@@ -185,26 +270,22 @@ internal sealed class ScriptedFakeHost
     }
 
     private void Record(
-        string sessionId,
-        FakeHostOperation operation,
-        FakeHostRequestState state,
+        FakeHostRequestMatch request,
         string endpoint)
     {
         List<TaskCompletionSource> completed = [];
-        lock (_gate)
+        lock (_sync)
         {
             var entry = new FakeHostRequestEvent(
                 ++_nextSequence,
-                sessionId,
-                operation,
-                state,
+                request,
                 endpoint);
             _timeline.Add(entry);
 
             for (var index = _waiters.Count - 1; index >= 0; index--)
             {
                 var waiter = _waiters[index];
-                if (!Matches(entry, waiter.SessionId, waiter.Operation, waiter.State))
+                if (entry.Request != waiter.Request)
                 {
                     continue;
                 }
@@ -219,15 +300,6 @@ internal sealed class ScriptedFakeHost
             completion.TrySetResult();
         }
     }
-
-    private static bool Matches(
-        FakeHostRequestEvent entry,
-        string sessionId,
-        FakeHostOperation operation,
-        FakeHostRequestState state) =>
-        string.Equals(entry.SessionId, sessionId, StringComparison.Ordinal)
-        && entry.Operation == operation
-        && entry.State == state;
 
     private sealed class Adapter : IWatchHostQueryAdapter
     {
@@ -250,7 +322,7 @@ internal sealed class ScriptedFakeHost
             _ = await ExecuteAsync(
                     FakeHostOperation.Contract,
                     "/api/contract",
-                    _scenario.Contract,
+                    _scenario.Contract.Next(new FakeHostUnit()),
                     cancellationToken)
                 .ConfigureAwait(false);
         }
@@ -259,7 +331,7 @@ internal sealed class ScriptedFakeHost
             ExecuteAsync(
                 FakeHostOperation.PollHealth,
                 "/api/poll-health",
-                _scenario.PollHealth,
+                _scenario.PollHealth.Next(new FakeHostUnit()),
                 cancellationToken);
 
         public Task<WatchSnapshot> FetchSnapshotAsync(
@@ -269,7 +341,7 @@ internal sealed class ScriptedFakeHost
             ExecuteAsync(
                 FakeHostOperation.Snapshot,
                 "watch-snapshot",
-                _scenario.Snapshot,
+                _scenario.Snapshot.Next(new FakeHostSnapshotRequest(demandQuery, alertQuery)),
                 cancellationToken);
 
         public Task<WatchDemandPage> FetchDemandPageAsync(
@@ -278,7 +350,7 @@ internal sealed class ScriptedFakeHost
             ExecuteAsync(
                 FakeHostOperation.DemandPage,
                 "/api/demands",
-                _scenario.DemandPage,
+                _scenario.DemandPage.Next(query),
                 cancellationToken);
 
         public Task<WatchAlertPage> FetchAlertPageAsync(
@@ -287,7 +359,7 @@ internal sealed class ScriptedFakeHost
             ExecuteAsync(
                 FakeHostOperation.AlertPage,
                 "/api/alerts",
-                _scenario.AlertPage,
+                _scenario.AlertPage.Next(query),
                 cancellationToken);
 
         public Task<WatchDemandDto?> FetchDemandByIdAsync(
@@ -296,7 +368,7 @@ internal sealed class ScriptedFakeHost
             ExecuteAsync(
                 FakeHostOperation.ExactDemand,
                 "/api/demands/{demand-id}",
-                _scenario.ExactDemand,
+                _scenario.ExactDemand.Next(demandId),
                 cancellationToken);
 
         public void Dispose()
@@ -310,9 +382,10 @@ internal sealed class ScriptedFakeHost
             CancellationToken cancellationToken)
         {
             _owner.Record(
-                _scenario.SessionId,
-                operation,
-                FakeHostRequestState.Started,
+                new FakeHostRequestMatch(
+                    _scenario.SessionId,
+                    operation,
+                    FakeHostRequestState.Started),
                 endpoint);
             try
             {
@@ -324,7 +397,19 @@ internal sealed class ScriptedFakeHost
                         .ConfigureAwait(false);
                 }
 
-                if (reply.FailureKind is { } failureKind)
+                if (reply.FailureShape == FakeHostFailureShape.CursorExpired)
+                {
+                    throw new WatchEndpointFetchException(
+                        reply.Endpoint,
+                        MesIngest.Core.LatencyStages.HttpStatus,
+                        TimeSpan.Zero,
+                        new HttpRequestException(
+                            Redact(reply.FailureMessage),
+                            inner: null,
+                            HttpStatusCode.BadRequest));
+                }
+
+                if (reply is { FailureShape: FakeHostFailureShape.Query, FailureKind: { } failureKind })
                 {
                     throw new WatchHostQueryException(
                         failureKind,
@@ -334,29 +419,32 @@ internal sealed class ScriptedFakeHost
                 }
 
                 _owner.Record(
-                    _scenario.SessionId,
-                    operation,
-                    cancellationToken.IsCancellationRequested
-                        ? FakeHostRequestState.CompletedAfterCancellation
-                        : FakeHostRequestState.Completed,
+                    new FakeHostRequestMatch(
+                        _scenario.SessionId,
+                        operation,
+                        cancellationToken.IsCancellationRequested
+                            ? FakeHostRequestState.CompletedAfterCancellation
+                            : FakeHostRequestState.Completed),
                     endpoint);
                 return reply.Value;
             }
             catch (OperationCanceledException)
             {
                 _owner.Record(
-                    _scenario.SessionId,
-                    operation,
-                    FakeHostRequestState.Canceled,
+                    new FakeHostRequestMatch(
+                        _scenario.SessionId,
+                        operation,
+                        FakeHostRequestState.Canceled),
                     endpoint);
                 throw;
             }
-            catch (WatchHostQueryException)
+            catch (Exception ex) when (ex is WatchHostQueryException or WatchEndpointFetchException)
             {
                 _owner.Record(
-                    _scenario.SessionId,
-                    operation,
-                    FakeHostRequestState.Failed,
+                    new FakeHostRequestMatch(
+                        _scenario.SessionId,
+                        operation,
+                        FakeHostRequestState.Failed),
                     endpoint);
                 throw;
             }
@@ -369,8 +457,6 @@ internal sealed class ScriptedFakeHost
     }
 
     private sealed record TimelineWaiter(
-        string SessionId,
-        FakeHostOperation Operation,
-        FakeHostRequestState State,
+        FakeHostRequestMatch Request,
         TaskCompletionSource Completion);
 }
