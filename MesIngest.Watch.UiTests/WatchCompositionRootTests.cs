@@ -11,6 +11,211 @@ public sealed class WatchCompositionRootTests
     private static readonly Lazy<StaDispatcherHost> StaHost = new(() => new StaDispatcherHost());
 
     [Fact]
+    public void Visible_and_gone_tabs_load_once_and_restore_independent_cached_windows()
+    {
+        RunInSta(() =>
+        {
+            var requests = new List<WatchDemandBrowseQuery>();
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("independent-demand-tabs")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(query =>
+                {
+                    requests.Add(query);
+                    var item = string.Equals(query.Status, "GONE", StringComparison.Ordinal)
+                        ? Demand("gone-cached", "DIE_TO_OVEN")
+                        : Demand("visible-cached", "WIRE_TO_GATE");
+                    return FakeHostReply.Return(new WatchDemandPage([item], null, false));
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-demand-tabs-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
+            var grid = (DataGrid)window.FindName("DemandsGrid");
+            PumpUntil(() => grid.Items.Count == 1
+                && ((WatchDemandDto)grid.Items[0]).DemandId == "visible-cached");
+            var tabs = (TabControl)window.FindName("DemandStatusTabs");
+            var requestCountBeforeGone = requests.Count;
+
+            tabs.SelectedIndex = 1;
+
+            PumpUntil(() => grid.Items.Count == 1
+                && ((WatchDemandDto)grid.Items[0]).DemandId == "gone-cached");
+            var goneRequest = requests.Last();
+            Assert.Equal("GONE", goneRequest.Status);
+            Assert.Equal("goneAt", goneRequest.SortBy);
+            Assert.NotNull(goneRequest.GoneAtFrom);
+            Assert.InRange(DateTimeOffset.UtcNow - goneRequest.GoneAtFrom.Value,
+                TimeSpan.FromHours(23.99), TimeSpan.FromHours(24.01));
+            Assert.Equal(requestCountBeforeGone + 1, requests.Count);
+
+            tabs.SelectedIndex = 0;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "visible-cached");
+            tabs.SelectedIndex = 1;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "gone-cached");
+
+            Assert.Equal(requestCountBeforeGone + 1, requests.Count);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Leaving_gone_cancels_its_refresh_and_a_late_response_cannot_mix_visible_data()
+    {
+        RunInSta(() =>
+        {
+            var gate = new FakeHostGate();
+            var goneCalls = 0;
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("gone-late-after-tab-switch")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(query =>
+                {
+                    if (!string.Equals(query.Status, "GONE", StringComparison.Ordinal))
+                    {
+                        return FakeHostReply.Return(new WatchDemandPage(
+                            [Demand("visible-stable", "WIRE_TO_GATE")], null, false));
+                    }
+
+                    goneCalls++;
+                    return goneCalls == 1
+                        ? FakeHostReply.Return(new WatchDemandPage(
+                            [Demand("gone-stable", "DIE_TO_OVEN")], null, false))
+                        : FakeHostReply.After(
+                            gate,
+                            new WatchDemandPage([Demand("gone-late", "DIE_TO_OVEN")], null, false),
+                            completeAfterCancellation: true);
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-gone-late-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
+            var grid = (DataGrid)window.FindName("DemandsGrid");
+            PumpUntil(() => grid.Items.Count == 1
+                && ((WatchDemandDto)grid.Items[0]).DemandId == "visible-stable");
+            var tabs = (TabControl)window.FindName("DemandStatusTabs");
+            tabs.SelectedIndex = 1;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "gone-stable");
+
+            ((Button)window.FindName("DemandRefreshButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => goneCalls == 2
+                && ((Button)window.FindName("DemandCancelButton")).IsEnabled);
+            tabs.SelectedIndex = 0;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "visible-stable");
+            gate.Release();
+            PumpUntil(() => fakeHost.Timeline.Any(entry =>
+                entry.Operation == FakeHostOperation.DemandPage
+                && entry.State == FakeHostRequestState.CompletedAfterCancellation));
+
+            Assert.Equal("visible-stable", ((WatchDemandDto)grid.Items[0]).DemandId);
+            tabs.SelectedIndex = 1;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "gone-stable");
+            Assert.DoesNotContain(
+                grid.Items.Cast<WatchDemandDto>(),
+                demand => demand.DemandId == "gone-late");
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Gone_failed_page_navigation_and_primary_navigation_cancel_preserve_the_last_successful_window()
+    {
+        RunInSta(() =>
+        {
+            var gate = new FakeHostGate();
+            var gonePageOneCalls = 0;
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("gone-failure-and-navigation")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(query =>
+                {
+                    if (!string.Equals(query.Status, "GONE", StringComparison.Ordinal))
+                    {
+                        return FakeHostReply.Return(new WatchDemandPage(
+                            [Demand("visible-stable", "WIRE_TO_GATE")], null, false));
+                    }
+
+                    if (query.Cursor == "gone-next")
+                    {
+                        return FakeHostReply.Fail<WatchDemandPage>(
+                            WatchHostFailureKind.Http,
+                            "/api/demands",
+                            "fake gone page failure");
+                    }
+
+                    gonePageOneCalls++;
+                    return gonePageOneCalls switch
+                    {
+                        1 => FakeHostReply.Return(new WatchDemandPage(
+                            [Demand("gone-committed", "DIE_TO_OVEN")], "gone-next", true)),
+                        2 => FakeHostReply.Return(new WatchDemandPage(
+                            [Demand("gone-refreshed", "DIE_TO_OVEN")], "gone-next-2", true)),
+                        _ => FakeHostReply.After(
+                            gate,
+                            new WatchDemandPage([Demand("gone-late", "DIE_TO_OVEN")], null, false),
+                            completeAfterCancellation: true),
+                    };
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-gone-failure-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            var navigation = (ListBox)window.FindName("PrimaryNavigation");
+            navigation.SelectedIndex = 1;
+            var grid = (DataGrid)window.FindName("DemandsGrid");
+            ((TabControl)window.FindName("DemandStatusTabs")).SelectedIndex = 1;
+            PumpUntil(() => grid.Items.Count == 1
+                && ((WatchDemandDto)grid.Items[0]).DemandId == "gone-committed");
+
+            ((Button)window.FindName("DemandNextButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((Border)window.FindName("ErrorBanner")).Visibility == Visibility.Visible);
+            Assert.Equal("第 1 页", ((TextBlock)window.FindName("DemandPageText")).Text);
+            Assert.Equal("gone-committed", ((WatchDemandDto)grid.Items[0]).DemandId);
+
+            ((Button)window.FindName("DemandRefreshButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "gone-refreshed");
+
+            ((Button)window.FindName("DemandRefreshButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => gonePageOneCalls == 3
+                && ((Button)window.FindName("DemandCancelButton")).IsEnabled);
+            navigation.SelectedIndex = 0;
+            gate.Release();
+            PumpUntil(() => fakeHost.Timeline.Any(entry =>
+                entry.Operation == FakeHostOperation.DemandPage
+                && entry.State == FakeHostRequestState.CompletedAfterCancellation));
+            navigation.SelectedIndex = 1;
+            PumpUntil(() => ((WatchDemandDto)grid.Items[0]).DemandId == "gone-refreshed");
+
+            Assert.Equal("第 1 页", ((TextBlock)window.FindName("DemandPageText")).Text);
+            Assert.DoesNotContain(
+                grid.Items.Cast<WatchDemandDto>(),
+                demand => demand.DemandId == "gone-late");
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Visible_demand_page_submits_filters_and_navigates_cursor_pages()
     {
         RunInSta(() =>
@@ -54,14 +259,14 @@ public sealed class WatchCompositionRootTests
             window.Show();
             PumpUntil(() => requests.Count >= 1);
             ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
-            PumpUntil(() => ((TextBlock)window.FindName("VisiblePageText"))?.Text == "第 1 页");
+            PumpUntil(() => ((TextBlock)window.FindName("DemandPageText"))?.Text == "第 1 页");
 
-            ((ComboBox)window.FindName("VisibleTaskTypeFilter")).SelectedValue = "DIE_TO_OVEN";
-            ((TextBox)window.FindName("VisibleSublotFilter")).Text = " S-2 ";
-            ((TextBox)window.FindName("VisibleDemandIdFilter")).Text = "ABCDEF012345";
-            ((TextBox)window.FindName("VisibleDatesFromFilter")).Text = "2026-08-08T08:00:00+08:00";
-            ((TextBox)window.FindName("VisibleDatesToFilter")).Text = "2026-08-08T10:00:00+08:00";
-            ((Button)window.FindName("VisibleQueryButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((ComboBox)window.FindName("DemandTaskTypeFilter")).SelectedValue = "DIE_TO_OVEN";
+            ((TextBox)window.FindName("DemandSublotFilter")).Text = " S-2 ";
+            ((TextBox)window.FindName("DemandIdFilter")).Text = "ABCDEF012345";
+            ((TextBox)window.FindName("DemandRangeFromFilter")).Text = "2026-08-08T08:00:00+08:00";
+            ((TextBox)window.FindName("DemandRangeToFilter")).Text = "2026-08-08T10:00:00+08:00";
+            ((Button)window.FindName("DemandQueryButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
             PumpUntil(() => requests.Any(query => query.TaskType == "DIE_TO_OVEN"));
             var submitted = requests.Last(query => query.TaskType == "DIE_TO_OVEN");
@@ -72,15 +277,15 @@ public sealed class WatchCompositionRootTests
             var grid = (DataGrid)window.FindName("DemandsGrid");
             PumpUntil(() => grid.Items.Count == 1
                 && ((WatchDemandDto)grid.Items[0]).DemandId.StartsWith("aaaaaa", StringComparison.Ordinal));
-            Assert.True(((Button)window.FindName("VisibleNextButton")).IsEnabled);
+            Assert.True(((Button)window.FindName("DemandNextButton")).IsEnabled);
 
-            ((Button)window.FindName("VisibleNextButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((Button)window.FindName("DemandNextButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-            PumpUntil(() => ((TextBlock)window.FindName("VisiblePageText")).Text == "第 2 页");
+            PumpUntil(() => ((TextBlock)window.FindName("DemandPageText")).Text == "第 2 页");
             Assert.Contains(requests, query => query.Cursor == "filtered-next");
             Assert.StartsWith("bbbbbb", ((WatchDemandDto)grid.Items[0]).DemandId, StringComparison.Ordinal);
-            Assert.False(((Button)window.FindName("VisibleNextButton")).IsEnabled);
-            Assert.True(((Button)window.FindName("VisiblePreviousButton")).IsEnabled);
+            Assert.False(((Button)window.FindName("DemandNextButton")).IsEnabled);
+            Assert.True(((Button)window.FindName("DemandPreviousButton")).IsEnabled);
 
             window.Close();
         });
@@ -116,18 +321,18 @@ public sealed class WatchCompositionRootTests
             ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
             var grid = (DataGrid)window.FindName("DemandsGrid");
             PumpUntil(() => grid.Items.Count == 1);
-            ((ComboBox)window.FindName("VisibleTaskTypeFilter")).SelectedValue = "DIE_TO_OVEN";
-            ((Button)window.FindName("VisibleQueryButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            ((ComboBox)window.FindName("DemandTaskTypeFilter")).SelectedValue = "DIE_TO_OVEN";
+            ((Button)window.FindName("DemandQueryButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
             var banner = (Border)window.FindName("ErrorBanner");
             PumpUntil(() => banner.Visibility == Visibility.Visible);
 
             Assert.Equal("committed", ((WatchDemandDto)grid.Items[0]).DemandId);
-            Assert.Equal("第 1 页", ((TextBlock)window.FindName("VisiblePageText")).Text);
-            Assert.True(((Button)window.FindName("VisibleNextButton")).IsEnabled);
+            Assert.Equal("第 1 页", ((TextBlock)window.FindName("DemandPageText")).Text);
+            Assert.True(((Button)window.FindName("DemandNextButton")).IsEnabled);
             Assert.DoesNotContain(
                 "TASK_TYPE=DIE_TO_OVEN",
-                ((TextBlock)window.FindName("VisibleCommittedQueryText")).Text,
+                ((TextBlock)window.FindName("DemandCommittedQueryText")).Text,
                 StringComparison.Ordinal);
             Assert.Contains("fake validation failure", ((TextBlock)window.FindName("ErrorBannerText")).Text);
 
@@ -174,20 +379,20 @@ public sealed class WatchCompositionRootTests
             ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
             var grid = (DataGrid)window.FindName("DemandsGrid");
             PumpUntil(() => grid.Items.Count == 1 && demandCalls >= 2);
-            ((Button)window.FindName("VisibleRefreshButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            var cancel = (Button)window.FindName("VisibleCancelButton");
+            ((Button)window.FindName("DemandRefreshButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var cancel = (Button)window.FindName("DemandCancelButton");
             PumpUntil(() => cancel.IsEnabled && demandCalls >= 3);
 
             cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             gate.Release();
 
             PumpUntil(() => !cancel.IsEnabled
-                && ((TextBlock)window.FindName("VisibleNoticeText")).Text == "已取消");
+                && ((TextBlock)window.FindName("DemandNoticeText")).Text == "已取消");
             PumpUntil(() => fakeHost.Timeline.Any(entry =>
                 entry.Operation == FakeHostOperation.DemandPage
                 && entry.State == FakeHostRequestState.CompletedAfterCancellation));
             Assert.Equal("committed", ((WatchDemandDto)grid.Items[0]).DemandId);
-            Assert.True(((Button)window.FindName("VisibleNextButton")).IsEnabled);
+            Assert.True(((Button)window.FindName("DemandNextButton")).IsEnabled);
             Assert.Contains(fakeHost.Timeline, entry =>
                 entry.Operation == FakeHostOperation.DemandPage
                 && entry.State == FakeHostRequestState.CompletedAfterCancellation);
@@ -217,7 +422,7 @@ public sealed class WatchCompositionRootTests
 
             Assert.Contains(
                 "已提交：status=VISIBLE",
-                ((TextBlock)window.FindName("VisibleCommittedQueryText")).Text);
+                ((TextBlock)window.FindName("DemandCommittedQueryText")).Text);
             window.Close();
         });
     }

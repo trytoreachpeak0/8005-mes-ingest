@@ -3,8 +3,105 @@ using System.Net;
 
 namespace MesIngest.Tests;
 
-public sealed class WatchVisibleDemandSessionTests
+public sealed class WatchDemandSessionTests
 {
+    [Fact]
+    public async Task Gone_initial_load_uses_a_fixed_recent_24_hour_window_and_gone_sort()
+    {
+        WatchDemandBrowseQuery? requested = null;
+        var now = DateTimeOffset.Parse("2026-08-08T10:00:00+08:00");
+        var queries = new StubReadQueries
+        {
+            DemandPage = (query, _) =>
+            {
+                requested = query;
+                return Task.FromResult(new WatchDemandPage([], null, HasMore: false));
+            },
+        };
+        using var session = new WatchDemandSession(
+            queries,
+            WatchDemandViewKind.Gone,
+            new AdjustableTimeProvider(now));
+
+        var outcome = await session.LoadInitialAsync();
+
+        Assert.Equal(WatchDemandBrowseOutcome.Succeeded, outcome);
+        Assert.NotNull(requested);
+        Assert.Equal("GONE", requested.Status);
+        Assert.Equal(now.AddHours(-24), requested.GoneAtFrom);
+        Assert.Null(requested.GoneAtTo);
+        Assert.Equal("goneAt", requested.SortBy);
+        Assert.Equal("desc", requested.Direction);
+        Assert.Equal(100, requested.Limit);
+        Assert.Equal(requested, session.State.CommittedQuery);
+    }
+
+    [Fact]
+    public async Task Gone_query_commits_its_filters_and_explicit_gone_at_range_only_after_success()
+    {
+        WatchDemandBrowseQuery? requested = null;
+        var queries = new StubReadQueries
+        {
+            DemandPage = (query, _) =>
+            {
+                requested = query;
+                return Task.FromResult(new WatchDemandPage([Demand("filtered")], null, false));
+            },
+        };
+        using var session = new WatchDemandSession(queries, WatchDemandViewKind.Gone);
+        session.UpdateDraft(new WatchDemandDraft(
+            TaskType: "DIE_TO_OVEN",
+            Sublot: " G-2 ",
+            DemandId: "ABCDEF012345",
+            GoneAtFrom: "2026-08-07T08:00:00+08:00",
+            GoneAtTo: "2026-08-08T10:00:00+08:00"));
+
+        var outcome = await session.SubmitDraftAsync();
+
+        Assert.Equal(WatchDemandBrowseOutcome.Succeeded, outcome);
+        Assert.NotNull(requested);
+        Assert.Equal("GONE", requested.Status);
+        Assert.Equal("DIE_TO_OVEN", requested.TaskType);
+        Assert.Equal("G-2", requested.Sublot);
+        Assert.Equal("abcdef012345", requested.DemandId);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-07T08:00:00+08:00"), requested.GoneAtFrom);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-08T10:00:00+08:00"), requested.GoneAtTo);
+        Assert.Null(requested.DatesFrom);
+        Assert.Null(requested.DatesTo);
+        Assert.Equal("goneAt", requested.SortBy);
+        Assert.Equal(requested, session.State.CommittedQuery);
+        Assert.Equal(["filtered"], session.State.Items.Select(item => item.DemandId));
+    }
+
+    [Fact]
+    public async Task Gone_reset_recomputes_and_exposes_the_recent_24_hour_default_draft()
+    {
+        var clock = new AdjustableTimeProvider(DateTimeOffset.Parse("2026-08-08T02:00:00Z"));
+        var requests = new List<WatchDemandBrowseQuery>();
+        var queries = new StubReadQueries
+        {
+            DemandPage = (query, _) =>
+            {
+                requests.Add(query);
+                return Task.FromResult(new WatchDemandPage([], null, false));
+            },
+        };
+        using var session = new WatchDemandSession(
+            queries,
+            WatchDemandViewKind.Gone,
+            clock);
+        await session.LoadInitialAsync();
+        session.UpdateDraft(new WatchDemandDraft(GoneAtFrom: "2020-01-01T00:00:00Z"));
+        clock.SetUtcNow(DateTimeOffset.Parse("2026-08-09T02:00:00Z"));
+
+        var outcome = await session.ResetAsync();
+
+        Assert.Equal(WatchDemandBrowseOutcome.Succeeded, outcome);
+        Assert.Equal(DateTimeOffset.Parse("2026-08-08T02:00:00Z"), requests[^1].GoneAtFrom);
+        Assert.Equal("2026-08-08T02:00:00.0000000+00:00", session.State.Draft.GoneAtFrom);
+        Assert.Null(session.State.Draft.GoneAtTo);
+    }
+
     [Fact]
     public async Task Initial_load_uses_visible_default_query_and_commits_one_successful_page()
     {
@@ -18,7 +115,7 @@ public sealed class WatchVisibleDemandSessionTests
                 return Task.FromResult(new WatchDemandPage([expected], "page-2", HasMore: true));
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
 
         var outcome = await session.LoadInitialAsync();
 
@@ -56,7 +153,7 @@ public sealed class WatchVisibleDemandSessionTests
                 });
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
 
         await session.LoadInitialAsync();
         await session.MoveNextAsync();
@@ -87,9 +184,9 @@ public sealed class WatchVisibleDemandSessionTests
                 return Task.FromResult(new WatchDemandPage([original], null, HasMore: false));
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
-        session.UpdateDraft(new WatchVisibleDemandDraft(
+        session.UpdateDraft(new WatchDemandDraft(
             TaskType: "NOT_A_PRODUCTION_TYPE",
             Sublot: "S-2",
             DemandId: "abc",
@@ -124,9 +221,9 @@ public sealed class WatchVisibleDemandSessionTests
                     HasMore: false));
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
-        session.UpdateDraft(new WatchVisibleDemandDraft(
+        session.UpdateDraft(new WatchDemandDraft(
             TaskType: "DIE_TO_OVEN",
             Sublot: " S-2 ",
             DemandId: "ABCDEF012345",
@@ -166,7 +263,7 @@ public sealed class WatchVisibleDemandSessionTests
                     HasMore: true));
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         await session.MoveNextAsync();
 
@@ -184,7 +281,7 @@ public sealed class WatchVisibleDemandSessionTests
         Assert.Equal(WatchDemandBrowseOutcome.Succeeded, resetOutcome);
         Assert.Equal(WatchDemandBrowseQuery.Default, requests[^1]);
         Assert.Equal(WatchDemandBrowseQuery.Default, session.State.CommittedQuery);
-        Assert.Equal(WatchVisibleDemandDraft.Default, session.State.Draft);
+        Assert.Equal(WatchDemandDraft.Default, session.State.Draft);
         Assert.Equal(1, session.State.PageNumber);
     }
 
@@ -213,10 +310,10 @@ public sealed class WatchVisibleDemandSessionTests
                 return Task.FromException<WatchDemandPage>(failure);
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         var committed = session.State;
-        session.UpdateDraft(new WatchVisibleDemandDraft(TaskType: "DIE_TO_OVEN"));
+        session.UpdateDraft(new WatchDemandDraft(TaskType: "DIE_TO_OVEN"));
 
         var outcome = await session.SubmitDraftAsync();
 
@@ -253,11 +350,11 @@ public sealed class WatchVisibleDemandSessionTests
                 return Task.FromResult(new WatchDemandPage([Demand("newer")], null, false));
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
-        session.UpdateDraft(new WatchVisibleDemandDraft(TaskType: "DIE_TO_OVEN"));
+        session.UpdateDraft(new WatchDemandDraft(TaskType: "DIE_TO_OVEN"));
         var older = session.SubmitDraftAsync();
-        session.UpdateDraft(new WatchVisibleDemandDraft(TaskType: "WIRE_TO_GATE"));
+        session.UpdateDraft(new WatchDemandDraft(TaskType: "WIRE_TO_GATE"));
 
         var newerOutcome = await session.SubmitDraftAsync();
         slowGate.SetResult(new WatchDemandPage([Demand("late")], null, false));
@@ -286,7 +383,7 @@ public sealed class WatchVisibleDemandSessionTests
                     : slowGate.Task;
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
 
         var refresh = session.RefreshCurrentAsync();
@@ -329,7 +426,7 @@ public sealed class WatchVisibleDemandSessionTests
                 });
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         await session.MoveNextAsync();
 
@@ -370,7 +467,7 @@ public sealed class WatchVisibleDemandSessionTests
                 };
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         await session.MoveNextAsync();
 
@@ -401,7 +498,7 @@ public sealed class WatchVisibleDemandSessionTests
                 });
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         session.SelectDemand(selectedId);
 
@@ -440,7 +537,7 @@ public sealed class WatchVisibleDemandSessionTests
                 };
             },
         };
-        using var session = new WatchVisibleDemandSession(queries);
+        using var session = new WatchDemandSession(queries);
         await session.LoadInitialAsync();
         await session.MoveNextAsync();
 

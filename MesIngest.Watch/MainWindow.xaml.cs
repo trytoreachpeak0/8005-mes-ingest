@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows.Input;
 using System.Windows.Threading;
 
@@ -8,7 +8,8 @@ internal partial class MainWindow : Window
 {
     private IWatchReadQueries _client;
     private WatchBrowseSession _browse;
-    private WatchVisibleDemandSession _visibleDemands;
+    private WatchDemandSession _visibleDemands;
+    private WatchDemandSession _goneDemands;
     private WatchOverviewSession _overview;
     private readonly WatchHostSession _hostSession;
     private readonly WatchOptions _options;
@@ -24,12 +25,15 @@ internal partial class MainWindow : Window
 
     private WatchPollHealthDto? _health;
     private bool _isOverviewRefreshing;
-    private bool _isApplyingVisibleProjection;
+    private bool _isApplyingDemandProjection;
+    private bool _isResettingDemandViews;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private WatchRefreshState _visibleRefreshState = WatchRefreshState.Empty;
+    private WatchRefreshState _goneRefreshState = WatchRefreshState.Empty;
     private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
     private CancellationTokenSource? _refreshCancellation;
     private long _hostGeneration;
+    private WatchDemandViewKind _activeDemandViewKind = WatchDemandViewKind.Visible;
     private MesIngestApiClient? _bootstrapClient;
 
     public MainWindow(
@@ -42,15 +46,16 @@ internal partial class MainWindow : Window
         Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null)
     {
         InitializeComponent();
-        VisibleTaskTypeFilter.ItemsSource =
-            new[] { string.Empty }.Concat(WatchVisibleDemandDraft.ProductionTaskTypes).ToArray();
-        VisibleTaskTypeFilter.SelectedIndex = 0;
+        DemandTaskTypeFilter.ItemsSource =
+            new[] { string.Empty }.Concat(WatchDemandDraft.ProductionTaskTypes).ToArray();
+        DemandTaskTypeFilter.SelectedIndex = 0;
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
         _bootstrapClient = client;
         _browse = new WatchBrowseSession(client);
-        _visibleDemands = new WatchVisibleDemandSession(client);
+        _visibleDemands = new WatchDemandSession(client);
+        _goneDemands = new WatchDemandSession(client, WatchDemandViewKind.Gone);
         _overview = new WatchOverviewSession(client);
         if (hostAdapterFactory is null)
         {
@@ -122,6 +127,7 @@ internal partial class MainWindow : Window
             _refreshCancellation?.Cancel();
             _refreshCancellation?.Dispose();
             _visibleDemands.Dispose();
+            _goneDemands.Dispose();
             _hostSession.Dispose();
             _bootstrapClient?.Dispose();
             _bootstrapClient = null;
@@ -138,7 +144,7 @@ internal partial class MainWindow : Window
         }
 
         _refreshCancellation?.Cancel();
-        _visibleDemands.CancelActive(userInitiated: false);
+        ActiveDemandSession.CancelActive(userInitiated: false);
         var selected = PrimaryNavigation.SelectedIndex;
         OverviewPage.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -146,9 +152,9 @@ internal partial class MainWindow : Window
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
         if (IsLoaded && selected == 1)
         {
-            if (_visibleDemands.State.LastSuccessfulAt is null)
+            if (ActiveDemandSession.State.LastSuccessfulAt is null)
             {
-                _ = RunVisibleDemandOperationAsync(_visibleDemands.LoadInitialAsync);
+                _ = RunDemandOperationAsync(ActiveDemandSession.LoadInitialAsync);
             }
         }
         else if (IsLoaded && selected == 2)
@@ -172,8 +178,8 @@ internal partial class MainWindow : Window
     private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
     {
         _visibleDemands.Dispose();
-        _visibleDemands = new WatchVisibleDemandSession(_hostSession);
-        ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
+        _visibleDemands = new WatchDemandSession(_hostSession);
+        ResetDemandTabsToVisible();
         PrimaryNavigation.SelectedIndex = 1;
     }
 
@@ -225,11 +231,14 @@ internal partial class MainWindow : Window
         _health = null;
         _refreshState = WatchRefreshState.Empty;
         _visibleRefreshState = WatchRefreshState.Empty;
+        _goneRefreshState = WatchRefreshState.Empty;
         _bannerHold = WatchBannerHoldState.Empty;
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
         _visibleDemands.Dispose();
-        _visibleDemands = new WatchVisibleDemandSession(_hostSession);
+        _visibleDemands = new WatchDemandSession(_hostSession);
+        _goneDemands.Dispose();
+        _goneDemands = new WatchDemandSession(_hostSession, WatchDemandViewKind.Gone);
         _overview = new WatchOverviewSession(_hostSession);
 
         foreach (var detail in _openAlertDetails.Values.ToArray())
@@ -245,7 +254,7 @@ internal partial class MainWindow : Window
             }
         }
         _openAlertDetailsWithoutId.Clear();
-        ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
+        ResetDemandTabsToVisible();
         DemandsGrid.SelectedItem = null;
         AlertsGrid.SelectedItem = null;
         PrimaryNavigation.SelectedIndex = 0;
@@ -346,6 +355,48 @@ internal partial class MainWindow : Window
         e.Handled = true;
     }
 
+    private void OnDemandStatusChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isResettingDemandViews
+            || _visibleDemands is null
+            || _goneDemands is null
+            || DemandStatusTabs is null)
+        {
+            return;
+        }
+
+        var previous = SessionFor(_activeDemandViewKind);
+        previous.UpdateDraft(ReadDemandDraft(_activeDemandViewKind));
+        previous.CancelActive(userInitiated: false);
+        _activeDemandViewKind = DemandStatusTabs.SelectedIndex == 1
+            ? WatchDemandViewKind.Gone
+            : WatchDemandViewKind.Visible;
+        var current = ActiveDemandSession;
+        ApplyDemandDraftToControls(current.State.Draft);
+        ApplyProjection();
+        if (IsLoaded && DemandsPage.Visibility == Visibility.Visible
+            && current.State.LastSuccessfulAt is null)
+        {
+            _ = RunDemandOperationAsync(current.LoadInitialAsync);
+        }
+    }
+
+    private void ResetDemandTabsToVisible()
+    {
+        _isResettingDemandViews = true;
+        try
+        {
+            _activeDemandViewKind = WatchDemandViewKind.Visible;
+            DemandStatusTabs.SelectedIndex = 0;
+        }
+        finally
+        {
+            _isResettingDemandViews = false;
+        }
+
+        ApplyDemandDraftToControls(_visibleDemands.State.Draft);
+    }
+
     private void OnDemandsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
@@ -354,50 +405,50 @@ internal partial class MainWindow : Window
             return;
         }
 
-        _ = RunVisibleDemandOperationAsync(
-            token => _visibleDemands.ApplySortAsync(e.Column.Header?.ToString(), token));
+        _ = RunDemandOperationAsync(
+            token => ActiveDemandSession.ApplySortAsync(e.Column.Header?.ToString(), token));
     }
 
-    private void OnVisibleDemandSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OnDemandSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_isApplyingVisibleProjection)
+        if (_isApplyingDemandProjection)
         {
             return;
         }
 
-        _visibleDemands.SelectDemand(
+        ActiveDemandSession.SelectDemand(
             (DemandsGrid.SelectedItem as WatchDemandDto)?.DemandId);
     }
 
-    private async void OnVisibleQueryClick(object sender, RoutedEventArgs e)
+    private async void OnDemandQueryClick(object sender, RoutedEventArgs e)
     {
-        _visibleDemands.UpdateDraft(ReadVisibleDraft());
-        await RunVisibleDemandOperationAsync(_visibleDemands.SubmitDraftAsync).ConfigureAwait(true);
+        ActiveDemandSession.UpdateDraft(ReadDemandDraft(_activeDemandViewKind));
+        await RunDemandOperationAsync(ActiveDemandSession.SubmitDraftAsync).ConfigureAwait(true);
     }
 
-    private async void OnVisibleResetClick(object sender, RoutedEventArgs e)
+    private async void OnDemandResetClick(object sender, RoutedEventArgs e)
     {
-        var outcome = await RunVisibleDemandOperationAsync(_visibleDemands.ResetAsync).ConfigureAwait(true);
+        var outcome = await RunDemandOperationAsync(ActiveDemandSession.ResetAsync).ConfigureAwait(true);
         if (outcome == WatchDemandBrowseOutcome.Succeeded)
         {
-            ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
+            ApplyDemandDraftToControls(ActiveDemandSession.State.Draft);
         }
     }
 
-    private async void OnVisibleRefreshClick(object sender, RoutedEventArgs e) =>
-        await RunVisibleDemandOperationAsync(_visibleDemands.RefreshCurrentAsync).ConfigureAwait(true);
+    private async void OnDemandRefreshClick(object sender, RoutedEventArgs e) =>
+        await RunDemandOperationAsync(ActiveDemandSession.RefreshCurrentAsync).ConfigureAwait(true);
 
-    private void OnVisibleCancelClick(object sender, RoutedEventArgs e)
+    private void OnDemandCancelClick(object sender, RoutedEventArgs e)
     {
-        _visibleDemands.CancelActive(userInitiated: true);
+        ActiveDemandSession.CancelActive(userInitiated: true);
         ApplyProjection();
     }
 
-    private async void OnVisiblePreviousClick(object sender, RoutedEventArgs e) =>
-        await RunVisibleDemandOperationAsync(_visibleDemands.MovePreviousAsync).ConfigureAwait(true);
+    private async void OnDemandPreviousClick(object sender, RoutedEventArgs e) =>
+        await RunDemandOperationAsync(ActiveDemandSession.MovePreviousAsync).ConfigureAwait(true);
 
-    private async void OnVisibleNextClick(object sender, RoutedEventArgs e) =>
-        await RunVisibleDemandOperationAsync(_visibleDemands.MoveNextAsync).ConfigureAwait(true);
+    private async void OnDemandNextClick(object sender, RoutedEventArgs e) =>
+        await RunDemandOperationAsync(ActiveDemandSession.MoveNextAsync).ConfigureAwait(true);
 
     private void OnAlertsSorting(object sender, DataGridSortingEventArgs e)
     {
@@ -421,31 +472,37 @@ internal partial class MainWindow : Window
         await RefreshAsync(WatchBrowseRefreshKind.AppendAlerts).ConfigureAwait(true);
     }
 
-    private WatchVisibleDemandDraft ReadVisibleDraft() => new(
-        TaskType: NullIfBlank(VisibleTaskTypeFilter.SelectedValue?.ToString()),
-        Sublot: VisibleSublotFilter.Text,
-        DemandId: VisibleDemandIdFilter.Text,
-        DatesFrom: VisibleDatesFromFilter.Text,
-        DatesTo: VisibleDatesToFilter.Text);
+    private WatchDemandDraft ReadDemandDraft(WatchDemandViewKind viewKind) => new(
+        TaskType: NullIfBlank(DemandTaskTypeFilter.SelectedValue?.ToString()),
+        Sublot: DemandSublotFilter.Text,
+        DemandId: DemandIdFilter.Text,
+        DatesFrom: viewKind == WatchDemandViewKind.Visible ? DemandRangeFromFilter.Text : null,
+        DatesTo: viewKind == WatchDemandViewKind.Visible ? DemandRangeToFilter.Text : null,
+        GoneAtFrom: viewKind == WatchDemandViewKind.Gone ? DemandRangeFromFilter.Text : null,
+        GoneAtTo: viewKind == WatchDemandViewKind.Gone ? DemandRangeToFilter.Text : null);
 
-    private void ApplyVisibleDraftToControls(WatchVisibleDemandDraft draft)
+    private void ApplyDemandDraftToControls(WatchDemandDraft draft)
     {
-        VisibleTaskTypeFilter.SelectedValue = draft.TaskType ?? string.Empty;
-        VisibleSublotFilter.Text = draft.Sublot ?? string.Empty;
-        VisibleDemandIdFilter.Text = draft.DemandId ?? string.Empty;
-        VisibleDatesFromFilter.Text = draft.DatesFrom ?? string.Empty;
-        VisibleDatesToFilter.Text = draft.DatesTo ?? string.Empty;
+        DemandTaskTypeFilter.SelectedValue = draft.TaskType ?? string.Empty;
+        DemandSublotFilter.Text = draft.Sublot ?? string.Empty;
+        DemandIdFilter.Text = draft.DemandId ?? string.Empty;
+        DemandRangeFromFilter.Text = _activeDemandViewKind == WatchDemandViewKind.Gone
+            ? draft.GoneAtFrom ?? string.Empty
+            : draft.DatesFrom ?? string.Empty;
+        DemandRangeToFilter.Text = _activeDemandViewKind == WatchDemandViewKind.Gone
+            ? draft.GoneAtTo ?? string.Empty
+            : draft.DatesTo ?? string.Empty;
     }
 
-    private async Task<WatchDemandBrowseOutcome> RunVisibleDemandOperationAsync(
+    private async Task<WatchDemandBrowseOutcome> RunDemandOperationAsync(
         Func<CancellationToken, Task<WatchDemandBrowseOutcome>> operation)
     {
         var generation = _hostGeneration;
-        var session = _visibleDemands;
+        var session = ActiveDemandSession;
         var pending = operation(CancellationToken.None);
         ApplyProjection();
         var outcome = await pending.ConfigureAwait(true);
-        if (generation != _hostGeneration || !ReferenceEquals(session, _visibleDemands))
+        if (generation != _hostGeneration || !ReferenceEquals(session, ActiveDemandSession))
         {
             return WatchDemandBrowseOutcome.Superseded;
         }
@@ -453,13 +510,13 @@ internal partial class MainWindow : Window
         var now = DateTimeOffset.UtcNow;
         if (outcome == WatchDemandBrowseOutcome.Succeeded)
         {
-            _visibleRefreshState = _visibleRefreshState.ApplySuccess(now);
+            SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(now));
             RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
         }
         else if (outcome == WatchDemandBrowseOutcome.Failed && session.State.Failure is { } failure)
         {
             var (message, endpoint, stage, elapsed, correlationId) = FormatVisibleDemandFailure(failure);
-            _visibleRefreshState = _visibleRefreshState.ApplyFailure(message);
+            SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplyFailure(message));
             RecordConnectionEvent(_connectionRecorder.ObserveFailure(
                 now,
                 endpoint,
@@ -513,7 +570,7 @@ internal partial class MainWindow : Window
     {
         if (PrimaryNavigation.SelectedIndex == 1)
         {
-            await RunVisibleDemandOperationAsync(_visibleDemands.RefreshCurrentAsync).ConfigureAwait(true);
+            await RunDemandOperationAsync(ActiveDemandSession.RefreshCurrentAsync).ConfigureAwait(true);
             return;
         }
 
@@ -716,50 +773,56 @@ internal partial class MainWindow : Window
 
     private void ApplyProjection()
     {
-        var visible = _visibleDemands.State;
-        _isApplyingVisibleProjection = true;
+        var demand = ActiveDemandSession.State;
+        _isApplyingDemandProjection = true;
         try
         {
-            DemandsGrid.ItemsSource = visible.Items;
-            DemandsGrid.SelectedItem = visible.SelectedDemandId is null
+            DemandsGrid.ItemsSource = demand.Items;
+            DemandsGrid.SelectedItem = demand.SelectedDemandId is null
                 ? null
-                : visible.Items.FirstOrDefault(item => string.Equals(
+                : demand.Items.FirstOrDefault(item => string.Equals(
                     item.DemandId,
-                    visible.SelectedDemandId,
+                    demand.SelectedDemandId,
                     StringComparison.Ordinal));
         }
         finally
         {
-            _isApplyingVisibleProjection = false;
+            _isApplyingDemandProjection = false;
         }
         AlertsGrid.ItemsSource = _browse.Alerts;
-        VisiblePreviousButton.IsEnabled = visible.CanMovePrevious;
-        VisibleNextButton.IsEnabled = visible.CanMoveNext;
-        VisibleRefreshButton.IsEnabled = visible.LastSuccessfulAt is not null;
-        VisibleCancelButton.IsEnabled = visible.IsRefreshing;
-        VisibleQueryButton.IsEnabled = true;
-        VisibleResetButton.IsEnabled = true;
-        VisibleBusyText.Visibility = visible.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
-        VisibleValidationText.Text = visible.ValidationError ?? string.Empty;
-        VisibleNoticeText.Text = visible.Notice ?? string.Empty;
-        VisiblePageText.Text = $"第 {visible.PageNumber} 页";
-        VisibleCommittedQueryText.Text = FormatCommittedVisibleQuery(visible.CommittedQuery);
+        DemandPreviousButton.IsEnabled = demand.CanMovePrevious;
+        DemandNextButton.IsEnabled = demand.CanMoveNext;
+        DemandRefreshButton.IsEnabled = demand.LastSuccessfulAt is not null;
+        DemandCancelButton.IsEnabled = demand.IsRefreshing;
+        DemandQueryButton.IsEnabled = true;
+        DemandResetButton.IsEnabled = true;
+        DemandBusyText.Visibility = demand.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
+        DemandValidationText.Text = demand.ValidationError ?? string.Empty;
+        DemandNoticeText.Text = demand.Notice ?? string.Empty;
+        DemandPageText.Text = $"第 {demand.PageNumber} 页";
+        DemandCommittedQueryText.Text = FormatCommittedDemandQuery(demand.CommittedQuery);
+        var isGone = _activeDemandViewKind == WatchDemandViewKind.Gone;
+        DemandModeText.Text = isGone
+            ? "GONE · 独立服务端单页窗口 · 每页固定 100 行"
+            : "VISIBLE · 独立服务端单页窗口 · 每页固定 100 行";
+        DemandRangeFromLabel.Text = isGone ? "GoneAt 起始（含时区）" : "DATES 起始（含时区）";
+        DemandRangeToLabel.Text = isGone ? "GoneAt 结束（含时区）" : "DATES 结束（含时区）";
         LoadMoreAlertsButton.IsEnabled =
             _browse.AlertsHasMore && !string.IsNullOrWhiteSpace(_browse.AlertsNextCursor);
-        RowCountText.Text = visible.LastSuccessfulAt is null
+        RowCountText.Text = demand.LastSuccessfulAt is null
             ? "尚无成功窗口"
-            : visible.Items.Count == 0
-                ? $"当前查询无结果 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
-                : visible.HasMore
-                    ? $"当前页 {visible.Items.Count} 行 · 还有下一页 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
-                    : $"当前页 {visible.Items.Count} 行 · 已到末页 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
+            : demand.Items.Count == 0
+                ? $"当前查询无结果 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                : demand.HasMore
+                    ? $"当前页 {demand.Items.Count} 行 · 还有下一页 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                    : $"当前页 {demand.Items.Count} 行 · 已到末页 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         AlertCountText.Text = _browse.AlertsHasMore
             ? $"loaded {_browse.Alerts.Count} alerts · more available"
             : $"loaded {_browse.Alerts.Count} alerts · end of results";
 
         var now = DateTimeOffset.UtcNow;
         var pageRefreshState = PrimaryNavigation.SelectedIndex == 1
-            ? _visibleRefreshState
+            ? ActiveDemandRefreshState
             : _refreshState;
         var banner = WatchBannerProjection.Project(
             _bannerHold,
@@ -822,11 +885,11 @@ internal partial class MainWindow : Window
         SyncOpenAlertDetails();
     }
 
-    private static string FormatCommittedVisibleQuery(WatchDemandBrowseQuery query)
+    private static string FormatCommittedDemandQuery(WatchDemandBrowseQuery query)
     {
         var filters = new List<string>
         {
-            "已提交：status=VISIBLE",
+            $"已提交：status={query.Status}",
             $"sortBy={query.SortBy}",
             $"direction={query.Direction}",
             "limit=100",
@@ -854,6 +917,16 @@ internal partial class MainWindow : Window
         if (query.DatesTo is not null)
         {
             filters.Add($"DATES to {query.DatesTo:O}");
+        }
+
+        if (query.GoneAtFrom is not null)
+        {
+            filters.Add($"GoneAt from {query.GoneAtFrom:O}");
+        }
+
+        if (query.GoneAtTo is not null)
+        {
+            filters.Add($"GoneAt to {query.GoneAtTo:O}");
         }
 
         return string.Join(" · ", filters);
@@ -1020,7 +1093,7 @@ internal partial class MainWindow : Window
 
     private void ApplyDemandSortGlyphs()
     {
-        var committed = _visibleDemands.State.CommittedQuery;
+        var committed = ActiveDemandSession.State.CommittedQuery;
         foreach (var column in DemandsGrid.Columns)
         {
             var token = WatchDemandBrowseQuery.SortToken(column.Header?.ToString());
@@ -1051,6 +1124,29 @@ internal partial class MainWindow : Window
                     ? System.ComponentModel.ListSortDirection.Ascending
                     : System.ComponentModel.ListSortDirection.Descending)
                 : null;
+        }
+    }
+
+    private WatchDemandSession ActiveDemandSession =>
+        SessionFor(_activeDemandViewKind);
+
+    private WatchDemandSession SessionFor(WatchDemandViewKind viewKind) =>
+        viewKind == WatchDemandViewKind.Gone ? _goneDemands : _visibleDemands;
+
+    private WatchRefreshState ActiveDemandRefreshState =>
+        _activeDemandViewKind == WatchDemandViewKind.Gone
+            ? _goneRefreshState
+            : _visibleRefreshState;
+
+    private void SetActiveDemandRefreshState(WatchRefreshState state)
+    {
+        if (_activeDemandViewKind == WatchDemandViewKind.Gone)
+        {
+            _goneRefreshState = state;
+        }
+        else
+        {
+            _visibleRefreshState = state;
         }
     }
 

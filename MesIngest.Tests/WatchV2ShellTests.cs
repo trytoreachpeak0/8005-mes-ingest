@@ -76,9 +76,9 @@ public class WatchV2ShellTests
             var navigation = (ListBox)window.FindName("PrimaryNavigation");
             var demands = (DataGrid)window.FindName("DemandsGrid");
             var alerts = (DataGrid)window.FindName("AlertsGrid");
-            var taskType = (ComboBox)window.FindName("VisibleTaskTypeFilter");
-            var sublot = (TextBox)window.FindName("VisibleSublotFilter");
-            var demandId = (TextBox)window.FindName("VisibleDemandIdFilter");
+            var taskType = (ComboBox)window.FindName("DemandTaskTypeFilter");
+            var sublot = (TextBox)window.FindName("DemandSublotFilter");
+            var demandId = (TextBox)window.FindName("DemandIdFilter");
             var oldDemand = new object();
             var oldAlert = new object();
             demands.ItemsSource = new[] { oldDemand };

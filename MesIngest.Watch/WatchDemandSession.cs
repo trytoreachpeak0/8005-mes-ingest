@@ -12,14 +12,22 @@ internal enum WatchDemandBrowseOutcome
     Failed,
 }
 
-internal sealed record WatchVisibleDemandDraft(
+internal enum WatchDemandViewKind
+{
+    Visible,
+    Gone,
+}
+
+internal sealed record WatchDemandDraft(
     string? TaskType = null,
     string? Sublot = null,
     string? DemandId = null,
     string? DatesFrom = null,
-    string? DatesTo = null)
+    string? DatesTo = null,
+    string? GoneAtFrom = null,
+    string? GoneAtTo = null)
 {
-    public static WatchVisibleDemandDraft Default { get; } = new();
+    public static WatchDemandDraft Default { get; } = new();
 
     public static IReadOnlyList<string> ProductionTaskTypes { get; } =
     [
@@ -32,14 +40,14 @@ internal sealed record WatchVisibleDemandDraft(
     ];
 }
 
-internal sealed record WatchVisibleDemandState(
+internal sealed record WatchDemandState(
     WatchDemandBrowseQuery CommittedQuery,
     IReadOnlyList<WatchDemandDto> Items,
     int PageNumber,
     string? NextCursor,
     bool HasMore,
     DateTimeOffset? LastSuccessfulAt,
-    WatchVisibleDemandDraft Draft,
+    WatchDemandDraft Draft,
     string? ValidationError,
     Exception? Failure,
     bool IsRefreshing,
@@ -49,14 +57,14 @@ internal sealed record WatchVisibleDemandState(
     public bool CanMovePrevious => PageNumber > 1;
     public bool CanMoveNext => HasMore && !string.IsNullOrWhiteSpace(NextCursor);
 
-    public static WatchVisibleDemandState Empty { get; } = new(
+    public static WatchDemandState Empty { get; } = new(
         WatchDemandBrowseQuery.Default,
         [],
         1,
         null,
         false,
         null,
-        WatchVisibleDemandDraft.Default,
+        WatchDemandDraft.Default,
         null,
         null,
         false,
@@ -64,23 +72,35 @@ internal sealed record WatchVisibleDemandState(
         null);
 }
 
-internal sealed class WatchVisibleDemandSession : IDisposable
+internal sealed class WatchDemandSession : IDisposable
 {
     private readonly object _gate = new();
     private readonly IWatchReadQueries _queries;
+    private readonly WatchDemandViewKind _viewKind;
+    private readonly TimeProvider _timeProvider;
     private readonly List<string?> _arrivalCursors = [null];
     private CancellationTokenSource? _activeCancellation;
     private long _requestGeneration;
     private bool _disposed;
 
-    public WatchVisibleDemandSession(IWatchReadQueries queries)
+    public WatchDemandSession(
+        IWatchReadQueries queries,
+        WatchDemandViewKind viewKind = WatchDemandViewKind.Visible,
+        TimeProvider? timeProvider = null)
     {
         _queries = queries ?? throw new ArgumentNullException(nameof(queries));
+        _viewKind = viewKind;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        State = WatchDemandState.Empty with
+        {
+            CommittedQuery = CreateDefaultQuery(),
+        };
+        State = State with { Draft = CreateDraft(State.CommittedQuery) };
     }
 
-    public WatchVisibleDemandState State { get; private set; } = WatchVisibleDemandState.Empty;
+    public WatchDemandState State { get; private set; }
 
-    public void UpdateDraft(WatchVisibleDemandDraft draft)
+    public void UpdateDraft(WatchDemandDraft draft)
     {
         ArgumentNullException.ThrowIfNull(draft);
         State = State with { Draft = draft, ValidationError = null };
@@ -111,10 +131,14 @@ internal sealed class WatchVisibleDemandSession : IDisposable
     public async Task<WatchDemandBrowseOutcome> LoadInitialAsync(
         CancellationToken cancellationToken = default)
     {
-        var query = WatchDemandBrowseQuery.Default;
+        var query = CreateDefaultQuery();
         return await FetchAndCommitAsync(
                 query,
-                page => CommitFirstPage(query, page),
+                page =>
+                {
+                    CommitFirstPage(query, page);
+                    State = State with { Draft = CreateDraft(query) };
+                },
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -186,13 +210,13 @@ internal sealed class WatchVisibleDemandSession : IDisposable
     public async Task<WatchDemandBrowseOutcome> ResetAsync(
         CancellationToken cancellationToken = default)
     {
-        var query = WatchDemandBrowseQuery.Default;
+        var query = CreateDefaultQuery();
         return await FetchAndCommitAsync(
                 query,
                 page =>
                 {
                     CommitFirstPage(query, page);
-                    State = State with { Draft = WatchVisibleDemandDraft.Default };
+                    State = State with { Draft = CreateDraft(query) };
                 },
                 cancellationToken)
             .ConfigureAwait(false);
@@ -252,13 +276,13 @@ internal sealed class WatchVisibleDemandSession : IDisposable
         var selectionWasLost = preserveSelection
             && State.SelectedDemandId is not null
             && selectedDemandId is null;
-        State = new WatchVisibleDemandState(
+        State = new WatchDemandState(
             committedQuery,
             page.Items,
             pageNumber,
             page.NextCursor,
             page.HasMore,
-            DateTimeOffset.UtcNow,
+            _timeProvider.GetUtcNow(),
             State.Draft,
             null,
             null,
@@ -369,17 +393,17 @@ internal sealed class WatchVisibleDemandSession : IDisposable
         }
         && exception.Message.Contains("cursor", StringComparison.OrdinalIgnoreCase);
 
-    private static bool TryBuildQuery(
-        WatchVisibleDemandDraft draft,
+    private bool TryBuildQuery(
+        WatchDemandDraft draft,
         out WatchDemandBrowseQuery query,
         out string? validationError)
     {
-        query = WatchDemandBrowseQuery.Default;
+        query = CreateDefaultQuery();
         validationError = null;
 
         var taskType = NullIfBlank(draft.TaskType);
         if (taskType is not null
-            && !WatchVisibleDemandDraft.ProductionTaskTypes.Contains(
+            && !WatchDemandDraft.ProductionTaskTypes.Contains(
                 taskType,
                 StringComparer.Ordinal))
         {
@@ -394,26 +418,36 @@ internal sealed class WatchVisibleDemandSession : IDisposable
             return false;
         }
 
-        if (!TryParseDate(draft.DatesFrom, out var datesFrom)
-            || !TryParseDate(draft.DatesTo, out var datesTo))
+        var rangeFromRaw = _viewKind == WatchDemandViewKind.Gone
+            ? draft.GoneAtFrom
+            : draft.DatesFrom;
+        var rangeToRaw = _viewKind == WatchDemandViewKind.Gone
+            ? draft.GoneAtTo
+            : draft.DatesTo;
+        if (!TryParseDate(rangeFromRaw, out var rangeFrom)
+            || !TryParseDate(rangeToRaw, out var rangeTo))
         {
-            validationError = "DATES 起止必须是包含时区的有效日期时间。";
+            var rangeName = _viewKind == WatchDemandViewKind.Gone ? "GoneAt" : "DATES";
+            validationError = $"{rangeName} 起止必须是包含时区的有效日期时间。";
             return false;
         }
 
-        if (datesFrom is not null && datesTo is not null && datesFrom > datesTo)
+        if (rangeFrom is not null && rangeTo is not null && rangeFrom > rangeTo)
         {
-            validationError = "DATES 起始时间不能晚于结束时间。";
+            var rangeName = _viewKind == WatchDemandViewKind.Gone ? "GoneAt" : "DATES";
+            validationError = $"{rangeName} 起始时间不能晚于结束时间。";
             return false;
         }
 
-        query = WatchDemandBrowseQuery.Default with
+        query = CreateDefaultQuery() with
         {
             TaskType = taskType,
             Sublot = NullIfBlank(draft.Sublot),
             DemandId = demandId,
-            DatesFrom = datesFrom,
-            DatesTo = datesTo,
+            DatesFrom = _viewKind == WatchDemandViewKind.Visible ? rangeFrom : null,
+            DatesTo = _viewKind == WatchDemandViewKind.Visible ? rangeTo : null,
+            GoneAtFrom = _viewKind == WatchDemandViewKind.Gone ? rangeFrom : null,
+            GoneAtTo = _viewKind == WatchDemandViewKind.Gone ? rangeTo : null,
         };
         return true;
     }
@@ -441,6 +475,33 @@ internal sealed class WatchVisibleDemandSession : IDisposable
 
     private static string? NullIfBlank(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private WatchDemandBrowseQuery CreateDefaultQuery()
+    {
+        if (_viewKind == WatchDemandViewKind.Visible)
+        {
+            return WatchDemandBrowseQuery.Default;
+        }
+
+        return WatchDemandBrowseQuery.Default with
+        {
+            Status = "GONE",
+            GoneAtFrom = _timeProvider.GetUtcNow().AddHours(-24),
+            SortBy = "goneAt",
+        };
+    }
+
+    private static WatchDemandDraft CreateDraft(WatchDemandBrowseQuery query) => new(
+        TaskType: query.TaskType,
+        Sublot: query.Sublot,
+        DemandId: query.DemandId,
+        DatesFrom: FormatDraftDate(query.DatesFrom),
+        DatesTo: FormatDraftDate(query.DatesTo),
+        GoneAtFrom: FormatDraftDate(query.GoneAtFrom),
+        GoneAtTo: FormatDraftDate(query.GoneAtTo));
+
+    private static string? FormatDraftDate(DateTimeOffset? value) =>
+        value?.ToString("O", CultureInfo.InvariantCulture);
 
     public void Dispose()
     {
