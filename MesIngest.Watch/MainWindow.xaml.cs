@@ -152,7 +152,7 @@ internal partial class MainWindow : Window
         _refreshCancellation?.Cancel();
         var selected = PrimaryNavigation.SelectedIndex;
         OverviewPage.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
-        DemandsPage.Visibility = selected is 1 or 2 ? Visibility.Visible : Visibility.Collapsed;
+        DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
         AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
     }

@@ -121,23 +121,6 @@ internal interface IWatchHostQueryAdapter : IWatchReadQueries, IDisposable
 {
     Task VerifyContractAsync(CancellationToken cancellationToken);
     Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken);
-
-    Task<WatchSnapshot> IWatchReadQueries.FetchSnapshotAsync(
-        WatchDemandBrowseQuery demandQuery,
-        WatchAlertBrowseQuery alertQuery,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
-
-    Task<WatchDemandPage> IWatchReadQueries.FetchDemandPageAsync(
-        WatchDemandBrowseQuery query,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
-
-    Task<WatchAlertPage> IWatchReadQueries.FetchAlertPageAsync(
-        WatchAlertBrowseQuery query,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
-
-    Task<WatchDemandDto?> IWatchReadQueries.FetchDemandByIdAsync(
-        string demandId,
-        CancellationToken cancellationToken) => throw new NotSupportedException();
 }
 
 /// <summary>
@@ -159,8 +142,6 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
     }
 
     public WatchHostSessionState State { get; private set; } = WatchHostSessionState.Empty;
-
-    public event EventHandler<WatchHostSessionState>? StateChanged;
 
     public async Task ApplyAsync(WatchHostSettings settings)
     {
@@ -199,8 +180,6 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
         previousCancellation?.Cancel();
         previousCancellation?.Dispose();
         previousAdapter?.Dispose();
-        StateChanged?.Invoke(this, connecting);
-
         try
         {
             await adapter.VerifyContractAsync(cancellation.Token).ConfigureAwait(false);
@@ -241,14 +220,6 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
                     FailureKind = WatchHostFailureKind.Unknown,
                     ErrorMessage = ex.Message,
                 });
-        }
-    }
-
-    public void Cancel()
-    {
-        lock (_gate)
-        {
-            _activeCancellation?.Cancel();
         }
     }
 
@@ -317,7 +288,6 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
             State = next;
         }
 
-        StateChanged?.Invoke(this, next);
     }
 
     private async Task<T> ExecuteCurrentAsync<T>(

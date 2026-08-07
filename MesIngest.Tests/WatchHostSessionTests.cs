@@ -127,7 +127,7 @@ public class WatchHostSessionTests
         Assert.Contains("(masked)", error.Message, StringComparison.Ordinal);
     }
 
-    private sealed class RecordingHostAdapter : IWatchHostQueryAdapter
+    private sealed class RecordingHostAdapter : WatchHostQueryAdapterStub
     {
         private readonly bool _blockContract;
         private readonly bool _ignoreCancellation;
@@ -158,7 +158,7 @@ public class WatchHostSessionTests
             "SUCCESS",
             []);
 
-        public async Task VerifyContractAsync(CancellationToken cancellationToken)
+        public override async Task VerifyContractAsync(CancellationToken cancellationToken)
         {
             Calls.Add("contract");
             ContractStarted.TrySetResult();
@@ -183,17 +183,13 @@ public class WatchHostSessionTests
             }
         }
 
-        public Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken)
+        public override Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken)
         {
             Calls.Add("poll-health");
             return Task.FromResult<WatchPollHealthDto?>(Health);
         }
 
         public void ReleaseContract() => _releaseContract.TrySetResult();
-
-        public void Dispose()
-        {
-        }
     }
 
     private sealed class DelegateHandler : HttpMessageHandler
