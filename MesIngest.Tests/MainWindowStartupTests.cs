@@ -158,7 +158,7 @@ public class MainWindowStartupTests
     }
 
     [Fact]
-    public void Every_visible_demand_column_is_user_sortable()
+    public void Demand_columns_follow_the_host_sort_allow_list()
     {
         Exception? caught = null;
         var ok = false;
@@ -181,10 +181,11 @@ public class MainWindowStartupTests
                     .Select(column => column.Header?.ToString() ?? "")
                     .ToArray();
 
-                if (!demands.CanUserSortColumns || disabledHeaders.Length != 0)
+                if (!demands.CanUserSortColumns
+                    || !disabledHeaders.SequenceEqual(new[] { "locationRiskCode" }))
                 {
                     throw new InvalidOperationException(
-                        $"All visible Demand columns must sort; disabled=[{string.Join(",", disabledHeaders)}]");
+                        $"Only locationRiskCode must be non-sortable; disabled=[{string.Join(",", disabledHeaders)}]");
                 }
 
                 ok = true;

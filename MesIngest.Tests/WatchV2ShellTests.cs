@@ -76,16 +76,16 @@ public class WatchV2ShellTests
             var navigation = (ListBox)window.FindName("PrimaryNavigation");
             var demands = (DataGrid)window.FindName("DemandsGrid");
             var alerts = (DataGrid)window.FindName("AlertsGrid");
-            var taskType = (TextBox)window.FindName("FilterTaskType");
-            var sublot = (TextBox)window.FindName("FilterSublot");
-            var demandId = (TextBox)window.FindName("FilterDemandId");
+            var taskType = (ComboBox)window.FindName("VisibleTaskTypeFilter");
+            var sublot = (TextBox)window.FindName("VisibleSublotFilter");
+            var demandId = (TextBox)window.FindName("VisibleDemandIdFilter");
             var oldDemand = new object();
             var oldAlert = new object();
             demands.ItemsSource = new[] { oldDemand };
             alerts.ItemsSource = new[] { oldAlert };
             demands.SelectedItem = oldDemand;
             alerts.SelectedItem = oldAlert;
-            taskType.Text = "OLD_TASK";
+            taskType.SelectedValue = "DIE_TO_OVEN";
             sublot.Text = "OLD_SUBLOT";
             demandId.Text = "old-demand";
             navigation.SelectedIndex = 3;
@@ -101,7 +101,7 @@ public class WatchV2ShellTests
             Assert.Empty(alerts.Items);
             Assert.Null(demands.SelectedItem);
             Assert.Null(alerts.SelectedItem);
-            Assert.Equal(string.Empty, taskType.Text);
+            Assert.Equal(string.Empty, taskType.SelectedValue?.ToString());
             Assert.Equal(string.Empty, sublot.Text);
             Assert.Equal(string.Empty, demandId.Text);
             Assert.StartsWith(

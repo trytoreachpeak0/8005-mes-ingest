@@ -240,132 +240,133 @@
                 </StackPanel>
             </Grid>
 
-            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed">
-        <StatusBar x:Name="WatchStatusBar"
-                   DockPanel.Dock="Bottom"
-                   Margin="0,8,0,0"
-                   Padding="4,2">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusBarText"
-                           FontFamily="Consolas"
-                           FontSize="12"
-                           TextTrimming="CharacterEllipsis"
-                           TextWrapping="NoWrap" />
-            </StatusBarItem>
-        </StatusBar>
+            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
+                <StatusBar x:Name="WatchStatusBar" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="4,2">
+                    <StatusBarItem>
+                        <TextBlock x:Name="StatusBarText"
+                                   FontFamily="Consolas"
+                                   FontSize="12"
+                                   TextTrimming="CharacterEllipsis"
+                                   TextWrapping="NoWrap" />
+                    </StatusBarItem>
+                </StatusBar>
 
-        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Border x:Name="ErrorBanner"
-                    Background="#C62828"
-                    Padding="10,8"
-                    Margin="0,0,0,6"
-                    Visibility="Collapsed">
-                <TextBlock x:Name="ErrorBannerText"
-                           Foreground="White"
-                           FontWeight="SemiBold"
-                           TextWrapping="Wrap"
-                           FontSize="14" />
-            </Border>
-            <Border x:Name="WarningBanner"
-                    Background="#EF6C00"
-                    Padding="10,8"
-                    Margin="0,0,0,6"
-                    Visibility="Collapsed">
-                <TextBlock x:Name="WarningBannerText"
-                           Foreground="White"
-                           FontWeight="SemiBold"
-                           TextWrapping="Wrap"
-                           FontSize="14" />
-            </Border>
-            <WrapPanel Margin="0,0,0,6">
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                    <TextBlock Text="TASK_TYPE" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <TextBox x:Name="FilterTaskType" Width="140" TextChanged="OnFilterChanged" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                    <TextBlock Text="SUBLOT" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <TextBox x:Name="FilterSublot" Width="120" TextChanged="OnFilterChanged" />
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                    <TextBlock Text="status" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <ComboBox x:Name="FilterStatus" Width="110" SelectionChanged="OnFilterChanged">
-                        <ComboBoxItem Content="VISIBLE" IsSelected="True" />
-                        <ComboBoxItem Content="GONE" />
-                    </ComboBox>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,0,12,4">
-                    <TextBlock Text="DemandId" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <TextBox x:Name="FilterDemandId" Width="220" TextChanged="OnDemandIdTextChanged" />
-                </StackPanel>
-                <StackPanel x:Name="GoneWindowPanel"
-                            Orientation="Horizontal"
-                            Margin="0,0,12,4"
-                            Visibility="Collapsed">
-                    <TextBlock Text="GoneAt window" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <ComboBox x:Name="GoneWindowHours" Width="120" SelectionChanged="OnFilterChanged">
-                        <ComboBoxItem Content="24h" Tag="24" IsSelected="True" />
-                        <ComboBoxItem Content="48h" Tag="48" />
-                        <ComboBoxItem Content="7d" Tag="168" />
-                        <ComboBoxItem Content="30d" Tag="720" />
-                    </ComboBox>
-                </StackPanel>
-                <Button x:Name="LoadMoreButton"
-                        Content="Load more"
-                        Margin="0,0,12,4"
-                        Padding="10,2"
-                        Click="OnLoadMoreClick"
-                        IsEnabled="False" />
-                <TextBlock x:Name="RowCountText" VerticalAlignment="Center" Margin="8,0,0,0" />
-            </WrapPanel>
-        </StackPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <DockPanel Margin="0,0,0,10" LastChildFill="False">
+                        <StackPanel>
+                            <TextBlock Text="MES 任务 / TransportDemand" FontSize="26" FontWeight="SemiBold" />
+                            <TextBlock Text="VISIBLE · 服务端单页窗口 · 每页固定 100 行"
+                                       Margin="0,4,0,0"
+                                       Foreground="#5F6B76" />
+                        </StackPanel>
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="VisibleRefreshButton" Content="刷新当前页" Padding="12,5" Click="OnVisibleRefreshClick" />
+                            <Button x:Name="VisibleCancelButton" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnVisibleCancelClick" />
+                        </StackPanel>
+                    </DockPanel>
 
-        <Grid x:Name="PanesGrid">
-            <Grid.RowDefinitions>
-                <RowDefinition x:Name="DemandsRow" Height="7*" MinHeight="120" />
-                <RowDefinition Height="6" />
-                <RowDefinition x:Name="AlertsRow" Height="3*" MinHeight="80" />
-            </Grid.RowDefinitions>
+                    <Border x:Name="ErrorBanner" Background="#C62828" Padding="10,8" Margin="0,0,0,6" Visibility="Collapsed">
+                        <TextBlock x:Name="ErrorBannerText" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
+                    </Border>
+                    <Border x:Name="WarningBanner" Background="#EF6C00" Padding="10,8" Margin="0,0,0,6" Visibility="Collapsed">
+                        <TextBlock x:Name="WarningBannerText" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
+                    </Border>
 
-            <GroupBox Header="TransportDemands" Grid.Row="0" Grid.RowSpan="3">
-                <DataGrid x:Name="DemandsGrid"
-                          AutoGenerateColumns="False"
-                          IsReadOnly="True"
-                          CanUserAddRows="False"
-                          CanUserSortColumns="True"
-                          HeadersVisibility="Column"
-                          Sorting="OnDemandsSorting">
-                    <DataGrid.Columns>
-                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
-                        <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="150" CanUserSort="True" SortMemberPath="TaskType" />
-                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="110" CanUserSort="True" SortMemberPath="Sublot" />
-                        <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="80" CanUserSort="True" SortMemberPath="Status" />
-                        <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
-                        <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
-                        <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
-                        <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
-                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" CanUserSort="True" SortMemberPath="Area" />
-                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="80" CanUserSort="True" SortMemberPath="Eqp" />
-                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" CanUserSort="True" SortMemberPath="Step" />
-                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="True" SortMemberPath="Package" />
-                        <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="90" CanUserSort="True" SortMemberPath="LocationRisk" />
-                        <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="80" CanUserSort="True" SortMemberPath="DisappearCount" />
-                    </DataGrid.Columns>
-                </DataGrid>
-            </GroupBox>
+                    <Border BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="4" Padding="10">
+                        <StackPanel>
+                            <WrapPanel>
+                                <StackPanel Margin="0,0,12,6">
+                                    <TextBlock Text="TASK_TYPE" />
+                                    <ComboBox x:Name="VisibleTaskTypeFilter" Width="190" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,6">
+                                    <TextBlock Text="SUBLOT" />
+                                    <TextBox x:Name="VisibleSublotFilter" Width="130" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,6">
+                                    <TextBlock Text="DemandId（6–32 位十六进制）" />
+                                    <TextBox x:Name="VisibleDemandIdFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,6">
+                                    <TextBlock Text="DATES 起始（含时区）" />
+                                    <TextBox x:Name="VisibleDatesFromFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,6">
+                                    <TextBlock Text="DATES 结束（含时区）" />
+                                    <TextBox x:Name="VisibleDatesToFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,6">
+                                    <Button x:Name="VisibleQueryButton" Content="查询" Padding="16,5" Click="OnVisibleQueryClick" />
+                                    <Button x:Name="VisibleResetButton" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnVisibleResetClick" />
+                                </StackPanel>
+                            </WrapPanel>
+                            <TextBlock x:Name="VisibleValidationText" Foreground="#C62828" TextWrapping="Wrap" />
+                            <TextBlock x:Name="VisibleCommittedQueryText" Margin="0,6,0,0" Foreground="#37474F" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                <TextBlock x:Name="VisibleBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
+                                <TextBlock x:Name="VisibleNoticeText" Margin="12,0,0,0" Foreground="#5F6B76" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
 
-            <GridSplitter x:Name="PanesSplitter"
-                          Grid.Row="1"
-                          Visibility="Collapsed"
-                          Height="6"
-                          HorizontalAlignment="Stretch"
-                          VerticalAlignment="Stretch"
-                          ResizeDirection="Rows"
-                          ResizeBehavior="PreviousAndNext"
-                          ShowsPreview="True"
-                          Background="#FFBDBDBD"
-                          MouseDoubleClick="OnPanesSplitterDoubleClick" />
+                <DockPanel>
+                    <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                        <TextBlock x:Name="RowCountText" VerticalAlignment="Center" />
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="VisiblePreviousButton" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnVisiblePreviousClick" />
+                            <TextBlock x:Name="VisiblePageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
+                            <Button x:Name="VisibleNextButton" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnVisibleNextClick" />
+                        </StackPanel>
+                    </DockPanel>
 
-        </Grid>
+                    <Grid x:Name="PanesGrid">
+                        <Grid.RowDefinitions>
+                            <RowDefinition x:Name="DemandsRow" Height="7*" MinHeight="120" />
+                            <RowDefinition Height="6" />
+                            <RowDefinition x:Name="AlertsRow" Height="3*" MinHeight="80" />
+                        </Grid.RowDefinitions>
+                        <DataGrid x:Name="DemandsGrid"
+                                  Grid.Row="0"
+                                  Grid.RowSpan="3"
+                                  AutoGenerateColumns="False"
+                                  IsReadOnly="True"
+                                  CanUserAddRows="False"
+                                  CanUserSortColumns="True"
+                                  FrozenColumnCount="4"
+                                  HeadersVisibility="Column"
+                                  SelectionChanged="OnVisibleDemandSelectionChanged"
+                                  Sorting="OnDemandsSorting">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
+                                <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="170" CanUserSort="True" SortMemberPath="TaskType" />
+                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" SortMemberPath="Sublot" />
+                                <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
+                                <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="100" CanUserSort="True" SortMemberPath="Area" />
+                                <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="100" CanUserSort="True" SortMemberPath="Eqp" />
+                                <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="100" CanUserSort="True" SortMemberPath="Step" />
+                                <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="True" SortMemberPath="Package" />
+                                <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="90" CanUserSort="True" SortMemberPath="Status" />
+                                <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
+                                <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="90" CanUserSort="True" SortMemberPath="DisappearCount" />
+                                <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="110" CanUserSort="True" SortMemberPath="LocationRisk" />
+                                <DataGridTextColumn Header="locationRiskCode" Binding="{Binding LocationRiskCode}" Width="160" CanUserSort="False" />
+                                <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
+                                <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <GridSplitter x:Name="PanesSplitter"
+                                      Grid.Row="1"
+                                      Visibility="Collapsed"
+                                      Height="6"
+                                      HorizontalAlignment="Stretch"
+                                      VerticalAlignment="Stretch"
+                                      ResizeDirection="Rows"
+                                      ResizeBehavior="PreviousAndNext"
+                                      ShowsPreview="True"
+                                      MouseDoubleClick="OnPanesSplitterDoubleClick" />
+                    </Grid>
+                </DockPanel>
             </DockPanel>
         </Grid>
     </Grid>

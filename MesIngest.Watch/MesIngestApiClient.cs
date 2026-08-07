@@ -308,10 +308,7 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new HttpRequestException(
-                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
-                    null,
-                    response.StatusCode);
+                throw CreateUnsuccessfulResponseException(response, body);
             }
 
             var demand = JsonSerializer.Deserialize<WatchDemandDto>(body, JsonOptions)
@@ -376,10 +373,7 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new HttpRequestException(
-                    $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).",
-                    null,
-                    response.StatusCode);
+                throw CreateUnsuccessfulResponseException(response, body);
             }
 
             var page = DeserializeDemandPage(body);
@@ -711,6 +705,19 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
     {
         var stage = WatchHttpStageClassifier.Classify(ex);
         return new WatchEndpointFetchException(endpoint, stage, elapsed, ex);
+    }
+
+    private HttpRequestException CreateUnsuccessfulResponseException(
+        HttpResponseMessage response,
+        string body)
+    {
+        var detail = string.IsNullOrWhiteSpace(body)
+            ? string.Empty
+            : $" Host response: {Redact(body)}";
+        return new HttpRequestException(
+            $"Response status code does not indicate success: {(int)response.StatusCode} ({response.ReasonPhrase}).{detail}",
+            null,
+            response.StatusCode);
     }
 
     private string FormatForBanner(WatchEndpointFetchException exception, string correlationId) =>

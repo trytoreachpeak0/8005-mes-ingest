@@ -6,10 +6,9 @@ namespace MesIngest.Watch;
 
 internal partial class MainWindow : Window
 {
-    private static readonly TimeSpan DemandIdDebounce = TimeSpan.FromMilliseconds(300);
-
     private IWatchReadQueries _client;
     private WatchBrowseSession _browse;
+    private WatchVisibleDemandSession _visibleDemands;
     private WatchOverviewSession _overview;
     private readonly WatchHostSession _hostSession;
     private readonly WatchOptions _options;
@@ -18,7 +17,6 @@ internal partial class MainWindow : Window
     private readonly WatchTelemetryIoDiagnosticBuffer _telemetryIoDiagnostics;
     private readonly string _layoutPreferencesPath;
     private readonly DispatcherTimer _timer;
-    private readonly DispatcherTimer _demandIdDebounceTimer;
     private readonly DispatcherTimer _bannerHoldTimer;
     private readonly WatchRefreshAdmission _refreshAdmission = new();
     private readonly Dictionary<string, AlertDetailWindow> _openAlertDetails = new(StringComparer.Ordinal);
@@ -26,14 +24,12 @@ internal partial class MainWindow : Window
 
     private WatchPollHealthDto? _health;
     private bool _isOverviewRefreshing;
+    private bool _isApplyingVisibleProjection;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
+    private WatchRefreshState _visibleRefreshState = WatchRefreshState.Empty;
     private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
-    private string _sortBy = "dates";
-    private string _direction = "desc";
-    private string? _appliedDemandId;
     private CancellationTokenSource? _refreshCancellation;
     private long _hostGeneration;
-    private bool _isApplyingHost;
     private MesIngestApiClient? _bootstrapClient;
 
     public MainWindow(
@@ -46,11 +42,15 @@ internal partial class MainWindow : Window
         Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null)
     {
         InitializeComponent();
+        VisibleTaskTypeFilter.ItemsSource =
+            new[] { string.Empty }.Concat(WatchVisibleDemandDraft.ProductionTaskTypes).ToArray();
+        VisibleTaskTypeFilter.SelectedIndex = 0;
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
         _bootstrapClient = client;
         _browse = new WatchBrowseSession(client);
+        _visibleDemands = new WatchVisibleDemandSession(client);
         _overview = new WatchOverviewSession(client);
         if (hostAdapterFactory is null)
         {
@@ -100,21 +100,6 @@ internal partial class MainWindow : Window
         };
         _bannerHoldTimer.Tick += (_, _) => ApplyProjection();
 
-        _demandIdDebounceTimer = new DispatcherTimer { Interval = DemandIdDebounce };
-        _demandIdDebounceTimer.Tick += async (_, _) =>
-        {
-            _demandIdDebounceTimer.Stop();
-            var typed = NullIfBlank(FilterDemandId.Text);
-            if (!WatchDemandBrowseQuery.IsDemandIdFilterReady(typed))
-            {
-                // Incomplete hex — keep last applied DemandId; do not block the watch loop.
-                return;
-            }
-
-            _appliedDemandId = typed;
-            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
-        };
-
         Loaded += async (_, _) =>
         {
             ApplyDemandSortGlyphs();
@@ -136,12 +121,12 @@ internal partial class MainWindow : Window
             SavePaneRatio();
             _refreshCancellation?.Cancel();
             _refreshCancellation?.Dispose();
+            _visibleDemands.Dispose();
             _hostSession.Dispose();
             _bootstrapClient?.Dispose();
             _bootstrapClient = null;
             _timer.Stop();
             _bannerHoldTimer.Stop();
-            _demandIdDebounceTimer.Stop();
         };
     }
 
@@ -153,12 +138,20 @@ internal partial class MainWindow : Window
         }
 
         _refreshCancellation?.Cancel();
+        _visibleDemands.CancelActive(userInitiated: false);
         var selected = PrimaryNavigation.SelectedIndex;
         OverviewPage.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
         AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
-        if (IsLoaded && selected is 1 or 2)
+        if (IsLoaded && selected == 1)
+        {
+            if (_visibleDemands.State.LastSuccessfulAt is null)
+            {
+                _ = RunVisibleDemandOperationAsync(_visibleDemands.LoadInitialAsync);
+            }
+        }
+        else if (IsLoaded && selected == 2)
         {
             _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
         }
@@ -178,14 +171,9 @@ internal partial class MainWindow : Window
 
     private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
     {
-        _browse = new WatchBrowseSession(_hostSession);
-        _sortBy = "dates";
-        _direction = "desc";
-        _appliedDemandId = null;
-        FilterStatus.SelectedIndex = 0;
-        FilterTaskType.Clear();
-        FilterSublot.Clear();
-        FilterDemandId.Clear();
+        _visibleDemands.Dispose();
+        _visibleDemands = new WatchVisibleDemandSession(_hostSession);
+        ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
         PrimaryNavigation.SelectedIndex = 1;
     }
 
@@ -229,7 +217,6 @@ internal partial class MainWindow : Window
 
     private async Task ApplyHostSessionAsync(WatchHostSettings settings, bool refreshOverview)
     {
-        _isApplyingHost = true;
         var generation = ++_hostGeneration;
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
@@ -237,12 +224,12 @@ internal partial class MainWindow : Window
 
         _health = null;
         _refreshState = WatchRefreshState.Empty;
+        _visibleRefreshState = WatchRefreshState.Empty;
         _bannerHold = WatchBannerHoldState.Empty;
-        _sortBy = "dates";
-        _direction = "desc";
-        _appliedDemandId = null;
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
+        _visibleDemands.Dispose();
+        _visibleDemands = new WatchVisibleDemandSession(_hostSession);
         _overview = new WatchOverviewSession(_hostSession);
 
         foreach (var detail in _openAlertDetails.Values.ToArray())
@@ -258,11 +245,7 @@ internal partial class MainWindow : Window
             }
         }
         _openAlertDetailsWithoutId.Clear();
-        FilterTaskType.Clear();
-        FilterSublot.Clear();
-        FilterDemandId.Clear();
-        FilterStatus.SelectedIndex = 0;
-        GoneWindowHours.SelectedIndex = 0;
+        ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
         DemandsGrid.SelectedItem = null;
         AlertsGrid.SelectedItem = null;
         PrimaryNavigation.SelectedIndex = 0;
@@ -300,7 +283,6 @@ internal partial class MainWindow : Window
         }
         finally
         {
-            _isApplyingHost = false;
             ApplyProjection();
         }
     }
@@ -348,7 +330,14 @@ internal partial class MainWindow : Window
             return;
         }
 
-        WatchLayoutPreferences.SaveDemandShare(_layoutPreferencesPath, demand / total);
+        try
+        {
+            WatchLayoutPreferences.SaveDemandShare(_layoutPreferencesPath, demand / total);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _telemetryIoDiagnostics.Record("watch-layout-preferences", ex);
+        }
     }
 
     private void OnPanesSplitterDoubleClick(object sender, MouseButtonEventArgs e)
@@ -357,58 +346,58 @@ internal partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void OnFilterChanged(object sender, RoutedEventArgs e)
-    {
-        // ComboBox IsSelected in XAML raises SelectionChanged during InitializeComponent,
-        // before later-named controls exist.
-        if (!IsLoaded || _isApplyingHost)
-        {
-            return;
-        }
-
-        UpdateGoneWindowVisibility();
-        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
-    }
-
-    private void OnDemandIdTextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (!IsLoaded || _isApplyingHost)
-        {
-            return;
-        }
-
-        var typed = NullIfBlank(FilterDemandId.Text);
-        if (typed is null)
-        {
-            _demandIdDebounceTimer.Stop();
-            _appliedDemandId = null;
-            _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
-            return;
-        }
-
-        _demandIdDebounceTimer.Stop();
-        _demandIdDebounceTimer.Start();
-    }
-
     private void OnDemandsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        var current = WatchDemandBrowseQuery.Default with
-        {
-            SortBy = _sortBy,
-            Direction = _direction,
-        };
-        if (!current.TryApplySort(e.Column.Header?.ToString(), out var next))
+        if (WatchDemandBrowseQuery.SortToken(e.Column.Header?.ToString()) is null)
         {
             return;
         }
 
-        _sortBy = next.SortBy;
-        _direction = next.Direction;
-
-        ApplyDemandSortGlyphs();
-        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+        _ = RunVisibleDemandOperationAsync(
+            token => _visibleDemands.ApplySortAsync(e.Column.Header?.ToString(), token));
     }
+
+    private void OnVisibleDemandSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isApplyingVisibleProjection)
+        {
+            return;
+        }
+
+        _visibleDemands.SelectDemand(
+            (DemandsGrid.SelectedItem as WatchDemandDto)?.DemandId);
+    }
+
+    private async void OnVisibleQueryClick(object sender, RoutedEventArgs e)
+    {
+        _visibleDemands.UpdateDraft(ReadVisibleDraft());
+        await RunVisibleDemandOperationAsync(_visibleDemands.SubmitDraftAsync).ConfigureAwait(true);
+    }
+
+    private async void OnVisibleResetClick(object sender, RoutedEventArgs e)
+    {
+        var outcome = await RunVisibleDemandOperationAsync(_visibleDemands.ResetAsync).ConfigureAwait(true);
+        if (outcome == WatchDemandBrowseOutcome.Succeeded)
+        {
+            ApplyVisibleDraftToControls(WatchVisibleDemandDraft.Default);
+        }
+    }
+
+    private async void OnVisibleRefreshClick(object sender, RoutedEventArgs e) =>
+        await RunVisibleDemandOperationAsync(_visibleDemands.RefreshCurrentAsync).ConfigureAwait(true);
+
+    private void OnVisibleCancelClick(object sender, RoutedEventArgs e)
+    {
+        _visibleDemands.CancelActive(userInitiated: true);
+        ApplyProjection();
+    }
+
+    private async void OnVisiblePreviousClick(object sender, RoutedEventArgs e) =>
+        await RunVisibleDemandOperationAsync(_visibleDemands.MovePreviousAsync).ConfigureAwait(true);
+
+    private async void OnVisibleNextClick(object sender, RoutedEventArgs e) =>
+        await RunVisibleDemandOperationAsync(_visibleDemands.MoveNextAsync).ConfigureAwait(true);
 
     private void OnAlertsSorting(object sender, DataGridSortingEventArgs e)
     {
@@ -422,16 +411,6 @@ internal partial class MainWindow : Window
         _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
     }
 
-    private async void OnLoadMoreClick(object sender, RoutedEventArgs e)
-    {
-        if (!_browse.DemandsHasMore || string.IsNullOrWhiteSpace(_browse.DemandsNextCursor))
-        {
-            return;
-        }
-
-        await RefreshAsync(WatchBrowseRefreshKind.Append).ConfigureAwait(true);
-    }
-
     private async void OnLoadMoreAlertsClick(object sender, RoutedEventArgs e)
     {
         if (!_browse.AlertsHasMore || string.IsNullOrWhiteSpace(_browse.AlertsNextCursor))
@@ -442,8 +421,102 @@ internal partial class MainWindow : Window
         await RefreshAsync(WatchBrowseRefreshKind.AppendAlerts).ConfigureAwait(true);
     }
 
+    private WatchVisibleDemandDraft ReadVisibleDraft() => new(
+        TaskType: NullIfBlank(VisibleTaskTypeFilter.SelectedValue?.ToString()),
+        Sublot: VisibleSublotFilter.Text,
+        DemandId: VisibleDemandIdFilter.Text,
+        DatesFrom: VisibleDatesFromFilter.Text,
+        DatesTo: VisibleDatesToFilter.Text);
+
+    private void ApplyVisibleDraftToControls(WatchVisibleDemandDraft draft)
+    {
+        VisibleTaskTypeFilter.SelectedValue = draft.TaskType ?? string.Empty;
+        VisibleSublotFilter.Text = draft.Sublot ?? string.Empty;
+        VisibleDemandIdFilter.Text = draft.DemandId ?? string.Empty;
+        VisibleDatesFromFilter.Text = draft.DatesFrom ?? string.Empty;
+        VisibleDatesToFilter.Text = draft.DatesTo ?? string.Empty;
+    }
+
+    private async Task<WatchDemandBrowseOutcome> RunVisibleDemandOperationAsync(
+        Func<CancellationToken, Task<WatchDemandBrowseOutcome>> operation)
+    {
+        var generation = _hostGeneration;
+        var session = _visibleDemands;
+        var pending = operation(CancellationToken.None);
+        ApplyProjection();
+        var outcome = await pending.ConfigureAwait(true);
+        if (generation != _hostGeneration || !ReferenceEquals(session, _visibleDemands))
+        {
+            return WatchDemandBrowseOutcome.Superseded;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (outcome == WatchDemandBrowseOutcome.Succeeded)
+        {
+            _visibleRefreshState = _visibleRefreshState.ApplySuccess(now);
+            RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+        }
+        else if (outcome == WatchDemandBrowseOutcome.Failed && session.State.Failure is { } failure)
+        {
+            var (message, endpoint, stage, elapsed, correlationId) = FormatVisibleDemandFailure(failure);
+            _visibleRefreshState = _visibleRefreshState.ApplyFailure(message);
+            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                now,
+                endpoint,
+                stage,
+                elapsed,
+                _options.RequestTimeoutSeconds,
+                message,
+                correlationId));
+        }
+
+        ApplyProjection();
+        return outcome;
+    }
+
+    private (string Message, string Endpoint, string Stage, TimeSpan Elapsed, string? CorrelationId)
+        FormatVisibleDemandFailure(Exception failure)
+    {
+        if (failure is WatchEndpointFetchException endpointFailure)
+        {
+            var correlationId = Guid.NewGuid().ToString("N");
+            return (
+                endpointFailure.FormatForBanner(_options.RequestTimeoutSeconds, correlationId),
+                endpointFailure.Endpoint,
+                endpointFailure.Stage,
+                endpointFailure.Elapsed,
+                correlationId);
+        }
+
+        if (failure is WatchHostQueryException hostFailure)
+        {
+            var message = $"endpoint={hostFailure.Endpoint} kind={hostFailure.Kind} "
+                + $"correlationId={hostFailure.CorrelationId} {hostFailure.Message}";
+            return (
+                message,
+                hostFailure.Endpoint,
+                hostFailure.Kind.ToString(),
+                TimeSpan.Zero,
+                hostFailure.CorrelationId);
+        }
+
+        return (
+            $"endpoint=/api/demands stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} "
+            + $"elapsedMs=0 {failure.Message}",
+            "/api/demands",
+            "HTTP_ERROR",
+            TimeSpan.Zero,
+            null);
+    }
+
     private async Task RefreshAsync(WatchBrowseRefreshKind kind)
     {
+        if (PrimaryNavigation.SelectedIndex == 1)
+        {
+            await RunVisibleDemandOperationAsync(_visibleDemands.RefreshCurrentAsync).ConfigureAwait(true);
+            return;
+        }
+
         var generation = _hostGeneration;
         var browse = _browse;
         var overview = _overview;
@@ -468,7 +541,7 @@ internal partial class MainWindow : Window
 
         try
         {
-            var query = BuildBrowseQuery();
+            var query = WatchDemandBrowseQuery.Default;
             var now = DateTimeOffset.UtcNow;
 
             if (PrimaryNavigation.SelectedIndex == 0
@@ -624,35 +697,6 @@ internal partial class MainWindow : Window
             correlationId: snapshot.CorrelationId));
     }
 
-    private WatchDemandBrowseQuery BuildBrowseQuery()
-    {
-        var status = (FilterStatus.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "VISIBLE";
-        DateTimeOffset? goneAtFrom = null;
-        if (string.Equals(status, "GONE", StringComparison.OrdinalIgnoreCase))
-        {
-            var hours = 24;
-            if (GoneWindowHours.SelectedItem is ComboBoxItem item
-                && item.Tag is string tag
-                && int.TryParse(tag, out var parsed))
-            {
-                hours = parsed;
-            }
-
-            goneAtFrom = DateTimeOffset.UtcNow.AddHours(-hours);
-        }
-
-        return new WatchDemandBrowseQuery(
-            Status: status,
-            TaskType: NullIfBlank(FilterTaskType.Text),
-            Sublot: NullIfBlank(FilterSublot.Text),
-            DemandId: _appliedDemandId,
-            GoneAtFrom: goneAtFrom,
-            SortBy: _sortBy,
-            Direction: _direction,
-            Limit: 100,
-            Cursor: null);
-    }
-
     private void RecordConnectionEvent(WatchConnectionEvent? connectionEvent)
     {
         if (connectionEvent is null)
@@ -672,25 +716,55 @@ internal partial class MainWindow : Window
 
     private void ApplyProjection()
     {
-        UpdateGoneWindowVisibility();
-        DemandsGrid.ItemsSource = _browse.Demands;
+        var visible = _visibleDemands.State;
+        _isApplyingVisibleProjection = true;
+        try
+        {
+            DemandsGrid.ItemsSource = visible.Items;
+            DemandsGrid.SelectedItem = visible.SelectedDemandId is null
+                ? null
+                : visible.Items.FirstOrDefault(item => string.Equals(
+                    item.DemandId,
+                    visible.SelectedDemandId,
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            _isApplyingVisibleProjection = false;
+        }
         AlertsGrid.ItemsSource = _browse.Alerts;
-        LoadMoreButton.IsEnabled =
-            _browse.DemandsHasMore && !string.IsNullOrWhiteSpace(_browse.DemandsNextCursor);
+        VisiblePreviousButton.IsEnabled = visible.CanMovePrevious;
+        VisibleNextButton.IsEnabled = visible.CanMoveNext;
+        VisibleRefreshButton.IsEnabled = visible.LastSuccessfulAt is not null;
+        VisibleCancelButton.IsEnabled = visible.IsRefreshing;
+        VisibleQueryButton.IsEnabled = true;
+        VisibleResetButton.IsEnabled = true;
+        VisibleBusyText.Visibility = visible.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
+        VisibleValidationText.Text = visible.ValidationError ?? string.Empty;
+        VisibleNoticeText.Text = visible.Notice ?? string.Empty;
+        VisiblePageText.Text = $"第 {visible.PageNumber} 页";
+        VisibleCommittedQueryText.Text = FormatCommittedVisibleQuery(visible.CommittedQuery);
         LoadMoreAlertsButton.IsEnabled =
             _browse.AlertsHasMore && !string.IsNullOrWhiteSpace(_browse.AlertsNextCursor);
-        RowCountText.Text = _browse.DemandsHasMore
-            ? $"loaded {_browse.Demands.Count} · more available"
-            : $"loaded {_browse.Demands.Count} · end of results";
+        RowCountText.Text = visible.LastSuccessfulAt is null
+            ? "尚无成功窗口"
+            : visible.Items.Count == 0
+                ? $"当前查询无结果 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                : visible.HasMore
+                    ? $"当前页 {visible.Items.Count} 行 · 还有下一页 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                    : $"当前页 {visible.Items.Count} 行 · 已到末页 · 最近成功 {visible.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
         AlertCountText.Text = _browse.AlertsHasMore
             ? $"loaded {_browse.Alerts.Count} alerts · more available"
             : $"loaded {_browse.Alerts.Count} alerts · end of results";
 
         var now = DateTimeOffset.UtcNow;
+        var pageRefreshState = PrimaryNavigation.SelectedIndex == 1
+            ? _visibleRefreshState
+            : _refreshState;
         var banner = WatchBannerProjection.Project(
             _bannerHold,
             _health,
-            _refreshState.FetchError,
+            pageRefreshState.FetchError,
             _browse.Alerts,
             now);
         _bannerHold = banner.HoldState;
@@ -703,7 +777,7 @@ internal partial class MainWindow : Window
 
         var status = WatchStatusBarState.Project(
             _health,
-            _refreshState,
+            pageRefreshState,
             _browse.Alerts,
             _options.BaseUrl,
             now,
@@ -746,6 +820,43 @@ internal partial class MainWindow : Window
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
         SyncOpenAlertDetails();
+    }
+
+    private static string FormatCommittedVisibleQuery(WatchDemandBrowseQuery query)
+    {
+        var filters = new List<string>
+        {
+            "已提交：status=VISIBLE",
+            $"sortBy={query.SortBy}",
+            $"direction={query.Direction}",
+            "limit=100",
+        };
+        if (!string.IsNullOrWhiteSpace(query.TaskType))
+        {
+            filters.Add($"TASK_TYPE={query.TaskType}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Sublot))
+        {
+            filters.Add($"SUBLOT={query.Sublot}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DemandId))
+        {
+            filters.Add($"DemandId={query.DemandId}");
+        }
+
+        if (query.DatesFrom is not null)
+        {
+            filters.Add($"DATES from {query.DatesFrom:O}");
+        }
+
+        if (query.DatesTo is not null)
+        {
+            filters.Add($"DATES to {query.DatesTo:O}");
+        }
+
+        return string.Join(" · ", filters);
     }
 
     private void OnAlertsDoubleClick(object sender, MouseButtonEventArgs e) => OpenSelectedAlertDetail();
@@ -872,11 +983,18 @@ internal partial class MainWindow : Window
                 return;
             }
 
-            SelectStatus(found.Status);
-            FilterDemandId.Text = found.DemandId;
-            _appliedDemandId = found.DemandId;
-            _demandIdDebounceTimer.Stop();
-            await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
+            var locateQuery = new WatchDemandBrowseQuery(
+                Status: found.Status,
+                DemandId: found.DemandId,
+                SortBy: string.Equals(found.Status, "GONE", StringComparison.OrdinalIgnoreCase)
+                    ? "goneAt"
+                    : "dates",
+                Direction: "desc",
+                Limit: 100);
+            await _browse.RefreshAsync(
+                    WatchBrowseRefreshKind.Reset,
+                    locateQuery)
+                .ConfigureAwait(true);
 
             var match = _browse.Demands.FirstOrDefault(d =>
                 string.Equals(d.DemandId, found.DemandId, StringComparison.OrdinalIgnoreCase));
@@ -900,28 +1018,9 @@ internal partial class MainWindow : Window
         }
     }
 
-    private void SelectStatus(string status)
-    {
-        foreach (ComboBoxItem item in FilterStatus.Items)
-        {
-            if (string.Equals(item.Content?.ToString(), status, StringComparison.OrdinalIgnoreCase))
-            {
-                FilterStatus.SelectedItem = item;
-                return;
-            }
-        }
-    }
-
-    private void UpdateGoneWindowVisibility()
-    {
-        var status = (FilterStatus.SelectedItem as ComboBoxItem)?.Content?.ToString();
-        GoneWindowPanel.Visibility = string.Equals(status, "GONE", StringComparison.OrdinalIgnoreCase)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
-
     private void ApplyDemandSortGlyphs()
     {
+        var committed = _visibleDemands.State.CommittedQuery;
         foreach (var column in DemandsGrid.Columns)
         {
             var token = WatchDemandBrowseQuery.SortToken(column.Header?.ToString());
@@ -931,8 +1030,8 @@ internal partial class MainWindow : Window
                 continue;
             }
 
-            column.SortDirection = string.Equals(token, _sortBy, StringComparison.Ordinal)
-                ? (string.Equals(_direction, "asc", StringComparison.Ordinal)
+            column.SortDirection = string.Equals(token, committed.SortBy, StringComparison.Ordinal)
+                ? (string.Equals(committed.Direction, "asc", StringComparison.Ordinal)
                     ? System.ComponentModel.ListSortDirection.Ascending
                     : System.ComponentModel.ListSortDirection.Descending)
                 : null;
