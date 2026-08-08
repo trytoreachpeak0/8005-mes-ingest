@@ -1,3 +1,4 @@
+using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -38,6 +39,9 @@ public sealed class WatchXamlVisualTests
             Assert.Null(item.GoneAt);
         });
         Assert.Contains(visible, item => item.LocationRisk && item.LocationRiskCode is not null);
+        Assert.All(
+            visible.Where(item => item.LocationRisk),
+            item => Assert.Contains(item.LocationRiskCode, new[] { "AREA_EMPTY", "AREA_UNPARSEABLE" }));
         Assert.All(gone, item =>
         {
             Assert.Equal("GONE", item.Status);
@@ -54,6 +58,9 @@ public sealed class WatchXamlVisualTests
                 "REAPPEAR_AFTER_GONE",
             },
             alerts.Select(item => item.Code));
+        Assert.Equal(
+            new[] { "ERROR", "ERROR", "ERROR", "ERROR", "ERROR", "WARNING" },
+            alerts.Select(item => item.Severity));
         Assert.All(alerts, item =>
         {
             Assert.False(string.IsNullOrWhiteSpace(item.Message));
@@ -61,8 +68,8 @@ public sealed class WatchXamlVisualTests
         });
     }
 
-    public static TheoryData<WatchVisualCase> RequiredBaselines => new()
-    {
+    private static readonly WatchVisualCase[] Required1440Cases =
+    [
         WatchVisualCase.At1440("overview-healthy", WatchVisualState.OverviewHealthy),
         WatchVisualCase.At1440("overview-degraded-active-alert", WatchVisualState.OverviewDegraded),
         WatchVisualCase.At1440("overview-offline-stale", WatchVisualState.OverviewOfflineStale),
@@ -78,30 +85,19 @@ public sealed class WatchXamlVisualTests
         WatchVisualCase.At1440("alerts-failure-retains-results", WatchVisualState.AlertsFailureRetainsResults),
         WatchVisualCase.At1440("settings-default", WatchVisualState.SettingsDefault),
         WatchVisualCase.At1440("settings-validation-error", WatchVisualState.SettingsValidationError),
+    ];
+
+    public static TheoryData<WatchVisualCase> RequiredBaselines => TheoryDataFor(
+    [
+        .. Required1440Cases,
         WatchVisualCase.At2560("overview-loaded", WatchVisualState.OverviewHealthy),
         WatchVisualCase.At2560("demands-loaded", WatchVisualState.DemandsVisibleSelected),
         WatchVisualCase.At2560("alerts-loaded", WatchVisualState.AlertsActiveSelected),
         WatchVisualCase.At2560("settings-loaded", WatchVisualState.SettingsDefault),
-    };
+    ]);
 
-    public static TheoryData<WatchVisualCase> RequiredScenarioStates => new()
-    {
-        WatchVisualCase.At1440("overview-healthy", WatchVisualState.OverviewHealthy),
-        WatchVisualCase.At1440("overview-degraded-active-alert", WatchVisualState.OverviewDegraded),
-        WatchVisualCase.At1440("overview-offline-stale", WatchVisualState.OverviewOfflineStale),
-        WatchVisualCase.At1440("demands-visible-selected", WatchVisualState.DemandsVisibleSelected),
-        WatchVisualCase.At1440("demands-gone-selected", WatchVisualState.DemandsGoneSelected),
-        WatchVisualCase.At1440("demands-empty", WatchVisualState.DemandsEmpty),
-        WatchVisualCase.At1440("demands-loading", WatchVisualState.DemandsLoading),
-        WatchVisualCase.At1440("demands-failure-retains-results", WatchVisualState.DemandsFailureRetainsResults),
-        WatchVisualCase.At1440("alerts-active-selected", WatchVisualState.AlertsActiveSelected),
-        WatchVisualCase.At1440("alerts-resolved", WatchVisualState.AlertsResolved),
-        WatchVisualCase.At1440("alerts-empty", WatchVisualState.AlertsEmpty),
-        WatchVisualCase.At1440("alerts-loading", WatchVisualState.AlertsLoading),
-        WatchVisualCase.At1440("alerts-failure-retains-results", WatchVisualState.AlertsFailureRetainsResults),
-        WatchVisualCase.At1440("settings-default", WatchVisualState.SettingsDefault),
-        WatchVisualCase.At1440("settings-validation-error", WatchVisualState.SettingsValidationError),
-    };
+    public static TheoryData<WatchVisualCase> RequiredScenarioStates =>
+        TheoryDataFor(Required1440Cases);
 
     [Theory]
     [MemberData(nameof(RequiredScenarioStates))]
@@ -116,6 +112,15 @@ public sealed class WatchXamlVisualTests
             {
                 await scenario.PrepareAsync();
                 Assert.True(scenario.Window.IsVisible);
+                var conclusion = ((TextBlock)scenario.Window.FindName("OverviewConclusionText")).Text;
+                if (visualCase.State == WatchVisualState.OverviewHealthy)
+                {
+                    Assert.Equal("✓ 健康", conclusion);
+                }
+                else if (visualCase.State == WatchVisualState.OverviewDegraded)
+                {
+                    Assert.Equal("✕ 存在活动 ERROR", conclusion);
+                }
             }
             finally
             {
@@ -148,6 +153,18 @@ public sealed class WatchXamlVisualTests
                 scenario.Window.Close();
             }
         });
+    }
+
+    private static TheoryData<WatchVisualCase> TheoryDataFor(
+        IEnumerable<WatchVisualCase> visualCases)
+    {
+        var data = new TheoryData<WatchVisualCase>();
+        foreach (var visualCase in visualCases)
+        {
+            data.Add(visualCase);
+        }
+
+        return data;
     }
 }
 

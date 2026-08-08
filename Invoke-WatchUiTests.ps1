@@ -122,6 +122,13 @@ if ($Suite -eq "watch-xaml-visual") {
         }
         exit 2
     }
+
+    $effectiveRenderingMode = if ([string]::IsNullOrWhiteSpace($renderingMode)) {
+        "SoftwareOnly(default)"
+    } else {
+        $renderingMode
+    }
+    Write-Host "WATCH_XAML_VISUAL_ENVIRONMENT_OK: desktop=${desktopWidth}x${desktopHeight}; dpi=$dpi; theme=light; culture=$culture; uiCulture=$uiCulture; fonts=Microsoft YaHei UI,Consolas; rendering=$effectiveRenderingMode"
 }
 
 $project = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj"

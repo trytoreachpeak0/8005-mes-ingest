@@ -15,7 +15,7 @@ internal sealed record WatchVisualEnvironmentSnapshot(
     string CultureName,
     string UiCultureName,
     IReadOnlyCollection<string> InstalledFonts,
-    string RenderingMode);
+    RenderMode RenderingMode);
 
 internal sealed record WatchVisualEnvironmentResult(IReadOnlyList<string> Differences)
 {
@@ -74,7 +74,7 @@ internal static class WatchVisualEnvironment
             }
         }
 
-        if (!string.Equals(snapshot.RenderingMode, "SoftwareOnly", StringComparison.Ordinal))
+        if (snapshot.RenderingMode != RenderMode.SoftwareOnly)
         {
             differences.Add(
                 $"expected rendering mode=SoftwareOnly; actual={snapshot.RenderingMode}");
@@ -101,9 +101,7 @@ internal static class WatchVisualEnvironment
             CultureName: CultureInfo.CurrentCulture.Name,
             UiCultureName: CultureInfo.CurrentUICulture.Name,
             InstalledFonts: installedFonts,
-            RenderingMode: RenderOptions.ProcessRenderMode == RenderMode.SoftwareOnly
-                ? "SoftwareOnly"
-                : "Auto");
+            RenderingMode: RenderOptions.ProcessRenderMode);
     }
 
     private static bool HasInteractiveInputDesktop()

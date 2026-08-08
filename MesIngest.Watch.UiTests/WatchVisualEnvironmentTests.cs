@@ -1,3 +1,5 @@
+using System.Windows.Interop;
+
 namespace MesIngest.Watch.UiTests;
 
 public sealed class WatchVisualEnvironmentTests
@@ -23,7 +25,7 @@ public sealed class WatchVisualEnvironmentTests
             CultureName: "en-US",
             UiCultureName: "en-US",
             InstalledFonts: ["Segoe UI"],
-            RenderingMode: "Auto"));
+            RenderingMode: RenderMode.Default));
 
         Assert.False(result.IsCompatible);
         Assert.Collection(
@@ -48,5 +50,5 @@ public sealed class WatchVisualEnvironmentTests
         CultureName: "zh-CN",
         UiCultureName: "zh-CN",
         InstalledFonts: ["Microsoft YaHei UI", "Consolas"],
-        RenderingMode: "SoftwareOnly");
+        RenderingMode: RenderMode.SoftwareOnly);
 }

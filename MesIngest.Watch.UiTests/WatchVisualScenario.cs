@@ -31,11 +31,11 @@ internal sealed class WatchVisualScenario : IDisposable
 
     public static WatchVisualScenario Create(WatchVisualCase visualCase)
     {
-        var scripts = BuildScripts(visualCase.State);
+        var host = BuildHost(visualCase.State);
         var root = Path.Combine(Path.GetTempPath(), $"watch-visual-{Guid.NewGuid():N}");
         var composition = WatchApplicationComposition.Create(
             Options(),
-            scripts.Host.CreateAdapter,
+            host.CreateAdapter,
             logDirectory: Path.Combine(root, "logs"),
             layoutPreferencesPath: Path.Combine(root, "layout.json"),
             autoRefreshPreferencesPath: Path.Combine(root, "auto-refresh.json"),
@@ -188,7 +188,7 @@ internal sealed class WatchVisualScenario : IDisposable
         Dispatcher.PushFrame(frame);
     }
 
-    private static ScenarioScripts BuildScripts(WatchVisualState state)
+    private static ScriptedFakeHost BuildHost(WatchVisualState state)
     {
         var demandGate = state == WatchVisualState.DemandsLoading ? new FakeHostGate() : null;
         var alertGate = state == WatchVisualState.AlertsLoading ? new FakeHostGate() : null;
@@ -199,7 +199,11 @@ internal sealed class WatchVisualScenario : IDisposable
         var emptyAlerts = state == WatchVisualState.AlertsEmpty;
         var failDemands = state == WatchVisualState.DemandsFailureRetainsResults;
         var failAlerts = state == WatchVisualState.AlertsFailureRetainsResults;
-        var degraded = state == WatchVisualState.OverviewDegraded;
+        var showAlerts = state is WatchVisualState.OverviewDegraded
+            or WatchVisualState.AlertsActiveSelected
+            or WatchVisualState.AlertsResolved
+            or WatchVisualState.AlertsLoading
+            or WatchVisualState.AlertsFailureRetainsResults;
 
         var scenario = new FakeHostScenario($"visual-{state}")
         {
@@ -257,16 +261,16 @@ internal sealed class WatchVisualScenario : IDisposable
                         "刷新失败，保留最后成功的 IngestAlert");
                 }
 
-                IReadOnlyList<WatchAlertDto> items = emptyAlerts
+                IReadOnlyList<WatchAlertDto> items = emptyAlerts || !showAlerts
                     ? []
-                    : FakeAlerts(query.Active != false, degraded);
+                    : FakeAlerts(query.Active != false);
                 var page = new WatchAlertPage(items, null, false);
                 return alertGate is not null && alertCalls > 1
                     ? FakeHostReply.After(alertGate, page)
                     : FakeHostReply.Return(page);
             }),
         };
-        return new ScenarioScripts(new ScriptedFakeHost(scenario));
+        return new ScriptedFakeHost(scenario);
     }
 
     private static WatchOptions Options() => new()
@@ -312,13 +316,13 @@ internal sealed class WatchVisualScenario : IDisposable
             MesLastSeenAt: FixedNow.AddMinutes(-index),
             DisappearCount: visible ? index : 3,
             LocationRisk: index == 4,
-            LocationRiskCode: index == 4 ? "AREA_EQP_DRIFT" : null,
+            LocationRiskCode: index == 4 ? "AREA_UNPARSEABLE" : null,
             CreatedAt: FixedNow.AddDays(-1).AddMinutes(index),
             GoneAt: visible ? null : FixedNow.AddMinutes(-index)))
             .ToArray();
     }
 
-    internal static IReadOnlyList<WatchAlertDto> FakeAlerts(bool active, bool degraded = false)
+    internal static IReadOnlyList<WatchAlertDto> FakeAlerts(bool active)
     {
         var codes = new[]
         {
@@ -341,7 +345,7 @@ internal sealed class WatchVisualScenario : IDisposable
         return codes.Select((code, index) => new WatchAlertDto(
             AlertId: $"alert-{index + 1:00}",
             Code: code,
-            Severity: degraded && index == 0 || index % 2 == 0 ? "ERROR" : "WARNING",
+            Severity: index < 5 ? "ERROR" : "WARNING",
             TaskType: taskTypes[index],
             Sublot: $"Q260808-{index + 1:00}-超长子批号",
             DemandId: FakeDemands(visible: true)[index].DemandId,
@@ -355,8 +359,6 @@ internal sealed class WatchVisualScenario : IDisposable
             CreatedAt: FixedNow.AddMinutes(-30 - index)))
             .ToArray();
     }
-
-    private sealed record ScenarioScripts(ScriptedFakeHost Host);
 
     private sealed class FixedTimeProvider : TimeProvider
     {

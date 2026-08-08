@@ -1,9 +1,11 @@
 # MesIngest Watch UI tests
 
 This is the independent xUnit v3 test host for the production WPF Watch application.
-Tests create the real `WatchApplicationComposition` and replace only the Host boundary
-with `ScriptedFakeHost`, so production Host-session generation, cancellation, browse,
-and atomic UI commit behavior stay in the path under test.
+Tests create the real `WatchApplicationComposition` and replace the Host boundary with
+`ScriptedFakeHost`, so production Host-session generation, cancellation, browse, and
+atomic UI commit behavior stay in the path under test. Tests that assert time-dependent
+rendering may also inject a deterministic `TimeProvider`; no product state or projection
+boundary is replaced.
 
 Scenarios can repeat one response, return a deterministic response sequence, or select
 a response from the incoming query. Cursor-expiry replies use the same HTTP 400 shape
