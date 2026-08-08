@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows.Input;
 using System.Windows.Threading;
+using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
@@ -1301,7 +1302,7 @@ internal partial class MainWindow : Window
     }
 
     private async void SearchDemandFromAlert(
-        AlertDemandBusinessKey businessKey,
+        TransportDemandKey businessKey,
         AlertDetailWindow? window)
     {
         window?.SetLocateHint(null);

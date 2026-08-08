@@ -1,3 +1,4 @@
+using MesIngest.Core;
 using MesIngest.Watch;
 
 namespace MesIngest.Tests;
@@ -180,7 +181,7 @@ public class AlertDetailViewModelTests
             Sublot = null,
         });
 
-        Assert.Equal(new AlertDemandBusinessKey("DIE_TO_OVEN", "S1"), searchable.BusinessKeyTarget);
+        Assert.Equal(new TransportDemandKey("DIE_TO_OVEN", "S1"), searchable.BusinessKeyTarget);
         Assert.Null(exactWins.BusinessKeyTarget);
         Assert.Null(incomplete.BusinessKeyTarget);
     }

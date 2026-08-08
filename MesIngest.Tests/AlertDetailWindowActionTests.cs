@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using MesIngest.Core;
 using MesIngest.Watch;
 
 namespace MesIngest.Tests;
@@ -278,7 +279,7 @@ public class AlertDetailWindowActionTests
         {
             try
             {
-                var searched = new List<AlertDemandBusinessKey>();
+                var searched = new List<TransportDemandKey>();
                 var searchable = Alert("FIELD_DRIFT", demandId: null, details: "{}") with
                 {
                     TaskType = "DIE_TO_OVEN",
@@ -302,7 +303,7 @@ public class AlertDetailWindowActionTests
                     ((Button)searchableWindow.FindName("SearchBusinessKeyButton")).Content);
 
                 Click(searchableWindow, "SearchBusinessKeyButton");
-                Assert.Equal([new AlertDemandBusinessKey("DIE_TO_OVEN", "S1")], searched);
+                Assert.Equal([new TransportDemandKey("DIE_TO_OVEN", "S1")], searched);
                 searchableWindow.Close();
 
                 var unrelated = searchable with { TaskType = null, Sublot = null };

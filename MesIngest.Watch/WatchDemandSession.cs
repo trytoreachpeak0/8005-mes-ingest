@@ -240,79 +240,56 @@ internal sealed class WatchDemandSession : IDisposable
             Limit: 100);
         var previousState = State with { IsRefreshing = false };
         var previousArrivalCursors = _arrivalCursors.ToList();
-        var request = BeginRequest(cancellationToken);
-        State = State with { IsRefreshing = true, Notice = null };
-        try
+        WatchDemandDto? match = null;
+        var outcome = await FetchAndCommitAsync(
+                query,
+                page =>
+                {
+                    match = page.Items.FirstOrDefault(item => string.Equals(
+                        item.DemandId,
+                        demandId,
+                        StringComparison.OrdinalIgnoreCase));
+                    if (match is null)
+                    {
+                        return;
+                    }
+
+                    CommitFirstPage(query, page);
+                    State = State with { Draft = CreateDraft(query) };
+                    SelectDemand(match.DemandId);
+                },
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (outcome == WatchDemandBrowseOutcome.Superseded)
         {
-            var page = await _queries.FetchDemandPageAsync(query, request.Cancellation.Token)
-                .ConfigureAwait(false);
-            if (!IsCurrent(request))
-            {
-                return new WatchDemandExactLocateResult(
-                    WatchDemandExactLocateOutcome.Superseded,
-                    null);
-            }
+            return new WatchDemandExactLocateResult(
+                WatchDemandExactLocateOutcome.Superseded,
+                null);
+        }
 
-            if (request.Cancellation.IsCancellationRequested)
-            {
-                RestorePreviousState(previousState, previousArrivalCursors);
-                return new WatchDemandExactLocateResult(
-                    WatchDemandExactLocateOutcome.Canceled,
-                    null);
-            }
-
-            var match = page.Items.FirstOrDefault(item => string.Equals(
-                item.DemandId,
-                demandId,
-                StringComparison.OrdinalIgnoreCase));
-            if (match is null)
-            {
-                RestorePreviousState(previousState, previousArrivalCursors);
-                return new WatchDemandExactLocateResult(
-                    WatchDemandExactLocateOutcome.MissingFromPage,
-                    null);
-            }
-
-            CommitFirstPage(query, page);
-            State = State with { Draft = CreateDraft(query) };
-            SelectDemand(match.DemandId);
+        if (outcome == WatchDemandBrowseOutcome.Succeeded && match is not null)
+        {
             return new WatchDemandExactLocateResult(
                 WatchDemandExactLocateOutcome.Succeeded,
                 match);
         }
-        catch (OperationCanceledException) when (request.Cancellation.IsCancellationRequested)
-        {
-            if (!IsCurrent(request))
-            {
-                return new WatchDemandExactLocateResult(
-                    WatchDemandExactLocateOutcome.Superseded,
-                    null);
-            }
 
-            RestorePreviousState(previousState, previousArrivalCursors);
-            return new WatchDemandExactLocateResult(
+        var failure = State.Failure;
+        RestorePreviousState(previousState, previousArrivalCursors);
+        return outcome switch
+        {
+            WatchDemandBrowseOutcome.Succeeded => new(
+                WatchDemandExactLocateOutcome.MissingFromPage,
+                null),
+            WatchDemandBrowseOutcome.Canceled => new(
                 WatchDemandExactLocateOutcome.Canceled,
-                null);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            if (!IsCurrent(request))
-            {
-                return new WatchDemandExactLocateResult(
-                    WatchDemandExactLocateOutcome.Superseded,
-                    null);
-            }
-
-            RestorePreviousState(previousState, previousArrivalCursors);
-            return new WatchDemandExactLocateResult(
+                null),
+            _ => new(
                 WatchDemandExactLocateOutcome.Failed,
                 null,
-                ex);
-        }
-        finally
-        {
-            EndRequest(request);
-        }
+                failure),
+        };
     }
 
     private void RestorePreviousState(

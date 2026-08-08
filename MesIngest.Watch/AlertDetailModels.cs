@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
@@ -215,8 +216,6 @@ internal enum AlertDemandTargetKind
 
 internal sealed record AlertDemandTarget(string DemandId, AlertDemandTargetKind Kind);
 
-internal sealed record AlertDemandBusinessKey(string TaskType, string Sublot);
-
 internal sealed record ReappearDemandTargets(
     AlertDemandTarget? Previous,
     AlertDemandTarget? New)
@@ -326,12 +325,12 @@ internal sealed record AlertDetailViewModel(
 
     public bool HasReappearDemandTargets => ReappearTargets.HasAny;
 
-    public AlertDemandBusinessKey? BusinessKeyTarget =>
+    public TransportDemandKey? BusinessKeyTarget =>
         !HasReappearDemandTargets
         && string.IsNullOrWhiteSpace(DemandId)
         && !string.IsNullOrWhiteSpace(TaskType)
         && !string.IsNullOrWhiteSpace(Sublot)
-            ? new AlertDemandBusinessKey(TaskType.Trim(), Sublot.Trim())
+            ? new TransportDemandKey(TaskType.Trim(), Sublot.Trim())
             : null;
 
     public static AlertDetailViewModel From(WatchAlertDto alert, TimeZoneInfo? timeZone = null)

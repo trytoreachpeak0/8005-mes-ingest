@@ -1,12 +1,13 @@
 using System.Windows;
 using System.Windows.Media;
+using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
 internal partial class AlertDetailWindow : Window
 {
     private readonly Action<AlertDemandTarget>? _locateDemand;
-    private readonly Action<AlertDemandBusinessKey>? _searchBusinessKey;
+    private readonly Action<TransportDemandKey>? _searchBusinessKey;
     private readonly Action<string> _copyText;
     private readonly Func<string, CancellationToken, Task<WatchDemandDto?>>? _loadDemand;
     private CancellationTokenSource? _relatedDemandLoadCts;
@@ -15,7 +16,7 @@ internal partial class AlertDetailWindow : Window
     public AlertDetailWindow(
         AlertDetailViewModel viewModel,
         Action<AlertDemandTarget>? locateDemand = null,
-        Action<AlertDemandBusinessKey>? searchBusinessKey = null,
+        Action<TransportDemandKey>? searchBusinessKey = null,
         Action<string>? copyText = null,
         Func<string, CancellationToken, Task<WatchDemandDto?>>? loadDemand = null)
     {

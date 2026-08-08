@@ -1,3 +1,5 @@
+using MesIngest.Core;
+
 namespace MesIngest.Watch;
 
 internal enum AlertDemandNavigationOutcome
@@ -99,7 +101,7 @@ internal sealed class AlertDemandNavigator
     }
 
     public async Task<AlertDemandNavigationResult> SearchBusinessKeyAsync(
-        AlertDemandBusinessKey businessKey,
+        TransportDemandKey businessKey,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(businessKey);

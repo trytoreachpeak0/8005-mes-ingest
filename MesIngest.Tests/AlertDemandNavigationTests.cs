@@ -1,3 +1,4 @@
+using MesIngest.Core;
 using MesIngest.Watch;
 
 namespace MesIngest.Tests;
@@ -152,7 +153,7 @@ public class AlertDemandNavigationTests
         var navigator = new AlertDemandNavigator(queries, visibleSession, goneSession);
 
         var result = await navigator.SearchBusinessKeyAsync(
-            new AlertDemandBusinessKey("DIE_TO_OVEN", "S1"));
+            new TransportDemandKey("DIE_TO_OVEN", "S1"));
 
         Assert.Equal(AlertDemandNavigationOutcome.Succeeded, result.Outcome);
         Assert.Equal(WatchDemandViewKind.Visible, result.ViewKind);
