@@ -217,7 +217,7 @@ public class MainWindowStartupTests
     }
 
     [Fact]
-    public void Every_visible_alert_column_is_user_sortable()
+    public void Alert_columns_expose_sorting_only_for_the_host_allow_list()
     {
         Exception? caught = null;
         var ok = false;
@@ -235,15 +235,27 @@ public class MainWindowStartupTests
                         RefreshSeconds = 60,
                     });
                 var alerts = (DataGrid)window.FindName("AlertsGrid");
-                var disabledHeaders = alerts.Columns
-                    .Where(column => !column.CanUserSort)
+                var sortableHeaders = alerts.Columns
+                    .Where(column => column.CanUserSort)
                     .Select(column => column.Header?.ToString() ?? "")
                     .ToArray();
 
-                if (!alerts.CanUserSortColumns || disabledHeaders.Length != 0)
+                var expected = new[]
+                {
+                    "Code",
+                    "Severity",
+                    "AlertId",
+                    "last seen",
+                    "first seen",
+                    "TASK_TYPE",
+                    "SUBLOT",
+                    "DemandId",
+                    "Message",
+                };
+                if (!alerts.CanUserSortColumns || !sortableHeaders.SequenceEqual(expected))
                 {
                     throw new InvalidOperationException(
-                        $"All visible Alerts columns must sort; disabled=[{string.Join(",", disabledHeaders)}]");
+                        $"Unexpected sortable Alerts columns: [{string.Join(",", sortableHeaders)}]");
                 }
 
                 ok = true;

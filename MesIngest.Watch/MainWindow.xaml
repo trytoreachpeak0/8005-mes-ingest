@@ -177,68 +177,122 @@
             </Grid>
 
             <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
-                <TextBlock DockPanel.Dock="Top" Text="IngestAlert" FontSize="26" FontWeight="SemiBold" Margin="0,0,0,12" />
-                <GroupBox Header="IngestAlert">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="*" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <DataGrid x:Name="AlertsGrid"
-                                  Grid.Row="0"
-                                  AutoGenerateColumns="False"
-                                  IsReadOnly="True"
-                                  CanUserAddRows="False"
-                                  CanUserSortColumns="True"
-                                  HeadersVisibility="Column"
-                                  Sorting="OnAlertsSorting"
-                                  MouseDoubleClick="OnAlertsDoubleClick"
-                                  PreviewKeyDown="OnAlertsPreviewKeyDown"
-                                  PreviewMouseRightButtonDown="OnAlertsPreviewMouseRightButtonDown">
-                            <DataGrid.Columns>
-                                <DataGridTemplateColumn Header="Code" SortMemberPath="Code" Width="160" CanUserSort="True">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Button Content="{Binding Code}"
-                                                    Click="OnAlertViewDetailsClick"
-                                                    AutomationProperties.AutomationId="AlertDetailsButton"
-                                                    ToolTip="查看 Alert 详情"
-                                                    Cursor="Hand"
-                                                    Focusable="False"
-                                                    Padding="0"
-                                                    BorderThickness="0"
-                                                    Background="Transparent"
-                                                    Foreground="#FF1565C0"
-                                                    HorizontalContentAlignment="Left" />
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="90" CanUserSort="True" />
-                                <DataGridTextColumn Header="AlertId" Binding="{Binding AlertId}" Width="180" CanUserSort="True" />
-                                <DataGridTextColumn Header="last seen" Binding="{Binding LastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                                <DataGridTextColumn Header="first seen" Binding="{Binding FirstSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                                <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="160" CanUserSort="True" />
-                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" />
-                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
-                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="*" CanUserSort="True" />
-                            </DataGrid.Columns>
-                            <DataGrid.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="查看详情" Click="OnAlertViewDetailsMenu" />
-                                </ContextMenu>
-                            </DataGrid.ContextMenu>
-                        </DataGrid>
-                        <DockPanel Grid.Row="1" Margin="6,4,6,4">
-                            <Button x:Name="LoadMoreAlertsButton"
-                                    DockPanel.Dock="Right"
-                                    Content="Load more alerts"
-                                    Padding="10,2"
-                                    Click="OnLoadMoreAlertsClick"
-                                    IsEnabled="False" />
-                            <TextBlock x:Name="AlertCountText" VerticalAlignment="Center" Margin="0,0,12,0" />
-                        </DockPanel>
-                    </Grid>
-                </GroupBox>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="IngestAlert" FontSize="26" FontWeight="SemiBold" />
+                        <TextBlock Text="活动 / 已解除 · 独立服务端单页窗口 · 每页固定 100 行"
+                                   Foreground="#5F6B76"
+                                   Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="AlertRefreshButton" Content="刷新当前页" Padding="12,5" Click="OnAlertRefreshClick" />
+                        <Button x:Name="AlertCancelButton" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnAlertCancelClick" />
+                    </StackPanel>
+                </Grid>
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Border Grid.Row="0" Background="#FFF7F9FB" BorderBrush="#FFD8DEE5" BorderThickness="1" Padding="10" Margin="0,0,0,8">
+                        <StackPanel>
+                            <WrapPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="状态" />
+                                    <ComboBox x:Name="AlertActivityFilter" Width="110" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="Code" />
+                                    <ComboBox x:Name="AlertCodeFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="Severity" />
+                                    <ComboBox x:Name="AlertSeverityFilter" Width="120" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="LastSeenAt 起始（含时区）" />
+                                    <TextBox x:Name="AlertRangeFromFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Margin="0,0,12,0">
+                                    <TextBlock Text="LastSeenAt 结束（含时区）" />
+                                    <TextBox x:Name="AlertRangeToFilter" Width="220" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <Button x:Name="AlertQueryButton" Content="查询" Padding="16,5" Click="OnAlertQueryClick" />
+                                    <Button x:Name="AlertResetButton" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnAlertResetClick" />
+                                </StackPanel>
+                            </WrapPanel>
+                            <TextBlock x:Name="AlertValidationText" Foreground="#C62828" TextWrapping="Wrap" />
+                            <TextBlock x:Name="AlertCommittedQueryText" Margin="0,6,0,0" Foreground="#37474F" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                <TextBlock x:Name="AlertBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
+                                <TextBlock x:Name="AlertNoticeText" Margin="12,0,0,0" Foreground="#5F6B76" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <TextBlock x:Name="AlertCountText" Grid.Row="1" Margin="0,0,0,6" Foreground="#455A64" />
+                    <DataGrid x:Name="AlertsGrid"
+                              Grid.Row="2"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              CanUserAddRows="False"
+                              CanUserSortColumns="True"
+                              HeadersVisibility="Column"
+                              SelectionChanged="OnAlertSelectionChanged"
+                              Sorting="OnAlertsSorting"
+                              MouseDoubleClick="OnAlertsDoubleClick"
+                              PreviewKeyDown="OnAlertsPreviewKeyDown"
+                              PreviewMouseRightButtonDown="OnAlertsPreviewMouseRightButtonDown">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Header="Code" SortMemberPath="Code" Width="180" CanUserSort="True">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="{Binding Code}"
+                                                Click="OnAlertViewDetailsClick"
+                                                AutomationProperties.AutomationId="AlertDetailsButton"
+                                                ToolTip="查看 Alert 详情"
+                                                Cursor="Hand"
+                                                Focusable="False"
+                                                Padding="0"
+                                                BorderThickness="0"
+                                                Background="Transparent"
+                                                Foreground="#FF1565C0"
+                                                HorizontalContentAlignment="Left" />
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="90" CanUserSort="True" />
+                            <DataGridTextColumn Header="AlertId" Binding="{Binding AlertId}" Width="180" CanUserSort="True" />
+                            <DataGridTextColumn Header="last seen" Binding="{Binding LastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="first seen" Binding="{Binding FirstSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="180" CanUserSort="True" />
+                            <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="130" CanUserSort="True" />
+                            <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="260" CanUserSort="True" />
+                            <DataGridTextColumn Header="OccurrenceCount" Binding="{Binding OccurrenceCount}" Width="130" CanUserSort="False" />
+                            <DataGridTextColumn Header="IsActive" Binding="{Binding IsActive}" Width="90" CanUserSort="False" />
+                            <DataGridTextColumn Header="ResolvedAt" Binding="{Binding ResolvedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="False" />
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="查看详情" Click="OnAlertViewDetailsMenu" />
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+                    <DockPanel Grid.Row="3" Margin="6,6,6,4">
+                        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                            <Button x:Name="AlertPreviousButton" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
+                            <TextBlock x:Name="AlertPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
+                            <Button x:Name="AlertNextButton" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnAlertNextClick" />
+                        </StackPanel>
+                    </DockPanel>
+                </Grid>
             </DockPanel>
 
             <Grid x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">

@@ -11,7 +11,11 @@ internal sealed record WatchAlertBrowseQuery(
     string Direction = "desc",
     int Limit = 100,
     string? Cursor = null,
-    bool? Active = true)
+    bool? Active = true,
+    string? Code = null,
+    string? Severity = null,
+    DateTimeOffset? From = null,
+    DateTimeOffset? To = null)
 {
     public static WatchAlertBrowseQuery Default { get; } = new();
 
@@ -47,6 +51,23 @@ internal sealed record WatchAlertBrowseQuery(
         "message",
     ];
 
+    public bool TryApplySort(string? header, out WatchAlertBrowseQuery next)
+    {
+        var token = SortToken(header);
+        if (token is null)
+        {
+            next = this;
+            return false;
+        }
+
+        var direction = string.Equals(SortBy, token, StringComparison.Ordinal)
+            && string.Equals(Direction, "asc", StringComparison.Ordinal)
+                ? "desc"
+                : "asc";
+        next = this with { SortBy = token, Direction = direction };
+        return true;
+    }
+
     public string ToRelativeUrl()
     {
         var parts = new List<string>
@@ -70,9 +91,25 @@ internal sealed record WatchAlertBrowseQuery(
             parts.Add(Pair("cursor", Cursor));
         }
 
+        AddIfPresent(parts, "code", Code);
+        AddIfPresent(parts, "severity", Severity);
+        AddIfPresent(parts, "from", FormatOffset(From));
+        AddIfPresent(parts, "to", FormatOffset(To));
+
         return "/api/alerts?" + string.Join("&", parts);
     }
 
+    private static string? FormatOffset(DateTimeOffset? value) =>
+        value?.ToString("O", CultureInfo.InvariantCulture);
+
     private static string Pair(string name, string value) =>
         Uri.EscapeDataString(name) + "=" + Uri.EscapeDataString(value);
+
+    private static void AddIfPresent(List<string> parts, string name, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            parts.Add(Pair(name, value.Trim()));
+        }
+    }
 }

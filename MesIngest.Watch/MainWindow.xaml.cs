@@ -10,6 +10,7 @@ internal partial class MainWindow : Window
     private WatchBrowseSession _browse;
     private WatchDemandSession _visibleDemands;
     private WatchDemandSession _goneDemands;
+    private WatchAlertSession _alerts;
     private WatchOverviewSession _overview;
     private readonly WatchHostSession _hostSession;
     private readonly WatchOptions _options;
@@ -26,10 +27,12 @@ internal partial class MainWindow : Window
     private WatchPollHealthDto? _health;
     private bool _isOverviewRefreshing;
     private bool _isApplyingDemandProjection;
+    private bool _isApplyingAlertProjection;
     private bool _isResettingDemandViews;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private WatchRefreshState _visibleRefreshState = WatchRefreshState.Empty;
     private WatchRefreshState _goneRefreshState = WatchRefreshState.Empty;
+    private WatchRefreshState _alertRefreshState = WatchRefreshState.Empty;
     private WatchBannerHoldState _bannerHold = WatchBannerHoldState.Empty;
     private CancellationTokenSource? _refreshCancellation;
     private long _hostGeneration;
@@ -49,6 +52,14 @@ internal partial class MainWindow : Window
         DemandTaskTypeFilter.ItemsSource =
             new[] { string.Empty }.Concat(WatchDemandDraft.ProductionTaskTypes).ToArray();
         DemandTaskTypeFilter.SelectedIndex = 0;
+        AlertActivityFilter.ItemsSource = new[] { "活动", "已解除" };
+        AlertActivityFilter.SelectedIndex = 0;
+        AlertCodeFilter.ItemsSource =
+            new[] { string.Empty }.Concat(WatchAlertDraft.ProductionCodes).ToArray();
+        AlertCodeFilter.SelectedIndex = 0;
+        AlertSeverityFilter.ItemsSource =
+            new[] { string.Empty }.Concat(WatchAlertDraft.Severities).ToArray();
+        AlertSeverityFilter.SelectedIndex = 0;
         WatchGridClipboardBehavior.Attach(DemandsGrid);
         WatchGridClipboardBehavior.Attach(AlertsGrid);
         _client = client;
@@ -56,6 +67,7 @@ internal partial class MainWindow : Window
         _browse = new WatchBrowseSession(client);
         _visibleDemands = new WatchDemandSession(client);
         _goneDemands = new WatchDemandSession(client, WatchDemandViewKind.Gone);
+        _alerts = new WatchAlertSession(client);
         _overview = new WatchOverviewSession(client);
         if (hostAdapterFactory is null)
         {
@@ -128,6 +140,7 @@ internal partial class MainWindow : Window
             _refreshCancellation?.Dispose();
             _visibleDemands.Dispose();
             _goneDemands.Dispose();
+            _alerts.Dispose();
             _hostSession.Dispose();
             _bootstrapClient?.Dispose();
             _bootstrapClient = null;
@@ -145,6 +158,7 @@ internal partial class MainWindow : Window
 
         _refreshCancellation?.Cancel();
         ActiveDemandSession.CancelActive(userInitiated: false);
+        _alerts.CancelActive(userInitiated: false);
         var selected = PrimaryNavigation.SelectedIndex;
         OverviewPage.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -159,13 +173,18 @@ internal partial class MainWindow : Window
         }
         else if (IsLoaded && selected == 2)
         {
-            _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+            if (_alerts.State.LastSuccessfulAt is null)
+            {
+                _ = RunAlertOperationAsync(_alerts.LoadInitialAsync);
+            }
         }
     }
 
     private void OnOverviewAlertsClick(object sender, RoutedEventArgs e)
     {
-        _browse = new WatchBrowseSession(_hostSession);
+        _alerts.Dispose();
+        _alerts = new WatchAlertSession(_hostSession);
+        ApplyAlertDraftToControls(_alerts.State.Draft);
         PrimaryNavigation.SelectedIndex = 2;
     }
 
@@ -232,6 +251,7 @@ internal partial class MainWindow : Window
         _refreshState = WatchRefreshState.Empty;
         _visibleRefreshState = WatchRefreshState.Empty;
         _goneRefreshState = WatchRefreshState.Empty;
+        _alertRefreshState = WatchRefreshState.Empty;
         _bannerHold = WatchBannerHoldState.Empty;
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
@@ -239,6 +259,8 @@ internal partial class MainWindow : Window
         _visibleDemands = new WatchDemandSession(_hostSession);
         _goneDemands.Dispose();
         _goneDemands = new WatchDemandSession(_hostSession, WatchDemandViewKind.Gone);
+        _alerts.Dispose();
+        _alerts = new WatchAlertSession(_hostSession);
         _overview = new WatchOverviewSession(_hostSession);
 
         foreach (var detail in _openAlertDetails.Values.ToArray())
@@ -255,6 +277,7 @@ internal partial class MainWindow : Window
         }
         _openAlertDetailsWithoutId.Clear();
         ResetDemandTabsToVisible();
+        ApplyAlertDraftToControls(_alerts.State.Draft);
         DemandsGrid.SelectedItem = null;
         AlertsGrid.SelectedItem = null;
         PrimaryNavigation.SelectedIndex = 0;
@@ -520,24 +543,70 @@ internal partial class MainWindow : Window
     private void OnAlertsSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        if (!_browse.TryApplyAlertSort(e.Column.Header?.ToString()))
+        if (WatchAlertBrowseQuery.SortToken(e.Column.Header?.ToString()) is null)
         {
             return;
         }
 
-        ApplyAlertSortGlyphs();
-        _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
+        _ = RunAlertOperationAsync(
+            token => _alerts.ApplySortAsync(e.Column.Header?.ToString(), token));
     }
 
-    private async void OnLoadMoreAlertsClick(object sender, RoutedEventArgs e)
+    private void OnAlertSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_browse.AlertsHasMore || string.IsNullOrWhiteSpace(_browse.AlertsNextCursor))
+        if (_isApplyingAlertProjection)
         {
             return;
         }
 
-        await RefreshAsync(WatchBrowseRefreshKind.AppendAlerts).ConfigureAwait(true);
+        _alerts.SelectAlert((AlertsGrid.SelectedItem as WatchAlertDto)?.AlertId);
     }
+
+    private WatchAlertDraft ReadAlertDraft() => new(
+        Active: AlertActivityFilter.SelectedIndex != 1,
+        Code: NullIfBlank(AlertCodeFilter.SelectedValue?.ToString()),
+        Severity: NullIfBlank(AlertSeverityFilter.SelectedValue?.ToString()),
+        LastSeenAtFrom: AlertRangeFromFilter.Text,
+        LastSeenAtTo: AlertRangeToFilter.Text);
+
+    private void ApplyAlertDraftToControls(WatchAlertDraft draft)
+    {
+        AlertActivityFilter.SelectedIndex = draft.Active ? 0 : 1;
+        AlertCodeFilter.SelectedValue = draft.Code ?? string.Empty;
+        AlertSeverityFilter.SelectedValue = draft.Severity ?? string.Empty;
+        AlertRangeFromFilter.Text = draft.LastSeenAtFrom ?? string.Empty;
+        AlertRangeToFilter.Text = draft.LastSeenAtTo ?? string.Empty;
+    }
+
+    private async void OnAlertQueryClick(object sender, RoutedEventArgs e)
+    {
+        _alerts.UpdateDraft(ReadAlertDraft());
+        await RunAlertOperationAsync(_alerts.SubmitDraftAsync).ConfigureAwait(true);
+    }
+
+    private async void OnAlertResetClick(object sender, RoutedEventArgs e)
+    {
+        var outcome = await RunAlertOperationAsync(_alerts.ResetAsync).ConfigureAwait(true);
+        if (outcome == WatchAlertBrowseOutcome.Succeeded)
+        {
+            ApplyAlertDraftToControls(_alerts.State.Draft);
+        }
+    }
+
+    private async void OnAlertRefreshClick(object sender, RoutedEventArgs e) =>
+        await RunAlertOperationAsync(_alerts.RefreshCurrentAsync).ConfigureAwait(true);
+
+    private void OnAlertCancelClick(object sender, RoutedEventArgs e)
+    {
+        _alerts.CancelActive(userInitiated: true);
+        ApplyProjection();
+    }
+
+    private async void OnAlertPreviousClick(object sender, RoutedEventArgs e) =>
+        await RunAlertOperationAsync(_alerts.MovePreviousAsync).ConfigureAwait(true);
+
+    private async void OnAlertNextClick(object sender, RoutedEventArgs e) =>
+        await RunAlertOperationAsync(_alerts.MoveNextAsync).ConfigureAwait(true);
 
     private WatchDemandDraft ReadDemandDraft(WatchDemandViewKind viewKind) => new(
         TaskType: NullIfBlank(DemandTaskTypeFilter.SelectedValue?.ToString()),
@@ -582,7 +651,9 @@ internal partial class MainWindow : Window
         }
         else if (outcome == WatchDemandBrowseOutcome.Failed && session.State.Failure is { } failure)
         {
-            var (message, endpoint, stage, elapsed, correlationId) = FormatVisibleDemandFailure(failure);
+            var (message, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
+                failure,
+                "/api/demands");
             SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplyFailure(message));
             RecordConnectionEvent(_connectionRecorder.ObserveFailure(
                 now,
@@ -598,8 +669,47 @@ internal partial class MainWindow : Window
         return outcome;
     }
 
+    private async Task<WatchAlertBrowseOutcome> RunAlertOperationAsync(
+        Func<CancellationToken, Task<WatchAlertBrowseOutcome>> operation)
+    {
+        var generation = _hostGeneration;
+        var session = _alerts;
+        var pending = operation(CancellationToken.None);
+        ApplyProjection();
+        var outcome = await pending.ConfigureAwait(true);
+        if (generation != _hostGeneration || !ReferenceEquals(session, _alerts))
+        {
+            return WatchAlertBrowseOutcome.Superseded;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (outcome == WatchAlertBrowseOutcome.Succeeded)
+        {
+            _alertRefreshState = _alertRefreshState.ApplySuccess(now);
+            RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+        }
+        else if (outcome == WatchAlertBrowseOutcome.Failed && session.State.Failure is { } failure)
+        {
+            var (message, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
+                failure,
+                "/api/alerts");
+            _alertRefreshState = _alertRefreshState.ApplyFailure(message);
+            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                now,
+                endpoint,
+                stage,
+                elapsed,
+                _options.RequestTimeoutSeconds,
+                message,
+                correlationId));
+        }
+
+        ApplyProjection();
+        return outcome;
+    }
+
     private (string Message, string Endpoint, string Stage, TimeSpan Elapsed, string? CorrelationId)
-        FormatVisibleDemandFailure(Exception failure)
+        FormatBrowseFailure(Exception failure, string defaultEndpoint)
     {
         if (failure is WatchEndpointFetchException endpointFailure)
         {
@@ -625,9 +735,9 @@ internal partial class MainWindow : Window
         }
 
         return (
-            $"endpoint=/api/demands stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} "
+            $"endpoint={defaultEndpoint} stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} "
             + $"elapsedMs=0 {failure.Message}",
-            "/api/demands",
+            defaultEndpoint,
             "HTTP_ERROR",
             TimeSpan.Zero,
             null);
@@ -638,6 +748,12 @@ internal partial class MainWindow : Window
         if (PrimaryNavigation.SelectedIndex == 1)
         {
             await RunDemandOperationAsync(ActiveDemandSession.RefreshCurrentAsync).ConfigureAwait(true);
+            return;
+        }
+
+        if (PrimaryNavigation.SelectedIndex == 2)
+        {
+            await RunAlertOperationAsync(_alerts.RefreshCurrentAsync).ConfigureAwait(true);
             return;
         }
 
@@ -841,6 +957,7 @@ internal partial class MainWindow : Window
     private void ApplyProjection()
     {
         var demand = ActiveDemandSession.State;
+        var alert = _alerts.State;
         _isApplyingDemandProjection = true;
         try
         {
@@ -857,7 +974,21 @@ internal partial class MainWindow : Window
             _isApplyingDemandProjection = false;
         }
         ApplyDemandDetails(demand.SelectedDemand);
-        AlertsGrid.ItemsSource = _browse.Alerts;
+        _isApplyingAlertProjection = true;
+        try
+        {
+            AlertsGrid.ItemsSource = alert.Items;
+            AlertsGrid.SelectedItem = alert.SelectedAlertId is null
+                ? null
+                : alert.Items.FirstOrDefault(item => string.Equals(
+                    item.AlertId,
+                    alert.SelectedAlertId,
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            _isApplyingAlertProjection = false;
+        }
         DemandPreviousButton.IsEnabled = demand.CanMovePrevious;
         DemandNextButton.IsEnabled = demand.CanMoveNext;
         DemandRefreshButton.IsEnabled = demand.LastSuccessfulAt is not null;
@@ -875,8 +1006,17 @@ internal partial class MainWindow : Window
             : "VISIBLE · 独立服务端单页窗口 · 每页固定 100 行";
         DemandRangeFromLabel.Text = isGone ? "GoneAt 起始（含时区）" : "DATES 起始（含时区）";
         DemandRangeToLabel.Text = isGone ? "GoneAt 结束（含时区）" : "DATES 结束（含时区）";
-        LoadMoreAlertsButton.IsEnabled =
-            _browse.AlertsHasMore && !string.IsNullOrWhiteSpace(_browse.AlertsNextCursor);
+        AlertPreviousButton.IsEnabled = alert.CanMovePrevious;
+        AlertNextButton.IsEnabled = alert.CanMoveNext;
+        AlertRefreshButton.IsEnabled = alert.LastSuccessfulAt is not null;
+        AlertCancelButton.IsEnabled = alert.IsRefreshing;
+        AlertQueryButton.IsEnabled = true;
+        AlertResetButton.IsEnabled = true;
+        AlertBusyText.Visibility = alert.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
+        AlertValidationText.Text = alert.ValidationError ?? string.Empty;
+        AlertNoticeText.Text = alert.Notice ?? string.Empty;
+        AlertPageText.Text = $"第 {alert.PageNumber} 页";
+        AlertCommittedQueryText.Text = FormatCommittedAlertQuery(alert.CommittedQuery);
         RowCountText.Text = demand.LastSuccessfulAt is null
             ? "尚无成功窗口"
             : demand.Items.Count == 0
@@ -884,19 +1024,27 @@ internal partial class MainWindow : Window
                 : demand.HasMore
                     ? $"当前页 {demand.Items.Count} 行 · 还有下一页 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
                     : $"当前页 {demand.Items.Count} 行 · 已到末页 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
-        AlertCountText.Text = _browse.AlertsHasMore
-            ? $"loaded {_browse.Alerts.Count} alerts · more available"
-            : $"loaded {_browse.Alerts.Count} alerts · end of results";
+        AlertCountText.Text = alert.LastSuccessfulAt is null
+            ? "尚无成功窗口"
+            : alert.Items.Count == 0
+                ? $"当前查询无结果 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                : alert.HasMore
+                    ? $"当前页 {alert.Items.Count} 行 · 还有下一页 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
+                    : $"当前页 {alert.Items.Count} 行 · 已到末页 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
 
         var now = DateTimeOffset.UtcNow;
-        var pageRefreshState = PrimaryNavigation.SelectedIndex == 1
-            ? ActiveDemandRefreshState
-            : _refreshState;
+        var pageRefreshState = PrimaryNavigation.SelectedIndex switch
+        {
+            1 => ActiveDemandRefreshState,
+            2 => _alertRefreshState,
+            _ => _refreshState,
+        };
+        var activeAlertEvidence = _overview.State.Alerts.Items;
         var banner = WatchBannerProjection.Project(
             _bannerHold,
             _health,
             pageRefreshState.FetchError,
-            _browse.Alerts,
+            activeAlertEvidence,
             now);
         _bannerHold = banner.HoldState;
 
@@ -909,7 +1057,7 @@ internal partial class MainWindow : Window
         var status = WatchStatusBarState.Project(
             _health,
             pageRefreshState,
-            _browse.Alerts,
+            activeAlertEvidence,
             _options.BaseUrl,
             now,
             recoveryMessage: banner.RecoveryMessage);
@@ -1000,6 +1148,39 @@ internal partial class MainWindow : Window
         return string.Join(" · ", filters);
     }
 
+    private static string FormatCommittedAlertQuery(WatchAlertBrowseQuery query)
+    {
+        var filters = new List<string>
+        {
+            $"已提交：active={query.Active?.ToString().ToLowerInvariant()}",
+            "limit=100",
+        };
+        if (!string.IsNullOrWhiteSpace(query.Code))
+        {
+            filters.Add($"Code={query.Code}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Severity))
+        {
+            filters.Add($"Severity={query.Severity}");
+        }
+
+        if (query.From is not null)
+        {
+            filters.Add($"LastSeenAt from {query.From:O}");
+        }
+
+        if (query.To is not null)
+        {
+            filters.Add($"LastSeenAt to {query.To:O}");
+        }
+
+        filters.Add(query.SortBy is null
+            ? "Host 默认优先级排序"
+            : $"sortBy={query.SortBy} · direction={query.Direction}");
+        return string.Join(" · ", filters);
+    }
+
     private void OnAlertsDoubleClick(object sender, MouseButtonEventArgs e) => OpenSelectedAlertDetail();
 
     private void OnAlertsPreviewKeyDown(object sender, KeyEventArgs e)
@@ -1085,7 +1266,7 @@ internal partial class MainWindow : Window
 
     private void SyncOpenAlertDetails()
     {
-        var byId = _browse.Alerts
+        var byId = _alerts.State.Items
             .Where(a => !string.IsNullOrWhiteSpace(a.AlertId))
             .GroupBy(a => a.AlertId!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
@@ -1181,8 +1362,9 @@ internal partial class MainWindow : Window
 
     private void ApplyAlertSortGlyphs()
     {
-        var alertSort = _browse.AlertQuery.SortBy;
-        var ascending = string.Equals(_browse.AlertQuery.Direction, "asc", StringComparison.Ordinal);
+        var committed = _alerts.State.CommittedQuery;
+        var alertSort = committed.SortBy;
+        var ascending = string.Equals(committed.Direction, "asc", StringComparison.Ordinal);
         foreach (var column in AlertsGrid.Columns)
         {
             var token = WatchAlertBrowseQuery.SortToken(column.Header?.ToString());
