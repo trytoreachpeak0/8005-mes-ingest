@@ -851,6 +851,35 @@ public sealed class WatchCompositionRootTests
         });
     }
 
+    [Fact]
+    public void Injected_clock_controls_rendered_refresh_times_for_deterministic_visuals()
+    {
+        RunInSta(() =>
+        {
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("fixed-visual-clock"));
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-clock-{Guid.NewGuid():N}");
+            var clock = new ManualTimeProvider(
+                DateTimeOffset.Parse("2001-02-03T04:05:06Z"));
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"),
+                timeProvider: clock);
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            var refreshContext = (TextBlock)window.FindName("PageRefreshContextText");
+            PumpUntil(() => !refreshContext.Text.Contains("lastSuccess=(none)", StringComparison.Ordinal));
+
+            Assert.Contains(
+                "2001-02-03",
+                refreshContext.Text,
+                StringComparison.Ordinal);
+            window.Close();
+        });
+    }
+
     private static WatchOptions FakeOptions() => new()
     {
         BaseUrl = "http://fake-watch.test",

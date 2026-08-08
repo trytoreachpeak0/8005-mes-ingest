@@ -8,6 +8,9 @@
         Width="1180"
         MinHeight="600"
         MinWidth="720"
+        FontFamily="Microsoft YaHei UI"
+        TextOptions.TextFormattingMode="Display"
+        TextOptions.TextRenderingMode="ClearType"
         Background="{DynamicResource WatchBackgroundBrush}"
         AutomationProperties.Name="MesIngestWatch 主窗口"
         KeyboardNavigation.TabNavigation="Continue">

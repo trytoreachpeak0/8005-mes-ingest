@@ -22,6 +22,7 @@ internal partial class MainWindow : Window
     private readonly string _autoRefreshPreferencesPath;
     private readonly string _connectionPreferencesPath;
     private readonly WatchAutoRefreshSchedule _autoRefresh;
+    private readonly TimeProvider _timeProvider;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _bannerHoldTimer;
     private readonly WatchRefreshAdmission _refreshAdmission = new();
@@ -59,6 +60,7 @@ internal partial class MainWindow : Window
         TimeProvider? timeProvider = null)
     {
         InitializeComponent();
+        _timeProvider = timeProvider ?? TimeProvider.System;
         DemandTaskTypeFilter.ItemsSource =
             new[] { string.Empty }.Concat(WatchDemandDraft.ProductionTaskTypes).ToArray();
         DemandTaskTypeFilter.SelectedIndex = 0;
@@ -78,7 +80,7 @@ internal partial class MainWindow : Window
         _visibleDemands = new WatchDemandSession(client);
         _goneDemands = new WatchDemandSession(client, WatchDemandViewKind.Gone);
         _alerts = new WatchAlertSession(client);
-        _overview = new WatchOverviewSession(client);
+        _overview = new WatchOverviewSession(client, () => _timeProvider.GetUtcNow());
         if (hostAdapterFactory is null)
         {
             var bootstrapAvailable = true;
@@ -112,7 +114,7 @@ internal partial class MainWindow : Window
                 : Path.ChangeExtension(layoutPreferencesPath, ".connection.json"));
         _autoRefresh = new WatchAutoRefreshSchedule(
             WatchAutoRefreshPreferencesStore.Load(_autoRefreshPreferencesPath),
-            timeProvider);
+            _timeProvider);
         _telemetryIoDiagnostics = telemetryIoDiagnostics ?? new WatchTelemetryIoDiagnosticBuffer();
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(
             options,
@@ -513,7 +515,7 @@ internal partial class MainWindow : Window
         _goneDemands = new WatchDemandSession(_hostSession, WatchDemandViewKind.Gone);
         _alerts.Dispose();
         _alerts = new WatchAlertSession(_hostSession);
-        _overview = new WatchOverviewSession(_hostSession);
+        _overview = new WatchOverviewSession(_hostSession, () => _timeProvider.GetUtcNow());
 
         foreach (var detail in _openAlertDetails.Values.ToArray())
         {
@@ -965,7 +967,7 @@ internal partial class MainWindow : Window
                 return WatchDemandBrowseOutcome.Superseded;
             }
 
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow();
             if (outcome == WatchDemandBrowseOutcome.Succeeded)
             {
                 SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(now));
@@ -1013,7 +1015,7 @@ internal partial class MainWindow : Window
                 return WatchAlertBrowseOutcome.Superseded;
             }
 
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow();
             if (outcome == WatchAlertBrowseOutcome.Succeeded)
             {
                 _alertRefreshState = _alertRefreshState.ApplySuccess(now);
@@ -1130,7 +1132,7 @@ internal partial class MainWindow : Window
         try
         {
             var query = WatchDemandBrowseQuery.Default;
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow();
 
             if (PrimaryNavigation.SelectedIndex == 0
                 && kind is not WatchBrowseRefreshKind.Append
@@ -1210,7 +1212,7 @@ internal partial class MainWindow : Window
         }
         catch (WatchEndpointFetchException ex)
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow();
             var failureMessage = ex.FormatForBanner(
                 _options.RequestTimeoutSeconds,
                 Guid.NewGuid().ToString("N"));
@@ -1227,7 +1229,7 @@ internal partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow();
             var failureMessage =
                 $"endpoint=(unknown) stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} elapsedMs=0 {ex.Message}";
             var message = failureMessage;
@@ -1394,7 +1396,7 @@ internal partial class MainWindow : Window
                     ? $"当前页 {alert.Items.Count} 行 · 还有下一页 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}"
                     : $"当前页 {alert.Items.Count} 行 · 已到末页 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}";
 
-        var now = DateTimeOffset.UtcNow;
+        var now = UtcNow();
         var pageRefreshState = PrimaryNavigation.SelectedIndex switch
         {
             1 => ActiveDemandRefreshState,
@@ -1746,7 +1748,7 @@ internal partial class MainWindow : Window
 
         PrimaryNavigation.SelectedIndex = 1;
         ApplyDemandDraftToControls(targetSession.State.Draft);
-        SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(DateTimeOffset.UtcNow));
+        SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(UtcNow()));
         ApplyProjection();
         if (result.Demand is { } demand)
         {
@@ -1778,6 +1780,8 @@ internal partial class MainWindow : Window
                 : null;
         }
     }
+
+    private DateTimeOffset UtcNow() => _timeProvider.GetUtcNow();
 
     private void ApplyAlertSortGlyphs()
     {

@@ -235,6 +235,13 @@ public class WatchV2ShellTests
 
             Assert.Equal(720, window.MinWidth);
             Assert.Equal(600, window.MinHeight);
+            Assert.Equal("Microsoft YaHei UI", window.FontFamily.Source);
+            Assert.Equal(
+                System.Windows.Media.TextFormattingMode.Display,
+                System.Windows.Media.TextOptions.GetTextFormattingMode(window));
+            Assert.Equal(
+                System.Windows.Media.TextRenderingMode.ClearType,
+                System.Windows.Media.TextOptions.GetTextRenderingMode(window));
             Assert.IsType<WrapPanel>(window.FindName("OverviewHeaderPanel"));
             Assert.IsType<WrapPanel>(window.FindName("AlertHeaderPanel"));
             Assert.IsType<WrapPanel>(window.FindName("DemandHeaderPanel"));
