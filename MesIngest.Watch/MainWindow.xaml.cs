@@ -448,6 +448,9 @@ internal partial class MainWindow : Window
 
     private async void OnApplyHostClick(object sender, RoutedEventArgs e)
     {
+        SettingsValidationText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "WatchErrorBrush");
         SettingsValidationText.Text = string.Empty;
         if (!int.TryParse(
                 RequestTimeoutInput.Text,
@@ -711,6 +714,9 @@ internal partial class MainWindow : Window
     {
         ApplyWindowLayout(WatchWindowLayout.Default);
         SaveWindowLayout();
+        SettingsValidationText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            "WatchSecondaryTextBrush");
         SettingsValidationText.Text = "已恢复默认窗口大小和详情分隔位置。";
     }
 

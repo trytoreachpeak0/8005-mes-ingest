@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Media;
 using MesIngest.Core;
 
 namespace MesIngest.Watch;
@@ -21,6 +20,9 @@ internal partial class AlertDetailWindow : Window
         Func<string, CancellationToken, Task<WatchDemandDto?>>? loadDemand = null)
     {
         InitializeComponent();
+        var workArea = SystemParameters.WorkArea;
+        Width = Math.Max(MinWidth, Math.Min(Width, workArea.Width));
+        Height = Math.Max(MinHeight, Math.Min(Height, workArea.Height));
         _viewModel = viewModel;
         _locateDemand = locateDemand;
         _searchBusinessKey = searchBusinessKey;
@@ -71,9 +73,9 @@ internal partial class AlertDetailWindow : Window
         SnapshotStatusText.Text = _viewModel.IsHistoricalSnapshot
             ? _viewModel.SnapshotStatusText
             : $"Status: {_viewModel.SnapshotStatusText}";
-        SnapshotStatusText.Foreground = _viewModel.IsHistoricalSnapshot
-            ? new SolidColorBrush(Color.FromRgb(0xBF, 0x36, 0x0C))
-            : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
+        SnapshotStatusText.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            _viewModel.IsHistoricalSnapshot ? "WatchWarningBrush" : "WatchTextBrush");
 
         AlertIdText.Text = _viewModel.AlertId ?? string.Empty;
         CodeText.Text = _viewModel.Code;

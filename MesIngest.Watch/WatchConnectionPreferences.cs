@@ -3,19 +3,19 @@ using System.Text.Json;
 
 namespace MesIngest.Watch;
 
-internal static class WatchCredentialReference
+internal enum WatchCredentialReference
 {
     /// <summary>
     /// The credential remains in the existing external configuration boundary
     /// (MesIngestWatch__SharedSecret or appsettings.Local.json); no secret is persisted here.
     /// </summary>
-    public const string ExternalConfiguration = "external-configuration";
+    ExternalConfiguration,
 }
 
 internal sealed record WatchConnectionPreferences(
     string BaseUrl,
     int RequestTimeoutSeconds,
-    string CredentialReference)
+    WatchCredentialReference CredentialReference)
 {
     public static WatchConnectionPreferences Default { get; } = new(
         "http://127.0.0.1:5088",
@@ -60,11 +60,18 @@ internal static class WatchConnectionPreferencesStore
                 JsonOptions);
             return document is not null
                 && document.Version == CurrentVersion
-                && IsSafe(document.BaseUrl, document.RequestTimeoutSeconds, document.CredentialReference)
+                && string.Equals(
+                    document.CredentialReference,
+                    "external-configuration",
+                    StringComparison.Ordinal)
+                && IsSafe(
+                    document.BaseUrl,
+                    document.RequestTimeoutSeconds,
+                    WatchCredentialReference.ExternalConfiguration)
                 ? new WatchConnectionPreferences(
                     document.BaseUrl!.TrimEnd('/'),
                     document.RequestTimeoutSeconds,
-                    document.CredentialReference!)
+                    WatchCredentialReference.ExternalConfiguration)
                 : fallback;
         }
         catch (Exception ex) when (ex is IOException
@@ -98,18 +105,18 @@ internal static class WatchConnectionPreferencesStore
             CurrentVersion,
             preferences.BaseUrl.TrimEnd('/'),
             preferences.RequestTimeoutSeconds,
-            WatchCredentialReference.ExternalConfiguration);
+            "external-configuration");
         File.WriteAllText(fullPath, JsonSerializer.Serialize(document, JsonOptions));
     }
 
-    private static bool IsSafe(string? baseUrl, int timeoutSeconds, string? credentialReference) =>
+    private static bool IsSafe(
+        string? baseUrl,
+        int timeoutSeconds,
+        WatchCredentialReference credentialReference) =>
         Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
         && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
         && timeoutSeconds is >= 1 and <= 300
-        && string.Equals(
-            credentialReference,
-            WatchCredentialReference.ExternalConfiguration,
-            StringComparison.Ordinal);
+        && credentialReference == WatchCredentialReference.ExternalConfiguration;
 
     private sealed record PreferenceDocument(
         int Version,

@@ -12,17 +12,11 @@
         AutomationProperties.Name="MesIngestWatch 主窗口"
         KeyboardNavigation.TabNavigation="Continue">
     <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="WatchTheme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
         <local:LocalDateTimeOffsetConverter x:Key="LocalTime" />
-        <SolidColorBrush x:Key="WatchBackgroundBrush" Color="#FFFFFF" />
-        <SolidColorBrush x:Key="WatchSurfaceBrush" Color="#F7F9FB" />
-        <SolidColorBrush x:Key="WatchNavigationBrush" Color="#F3F5F7" />
-        <SolidColorBrush x:Key="WatchBorderBrush" Color="#D8DEE4" />
-        <SolidColorBrush x:Key="WatchTextBrush" Color="#263238" />
-        <SolidColorBrush x:Key="WatchSecondaryTextBrush" Color="#455A64" />
-        <SolidColorBrush x:Key="WatchMutedTextBrush" Color="#5F6B76" />
-        <SolidColorBrush x:Key="WatchAccentBrush" Color="#1565C0" />
-        <SolidColorBrush x:Key="WatchWarningBrush" Color="#EF6C00" />
-        <SolidColorBrush x:Key="WatchErrorBrush" Color="#C62828" />
         <DataTemplate x:Key="DemandDetailFieldTemplate">
             <Grid Margin="0,2,0,6">
                 <Grid.ColumnDefinitions>
@@ -53,6 +47,7 @@
                            TextWrapping="Wrap" />
             </Grid>
         </DataTemplate>
+        </ResourceDictionary>
     </Window.Resources>
     <Grid Margin="12">
         <Grid.ColumnDefinitions>

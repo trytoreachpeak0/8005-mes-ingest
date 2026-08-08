@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using MesIngest.Core;
 using MesIngest.Watch;
@@ -11,6 +12,68 @@ namespace MesIngest.Tests;
 /// </summary>
 public class AlertDetailWindowActionTests
 {
+    [Fact]
+    public void Detail_and_related_actions_share_accessible_responsive_watch_chrome()
+    {
+        Exception? caught = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var window = new AlertDetailWindow(AlertDetailViewModel.From(Alert(
+                    code: "REAPPEAR_AFTER_GONE",
+                    demandId: "new-visible-id",
+                    details: """{"previousDemandId":"previous-gone-id","newDemandId":"new-visible-id"}""")));
+                var expectedNames = new Dictionary<string, string>
+                {
+                    ["CopySummaryButton"] = "复制 IngestAlert 摘要",
+                    ["CopyDetailsButton"] = "复制 IngestAlert Details JSON",
+                    ["CopyDemandIdButton"] = "复制关联 TransportDemand DemandId",
+                    ["LocateDemandButton"] = "精确查看关联 TransportDemand",
+                    ["CopyPreviousDemandIdButton"] = "复制先前 GONE DemandId",
+                    ["LocatePreviousDemandButton"] = "精确查看先前 GONE TransportDemand",
+                    ["CopyNewDemandIdButton"] = "复制当前再现 DemandId",
+                    ["LocateNewDemandButton"] = "精确查看当前再现 TransportDemand",
+                    ["SearchBusinessKeyButton"] = "按 TASK_TYPE 和 SUBLOT 查当前 VISIBLE TransportDemand",
+                    ["RelatedDemandGrid"] = "关联 TransportDemand 快照",
+                    ["FieldDriftGrid"] = "IngestAlert 字段漂移详情",
+                    ["KeyValueGrid"] = "IngestAlert 键值详情",
+                };
+
+                Assert.True(window.Width <= 960, "150% DPI on a 1440px-wide desktop leaves about 960 DIPs");
+                Assert.True(window.Height <= 600, "150% DPI on a 900px-high desktop leaves about 600 DIPs");
+                Assert.True(window.MinWidth <= 720);
+                Assert.IsType<WrapPanel>(window.FindName("AlertDetailActionPanel"));
+                foreach (var (controlName, expectedName) in expectedNames)
+                {
+                    var control = Assert.IsAssignableFrom<DependencyObject>(window.FindName(controlName));
+                    Assert.Equal(expectedName, AutomationProperties.GetName(control));
+                }
+                foreach (var token in new[]
+                         {
+                             "WatchSurfaceBrush",
+                             "WatchBorderBrush",
+                             "WatchTextBrush",
+                             "WatchMutedTextBrush",
+                             "WatchWarningBrush",
+                             "WatchErrorBrush",
+                         })
+                {
+                    Assert.NotNull(window.FindResource(token));
+                }
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "Alert detail accessibility test did not finish");
+        Assert.Null(caught);
+    }
+
     [Fact]
     public void Reappear_detail_loads_complete_previous_and_new_demands_and_marks_changed_rows()
     {
