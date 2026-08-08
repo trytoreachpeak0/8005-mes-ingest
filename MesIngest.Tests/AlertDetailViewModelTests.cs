@@ -157,4 +157,31 @@ public class AlertDetailViewModelTests
         Assert.False(vm.HasReappearDemandTargets);
         Assert.Equal(ReappearDemandTargets.Empty, vm.ReappearTargets);
     }
+
+    [Fact]
+    public void Business_key_action_requires_no_demand_id_and_both_task_type_and_sublot()
+    {
+        var searchable = AlertDetailViewModel.From(SampleAlert() with
+        {
+            DemandId = null,
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "S1",
+        });
+        var exactWins = AlertDetailViewModel.From(SampleAlert() with
+        {
+            DemandId = "deadbeef01",
+            TaskType = "DIE_TO_OVEN",
+            Sublot = "S1",
+        });
+        var incomplete = AlertDetailViewModel.From(SampleAlert() with
+        {
+            DemandId = null,
+            TaskType = "DIE_TO_OVEN",
+            Sublot = null,
+        });
+
+        Assert.Equal(new AlertDemandBusinessKey("DIE_TO_OVEN", "S1"), searchable.BusinessKeyTarget);
+        Assert.Null(exactWins.BusinessKeyTarget);
+        Assert.Null(incomplete.BusinessKeyTarget);
+    }
 }

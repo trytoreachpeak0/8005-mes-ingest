@@ -6,6 +6,7 @@ namespace MesIngest.Watch;
 internal partial class AlertDetailWindow : Window
 {
     private readonly Action<AlertDemandTarget>? _locateDemand;
+    private readonly Action<AlertDemandBusinessKey>? _searchBusinessKey;
     private readonly Action<string> _copyText;
     private readonly Func<string, CancellationToken, Task<WatchDemandDto?>>? _loadDemand;
     private CancellationTokenSource? _relatedDemandLoadCts;
@@ -14,12 +15,14 @@ internal partial class AlertDetailWindow : Window
     public AlertDetailWindow(
         AlertDetailViewModel viewModel,
         Action<AlertDemandTarget>? locateDemand = null,
+        Action<AlertDemandBusinessKey>? searchBusinessKey = null,
         Action<string>? copyText = null,
         Func<string, CancellationToken, Task<WatchDemandDto?>>? loadDemand = null)
     {
         InitializeComponent();
         _viewModel = viewModel;
         _locateDemand = locateDemand;
+        _searchBusinessKey = searchBusinessKey;
         _copyText = copyText ?? Clipboard.SetText;
         _loadDemand = loadDemand;
         Loaded += OnLoaded;
@@ -90,8 +93,14 @@ internal partial class AlertDetailWindow : Window
         LocateDemandButton.IsEnabled = !string.IsNullOrWhiteSpace(_viewModel.DemandId) && _locateDemand is not null;
 
         var showReappearTargets = _viewModel.HasReappearDemandTargets;
-        GenericDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Collapsed : Visibility.Visible;
+        var showGenericTarget = !showReappearTargets && !string.IsNullOrWhiteSpace(_viewModel.DemandId);
+        GenericDemandActionsPanel.Visibility = showGenericTarget ? Visibility.Visible : Visibility.Collapsed;
         ReappearDemandActionsPanel.Visibility = showReappearTargets ? Visibility.Visible : Visibility.Collapsed;
+        BusinessKeyDemandActionsPanel.Visibility = _viewModel.BusinessKeyTarget is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        SearchBusinessKeyButton.IsEnabled = _viewModel.BusinessKeyTarget is not null
+            && _searchBusinessKey is not null;
         ApplyDemandTarget(
             _viewModel.ReappearTargets.Previous,
             PreviousDemandActionsPanel,
@@ -280,6 +289,14 @@ internal partial class AlertDetailWindow : Window
 
     private void OnLocateNewDemand(object sender, RoutedEventArgs e) =>
         LocateDemand(_viewModel.ReappearTargets.New);
+
+    private void OnSearchBusinessKey(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel.BusinessKeyTarget is { } businessKey && _searchBusinessKey is not null)
+        {
+            _searchBusinessKey(businessKey);
+        }
+    }
 
     private void CopyDemandId(string? demandId)
     {

@@ -15,7 +15,7 @@
             <Button x:Name="CopyDetailsButton" Content="Copy Details JSON" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDetails" />
             <StackPanel x:Name="GenericDemandActionsPanel" Orientation="Horizontal">
                 <Button x:Name="CopyDemandIdButton" Content="Copy DemandId" Margin="0,0,8,0" Padding="10,4" Click="OnCopyDemandId" />
-                <Button x:Name="LocateDemandButton" Content="Locate Demand" Padding="10,4" Click="OnLocateDemand" />
+                <Button x:Name="LocateDemandButton" Content="查看 TransportDemand" Padding="10,4" Click="OnLocateDemand" />
             </StackPanel>
         </StackPanel>
 
@@ -87,19 +87,38 @@
                         Margin="0,0,0,10"
                         Visibility="Collapsed">
                     <StackPanel>
-                        <TextBlock Text="REAPPEAR TransportDemand targets" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="REAPPEAR_AFTER_GONE 关联 TransportDemand" FontWeight="SemiBold" Margin="0,0,0,8" />
                         <WrapPanel x:Name="PreviousDemandActionsPanel" Orientation="Horizontal" Margin="0,0,0,6">
-                            <TextBlock Text="Previous GONE DemandId" Width="180" VerticalAlignment="Center" />
+                            <TextBlock x:Name="PreviousDemandRoleText" Text="先前 GONE" Width="180" VerticalAlignment="Center" />
                             <TextBlock x:Name="PreviousDemandIdText" Width="220" VerticalAlignment="Center" FontFamily="Consolas" TextWrapping="Wrap" />
-                            <Button x:Name="CopyPreviousDemandIdButton" Content="Copy previous ID" Margin="8,0,6,0" Padding="8,3" Click="OnCopyPreviousDemandId" />
-                            <Button x:Name="LocatePreviousDemandButton" Content="Locate previous GONE" Padding="8,3" Click="OnLocatePreviousDemand" />
+                            <Button x:Name="CopyPreviousDemandIdButton" Content="复制先前 DemandId" Margin="8,0,6,0" Padding="8,3" Click="OnCopyPreviousDemandId" />
+                            <Button x:Name="LocatePreviousDemandButton" Content="精确查看先前 GONE" Padding="8,3" Click="OnLocatePreviousDemand" />
                         </WrapPanel>
                         <WrapPanel x:Name="NewDemandActionsPanel" Orientation="Horizontal">
-                            <TextBlock Text="New VISIBLE DemandId" Width="180" VerticalAlignment="Center" />
+                            <TextBlock x:Name="NewDemandRoleText" Text="当前再现" Width="180" VerticalAlignment="Center" />
                             <TextBlock x:Name="NewDemandIdText" Width="220" VerticalAlignment="Center" FontFamily="Consolas" TextWrapping="Wrap" />
-                            <Button x:Name="CopyNewDemandIdButton" Content="Copy new ID" Margin="8,0,6,0" Padding="8,3" Click="OnCopyNewDemandId" />
-                            <Button x:Name="LocateNewDemandButton" Content="Locate new VISIBLE" Padding="8,3" Click="OnLocateNewDemand" />
+                            <Button x:Name="CopyNewDemandIdButton" Content="复制当前 DemandId" Margin="8,0,6,0" Padding="8,3" Click="OnCopyNewDemandId" />
+                            <Button x:Name="LocateNewDemandButton" Content="精确查看当前再现" Padding="8,3" Click="OnLocateNewDemand" />
                         </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border x:Name="BusinessKeyDemandActionsPanel"
+                        BorderBrush="#B0BEC5"
+                        BorderThickness="1"
+                        CornerRadius="3"
+                        Padding="10"
+                        Margin="0,0,0,10"
+                        Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="此告警没有 DemandId；可按 TASK_TYPE + SUBLOT 查看当前 VISIBLE 任务，但结果不代表唯一历史实例。"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,8" />
+                        <Button x:Name="SearchBusinessKeyButton"
+                                Content="按业务键查任务"
+                                HorizontalAlignment="Left"
+                                Padding="10,4"
+                                Click="OnSearchBusinessKey" />
                     </StackPanel>
                 </Border>
 

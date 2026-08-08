@@ -12,6 +12,20 @@ internal enum WatchDemandBrowseOutcome
     Failed,
 }
 
+internal enum WatchDemandExactLocateOutcome
+{
+    Succeeded,
+    MissingFromPage,
+    Canceled,
+    Superseded,
+    Failed,
+}
+
+internal sealed record WatchDemandExactLocateResult(
+    WatchDemandExactLocateOutcome Outcome,
+    WatchDemandDto? Demand,
+    Exception? Failure = null);
+
 internal enum WatchDemandViewKind
 {
     Visible,
@@ -211,6 +225,103 @@ internal sealed class WatchDemandSession : IDisposable
                 page => CommitFirstPage(query, page),
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async Task<WatchDemandExactLocateResult> LocateExactAsync(
+        string demandId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(demandId);
+        var query = new WatchDemandBrowseQuery(
+            Status: _viewKind == WatchDemandViewKind.Gone ? "GONE" : "VISIBLE",
+            DemandId: demandId.Trim().ToLowerInvariant(),
+            SortBy: _viewKind == WatchDemandViewKind.Gone ? "goneAt" : "dates",
+            Direction: "desc",
+            Limit: 100);
+        var previousState = State with { IsRefreshing = false };
+        var previousArrivalCursors = _arrivalCursors.ToList();
+        var request = BeginRequest(cancellationToken);
+        State = State with { IsRefreshing = true, Notice = null };
+        try
+        {
+            var page = await _queries.FetchDemandPageAsync(query, request.Cancellation.Token)
+                .ConfigureAwait(false);
+            if (!IsCurrent(request))
+            {
+                return new WatchDemandExactLocateResult(
+                    WatchDemandExactLocateOutcome.Superseded,
+                    null);
+            }
+
+            if (request.Cancellation.IsCancellationRequested)
+            {
+                RestorePreviousState(previousState, previousArrivalCursors);
+                return new WatchDemandExactLocateResult(
+                    WatchDemandExactLocateOutcome.Canceled,
+                    null);
+            }
+
+            var match = page.Items.FirstOrDefault(item => string.Equals(
+                item.DemandId,
+                demandId,
+                StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                RestorePreviousState(previousState, previousArrivalCursors);
+                return new WatchDemandExactLocateResult(
+                    WatchDemandExactLocateOutcome.MissingFromPage,
+                    null);
+            }
+
+            CommitFirstPage(query, page);
+            State = State with { Draft = CreateDraft(query) };
+            SelectDemand(match.DemandId);
+            return new WatchDemandExactLocateResult(
+                WatchDemandExactLocateOutcome.Succeeded,
+                match);
+        }
+        catch (OperationCanceledException) when (request.Cancellation.IsCancellationRequested)
+        {
+            if (!IsCurrent(request))
+            {
+                return new WatchDemandExactLocateResult(
+                    WatchDemandExactLocateOutcome.Superseded,
+                    null);
+            }
+
+            RestorePreviousState(previousState, previousArrivalCursors);
+            return new WatchDemandExactLocateResult(
+                WatchDemandExactLocateOutcome.Canceled,
+                null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            if (!IsCurrent(request))
+            {
+                return new WatchDemandExactLocateResult(
+                    WatchDemandExactLocateOutcome.Superseded,
+                    null);
+            }
+
+            RestorePreviousState(previousState, previousArrivalCursors);
+            return new WatchDemandExactLocateResult(
+                WatchDemandExactLocateOutcome.Failed,
+                null,
+                ex);
+        }
+        finally
+        {
+            EndRequest(request);
+        }
+    }
+
+    private void RestorePreviousState(
+        WatchDemandState previousState,
+        IReadOnlyList<string?> previousArrivalCursors)
+    {
+        _arrivalCursors.Clear();
+        _arrivalCursors.AddRange(previousArrivalCursors);
+        State = previousState;
     }
 
     public async Task<WatchDemandBrowseOutcome> ResetAsync(

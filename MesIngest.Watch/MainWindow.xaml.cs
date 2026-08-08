@@ -1236,6 +1236,7 @@ internal partial class MainWindow : Window
         window = new AlertDetailWindow(
             AlertDetailViewModel.From(alert),
             locateDemand: target => LocateDemandFromAlert(target, window),
+            searchBusinessKey: businessKey => SearchDemandFromAlert(businessKey, window),
             loadDemand: _client.FetchDemandByIdAsync);
         window.Owner = this;
         window.Closed += (_, _) => UnregisterAlertDetail(window);
@@ -1293,52 +1294,79 @@ internal partial class MainWindow : Window
 
     private async void LocateDemandFromAlert(AlertDemandTarget target, AlertDetailWindow? window)
     {
-        var demandId = target.DemandId;
         window?.SetLocateHint(null);
+        var navigator = new AlertDemandNavigator(_client, _visibleDemands, _goneDemands);
+        var result = await navigator.LocateExactAsync(target).ConfigureAwait(true);
+        CompleteAlertDemandNavigation(result, window);
+    }
+
+    private async void SearchDemandFromAlert(
+        AlertDemandBusinessKey businessKey,
+        AlertDetailWindow? window)
+    {
+        window?.SetLocateHint(null);
+        var navigator = new AlertDemandNavigator(_client, _visibleDemands, _goneDemands);
+        var result = await navigator.SearchBusinessKeyAsync(businessKey).ConfigureAwait(true);
+        CompleteAlertDemandNavigation(result, window);
+    }
+
+    private void CompleteAlertDemandNavigation(
+        AlertDemandNavigationResult result,
+        AlertDetailWindow? window)
+    {
+        if (result.Outcome is AlertDemandNavigationOutcome.Canceled
+            or AlertDemandNavigationOutcome.Superseded)
+        {
+            return;
+        }
+
+        if (result.Outcome != AlertDemandNavigationOutcome.Succeeded
+            || result.ViewKind is null)
+        {
+            var message = result.Message ?? "TransportDemand 导航失败。";
+            window?.SetLocateHint(message);
+            MessageBox.Show(
+                this,
+                message,
+                "TransportDemand 导航",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var targetViewKind = result.ViewKind.Value;
+        var targetSession = SessionFor(targetViewKind);
+        var previousSession = ActiveDemandSession;
+        if (!ReferenceEquals(previousSession, targetSession))
+        {
+            previousSession.UpdateDraft(ReadDemandDraft(_activeDemandViewKind));
+            previousSession.CancelActive(userInitiated: false);
+        }
+
+        _isResettingDemandViews = true;
         try
         {
-            var found = await _client.FetchDemandByIdAsync(demandId).ConfigureAwait(true);
-            if (found is null)
-            {
-                var missing = AlertDemandLocateHints.NotFound(target);
-                window?.SetLocateHint(missing);
-                MessageBox.Show(this, missing, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            var locateQuery = new WatchDemandBrowseQuery(
-                Status: found.Status,
-                DemandId: found.DemandId,
-                SortBy: string.Equals(found.Status, "GONE", StringComparison.OrdinalIgnoreCase)
-                    ? "goneAt"
-                    : "dates",
-                Direction: "desc",
-                Limit: 100);
-            await _browse.RefreshAsync(
-                    WatchBrowseRefreshKind.Reset,
-                    locateQuery)
-                .ConfigureAwait(true);
-
-            var match = _browse.Demands.FirstOrDefault(d =>
-                string.Equals(d.DemandId, found.DemandId, StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
-            {
-                DemandsGrid.SelectedItem = match;
-                DemandsGrid.ScrollIntoView(match);
-                window?.SetLocateHint(null);
-                return;
-            }
-
-            var hint = AlertDemandLocateHints.OutsideCurrentBrowse(target, found.Status);
-            window?.SetLocateHint(hint);
-            MessageBox.Show(this, hint, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Information);
+            _activeDemandViewKind = targetViewKind;
+            DemandStatusTabs.SelectedIndex = targetViewKind == WatchDemandViewKind.Gone ? 1 : 0;
         }
-        catch (Exception ex)
+        finally
         {
-            var message = $"Locate Demand failed: {ex.Message}";
-            window?.SetLocateHint(message);
-            MessageBox.Show(this, message, "Locate Demand", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _isResettingDemandViews = false;
         }
+
+        PrimaryNavigation.SelectedIndex = 1;
+        ApplyDemandDraftToControls(targetSession.State.Draft);
+        SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(DateTimeOffset.UtcNow));
+        ApplyProjection();
+        if (result.Demand is { } demand)
+        {
+            var selected = targetSession.State.SelectedDemand ?? demand;
+            DemandsGrid.SelectedItem = selected;
+            DemandsGrid.ScrollIntoView(selected);
+            DemandDetailsPanel.BringIntoView();
+        }
+
+        window?.SetLocateHint(result.Message);
     }
 
     private void ApplyDemandSortGlyphs()

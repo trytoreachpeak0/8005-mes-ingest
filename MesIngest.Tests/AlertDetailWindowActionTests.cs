@@ -165,6 +165,12 @@ public class AlertDetailWindowActionTests
                 Assert.Equal(
                     "new-visible-id",
                     ((TextBlock)window.FindName("NewDemandIdText")).Text);
+                Assert.Equal(
+                    "先前 GONE",
+                    ((TextBlock)window.FindName("PreviousDemandRoleText")).Text);
+                Assert.Equal(
+                    "当前再现",
+                    ((TextBlock)window.FindName("NewDemandRoleText")).Text);
                 Assert.Equal("reappear-1", ((TextBlock)window.FindName("AlertIdText")).Text);
                 Assert.NotNull(window.FindName("CreatedAtText"));
                 Assert.Equal(
@@ -260,6 +266,68 @@ public class AlertDetailWindowActionTests
         thread.Join(TimeSpan.FromSeconds(30));
 
         Assert.True(thread.Join(0), "STA contrast test did not finish");
+        Assert.Null(caught);
+    }
+
+    [Fact]
+    public void Business_key_action_is_explicit_and_no_association_hides_all_navigation_actions()
+    {
+        Exception? caught = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var searched = new List<AlertDemandBusinessKey>();
+                var searchable = Alert("FIELD_DRIFT", demandId: null, details: "{}") with
+                {
+                    TaskType = "DIE_TO_OVEN",
+                    Sublot = "S1",
+                };
+                var searchableWindow = new AlertDetailWindow(
+                    AlertDetailViewModel.From(searchable),
+                    searchBusinessKey: searched.Add);
+
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)searchableWindow.FindName("GenericDemandActionsPanel")).Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)searchableWindow.FindName("ReappearDemandActionsPanel")).Visibility);
+                Assert.Equal(
+                    Visibility.Visible,
+                    ((FrameworkElement)searchableWindow.FindName("BusinessKeyDemandActionsPanel")).Visibility);
+                Assert.Equal(
+                    "按业务键查任务",
+                    ((Button)searchableWindow.FindName("SearchBusinessKeyButton")).Content);
+
+                Click(searchableWindow, "SearchBusinessKeyButton");
+                Assert.Equal([new AlertDemandBusinessKey("DIE_TO_OVEN", "S1")], searched);
+                searchableWindow.Close();
+
+                var unrelated = searchable with { TaskType = null, Sublot = null };
+                var unrelatedWindow = new AlertDetailWindow(AlertDetailViewModel.From(unrelated));
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)unrelatedWindow.FindName("GenericDemandActionsPanel")).Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)unrelatedWindow.FindName("ReappearDemandActionsPanel")).Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)unrelatedWindow.FindName("BusinessKeyDemandActionsPanel")).Visibility);
+                unrelatedWindow.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA business-key action test did not finish");
         Assert.Null(caught);
     }
 

@@ -215,6 +215,8 @@ internal enum AlertDemandTargetKind
 
 internal sealed record AlertDemandTarget(string DemandId, AlertDemandTargetKind Kind);
 
+internal sealed record AlertDemandBusinessKey(string TaskType, string Sublot);
+
 internal sealed record ReappearDemandTargets(
     AlertDemandTarget? Previous,
     AlertDemandTarget? New)
@@ -323,6 +325,14 @@ internal sealed record AlertDetailViewModel(
     };
 
     public bool HasReappearDemandTargets => ReappearTargets.HasAny;
+
+    public AlertDemandBusinessKey? BusinessKeyTarget =>
+        !HasReappearDemandTargets
+        && string.IsNullOrWhiteSpace(DemandId)
+        && !string.IsNullOrWhiteSpace(TaskType)
+        && !string.IsNullOrWhiteSpace(Sublot)
+            ? new AlertDemandBusinessKey(TaskType.Trim(), Sublot.Trim())
+            : null;
 
     public static AlertDetailViewModel From(WatchAlertDto alert, TimeZoneInfo? timeZone = null)
     {
