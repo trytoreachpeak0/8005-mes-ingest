@@ -111,6 +111,40 @@ public sealed class WatchOverviewStateTests
     }
 
     [Fact]
+    public async Task Canceled_overview_ignores_late_responses_even_when_the_host_ignores_cancellation()
+    {
+        var first = new WatchSnapshot(
+            [Demand("committed", "WIRE_TO_GATE")],
+            [Alert("committed-alert", "WARNING")],
+            Health(),
+            FetchError: null,
+            DemandsSucceeded: true,
+            AlertsSucceeded: true,
+            PollHealthSucceeded: true);
+        var late = new WatchSnapshot(
+            [Demand("late", "DIE_TO_OVEN")],
+            [Alert("late-alert", "ERROR")],
+            Health() with { Outcome = "LATE" },
+            FetchError: null,
+            DemandsSucceeded: true,
+            AlertsSucceeded: true,
+            PollHealthSucceeded: true);
+        var queries = new CancellationIgnoringSequenceQueries(first, late);
+        var overview = new WatchOverviewSession(queries);
+        await overview.RefreshAsync();
+
+        var pending = overview.RefreshAsync();
+        await queries.WaitForLateRequestsAsync();
+        overview.CancelActive();
+        queries.ReleaseLateResponses();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        Assert.Equal("committed", Assert.Single(overview.State.Demands.Items).DemandId);
+        Assert.Equal("committed-alert", Assert.Single(overview.State.Alerts.Items).AlertId);
+        Assert.Equal("SUCCESS", overview.State.PollHealth.Value?.Outcome);
+    }
+
+    [Fact]
     public void Projection_distinguishes_every_overview_health_conclusion_with_text_and_icon()
     {
         var healthy = Health();
@@ -352,6 +386,60 @@ public sealed class WatchOverviewStateTests
                 [Alert("a-fast", "WARNING")],
                 null,
                 false));
+    }
+
+    private sealed class CancellationIgnoringSequenceQueries(
+        WatchSnapshot first,
+        WatchSnapshot late) : IWatchOverviewQueries
+    {
+        private readonly TaskCompletionSource _lateRequestsStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseLate = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+        private int _lateCalls;
+
+        public Task WaitForLateRequestsAsync() => _lateRequestsStarted.Task;
+        public void ReleaseLateResponses() => _releaseLate.TrySetResult();
+
+        public async Task<WatchPollHealthDto?> FetchPollHealthAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = await NextAsync();
+            return snapshot.PollHealth;
+        }
+
+        public async Task<WatchDemandPage> FetchDemandPageAsync(
+            WatchDemandBrowseQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = await NextAsync();
+            return new WatchDemandPage(snapshot.Demands, null, false);
+        }
+
+        public async Task<WatchAlertPage> FetchAlertPageAsync(
+            WatchAlertBrowseQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            var snapshot = await NextAsync();
+            return new WatchAlertPage(snapshot.Alerts, null, false);
+        }
+
+        private async Task<WatchSnapshot> NextAsync()
+        {
+            if (Interlocked.Increment(ref _calls) <= 3)
+            {
+                return first;
+            }
+
+            if (Interlocked.Increment(ref _lateCalls) == 3)
+            {
+                _lateRequestsStarted.TrySetResult();
+            }
+
+            await _releaseLate.Task;
+            return late;
+        }
     }
 
     private static WatchHostQueryException Failure(string endpoint) => new(

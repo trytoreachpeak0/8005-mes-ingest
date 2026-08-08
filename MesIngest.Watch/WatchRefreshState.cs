@@ -37,6 +37,9 @@ internal sealed record WatchRefreshState(
         return $"lastSuccess={WatchTimeDisplay.Format(LastSuccessAt.Value)} stale={FormatDuration(stale)}";
     }
 
+    public string FormatFailure(string failure, DateTimeOffset now) =>
+        $"{failure} {FormatWatchRefreshLine(now)}";
+
     private static string FormatDuration(TimeSpan value)
     {
         if (value.TotalHours >= 1)

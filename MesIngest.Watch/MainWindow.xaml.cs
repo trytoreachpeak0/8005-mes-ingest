@@ -19,6 +19,8 @@ internal partial class MainWindow : Window
     private readonly WatchConnectionEventJournal _connectionJournal;
     private readonly WatchTelemetryIoDiagnosticBuffer _telemetryIoDiagnostics;
     private readonly string _layoutPreferencesPath;
+    private readonly string _autoRefreshPreferencesPath;
+    private readonly WatchAutoRefreshSchedule _autoRefresh;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _bannerHoldTimer;
     private readonly WatchRefreshAdmission _refreshAdmission = new();
@@ -30,6 +32,9 @@ internal partial class MainWindow : Window
     private bool _isApplyingDemandProjection;
     private bool _isApplyingAlertProjection;
     private bool _isResettingDemandViews;
+    private bool _isSyncingAutoRefreshControls;
+    private bool _isApplyingHostSession;
+    private string? _overviewNotice;
     private WatchRefreshState _refreshState = WatchRefreshState.Empty;
     private WatchRefreshState _visibleRefreshState = WatchRefreshState.Empty;
     private WatchRefreshState _goneRefreshState = WatchRefreshState.Empty;
@@ -46,8 +51,10 @@ internal partial class MainWindow : Window
         WatchConnectionEventJournal? connectionJournal = null,
         WatchConnectionEventRecorder? connectionRecorder = null,
         string? layoutPreferencesPath = null,
+        string? autoRefreshPreferencesPath = null,
         WatchTelemetryIoDiagnosticBuffer? telemetryIoDiagnostics = null,
-        Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null)
+        Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null,
+        TimeProvider? timeProvider = null)
     {
         InitializeComponent();
         DemandTaskTypeFilter.ItemsSource =
@@ -91,6 +98,15 @@ internal partial class MainWindow : Window
         }
         _options = options;
         _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
+        _autoRefreshPreferencesPath = autoRefreshPreferencesPath
+            ?? (layoutPreferencesPath is null
+                ? WatchAutoRefreshPreferencesStore.DefaultFilePath
+                : Path.Combine(
+                    Path.GetDirectoryName(Path.GetFullPath(layoutPreferencesPath))!,
+                    "auto-refresh.json"));
+        _autoRefresh = new WatchAutoRefreshSchedule(
+            WatchAutoRefreshPreferencesStore.Load(_autoRefreshPreferencesPath),
+            timeProvider);
         _telemetryIoDiagnostics = telemetryIoDiagnostics ?? new WatchTelemetryIoDiagnosticBuffer();
         _connectionJournal = connectionJournal ?? WatchConnectionEventJournal.FromOptions(
             options,
@@ -102,15 +118,16 @@ internal partial class MainWindow : Window
         HostCredentialInput.Password = _options.SharedSecret;
         RequestTimeoutInput.Text = _options.RequestTimeoutSeconds.ToString(
             System.Globalization.CultureInfo.InvariantCulture);
+        InitializeAutoRefreshControls();
 
         ApplyPaneRatio(WatchLayoutPreferences.LoadDemandShare(_layoutPreferencesPath));
         PanesSplitter.DragCompleted += (_, _) => ConvertPaneHeightsToStars();
 
         _timer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(_options.RefreshSeconds),
+            Interval = TimeSpan.FromMilliseconds(500),
         };
-        _timer.Tick += async (_, _) => await RefreshAsync(WatchBrowseRefreshKind.PreserveWindow).ConfigureAwait(true);
+        _timer.Tick += OnAutoRefreshTick;
 
         _bannerHoldTimer = new DispatcherTimer
         {
@@ -122,6 +139,7 @@ internal partial class MainWindow : Window
         {
             ApplyDemandSortGlyphs();
             ApplyAlertSortGlyphs();
+            _autoRefresh.Activate(WatchRefreshView.Overview);
             await ApplyHostSessionAsync(
                     new WatchHostSettings(
                         _options.BaseUrl,
@@ -129,10 +147,6 @@ internal partial class MainWindow : Window
                         _options.RequestTimeoutSeconds),
                     refreshOverview: true)
                 .ConfigureAwait(true);
-            if (_hostSession.State.Status == WatchHostConnectionStatus.Connected)
-            {
-                _timer.Start();
-            }
         };
         Closed += (_, _) =>
         {
@@ -150,6 +164,183 @@ internal partial class MainWindow : Window
         };
     }
 
+    private void InitializeAutoRefreshControls()
+    {
+        var intervals = WatchAutoRefreshSetting.AllowedIntervals;
+        foreach (var combo in new[]
+                 {
+                     OverviewAutoRefreshInterval,
+                     DemandAutoRefreshInterval,
+                     AlertAutoRefreshInterval,
+                     SettingsOverviewAutoRefreshInterval,
+                     SettingsVisibleAutoRefreshInterval,
+                     SettingsGoneAutoRefreshInterval,
+                     SettingsAlertAutoRefreshInterval,
+                 })
+        {
+            combo.ItemsSource = intervals;
+        }
+
+        SyncAutoRefreshControls();
+    }
+
+    private void SyncAutoRefreshControls()
+    {
+        _isSyncingAutoRefreshControls = true;
+        try
+        {
+            ApplyAutoRefreshSetting(
+                OverviewAutoRefreshCheckBox,
+                OverviewAutoRefreshInterval,
+                WatchRefreshView.Overview);
+            ApplyAutoRefreshSetting(
+                DemandAutoRefreshCheckBox,
+                DemandAutoRefreshInterval,
+                DemandRefreshView);
+            ApplyAutoRefreshSetting(
+                AlertAutoRefreshCheckBox,
+                AlertAutoRefreshInterval,
+                WatchRefreshView.Alerts);
+            ApplyAutoRefreshSetting(
+                SettingsOverviewAutoRefreshCheckBox,
+                SettingsOverviewAutoRefreshInterval,
+                WatchRefreshView.Overview);
+            ApplyAutoRefreshSetting(
+                SettingsVisibleAutoRefreshCheckBox,
+                SettingsVisibleAutoRefreshInterval,
+                WatchRefreshView.Visible);
+            ApplyAutoRefreshSetting(
+                SettingsGoneAutoRefreshCheckBox,
+                SettingsGoneAutoRefreshInterval,
+                WatchRefreshView.Gone);
+            ApplyAutoRefreshSetting(
+                SettingsAlertAutoRefreshCheckBox,
+                SettingsAlertAutoRefreshInterval,
+                WatchRefreshView.Alerts);
+        }
+        finally
+        {
+            _isSyncingAutoRefreshControls = false;
+        }
+    }
+
+    private void ApplyAutoRefreshSetting(
+        CheckBox checkBox,
+        ComboBox interval,
+        WatchRefreshView view)
+    {
+        var setting = _autoRefresh.Preferences.For(view);
+        checkBox.IsChecked = setting.Enabled;
+        interval.SelectedItem = setting.IntervalSeconds;
+        interval.IsEnabled = setting.Enabled;
+    }
+
+    private void OnAutoRefreshEnabledChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isSyncingAutoRefreshControls || sender is not CheckBox checkBox)
+        {
+            return;
+        }
+
+        var view = AutoRefreshViewForControl(checkBox);
+        var previous = _autoRefresh.Preferences.For(view);
+        _autoRefresh.Update(
+            view,
+            new WatchAutoRefreshSetting(checkBox.IsChecked == true, previous.IntervalSeconds));
+        SaveAutoRefreshPreferences();
+        SyncAutoRefreshControls();
+        ApplyProjection();
+    }
+
+    private void OnAutoRefreshIntervalChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isSyncingAutoRefreshControls
+            || sender is not ComboBox { SelectedItem: int interval } combo)
+        {
+            return;
+        }
+
+        var view = AutoRefreshViewForControl(combo);
+        var previous = _autoRefresh.Preferences.For(view);
+        _autoRefresh.Update(view, new WatchAutoRefreshSetting(previous.Enabled, interval));
+        SaveAutoRefreshPreferences();
+        SyncAutoRefreshControls();
+        ApplyProjection();
+    }
+
+    private WatchRefreshView AutoRefreshViewForControl(FrameworkElement control)
+    {
+        if (ReferenceEquals(control, DemandAutoRefreshCheckBox)
+            || ReferenceEquals(control, DemandAutoRefreshInterval))
+        {
+            return DemandRefreshView;
+        }
+
+        return control.Tag is WatchRefreshView view
+            ? view
+            : throw new InvalidOperationException(
+                $"Auto-refresh control '{control.Name}' has no view.");
+    }
+
+    private void SaveAutoRefreshPreferences()
+    {
+        try
+        {
+            WatchAutoRefreshPreferencesStore.Save(
+                _autoRefreshPreferencesPath,
+                _autoRefresh.Preferences);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _telemetryIoDiagnostics.Record("watch-preferences", ex);
+        }
+    }
+
+    private async void OnAutoRefreshTick(object? sender, EventArgs e)
+    {
+        var view = CurrentRefreshView;
+        if (view is null
+            || !_autoRefresh.TryTakeDue(view.Value, IsRefreshInProgress(view.Value)))
+        {
+            return;
+        }
+
+        await RefreshViewAsync(view.Value).ConfigureAwait(true);
+    }
+
+    private Task RefreshViewAsync(WatchRefreshView view) => view switch
+    {
+        WatchRefreshView.Overview => RefreshAsync(WatchBrowseRefreshKind.PreserveWindow),
+        WatchRefreshView.Visible when DemandRefreshView == WatchRefreshView.Visible =>
+            RunDemandOperationAsync(_visibleDemands.RefreshCurrentAsync),
+        WatchRefreshView.Gone when DemandRefreshView == WatchRefreshView.Gone =>
+            RunDemandOperationAsync(_goneDemands.RefreshCurrentAsync),
+        WatchRefreshView.Alerts => RunAlertOperationAsync(_alerts.RefreshCurrentAsync),
+        _ => Task.CompletedTask,
+    };
+
+    private bool IsRefreshInProgress(WatchRefreshView view) => view switch
+    {
+        WatchRefreshView.Overview => _isOverviewRefreshing,
+        WatchRefreshView.Visible => _visibleDemands.State.IsRefreshing,
+        WatchRefreshView.Gone => _goneDemands.State.IsRefreshing,
+        WatchRefreshView.Alerts => _alerts.State.IsRefreshing,
+        _ => false,
+    };
+
+    private WatchRefreshView? CurrentRefreshView => PrimaryNavigation.SelectedIndex switch
+    {
+        0 => WatchRefreshView.Overview,
+        1 => DemandRefreshView,
+        2 => WatchRefreshView.Alerts,
+        _ => null,
+    };
+
+    private WatchRefreshView DemandRefreshView =>
+        _activeDemandViewKind == WatchDemandViewKind.Gone
+            ? WatchRefreshView.Gone
+            : WatchRefreshView.Visible;
+
     private void OnPrimaryNavigationChanged(object sender, SelectionChangedEventArgs e)
     {
         if (OverviewPage is null || DemandsPage is null || AlertsPage is null || SettingsPage is null)
@@ -158,6 +349,7 @@ internal partial class MainWindow : Window
         }
 
         _refreshCancellation?.Cancel();
+        _overview.CancelActive();
         ActiveDemandSession.CancelActive(userInitiated: false);
         _alerts.CancelActive(userInitiated: false);
         var selected = PrimaryNavigation.SelectedIndex;
@@ -165,11 +357,41 @@ internal partial class MainWindow : Window
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
         AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
-        if (IsLoaded && selected == 1)
+        if (selected == 3)
+        {
+            _autoRefresh.Deactivate();
+            SyncAutoRefreshControls();
+            return;
+        }
+
+        var view = selected switch
+        {
+            0 => WatchRefreshView.Overview,
+            1 => DemandRefreshView,
+            2 => WatchRefreshView.Alerts,
+            _ => WatchRefreshView.Overview,
+        };
+        var refreshImmediately = _autoRefresh.Activate(view);
+        SyncAutoRefreshControls();
+
+        if (_isApplyingHostSession)
+        {
+            return;
+        }
+
+        if (IsLoaded && selected == 0 && refreshImmediately)
+        {
+            _ = RefreshAsync(WatchBrowseRefreshKind.PreserveWindow);
+        }
+        else if (IsLoaded && selected == 1)
         {
             if (ActiveDemandSession.State.LastSuccessfulAt is null)
             {
                 _ = RunDemandOperationAsync(ActiveDemandSession.LoadInitialAsync);
+            }
+            else if (refreshImmediately)
+            {
+                _ = RunDemandOperationAsync(ActiveDemandSession.RefreshCurrentAsync);
             }
         }
         else if (IsLoaded && selected == 2)
@@ -177,6 +399,10 @@ internal partial class MainWindow : Window
             if (_alerts.State.LastSuccessfulAt is null)
             {
                 _ = RunAlertOperationAsync(_alerts.LoadInitialAsync);
+            }
+            else if (refreshImmediately)
+            {
+                _ = RunAlertOperationAsync(_alerts.RefreshCurrentAsync);
             }
         }
     }
@@ -193,8 +419,18 @@ internal partial class MainWindow : Window
     private void OnOverviewRefreshClick(object sender, RoutedEventArgs e) =>
         _ = RefreshAsync(WatchBrowseRefreshKind.Reset);
 
-    private void OnOverviewCancelClick(object sender, RoutedEventArgs e) =>
+    private void OnOverviewCancelClick(object sender, RoutedEventArgs e)
+    {
+        if (_isOverviewRefreshing)
+        {
+            _overviewNotice = "已取消";
+        }
+        _autoRefresh.CancelCurrentRequest(WatchRefreshView.Overview);
+        _overview.CancelActive();
         _refreshCancellation?.Cancel();
+        _isOverviewRefreshing = false;
+        ApplyProjection();
+    }
 
     private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
     {
@@ -244,16 +480,20 @@ internal partial class MainWindow : Window
 
     private async Task ApplyHostSessionAsync(WatchHostSettings settings, bool refreshOverview)
     {
+        _isApplyingHostSession = true;
         var generation = ++_hostGeneration;
+        _timer.Stop();
         _refreshCancellation?.Cancel();
         _refreshCancellation?.Dispose();
         _refreshCancellation = null;
+        _overview.CancelActive();
 
         _health = null;
         _refreshState = WatchRefreshState.Empty;
         _visibleRefreshState = WatchRefreshState.Empty;
         _goneRefreshState = WatchRefreshState.Empty;
         _alertRefreshState = WatchRefreshState.Empty;
+        _overviewNotice = null;
         _bannerHold = WatchBannerHoldState.Empty;
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
@@ -310,6 +550,9 @@ internal partial class MainWindow : Window
                 return;
             }
 
+            _isApplyingHostSession = false;
+            _timer.Start();
+
             if (refreshOverview)
             {
                 await RefreshAsync(WatchBrowseRefreshKind.Reset).ConfigureAwait(true);
@@ -317,12 +560,16 @@ internal partial class MainWindow : Window
         }
         finally
         {
+            _isApplyingHostSession = false;
             ApplyProjection();
         }
     }
 
-    private static string FormatHostFailure(WatchHostSessionState state) =>
+    private string FormatHostFailure(WatchHostSessionState state) =>
         $"endpoint={state.Endpoint ?? "(unknown)"} kind={state.FailureKind} "
+        + $"stage={state.FailureStage ?? state.FailureKind.ToString()} "
+        + $"timeoutSeconds={_options.RequestTimeoutSeconds} "
+        + $"elapsedMs={(long)(state.FailureElapsed ?? TimeSpan.Zero).TotalMilliseconds} "
         + $"correlationId={state.CorrelationId ?? "(none)"} {state.ErrorMessage}";
 
     private void ApplyPaneRatio(double demandShare)
@@ -398,11 +645,19 @@ internal partial class MainWindow : Window
             : WatchDemandViewKind.Visible;
         var current = ActiveDemandSession;
         ApplyDemandDraftToControls(current.State.Draft);
+        var refreshImmediately = _autoRefresh.Activate(DemandRefreshView);
+        SyncAutoRefreshControls();
         ApplyProjection();
         if (IsLoaded && DemandsPage.Visibility == Visibility.Visible
             && current.State.LastSuccessfulAt is null)
         {
             _ = RunDemandOperationAsync(current.LoadInitialAsync);
+        }
+        else if (IsLoaded
+                 && DemandsPage.Visibility == Visibility.Visible
+                 && refreshImmediately)
+        {
+            _ = RunDemandOperationAsync(current.RefreshCurrentAsync);
         }
     }
 
@@ -532,6 +787,7 @@ internal partial class MainWindow : Window
 
     private void OnDemandCancelClick(object sender, RoutedEventArgs e)
     {
+        _autoRefresh.CancelCurrentRequest(DemandRefreshView);
         ActiveDemandSession.CancelActive(userInitiated: true);
         ApplyProjection();
     }
@@ -600,6 +856,7 @@ internal partial class MainWindow : Window
 
     private void OnAlertCancelClick(object sender, RoutedEventArgs e)
     {
+        _autoRefresh.CancelCurrentRequest(WatchRefreshView.Alerts);
         _alerts.CancelActive(userInitiated: true);
         ApplyProjection();
     }
@@ -635,79 +892,98 @@ internal partial class MainWindow : Window
     private async Task<WatchDemandBrowseOutcome> RunDemandOperationAsync(
         Func<CancellationToken, Task<WatchDemandBrowseOutcome>> operation)
     {
-        var generation = _hostGeneration;
-        var session = ActiveDemandSession;
-        var pending = operation(CancellationToken.None);
-        ApplyProjection();
-        var outcome = await pending.ConfigureAwait(true);
-        if (generation != _hostGeneration || !ReferenceEquals(session, ActiveDemandSession))
+        var refreshView = DemandRefreshView;
+        var refreshRequest = _autoRefresh.BeginRequest(refreshView);
+        try
         {
-            return WatchDemandBrowseOutcome.Superseded;
-        }
+            var generation = _hostGeneration;
+            var session = ActiveDemandSession;
+            var pending = operation(CancellationToken.None);
+            ApplyProjection();
+            var outcome = await pending.ConfigureAwait(true);
+            if (generation != _hostGeneration || !ReferenceEquals(session, ActiveDemandSession))
+            {
+                return WatchDemandBrowseOutcome.Superseded;
+            }
 
-        var now = DateTimeOffset.UtcNow;
-        if (outcome == WatchDemandBrowseOutcome.Succeeded)
-        {
-            SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(now));
-            RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
-        }
-        else if (outcome == WatchDemandBrowseOutcome.Failed && session.State.Failure is { } failure)
-        {
-            var (message, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
-                failure,
-                "/api/demands");
-            SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplyFailure(message));
-            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
-                now,
-                endpoint,
-                stage,
-                elapsed,
-                _options.RequestTimeoutSeconds,
-                message,
-                correlationId));
-        }
+            var now = DateTimeOffset.UtcNow;
+            if (outcome == WatchDemandBrowseOutcome.Succeeded)
+            {
+                SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplySuccess(now));
+                RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+            }
+            else if (outcome == WatchDemandBrowseOutcome.Failed && session.State.Failure is { } failure)
+            {
+                var (failureMessage, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
+                    failure,
+                    "/api/demands");
+                var message = failureMessage;
+                SetActiveDemandRefreshState(ActiveDemandRefreshState.ApplyFailure(message));
+                RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                    now,
+                    endpoint,
+                    stage,
+                    elapsed,
+                    _options.RequestTimeoutSeconds,
+                    message,
+                    correlationId));
+            }
 
-        ApplyProjection();
-        return outcome;
+            ApplyProjection();
+            return outcome;
+        }
+        finally
+        {
+            _autoRefresh.EndRequest(refreshView, refreshRequest);
+        }
     }
 
     private async Task<WatchAlertBrowseOutcome> RunAlertOperationAsync(
         Func<CancellationToken, Task<WatchAlertBrowseOutcome>> operation)
     {
-        var generation = _hostGeneration;
-        var session = _alerts;
-        var pending = operation(CancellationToken.None);
-        ApplyProjection();
-        var outcome = await pending.ConfigureAwait(true);
-        if (generation != _hostGeneration || !ReferenceEquals(session, _alerts))
+        var refreshRequest = _autoRefresh.BeginRequest(WatchRefreshView.Alerts);
+        try
         {
-            return WatchAlertBrowseOutcome.Superseded;
-        }
+            var generation = _hostGeneration;
+            var session = _alerts;
+            var pending = operation(CancellationToken.None);
+            ApplyProjection();
+            var outcome = await pending.ConfigureAwait(true);
+            if (generation != _hostGeneration || !ReferenceEquals(session, _alerts))
+            {
+                return WatchAlertBrowseOutcome.Superseded;
+            }
 
-        var now = DateTimeOffset.UtcNow;
-        if (outcome == WatchAlertBrowseOutcome.Succeeded)
-        {
-            _alertRefreshState = _alertRefreshState.ApplySuccess(now);
-            RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
-        }
-        else if (outcome == WatchAlertBrowseOutcome.Failed && session.State.Failure is { } failure)
-        {
-            var (message, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
-                failure,
-                "/api/alerts");
-            _alertRefreshState = _alertRefreshState.ApplyFailure(message);
-            RecordConnectionEvent(_connectionRecorder.ObserveFailure(
-                now,
-                endpoint,
-                stage,
-                elapsed,
-                _options.RequestTimeoutSeconds,
-                message,
-                correlationId));
-        }
+            var now = DateTimeOffset.UtcNow;
+            if (outcome == WatchAlertBrowseOutcome.Succeeded)
+            {
+                _alertRefreshState = _alertRefreshState.ApplySuccess(now);
+                RecordConnectionEvent(_connectionRecorder.ObserveSuccess(now));
+            }
+            else if (outcome == WatchAlertBrowseOutcome.Failed && session.State.Failure is { } failure)
+            {
+                var (failureMessage, endpoint, stage, elapsed, correlationId) = FormatBrowseFailure(
+                    failure,
+                    "/api/alerts");
+                var message = failureMessage;
+                _alertRefreshState = _alertRefreshState.ApplyFailure(message);
+                RecordConnectionEvent(_connectionRecorder.ObserveFailure(
+                    now,
+                    endpoint,
+                    stage,
+                    elapsed,
+                    _options.RequestTimeoutSeconds,
+                    message,
+                    correlationId));
+            }
 
-        ApplyProjection();
-        return outcome;
+            ApplyProjection();
+            return outcome;
+        }
+        finally
+        {
+            _autoRefresh.EndRequest(WatchRefreshView.Alerts, refreshRequest);
+        }
     }
 
     private (string Message, string Endpoint, string Stage, TimeSpan Elapsed, string? CorrelationId)
@@ -726,13 +1002,16 @@ internal partial class MainWindow : Window
 
         if (failure is WatchHostQueryException hostFailure)
         {
+            var stage = hostFailure.Stage ?? hostFailure.Kind.ToString();
             var message = $"endpoint={hostFailure.Endpoint} kind={hostFailure.Kind} "
+                + $"stage={stage} timeoutSeconds={_options.RequestTimeoutSeconds} "
+                + $"elapsedMs={(long)hostFailure.Elapsed.TotalMilliseconds} "
                 + $"correlationId={hostFailure.CorrelationId} {hostFailure.Message}";
             return (
                 message,
                 hostFailure.Endpoint,
-                hostFailure.Kind.ToString(),
-                TimeSpan.Zero,
+                stage,
+                hostFailure.Elapsed,
                 hostFailure.CorrelationId);
         }
 
@@ -759,6 +1038,11 @@ internal partial class MainWindow : Window
             return;
         }
 
+        if (PrimaryNavigation.SelectedIndex != 0)
+        {
+            return;
+        }
+
         var generation = _hostGeneration;
         var browse = _browse;
         var overview = _overview;
@@ -768,6 +1052,7 @@ internal partial class MainWindow : Window
         previous?.Dispose();
         var admitted = false;
         var refreshingOverview = false;
+        long? autoRefreshRequest = null;
         try
         {
             admitted = await _refreshAdmission.WaitAsync(kind, cancellation.Token).ConfigureAwait(true);
@@ -775,6 +1060,8 @@ internal partial class MainWindow : Window
             {
                 return;
             }
+
+            autoRefreshRequest = _autoRefresh.BeginRequest(WatchRefreshView.Overview);
         }
         catch (OperationCanceledException)
         {
@@ -791,6 +1078,7 @@ internal partial class MainWindow : Window
                 && kind is not WatchBrowseRefreshKind.AppendAlerts)
             {
                 refreshingOverview = true;
+                _overviewNotice = null;
                 _isOverviewRefreshing = true;
                 ApplyProjection();
                 await overview.RefreshAsync(
@@ -864,9 +1152,10 @@ internal partial class MainWindow : Window
         catch (WatchEndpointFetchException ex)
         {
             var now = DateTimeOffset.UtcNow;
-            var message = ex.FormatForBanner(
+            var failureMessage = ex.FormatForBanner(
                 _options.RequestTimeoutSeconds,
                 Guid.NewGuid().ToString("N"));
+            var message = failureMessage;
             _refreshState = _refreshState.ApplyFailure(message);
             RecordConnectionEvent(_connectionRecorder.ObserveFailure(
                 now,
@@ -880,8 +1169,9 @@ internal partial class MainWindow : Window
         catch (Exception ex)
         {
             var now = DateTimeOffset.UtcNow;
-            var message =
+            var failureMessage =
                 $"endpoint=(unknown) stage=HTTP_ERROR timeoutSeconds={_options.RequestTimeoutSeconds} elapsedMs=0 {ex.Message}";
+            var message = failureMessage;
             _refreshState = _refreshState.ApplyFailure(message);
             RecordConnectionEvent(_connectionRecorder.ObserveFailure(
                 now,
@@ -899,9 +1189,17 @@ internal partial class MainWindow : Window
                 _refreshAdmission.Release();
             }
 
-            Interlocked.CompareExchange(ref _refreshCancellation, null, cancellation);
+            if (autoRefreshRequest is { } refreshRequest)
+            {
+                _autoRefresh.EndRequest(WatchRefreshView.Overview, refreshRequest);
+            }
+
+            var ownedCurrentRequest = ReferenceEquals(
+                Interlocked.CompareExchange(ref _refreshCancellation, null, cancellation),
+                cancellation);
             cancellation.Dispose();
             if (refreshingOverview
+                && ownedCurrentRequest
                 && generation == _hostGeneration
                 && ReferenceEquals(overview, _overview))
             {
@@ -926,16 +1224,19 @@ internal partial class MainWindow : Window
         }
 
         // Keep last-success clock when any endpoint still works.
+        var failureMessage = snapshot.FetchError.Contains("timeoutSeconds=", StringComparison.Ordinal)
+            ? snapshot.FetchError
+            : $"{snapshot.FetchError} timeoutSeconds={_options.RequestTimeoutSeconds}";
         _refreshState = snapshot.DemandsSucceeded || snapshot.AlertsSucceeded || snapshot.PollHealthSucceeded
-            ? _refreshState.ApplyPartialSuccess(now).ApplyFailure(snapshot.FetchError)
-            : _refreshState.ApplyFailure(snapshot.FetchError);
+            ? _refreshState.ApplyPartialSuccess(now).ApplyFailure(failureMessage)
+            : _refreshState.ApplyFailure(failureMessage);
         RecordConnectionEvent(_connectionRecorder.ObserveFailure(
             now,
             endpoint: snapshot.FailedEndpoint ?? "(unknown)",
             stage: snapshot.FailedStage ?? "HTTP_ERROR",
             elapsed: snapshot.FailedElapsed ?? TimeSpan.Zero,
             timeoutSeconds: _options.RequestTimeoutSeconds,
-            message: snapshot.FetchError,
+            message: failureMessage,
             correlationId: snapshot.CorrelationId));
     }
 
@@ -1051,7 +1352,12 @@ internal partial class MainWindow : Window
         _bannerHold = banner.HoldState;
 
         ErrorBanner.Visibility = banner.ShowError ? Visibility.Visible : Visibility.Collapsed;
-        ErrorBannerText.Text = banner.ShowError ? banner.ErrorMessage ?? string.Empty : string.Empty;
+        var bannerError = banner.ErrorMessage ?? string.Empty;
+        ErrorBannerText.Text = banner.ShowError
+            ? pageRefreshState.FetchError is null
+                ? bannerError
+                : pageRefreshState.FormatFailure(bannerError, now)
+            : string.Empty;
 
         WarningBanner.Visibility = banner.ShowWarning ? Visibility.Visible : Visibility.Collapsed;
         WarningBannerText.Text = banner.ShowWarning ? banner.WarningMessage ?? string.Empty : string.Empty;
@@ -1066,6 +1372,9 @@ internal partial class MainWindow : Window
         StatusBarText.Text = status.CompactLine;
         StatusBarText.ToolTip = status.Tooltip;
         CurrentHostContextText.Text = $"当前 Host：{_options.BaseUrl}";
+        PageRefreshContextText.Text = CurrentRefreshView is { } currentView
+            ? FormatPageRefreshContext(currentView, pageRefreshState, now)
+            : "设置页 · 自动刷新已暂停";
 
         var hostState = _hostSession.State;
         var overview = WatchOverviewProjection.Project(hostState, _overview.State);
@@ -1078,6 +1387,7 @@ internal partial class MainWindow : Window
             : System.Windows.Media.Brushes.Black;
         OverviewDemandText.Text = overview.DemandsText;
         OverviewBusyText.Visibility = _isOverviewRefreshing ? Visibility.Visible : Visibility.Collapsed;
+        OverviewNoticeText.Text = _overviewNotice ?? string.Empty;
         OverviewRefreshButton.IsEnabled = !_isOverviewRefreshing;
         OverviewCancelButton.IsEnabled = _isOverviewRefreshing;
 
@@ -1101,6 +1411,26 @@ internal partial class MainWindow : Window
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
         SyncOpenAlertDetails();
+    }
+
+    private string FormatPageRefreshContext(
+        WatchRefreshView view,
+        WatchRefreshState refreshState,
+        DateTimeOffset now)
+    {
+        var setting = _autoRefresh.Preferences.For(view);
+        var viewName = view switch
+        {
+            WatchRefreshView.Overview => "概览",
+            WatchRefreshView.Visible => "VISIBLE",
+            WatchRefreshView.Gone => "GONE",
+            WatchRefreshView.Alerts => "IngestAlert",
+            _ => view.ToString(),
+        };
+        var auto = setting.Enabled
+            ? $"自动刷新=开启({setting.IntervalSeconds}s)"
+            : $"自动刷新=关闭({setting.IntervalSeconds}s)";
+        return $"当前视图={viewName} · {auto} · {refreshState.FormatWatchRefreshLine(now)}";
     }
 
     private static string FormatCommittedDemandQuery(WatchDemandBrowseQuery query)

@@ -92,6 +92,8 @@ internal sealed class WatchOverviewSession
     private readonly object _gate = new();
     private readonly IWatchOverviewQueries _queries;
     private readonly Func<DateTimeOffset> _getNow;
+    private CancellationTokenSource? _activeCancellation;
+    private long _requestGeneration;
 
     public WatchOverviewSession(
         IWatchOverviewQueries queries,
@@ -125,47 +127,82 @@ internal sealed class WatchOverviewSession
         Func<WatchOverviewState, Task>? onResourceCommitted = null,
         CancellationToken cancellationToken = default)
     {
-        var healthTask = FetchPollHealthAsync(onResourceCommitted, cancellationToken);
-        var alertsTask = FetchAlertsAsync(onResourceCommitted, cancellationToken);
-        var demandsTask = FetchDemandsAsync(onResourceCommitted, cancellationToken);
-        await Task.WhenAll(healthTask, alertsTask, demandsTask).ConfigureAwait(false);
+        var request = BeginRequest(cancellationToken);
+        try
+        {
+            var healthTask = FetchPollHealthAsync(onResourceCommitted, request);
+            var alertsTask = FetchAlertsAsync(onResourceCommitted, request);
+            var demandsTask = FetchDemandsAsync(onResourceCommitted, request);
+            await Task.WhenAll(healthTask, alertsTask, demandsTask).ConfigureAwait(false);
 
-        var health = await healthTask.ConfigureAwait(false);
-        var alerts = await alertsTask.ConfigureAwait(false);
-        var demands = await demandsTask.ConfigureAwait(false);
-        var firstFailure = new[] { demands.Failure, alerts.Failure, health.Failure }
-            .FirstOrDefault(failure => failure is not null);
-        LastSnapshot = new WatchSnapshot(
-            demands.Value?.Items ?? [],
-            alerts.Value?.Items ?? [],
-            health.Value,
-            firstFailure?.Message,
-            FailedEndpoint: firstFailure?.Endpoint,
-            FailedStage: firstFailure?.Stage,
-            FailedElapsed: firstFailure?.Elapsed,
-            DemandsNextCursor: demands.Value?.NextCursor,
-            DemandsHasMore: demands.Value?.HasMore ?? false,
-            AlertsNextCursor: alerts.Value?.NextCursor,
-            AlertsHasMore: alerts.Value?.HasMore ?? false,
-            DemandsSucceeded: demands.Succeeded,
-            AlertsSucceeded: alerts.Succeeded,
-            PollHealthSucceeded: health.Succeeded,
-            DemandsError: demands.Failure?.Message,
-            AlertsError: alerts.Failure?.Message,
-            PollHealthError: health.Failure?.Message);
+            var health = await healthTask.ConfigureAwait(false);
+            var alerts = await alertsTask.ConfigureAwait(false);
+            var demands = await demandsTask.ConfigureAwait(false);
+            var firstFailure = new[] { demands.Failure, alerts.Failure, health.Failure }
+                .FirstOrDefault(failure => failure is not null);
+            lock (_gate)
+            {
+                ThrowIfNotCurrent(request);
+                LastSnapshot = new WatchSnapshot(
+                    demands.Value?.Items ?? [],
+                    alerts.Value?.Items ?? [],
+                    health.Value,
+                    firstFailure?.Message,
+                    FailedEndpoint: firstFailure?.Endpoint,
+                    FailedStage: firstFailure?.Stage,
+                    FailedElapsed: firstFailure?.Elapsed,
+                    CorrelationId: firstFailure?.CorrelationId,
+                    DemandsNextCursor: demands.Value?.NextCursor,
+                    DemandsHasMore: demands.Value?.HasMore ?? false,
+                    AlertsNextCursor: alerts.Value?.NextCursor,
+                    AlertsHasMore: alerts.Value?.HasMore ?? false,
+                    DemandsSucceeded: demands.Succeeded,
+                    AlertsSucceeded: alerts.Succeeded,
+                    PollHealthSucceeded: health.Succeeded,
+                    DemandsError: demands.Failure?.Message,
+                    AlertsError: alerts.Failure?.Message,
+                    PollHealthError: health.Failure?.Message);
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (IsCurrent(request))
+                {
+                    _activeCancellation = null;
+                }
+            }
+
+            request.Cancellation.Dispose();
+        }
+    }
+
+    public void CancelActive()
+    {
+        CancellationTokenSource? cancellation;
+        lock (_gate)
+        {
+            _requestGeneration++;
+            cancellation = _activeCancellation;
+            _activeCancellation = null;
+        }
+
+        cancellation?.Cancel();
     }
 
     private async Task<WatchOverviewFetch<WatchPollHealthDto?>> FetchPollHealthAsync(
         Func<WatchOverviewState, Task>? onCommitted,
-        CancellationToken cancellationToken)
+        OverviewRequest request)
     {
         var result = await CaptureAsync(
-                () => _queries.FetchPollHealthAsync(cancellationToken),
-                cancellationToken)
+                () => _queries.FetchPollHealthAsync(request.Cancellation.Token),
+                request.Cancellation.Token)
             .ConfigureAwait(false);
         WatchOverviewState committed;
         lock (_gate)
         {
+            ThrowIfNotCurrent(request);
             var current = State.PollHealth;
             State = State with
             {
@@ -186,15 +223,18 @@ internal sealed class WatchOverviewSession
 
     private async Task<WatchOverviewFetch<WatchAlertPage>> FetchAlertsAsync(
         Func<WatchOverviewState, Task>? onCommitted,
-        CancellationToken cancellationToken)
+        OverviewRequest request)
     {
         var result = await CaptureAsync(
-                () => _queries.FetchAlertPageAsync(WatchAlertBrowseQuery.Default, cancellationToken),
-                cancellationToken)
+                () => _queries.FetchAlertPageAsync(
+                    WatchAlertBrowseQuery.Default,
+                    request.Cancellation.Token),
+                request.Cancellation.Token)
             .ConfigureAwait(false);
         WatchOverviewState committed;
         lock (_gate)
         {
+            ThrowIfNotCurrent(request);
             var current = State.Alerts;
             State = State with
             {
@@ -215,15 +255,18 @@ internal sealed class WatchOverviewSession
 
     private async Task<WatchOverviewFetch<WatchDemandPage>> FetchDemandsAsync(
         Func<WatchOverviewState, Task>? onCommitted,
-        CancellationToken cancellationToken)
+        OverviewRequest request)
     {
         var result = await CaptureAsync(
-                () => _queries.FetchDemandPageAsync(WatchDemandBrowseQuery.Default, cancellationToken),
-                cancellationToken)
+                () => _queries.FetchDemandPageAsync(
+                    WatchDemandBrowseQuery.Default,
+                    request.Cancellation.Token),
+                request.Cancellation.Token)
             .ConfigureAwait(false);
         WatchOverviewState committed;
         lock (_gate)
         {
+            ThrowIfNotCurrent(request);
             var current = State.Demands;
             State = State with
             {
@@ -256,11 +299,15 @@ internal sealed class WatchOverviewSession
         }
         catch (WatchHostQueryException ex)
         {
+            var stage = ex.Stage ?? ex.Kind.ToString();
             return WatchOverviewFetch<T>.Failed(new WatchOverviewFailure(
-                $"endpoint={ex.Endpoint} correlationId={ex.CorrelationId} {ex.Message}",
+                $"endpoint={ex.Endpoint} stage={stage} "
+                + $"elapsedMs={(long)ex.Elapsed.TotalMilliseconds} "
+                + $"correlationId={ex.CorrelationId} {ex.Message}",
                 ex.Endpoint,
-                ex.Kind.ToString(),
-                TimeSpan.Zero));
+                stage,
+                ex.Elapsed,
+                ex.CorrelationId));
         }
         catch (WatchEndpointFetchException ex)
         {
@@ -268,7 +315,8 @@ internal sealed class WatchOverviewSession
                 $"endpoint={ex.Endpoint} stage={ex.Stage} {ex.Message}",
                 ex.Endpoint,
                 ex.Stage,
-                ex.Elapsed));
+                ex.Elapsed,
+                null));
         }
         catch (Exception ex)
         {
@@ -276,7 +324,8 @@ internal sealed class WatchOverviewSession
                 ex.Message,
                 null,
                 "UNKNOWN",
-                TimeSpan.Zero));
+                TimeSpan.Zero,
+                null));
         }
     }
 
@@ -284,13 +333,46 @@ internal sealed class WatchOverviewSession
         Func<WatchOverviewState, Task>? onCommitted,
         WatchOverviewState state) =>
         onCommitted?.Invoke(state) ?? Task.CompletedTask;
+
+    private OverviewRequest BeginRequest(CancellationToken cancellationToken)
+    {
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        CancellationTokenSource? previous;
+        long generation;
+        lock (_gate)
+        {
+            generation = ++_requestGeneration;
+            previous = _activeCancellation;
+            _activeCancellation = cancellation;
+        }
+
+        previous?.Cancel();
+        return new OverviewRequest(generation, cancellation);
+    }
+
+    private bool IsCurrent(OverviewRequest request) =>
+        request.Generation == _requestGeneration
+        && ReferenceEquals(request.Cancellation, _activeCancellation);
+
+    private void ThrowIfNotCurrent(OverviewRequest request)
+    {
+        if (!IsCurrent(request) || request.Cancellation.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(request.Cancellation.Token);
+        }
+    }
+
+    private sealed record OverviewRequest(
+        long Generation,
+        CancellationTokenSource Cancellation);
 }
 
 internal sealed record WatchOverviewFailure(
     string Message,
     string? Endpoint,
     string Stage,
-    TimeSpan Elapsed);
+    TimeSpan Elapsed,
+    string? CorrelationId);
 
 internal sealed record WatchOverviewFetch<T>(
     bool Succeeded,

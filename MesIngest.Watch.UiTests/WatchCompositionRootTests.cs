@@ -11,6 +11,177 @@ public sealed class WatchCompositionRootTests
     private static readonly Lazy<StaDispatcherHost> StaHost = new(() => new StaDispatcherHost());
 
     [Fact]
+    public void Enabled_visible_auto_refresh_runs_immediately_when_returning_and_persists()
+    {
+        RunInSta(() =>
+        {
+            var demandCalls = 0;
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("visible-auto-refresh")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(_ =>
+                {
+                    demandCalls++;
+                    return FakeHostReply.Return(new WatchDemandPage(
+                        [Demand($"d-{demandCalls}", "WIRE_TO_GATE")],
+                        null,
+                        HasMore: false));
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-auto-{Guid.NewGuid():N}");
+            var preferencesPath = Path.Combine(testRoot, "auto-refresh.json");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"),
+                autoRefreshPreferencesPath: preferencesPath);
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            var navigation = (ListBox)window.FindName("PrimaryNavigation");
+            navigation.SelectedIndex = 1;
+            PumpUntil(() => demandCalls >= 2);
+
+            var interval = (ComboBox)window.FindName("DemandAutoRefreshInterval");
+            var enabled = (CheckBox)window.FindName("DemandAutoRefreshCheckBox");
+            interval.SelectedItem = 30;
+            enabled.IsChecked = true;
+
+            navigation.SelectedIndex = 2;
+            navigation.SelectedIndex = 1;
+            PumpUntil(() => demandCalls >= 3);
+
+            var saved = WatchAutoRefreshPreferencesStore.Load(preferencesPath);
+            Assert.Equal(new WatchAutoRefreshSetting(true, 30), saved.Visible);
+            Assert.False(saved.Gone.Enabled);
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Auto_refresh_timer_starts_after_recovering_from_initial_host_failure()
+    {
+        RunInSta(() =>
+        {
+            var pollHealthCalls = 0;
+            var health = new WatchPollHealthDto(
+                DateTimeOffset.Parse("2026-08-08T09:29:59+08:00"),
+                DateTimeOffset.Parse("2026-08-08T09:30:00+08:00"),
+                1000,
+                1,
+                true,
+                "SUCCESS",
+                []);
+            var fakeHost = new ScriptedFakeHost(
+                new FakeHostScenario("initial-failure")
+                {
+                    Contract = FakeHostReply.Fail<FakeHostUnit>(
+                        WatchHostFailureKind.Network,
+                        "/api/contract",
+                        "initial fake failure"),
+                },
+                new FakeHostScenario("recovered-auto-refresh")
+                {
+                    PollHealth = FakeHostReply.Select<FakeHostUnit, WatchPollHealthDto?>(_ =>
+                    {
+                        pollHealthCalls++;
+                        return FakeHostReply.Return<WatchPollHealthDto?>(health);
+                    }),
+                });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-auto-recover-{Guid.NewGuid():N}");
+            var preferencesPath = Path.Combine(testRoot, "auto-refresh.json");
+            WatchAutoRefreshPreferencesStore.Save(
+                preferencesPath,
+                WatchAutoRefreshPreferences.Default.With(
+                    WatchRefreshView.Overview,
+                    new WatchAutoRefreshSetting(true, 10)));
+            var clock = new ManualTimeProvider(
+                DateTimeOffset.Parse("2026-08-08T10:00:00+08:00"));
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"),
+                autoRefreshPreferencesPath: preferencesPath,
+                timeProvider: clock);
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            PumpUntil(() => ((Border)window.FindName("ErrorBanner")).Visibility == Visibility.Visible);
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 3;
+            ((Button)window.FindName("ApplyHostButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var cancel = (Button)window.FindName("OverviewCancelButton");
+            PumpUntil(() => pollHealthCalls >= 2 && !cancel.IsEnabled);
+
+            clock.SetUtcNow(DateTimeOffset.Parse("2026-08-08T10:00:10+08:00"));
+            PumpUntil(() => pollHealthCalls >= 3);
+
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Failed_new_host_never_auto_refreshes_or_displays_the_old_host_window()
+    {
+        RunInSta(() =>
+        {
+            var oldDemandCalls = 0;
+            var oldHost = new FakeHostScenario("old-host")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(_ =>
+                {
+                    oldDemandCalls++;
+                    return FakeHostReply.Return(new WatchDemandPage(
+                        [Demand("old-demand", "WIRE_TO_GATE")],
+                        null,
+                        false));
+                }),
+            };
+            var failedNewHost = new FakeHostScenario("failed-new-host")
+            {
+                Contract = FakeHostReply.Fail<FakeHostUnit>(
+                    WatchHostFailureKind.Timeout,
+                    "/api/contract",
+                    "new Host timed out"),
+            };
+            var fakeHost = new ScriptedFakeHost(oldHost, failedNewHost);
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-host-isolation-{Guid.NewGuid():N}");
+            var preferencesPath = Path.Combine(testRoot, "auto-refresh.json");
+            WatchAutoRefreshPreferencesStore.Save(
+                preferencesPath,
+                WatchAutoRefreshPreferences.Default.With(
+                    WatchRefreshView.Overview,
+                    new WatchAutoRefreshSetting(true, 10)));
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"),
+                autoRefreshPreferencesPath: preferencesPath);
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            PumpUntil(() => oldDemandCalls == 1);
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 3;
+            ((TextBox)window.FindName("HostBaseUrlInput")).Text = "http://new-host.test";
+            ((Button)window.FindName("ApplyHostButton"))
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var error = (TextBlock)window.FindName("ErrorBannerText");
+            PumpUntil(() => error.Text.Contains("new Host timed out", StringComparison.Ordinal));
+
+            Assert.Equal(1, oldDemandCalls);
+            Assert.DoesNotContain(
+                "old-demand",
+                ((TextBlock)window.FindName("OverviewDemandText")).Text,
+                StringComparison.Ordinal);
+            Assert.Contains("timeoutSeconds=30", error.Text, StringComparison.Ordinal);
+            Assert.Contains("elapsedMs=0", error.Text, StringComparison.Ordinal);
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Visible_and_gone_tabs_load_once_and_restore_independent_cached_windows()
     {
         RunInSta(() =>
@@ -250,6 +421,13 @@ public sealed class WatchCompositionRootTests
             PumpUntil(() => ((Border)window.FindName("ErrorBanner")).Visibility == Visibility.Visible);
             Assert.Equal("第 1 页", ((TextBlock)window.FindName("DemandPageText")).Text);
             Assert.Equal("gone-committed", ((WatchDemandDto)grid.Items[0]).DemandId);
+            var failureText = ((TextBlock)window.FindName("ErrorBannerText")).Text;
+            Assert.Contains("endpoint=/api/demands", failureText, StringComparison.Ordinal);
+            Assert.Contains("timeoutSeconds=30", failureText, StringComparison.Ordinal);
+            Assert.Contains("elapsedMs=", failureText, StringComparison.Ordinal);
+            Assert.Contains("correlationId=", failureText, StringComparison.Ordinal);
+            Assert.Contains("lastSuccess=", failureText, StringComparison.Ordinal);
+            Assert.Contains("stale=", failureText, StringComparison.Ordinal);
 
             ((Button)window.FindName("DemandRefreshButton"))
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -524,10 +702,60 @@ public sealed class WatchCompositionRootTests
             cancel.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             PumpUntil(() => !cancel.IsEnabled);
             Assert.Equal(Visibility.Collapsed, busy.Visibility);
+            Assert.Equal("已取消", ((TextBlock)window.FindName("OverviewNoticeText")).Text);
             Assert.Contains(fakeHost.Timeline, entry =>
                 entry.Operation == FakeHostOperation.PollHealth
                 && entry.State == FakeHostRequestState.Canceled);
 
+            window.Close();
+        });
+    }
+
+    [Fact]
+    public void Navigating_during_initial_overview_refresh_still_loads_the_target_view()
+    {
+        RunInSta(() =>
+        {
+            var health = new WatchPollHealthDto(
+                DateTimeOffset.Parse("2026-08-08T09:29:59+08:00"),
+                DateTimeOffset.Parse("2026-08-08T09:30:00+08:00"),
+                1000,
+                1,
+                true,
+                "SUCCESS",
+                []);
+            var gate = new FakeHostGate();
+            var demandCalls = 0;
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("navigate-during-overview")
+            {
+                PollHealth = FakeHostReply.Sequence<FakeHostUnit, WatchPollHealthDto?>(
+                    FakeHostReply.Return<WatchPollHealthDto?>(health),
+                    FakeHostReply.After<WatchPollHealthDto?>(gate, health)),
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(_ =>
+                {
+                    demandCalls++;
+                    return FakeHostReply.Return(new WatchDemandPage(
+                        [Demand($"d-{demandCalls}", "WIRE_TO_GATE")],
+                        null,
+                        false));
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-overview-navigation-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            PumpUntil(() => ((Button)window.FindName("OverviewCancelButton")).IsEnabled);
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
+            var grid = (DataGrid)window.FindName("DemandsGrid");
+            PumpUntil(() => demandCalls >= 2 && grid.Items.Count == 1);
+
+            Assert.Equal("d-2", ((WatchDemandDto)grid.Items[0]).DemandId);
+            gate.Release();
             window.Close();
         });
     }
@@ -724,6 +952,15 @@ public sealed class WatchCompositionRootTests
             });
             Assert.Null(caught);
         }
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private DateTimeOffset _utcNow = utcNow.ToUniversalTime();
+
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+
+        public void SetUtcNow(DateTimeOffset value) => _utcNow = value.ToUniversalTime();
     }
 
 }

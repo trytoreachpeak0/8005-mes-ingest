@@ -69,4 +69,22 @@ public class WatchRefreshStateTests
         Assert.Equal(pageSuccess, state.LastSuccessAt);
         Assert.Contains("/api/alerts", state.FetchError, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Failure_context_keeps_transport_details_with_last_success_and_staleness()
+    {
+        var successAt = DateTimeOffset.Parse("2026-08-08T01:00:00Z");
+        var failAt = DateTimeOffset.Parse("2026-08-08T01:02:05Z");
+        var state = WatchRefreshState.Empty.ApplySuccess(successAt);
+
+        var text = state.FormatFailure(
+            "endpoint=/api/alerts stage=WATCH_TIMEOUT timeoutSeconds=30 elapsedMs=30000 correlationId=c-9",
+            failAt);
+
+        Assert.Contains("endpoint=/api/alerts", text, StringComparison.Ordinal);
+        Assert.Contains("elapsedMs=30000", text, StringComparison.Ordinal);
+        Assert.Contains("correlationId=c-9", text, StringComparison.Ordinal);
+        Assert.Contains("lastSuccess=", text, StringComparison.Ordinal);
+        Assert.Contains("stale=2m5s", text, StringComparison.Ordinal);
+    }
 }

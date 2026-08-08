@@ -63,7 +63,9 @@ internal sealed record WatchHostSessionState(
     WatchHostFailureKind FailureKind,
     string? ErrorMessage,
     string? Endpoint,
-    string? CorrelationId)
+    string? CorrelationId,
+    string? FailureStage = null,
+    TimeSpan? FailureElapsed = null)
 {
     public static WatchHostSessionState Empty { get; } = new(
         0,
@@ -84,17 +86,23 @@ internal sealed class WatchHostQueryException : Exception
         string endpoint,
         string correlationId,
         string message,
-        Exception? innerException = null)
+        Exception? innerException = null,
+        string? stage = null,
+        TimeSpan? elapsed = null)
         : base(message, innerException)
     {
         Kind = kind;
         Endpoint = endpoint;
         CorrelationId = correlationId;
+        Stage = stage;
+        Elapsed = elapsed ?? TimeSpan.Zero;
     }
 
     public WatchHostFailureKind Kind { get; }
     public string Endpoint { get; }
     public string CorrelationId { get; }
+    public string? Stage { get; }
+    public TimeSpan Elapsed { get; }
 }
 
 internal interface IWatchOverviewQueries
@@ -212,6 +220,8 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
                     ErrorMessage = ex.Message,
                     Endpoint = ex.Endpoint,
                     CorrelationId = ex.CorrelationId,
+                    FailureStage = ex.Stage,
+                    FailureElapsed = ex.Elapsed,
                 });
         }
         catch (Exception ex)
@@ -359,6 +369,9 @@ internal static class WatchHostQueryFailure
             kind,
             exception.Endpoint,
             correlationId,
-            safeMessage);
+            safeMessage,
+            innerException: null,
+            stage: exception.Stage,
+            elapsed: exception.Elapsed);
     }
 }
