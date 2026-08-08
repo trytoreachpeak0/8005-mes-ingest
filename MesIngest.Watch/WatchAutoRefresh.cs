@@ -68,6 +68,8 @@ internal sealed record WatchAutoRefreshPreferences(
 
 internal static class WatchAutoRefreshPreferencesStore
 {
+    public const int CurrentVersion = 1;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -92,6 +94,7 @@ internal static class WatchAutoRefreshPreferencesStore
                 File.ReadAllText(path),
                 JsonOptions);
             return document is null
+                || document.Version != CurrentVersion
                 || document.Overview is null
                 || document.Visible is null
                 || document.Gone is null
@@ -123,6 +126,7 @@ internal static class WatchAutoRefreshPreferencesStore
         }
 
         var document = new PreferencesDocument(
+            CurrentVersion,
             PreferenceDocument.From(preferences.Overview),
             PreferenceDocument.From(preferences.Visible),
             PreferenceDocument.From(preferences.Gone),
@@ -131,6 +135,7 @@ internal static class WatchAutoRefreshPreferencesStore
     }
 
     private sealed record PreferencesDocument(
+        int Version,
         PreferenceDocument? Overview,
         PreferenceDocument? Visible,
         PreferenceDocument? Gone,

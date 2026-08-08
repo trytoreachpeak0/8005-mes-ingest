@@ -20,6 +20,7 @@ internal partial class MainWindow : Window
     private readonly WatchTelemetryIoDiagnosticBuffer _telemetryIoDiagnostics;
     private readonly string _layoutPreferencesPath;
     private readonly string _autoRefreshPreferencesPath;
+    private readonly string _connectionPreferencesPath;
     private readonly WatchAutoRefreshSchedule _autoRefresh;
     private readonly DispatcherTimer _timer;
     private readonly DispatcherTimer _bannerHoldTimer;
@@ -52,6 +53,7 @@ internal partial class MainWindow : Window
         WatchConnectionEventRecorder? connectionRecorder = null,
         string? layoutPreferencesPath = null,
         string? autoRefreshPreferencesPath = null,
+        string? connectionPreferencesPath = null,
         WatchTelemetryIoDiagnosticBuffer? telemetryIoDiagnostics = null,
         Func<WatchHostSettings, IWatchHostQueryAdapter>? hostAdapterFactory = null,
         TimeProvider? timeProvider = null)
@@ -104,6 +106,10 @@ internal partial class MainWindow : Window
                 : Path.Combine(
                     Path.GetDirectoryName(Path.GetFullPath(layoutPreferencesPath))!,
                     "auto-refresh.json"));
+        _connectionPreferencesPath = connectionPreferencesPath
+            ?? (layoutPreferencesPath is null
+                ? WatchConnectionPreferencesStore.DefaultFilePath
+                : Path.ChangeExtension(layoutPreferencesPath, ".connection.json"));
         _autoRefresh = new WatchAutoRefreshSchedule(
             WatchAutoRefreshPreferencesStore.Load(_autoRefreshPreferencesPath),
             timeProvider);
@@ -120,7 +126,7 @@ internal partial class MainWindow : Window
             System.Globalization.CultureInfo.InvariantCulture);
         InitializeAutoRefreshControls();
 
-        ApplyPaneRatio(WatchLayoutPreferences.LoadDemandShare(_layoutPreferencesPath));
+        ApplyWindowLayout(WatchLayoutPreferences.Load(_layoutPreferencesPath));
         PanesSplitter.DragCompleted += (_, _) => ConvertPaneHeightsToStars();
 
         _timer = new DispatcherTimer
@@ -150,7 +156,7 @@ internal partial class MainWindow : Window
         };
         Closed += (_, _) =>
         {
-            SavePaneRatio();
+            SaveWindowLayout();
             _refreshCancellation?.Cancel();
             _refreshCancellation?.Dispose();
             _visibleDemands.Dispose();
@@ -470,6 +476,7 @@ internal partial class MainWindow : Window
         ApplyHostButton.IsEnabled = false;
         try
         {
+            SaveConnectionPreferences(settings);
             await ApplyHostSessionAsync(settings, refreshOverview: true).ConfigureAwait(true);
         }
         finally
@@ -579,6 +586,14 @@ internal partial class MainWindow : Window
         AlertsRow.Height = new GridLength(alertStar, GridUnitType.Star);
     }
 
+    private void ApplyWindowLayout(WatchWindowLayout layout)
+    {
+        var workArea = SystemParameters.WorkArea;
+        Width = Math.Max(MinWidth, Math.Min(layout.WindowWidth, workArea.Width));
+        Height = Math.Max(MinHeight, Math.Min(layout.WindowHeight, workArea.Height));
+        ApplyPaneRatio(layout.DemandShare);
+    }
+
     /// <summary>
     /// GridSplitter leaves Absolute row heights after a drag; convert back to Star
     /// so window resize/maximize keeps the same Demand/Alert fill ratio.
@@ -600,7 +615,7 @@ internal partial class MainWindow : Window
         ApplyPaneRatio(demand / total);
     }
 
-    private void SavePaneRatio()
+    private void SaveWindowLayout()
     {
         ConvertPaneHeightsToStars();
         var demand = DemandsRow.Height.Value;
@@ -608,12 +623,26 @@ internal partial class MainWindow : Window
         var total = demand + alert;
         if (total <= 0 || !DemandsRow.Height.IsStar)
         {
-            return;
+            ApplyPaneRatio(WatchLayoutPreferences.DefaultDemandShare);
+            demand = DemandsRow.Height.Value;
+            alert = AlertsRow.Height.Value;
+            total = demand + alert;
         }
 
         try
         {
-            WatchLayoutPreferences.SaveDemandShare(_layoutPreferencesPath, demand / total);
+            var restoreBounds = RestoreBounds;
+            var width = WindowState == WindowState.Normal
+                ? Width
+                : restoreBounds.Width;
+            var height = WindowState == WindowState.Normal
+                ? Height
+                : restoreBounds.Height;
+            width = double.IsFinite(width) && width > 0 ? width : WatchWindowLayout.Default.WindowWidth;
+            height = double.IsFinite(height) && height > 0 ? height : WatchWindowLayout.Default.WindowHeight;
+            WatchLayoutPreferences.Save(
+                _layoutPreferencesPath,
+                new WatchWindowLayout(width, height, demand / total));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -659,6 +688,30 @@ internal partial class MainWindow : Window
         {
             _ = RunDemandOperationAsync(current.RefreshCurrentAsync);
         }
+    }
+
+    private void SaveConnectionPreferences(WatchHostSettings settings)
+    {
+        try
+        {
+            WatchConnectionPreferencesStore.Save(
+                _connectionPreferencesPath,
+                new WatchConnectionPreferences(
+                    settings.BaseUrl,
+                    settings.RequestTimeoutSeconds,
+                    WatchCredentialReference.ExternalConfiguration));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _telemetryIoDiagnostics.Record("watch-connection-preferences", ex);
+        }
+    }
+
+    private void OnResetLayoutClick(object sender, RoutedEventArgs e)
+    {
+        ApplyWindowLayout(WatchWindowLayout.Default);
+        SaveWindowLayout();
+        SettingsValidationText.Text = "已恢复默认窗口大小和详情分隔位置。";
     }
 
     private void ResetDemandTabsToVisible()

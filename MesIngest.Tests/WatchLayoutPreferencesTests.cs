@@ -140,4 +140,42 @@ public class WatchLayoutPreferencesTests
         Assert.Equal(0.3, alert, precision: 10);
         Assert.Equal(1.0, demand + alert, precision: 10);
     }
+
+    [Fact]
+    public void Window_size_and_detail_share_round_trip_as_one_versioned_layout()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"watch-layout-{Guid.NewGuid():N}.json");
+        var expected = new WatchWindowLayout(1440, 900, 0.58);
+
+        try
+        {
+            WatchLayoutPreferences.Save(path, expected);
+
+            Assert.Equal(expected, WatchLayoutPreferences.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"version\":99,\"windowWidth\":1440,\"windowHeight\":900,\"demandShare\":0.6}")]
+    [InlineData("{\"version\":1,\"windowWidth\":200,\"windowHeight\":900,\"demandShare\":0.6}")]
+    [InlineData("{\"version\":1,\"windowWidth\":1440,\"windowHeight\":9000,\"demandShare\":0.6}")]
+    [InlineData("{\"version\":1,\"windowWidth\":1440,\"windowHeight\":900,\"demandShare\":1.5}")]
+    public void Incompatible_or_out_of_bounds_layout_falls_back_atomically(string json)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"watch-layout-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, json);
+
+        try
+        {
+            Assert.Equal(WatchWindowLayout.Default, WatchLayoutPreferences.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

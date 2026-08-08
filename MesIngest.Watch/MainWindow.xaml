@@ -6,10 +6,23 @@
         Title="MesIngest Watch"
         Height="720"
         Width="1180"
-        MinHeight="480"
-        MinWidth="900">
+        MinHeight="600"
+        MinWidth="720"
+        Background="{DynamicResource WatchBackgroundBrush}"
+        AutomationProperties.Name="MesIngestWatch 主窗口"
+        KeyboardNavigation.TabNavigation="Continue">
     <Window.Resources>
         <local:LocalDateTimeOffsetConverter x:Key="LocalTime" />
+        <SolidColorBrush x:Key="WatchBackgroundBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="WatchSurfaceBrush" Color="#F7F9FB" />
+        <SolidColorBrush x:Key="WatchNavigationBrush" Color="#F3F5F7" />
+        <SolidColorBrush x:Key="WatchBorderBrush" Color="#D8DEE4" />
+        <SolidColorBrush x:Key="WatchTextBrush" Color="#263238" />
+        <SolidColorBrush x:Key="WatchSecondaryTextBrush" Color="#455A64" />
+        <SolidColorBrush x:Key="WatchMutedTextBrush" Color="#5F6B76" />
+        <SolidColorBrush x:Key="WatchAccentBrush" Color="#1565C0" />
+        <SolidColorBrush x:Key="WatchWarningBrush" Color="#EF6C00" />
+        <SolidColorBrush x:Key="WatchErrorBrush" Color="#C62828" />
         <DataTemplate x:Key="DemandDetailFieldTemplate">
             <Grid Margin="0,2,0,6">
                 <Grid.ColumnDefinitions>
@@ -36,7 +49,7 @@
                 <TextBlock Grid.Row="1"
                            Grid.Column="1"
                            Text="{Binding Explanation}"
-                           Foreground="#5F6B76"
+                           Foreground="{StaticResource WatchMutedTextBrush}"
                            TextWrapping="Wrap" />
             </Grid>
         </DataTemplate>
@@ -48,21 +61,22 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="#F3F5F7" CornerRadius="6" Padding="10">
+        <Border Grid.Column="0" Background="{StaticResource WatchNavigationBrush}" CornerRadius="6" Padding="10">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="4,8,4,18">
                     <TextBlock Text="MesIngestWatch" FontSize="19" FontWeight="SemiBold" />
-                    <TextBlock Text="单 Host · 只读运维台" Margin="0,4,0,0" Foreground="#5F6B76" />
+                    <TextBlock Text="单 Host · 只读运维台" Margin="0,4,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
                 </StackPanel>
                 <ListBox x:Name="PrimaryNavigation"
+                         AutomationProperties.Name="主导航"
                          SelectedIndex="0"
                          SelectionChanged="OnPrimaryNavigationChanged"
                          BorderThickness="0"
                          Background="Transparent">
-                    <ListBoxItem Content="概览" Padding="10,8" />
-                    <ListBoxItem Content="MES 任务 / TransportDemand" Padding="10,8" />
-                    <ListBoxItem Content="IngestAlert" Padding="10,8" />
-                    <ListBoxItem Content="设置" Padding="10,8" />
+                    <ListBoxItem Content="概览" AutomationProperties.Name="概览导航" Padding="10,8" />
+                    <ListBoxItem Content="MES 任务 / TransportDemand" AutomationProperties.Name="TransportDemand 导航" Padding="10,8" />
+                    <ListBoxItem Content="IngestAlert" AutomationProperties.Name="IngestAlert 导航" Padding="10,8" />
+                    <ListBoxItem Content="设置" AutomationProperties.Name="设置导航" Padding="10,8" />
                 </ListBox>
             </DockPanel>
         </Border>
@@ -73,21 +87,23 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0" Margin="12,0,12,8">
-                <Border Padding="10,6" Background="#F7F8FA" CornerRadius="4">
+                <Border Padding="10,6" Background="{StaticResource WatchSurfaceBrush}" CornerRadius="4">
                     <StackPanel>
-                        <TextBlock x:Name="CurrentHostContextText" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="CurrentHostContextText"
+                                   AutomationProperties.Name="当前 Host 基址"
+                                   TextTrimming="CharacterEllipsis" />
                         <TextBlock x:Name="PageRefreshContextText"
                                    AutomationProperties.Name="当前视图刷新上下文"
                                    Margin="0,3,0,0"
-                                   Foreground="#455A64"
+                                   Foreground="{StaticResource WatchSecondaryTextBrush}"
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </Border>
-                <Border x:Name="ErrorBanner" Background="#C62828" Padding="10,8" Margin="0,6,0,0" Visibility="Collapsed">
-                    <TextBlock x:Name="ErrorBannerText" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
+                <Border x:Name="ErrorBanner" Background="{StaticResource WatchErrorBrush}" Padding="10,8" Margin="0,6,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="ErrorBannerText" AutomationProperties.Name="连接错误" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
                 </Border>
-                <Border x:Name="WarningBanner" Background="#EF6C00" Padding="10,8" Margin="0,6,0,0" Visibility="Collapsed">
-                    <TextBlock x:Name="WarningBannerText" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
+                <Border x:Name="WarningBanner" Background="{StaticResource WatchWarningBrush}" Padding="10,8" Margin="0,6,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="WarningBannerText" AutomationProperties.Name="连接警告" Foreground="White" FontWeight="SemiBold" TextWrapping="Wrap" FontSize="14" />
                 </Border>
             </StackPanel>
 
@@ -96,12 +112,8 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Grid Margin="12,8,12,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
+                <WrapPanel x:Name="OverviewHeaderPanel" Margin="12,8,12,12">
+                    <StackPanel MinWidth="320" Margin="0,0,24,8">
                         <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
                         <TextBlock x:Name="OverviewConclusionText"
                                    AutomationProperties.Name="概览健康结论"
@@ -117,9 +129,9 @@
                         <TextBlock x:Name="OverviewNoticeText"
                                    AutomationProperties.Name="概览刷新提示"
                                    Margin="0,4,0,0"
-                                   Foreground="#5F6B76" />
+                                   Foreground="{StaticResource WatchMutedTextBrush}" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Top" Margin="0,0,0,8">
                         <CheckBox x:Name="OverviewAutoRefreshCheckBox"
                                   Tag="{x:Static local:WatchRefreshView.Overview}"
                                   Content="自动刷新"
@@ -146,10 +158,10 @@
                                 IsEnabled="False"
                                 Click="OnOverviewCancelClick" />
                     </StackPanel>
-                </Grid>
+                </WrapPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <UniformGrid Columns="2" Margin="6">
-                        <Border Margin="6" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
+                        <Border Margin="6" Padding="16" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="6">
                             <StackPanel>
                                 <TextBlock Text="Host 接入状态" FontSize="16" FontWeight="SemiBold" />
                                 <TextBlock x:Name="OverviewHostText"
@@ -158,7 +170,7 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                        <Border Margin="6" Padding="16" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="6">
+                        <Border Margin="6" Padding="16" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="6">
                             <StackPanel>
                                 <TextBlock Text="最近轮询健康" FontSize="16" FontWeight="SemiBold" />
                                 <TextBlock x:Name="OverviewPollHealthText"
@@ -175,7 +187,7 @@
                                 HorizontalContentAlignment="Stretch"
                                 VerticalContentAlignment="Stretch"
                                 Background="White"
-                                BorderBrush="#D8DEE4"
+                                BorderBrush="{StaticResource WatchBorderBrush}"
                                 Click="OnOverviewAlertsClick">
                             <StackPanel>
                                 <TextBlock Text="活动 IngestAlert" FontSize="16" FontWeight="SemiBold" />
@@ -183,7 +195,7 @@
                                            Margin="0,8,0,0"
                                            Text="活动告警：0"
                                            TextWrapping="Wrap" />
-                                <TextBlock Text="进入活动告警默认查询 →" Margin="0,12,0,0" Foreground="#1565C0" />
+                                <TextBlock Text="进入活动告警默认查询 →" Margin="0,12,0,0" Foreground="{StaticResource WatchAccentBrush}" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="OverviewDemandsButton"
@@ -193,7 +205,7 @@
                                 HorizontalContentAlignment="Stretch"
                                 VerticalContentAlignment="Stretch"
                                 Background="White"
-                                BorderBrush="#D8DEE4"
+                                BorderBrush="{StaticResource WatchBorderBrush}"
                                 Click="OnOverviewDemandsClick">
                             <StackPanel>
                                 <TextBlock Text="VISIBLE TransportDemand" FontSize="16" FontWeight="SemiBold" />
@@ -201,7 +213,7 @@
                                            Margin="0,8,0,0"
                                            Text="VISIBLE TransportDemand：0"
                                            TextWrapping="Wrap" />
-                                <TextBlock Text="进入 VISIBLE 默认查询 →" Margin="0,12,0,0" Foreground="#1565C0" />
+                                <TextBlock Text="进入 VISIBLE 默认查询 →" Margin="0,12,0,0" Foreground="{StaticResource WatchAccentBrush}" />
                             </StackPanel>
                         </Button>
                     </UniformGrid>
@@ -209,18 +221,14 @@
             </Grid>
 
             <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
-                <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
+                <WrapPanel x:Name="AlertHeaderPanel" DockPanel.Dock="Top" Margin="0,0,0,12">
+                    <StackPanel MinWidth="320" Margin="0,0,24,8">
                         <TextBlock Text="IngestAlert" FontSize="26" FontWeight="SemiBold" />
                         <TextBlock Text="活动 / 已解除 · 独立服务端单页窗口 · 每页固定 100 行"
-                                   Foreground="#5F6B76"
+                                   Foreground="{StaticResource WatchMutedTextBrush}"
                                    Margin="0,4,0,0" />
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,8">
                         <CheckBox x:Name="AlertAutoRefreshCheckBox"
                                   Tag="{x:Static local:WatchRefreshView.Alerts}"
                                   Content="自动刷新"
@@ -234,10 +242,10 @@
                                   Margin="8,0,8,0"
                                   AutomationProperties.Name="IngestAlert 自动刷新间隔"
                                   SelectionChanged="OnAutoRefreshIntervalChanged" />
-                        <Button x:Name="AlertRefreshButton" Content="刷新当前页" Padding="12,5" Click="OnAlertRefreshClick" />
-                        <Button x:Name="AlertCancelButton" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnAlertCancelClick" />
+                        <Button x:Name="AlertRefreshButton" AutomationProperties.Name="刷新 IngestAlert 当前页" Content="刷新当前页" Padding="12,5" Click="OnAlertRefreshClick" />
+                        <Button x:Name="AlertCancelButton" AutomationProperties.Name="取消 IngestAlert 刷新" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnAlertCancelClick" />
                     </StackPanel>
-                </Grid>
+                </WrapPanel>
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -245,57 +253,64 @@
                         <RowDefinition Height="*" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Border Grid.Row="0" Background="#FFF7F9FB" BorderBrush="#FFD8DEE5" BorderThickness="1" Padding="10" Margin="0,0,0,8">
+                    <Border Grid.Row="0" Background="{StaticResource WatchSurfaceBrush}" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" Padding="10" Margin="0,0,0,8">
                         <StackPanel>
                             <WrapPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock Text="状态" />
-                                    <ComboBox x:Name="AlertActivityFilter" Width="110" Margin="0,4,0,0" />
+                                    <ComboBox x:Name="AlertActivityFilter" AutomationProperties.Name="IngestAlert 状态筛选" Width="110" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock Text="Code" />
-                                    <ComboBox x:Name="AlertCodeFilter" Width="220" Margin="0,4,0,0" />
+                                    <ComboBox x:Name="AlertCodeFilter" AutomationProperties.Name="IngestAlert Code 筛选" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock Text="Severity" />
-                                    <ComboBox x:Name="AlertSeverityFilter" Width="120" Margin="0,4,0,0" />
+                                    <ComboBox x:Name="AlertSeverityFilter" AutomationProperties.Name="IngestAlert Severity 筛选" Width="120" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock Text="LastSeenAt 起始（含时区）" />
-                                    <TextBox x:Name="AlertRangeFromFilter" Width="220" Margin="0,4,0,0" />
+                                    <TextBox x:Name="AlertRangeFromFilter" AutomationProperties.Name="IngestAlert LastSeenAt 起始" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,0">
                                     <TextBlock Text="LastSeenAt 结束（含时区）" />
-                                    <TextBox x:Name="AlertRangeToFilter" Width="220" Margin="0,4,0,0" />
+                                    <TextBox x:Name="AlertRangeToFilter" AutomationProperties.Name="IngestAlert LastSeenAt 结束" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                                    <Button x:Name="AlertQueryButton" Content="查询" Padding="16,5" Click="OnAlertQueryClick" />
-                                    <Button x:Name="AlertResetButton" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnAlertResetClick" />
+                                    <Button x:Name="AlertQueryButton" AutomationProperties.Name="查询 IngestAlert" Content="查询" Padding="16,5" Click="OnAlertQueryClick" />
+                                    <Button x:Name="AlertResetButton" AutomationProperties.Name="重置 IngestAlert 查询" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnAlertResetClick" />
                                 </StackPanel>
                             </WrapPanel>
-                            <TextBlock x:Name="AlertValidationText" Foreground="#C62828" TextWrapping="Wrap" />
-                            <TextBlock x:Name="AlertCommittedQueryText" Margin="0,6,0,0" Foreground="#37474F" TextWrapping="Wrap" />
+                            <TextBlock x:Name="AlertValidationText" AutomationProperties.Name="IngestAlert 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="AlertCommittedQueryText" AutomationProperties.Name="IngestAlert 已提交查询" Margin="0,6,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                 <TextBlock x:Name="AlertBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
-                                <TextBlock x:Name="AlertNoticeText" Margin="12,0,0,0" Foreground="#5F6B76" />
+                                <TextBlock x:Name="AlertNoticeText" AutomationProperties.Name="IngestAlert 刷新提示" Margin="12,0,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <TextBlock x:Name="AlertCountText" Grid.Row="1" Margin="0,0,0,6" Foreground="#455A64" />
+                    <TextBlock x:Name="AlertCountText" AutomationProperties.Name="IngestAlert 查询结果摘要" Grid.Row="1" Margin="0,0,0,6" Foreground="{StaticResource WatchSecondaryTextBrush}" />
                     <DataGrid x:Name="AlertsGrid"
+                              AutomationProperties.Name="IngestAlert 单页结果"
                               Grid.Row="2"
                               AutoGenerateColumns="False"
                               IsReadOnly="True"
                               CanUserAddRows="False"
                               CanUserSortColumns="True"
+                              HorizontalScrollBarVisibility="Auto"
                               HeadersVisibility="Column"
                               SelectionChanged="OnAlertSelectionChanged"
                               Sorting="OnAlertsSorting"
                               MouseDoubleClick="OnAlertsDoubleClick"
                               PreviewKeyDown="OnAlertsPreviewKeyDown"
                               PreviewMouseRightButtonDown="OnAlertsPreviewMouseRightButtonDown">
+                        <DataGrid.RowStyle>
+                            <Style TargetType="DataGridRow">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding AlertId}" />
+                            </Style>
+                        </DataGrid.RowStyle>
                         <DataGrid.Columns>
-                            <DataGridTemplateColumn Header="Code" SortMemberPath="Code" Width="180" CanUserSort="True">
+                            <DataGridTemplateColumn Header="Code" AutomationProperties.Name="IngestAlert Code 列" SortMemberPath="Code" Width="180" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Button Content="{Binding Code}"
@@ -307,34 +322,34 @@
                                                 Padding="0"
                                                 BorderThickness="0"
                                                 Background="Transparent"
-                                                Foreground="#FF1565C0"
+                                                Foreground="{StaticResource WatchAccentBrush}"
                                                 HorizontalContentAlignment="Left" />
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="Severity" Binding="{Binding Severity}" Width="90" CanUserSort="True" />
-                            <DataGridTextColumn Header="AlertId" Binding="{Binding AlertId}" Width="180" CanUserSort="True" />
-                            <DataGridTextColumn Header="last seen" Binding="{Binding LastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                            <DataGridTextColumn Header="first seen" Binding="{Binding FirstSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
-                            <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="180" CanUserSort="True" />
-                            <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="130" CanUserSort="True" />
-                            <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
-                            <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="260" CanUserSort="True" />
-                            <DataGridTextColumn Header="OccurrenceCount" Binding="{Binding OccurrenceCount}" Width="130" CanUserSort="False" />
-                            <DataGridTextColumn Header="IsActive" Binding="{Binding IsActive}" Width="90" CanUserSort="False" />
-                            <DataGridTextColumn Header="ResolvedAt" Binding="{Binding ResolvedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="False" />
+                            <DataGridTextColumn Header="Severity" AutomationProperties.Name="IngestAlert Severity 列" Binding="{Binding Severity}" Width="90" CanUserSort="True" />
+                            <DataGridTextColumn Header="AlertId" AutomationProperties.Name="IngestAlert AlertId 列" Binding="{Binding AlertId}" Width="180" CanUserSort="True" />
+                            <DataGridTextColumn Header="last seen" AutomationProperties.Name="IngestAlert LastSeenAt 列" Binding="{Binding LastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="first seen" AutomationProperties.Name="IngestAlert FirstSeenAt 列" Binding="{Binding FirstSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="TASK_TYPE" AutomationProperties.Name="IngestAlert TASK_TYPE 列" Binding="{Binding TaskType}" Width="180" CanUserSort="True" />
+                            <DataGridTextColumn Header="SUBLOT" AutomationProperties.Name="IngestAlert SUBLOT 列" Binding="{Binding Sublot}" Width="130" CanUserSort="True" />
+                            <DataGridTextColumn Header="DemandId" AutomationProperties.Name="IngestAlert DemandId 列" Binding="{Binding DemandId}" Width="200" CanUserSort="True" />
+                            <DataGridTextColumn Header="Message" AutomationProperties.Name="IngestAlert Message 列" Binding="{Binding Message}" Width="260" CanUserSort="True" />
+                            <DataGridTextColumn Header="OccurrenceCount" AutomationProperties.Name="IngestAlert OccurrenceCount 列" Binding="{Binding OccurrenceCount}" Width="130" CanUserSort="False" />
+                            <DataGridTextColumn Header="IsActive" AutomationProperties.Name="IngestAlert IsActive 列" Binding="{Binding IsActive}" Width="90" CanUserSort="False" />
+                            <DataGridTextColumn Header="ResolvedAt" AutomationProperties.Name="IngestAlert ResolvedAt 列" Binding="{Binding ResolvedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="False" />
                         </DataGrid.Columns>
                         <DataGrid.ContextMenu>
                             <ContextMenu>
-                                <MenuItem Header="查看详情" Click="OnAlertViewDetailsMenu" />
+                                <MenuItem Header="查看详情" AutomationProperties.Name="查看所选 IngestAlert 详情" Click="OnAlertViewDetailsMenu" />
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
                     <DockPanel Grid.Row="3" Margin="6,6,6,4">
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
-                            <Button x:Name="AlertPreviousButton" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
+                            <Button x:Name="AlertPreviousButton" AutomationProperties.Name="IngestAlert 上一页" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
                             <TextBlock x:Name="AlertPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
-                            <Button x:Name="AlertNextButton" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnAlertNextClick" />
+                            <Button x:Name="AlertNextButton" AutomationProperties.Name="IngestAlert 下一页" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnAlertNextClick" />
                         </StackPanel>
                     </DockPanel>
                 </Grid>
@@ -353,21 +368,21 @@
                 <TextBlock Text="设置" FontSize="26" FontWeight="SemiBold" />
                 <StackPanel Grid.Row="1" Margin="0,22,0,0">
                     <TextBlock Text="Host 基址" />
-                    <TextBox x:Name="HostBaseUrlInput" Margin="0,6,0,0" Padding="8,5" />
+                    <TextBox x:Name="HostBaseUrlInput" AutomationProperties.Name="Host 基址" Margin="0,6,0,0" Padding="8,5" />
                 </StackPanel>
                 <StackPanel Grid.Row="2" Margin="0,16,0,0">
                     <TextBlock Text="只读 API 凭据" />
-                    <PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Margin="0,6,0,0" Padding="8,5" />
-                    <TextBlock Text="凭据始终掩码，不写入页面、错误或日志。" Foreground="#5F6B76" Margin="0,4,0,0" />
+                    <PasswordBox x:Name="HostCredentialInput" AutomationProperties.Name="只读 API 凭据" PasswordChar="●" Margin="0,6,0,0" Padding="8,5" />
+                    <TextBlock Text="凭据始终掩码，不写入页面、错误或日志；跨重启仍由环境变量或 appsettings.Local.json 安全提供。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <StackPanel Grid.Row="3" Margin="0,16,0,0">
                     <TextBlock Text="请求超时（秒）" />
-                    <TextBox x:Name="RequestTimeoutInput" ToolTip="1–300 秒" Width="160" HorizontalAlignment="Left" Margin="0,6,0,0" Padding="8,5" />
+                    <TextBox x:Name="RequestTimeoutInput" AutomationProperties.Name="全局请求超时秒数" ToolTip="1–300 秒" Width="160" HorizontalAlignment="Left" Margin="0,6,0,0" Padding="8,5" />
                 </StackPanel>
-                <Border Grid.Row="4" Margin="0,18,0,0" Padding="12" BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="4">
+                <Border Grid.Row="4" Margin="0,18,0,0" Padding="12" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="4">
                     <StackPanel>
                         <TextBlock Text="各视图自动刷新" FontWeight="SemiBold" />
-                        <TextBlock Text="默认关闭；间隔从每次请求结束后重新计算。" Foreground="#5F6B76" Margin="0,3,0,8" />
+                        <TextBlock Text="默认关闭；间隔从每次请求结束后重新计算。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,3,0,8" />
                         <WrapPanel>
                             <StackPanel Margin="0,0,24,8">
                                 <CheckBox x:Name="SettingsOverviewAutoRefreshCheckBox" Tag="{x:Static local:WatchRefreshView.Overview}" Content="概览" AutomationProperties.Name="设置概览自动刷新" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
@@ -389,8 +404,14 @@
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,20,0,0">
-                    <Button x:Name="ApplyHostButton" Content="应用" Padding="18,7" Click="OnApplyHostClick" />
-                    <TextBlock x:Name="SettingsValidationText" Margin="12,7,0,0" Foreground="#C62828" TextWrapping="Wrap" />
+                    <Button x:Name="ApplyHostButton" AutomationProperties.Name="应用 Host 设置" Content="应用" Padding="18,7" Click="OnApplyHostClick" />
+                    <Button x:Name="ResetLayoutButton"
+                            Content="恢复默认布局"
+                            AutomationProperties.Name="恢复默认窗口和详情布局"
+                            Margin="8,0,0,0"
+                            Padding="18,7"
+                            Click="OnResetLayoutClick" />
+                    <TextBlock x:Name="SettingsValidationText" AutomationProperties.Name="设置校验和操作结果" Margin="12,7,0,0" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
                 </StackPanel>
             </Grid>
 
@@ -398,6 +419,7 @@
                 <StatusBar x:Name="WatchStatusBar" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="4,2">
                     <StatusBarItem>
                         <TextBlock x:Name="StatusBarText"
+                                   AutomationProperties.Name="TransportDemand 状态栏"
                                    FontFamily="Consolas"
                                    FontSize="12"
                                    TextTrimming="CharacterEllipsis"
@@ -413,15 +435,15 @@
                         <TabItem Header="VISIBLE" AutomationProperties.Name="VISIBLE TransportDemand" />
                         <TabItem Header="GONE" AutomationProperties.Name="GONE TransportDemand" />
                     </TabControl>
-                    <DockPanel Margin="0,0,0,10" LastChildFill="False">
-                        <StackPanel>
+                    <WrapPanel x:Name="DemandHeaderPanel" Margin="0,0,0,10">
+                        <StackPanel MinWidth="320" Margin="0,0,24,8">
                             <TextBlock Text="MES 任务 / TransportDemand" FontSize="26" FontWeight="SemiBold" />
                             <TextBlock x:Name="DemandModeText"
                                        Text="VISIBLE · 服务端单页窗口 · 每页固定 100 行"
                                        Margin="0,4,0,0"
-                                       Foreground="#5F6B76" />
+                                       Foreground="{StaticResource WatchMutedTextBrush}" />
                         </StackPanel>
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                             <CheckBox x:Name="DemandAutoRefreshCheckBox"
                                       Content="自动刷新"
                                       AutomationProperties.Name="当前 TransportDemand 视图自动刷新"
@@ -439,44 +461,44 @@
                                     Padding="12,5"
                                     IsEnabled="False"
                                     Click="OnDemandViewDetailsClick" />
-                            <Button x:Name="DemandRefreshButton" Content="刷新当前页" Padding="12,5" Click="OnDemandRefreshClick" />
-                            <Button x:Name="DemandCancelButton" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnDemandCancelClick" />
+                            <Button x:Name="DemandRefreshButton" AutomationProperties.Name="刷新 TransportDemand 当前页" Content="刷新当前页" Padding="12,5" Click="OnDemandRefreshClick" />
+                            <Button x:Name="DemandCancelButton" AutomationProperties.Name="取消 TransportDemand 刷新" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnDemandCancelClick" />
                         </StackPanel>
-                    </DockPanel>
+                    </WrapPanel>
 
-                    <Border BorderBrush="#D8DEE4" BorderThickness="1" CornerRadius="4" Padding="10">
+                    <Border BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10">
                         <StackPanel>
                             <WrapPanel>
                                 <StackPanel Margin="0,0,12,6">
                                     <TextBlock Text="TASK_TYPE" />
-                                    <ComboBox x:Name="DemandTaskTypeFilter" Width="190" Margin="0,4,0,0" />
+                                    <ComboBox x:Name="DemandTaskTypeFilter" AutomationProperties.Name="TransportDemand TASK_TYPE 筛选" Width="190" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,6">
                                     <TextBlock Text="SUBLOT" />
-                                    <TextBox x:Name="DemandSublotFilter" Width="130" Margin="0,4,0,0" />
+                                    <TextBox x:Name="DemandSublotFilter" AutomationProperties.Name="TransportDemand SUBLOT 筛选" Width="130" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,6">
                                     <TextBlock Text="DemandId（6–32 位十六进制）" />
-                                    <TextBox x:Name="DemandIdFilter" Width="220" Margin="0,4,0,0" />
+                                    <TextBox x:Name="DemandIdFilter" AutomationProperties.Name="TransportDemand DemandId 筛选" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,6">
                                     <TextBlock x:Name="DemandRangeFromLabel" Text="DATES 起始（含时区）" />
-                                    <TextBox x:Name="DemandRangeFromFilter" Width="220" Margin="0,4,0,0" />
+                                    <TextBox x:Name="DemandRangeFromFilter" AutomationProperties.Name="TransportDemand 时间起始筛选" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Margin="0,0,12,6">
                                     <TextBlock x:Name="DemandRangeToLabel" Text="DATES 结束（含时区）" />
-                                    <TextBox x:Name="DemandRangeToFilter" Width="220" Margin="0,4,0,0" />
+                                    <TextBox x:Name="DemandRangeToFilter" AutomationProperties.Name="TransportDemand 时间结束筛选" Width="220" Margin="0,4,0,0" />
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,6">
-                                    <Button x:Name="DemandQueryButton" Content="查询" Padding="16,5" Click="OnDemandQueryClick" />
-                                    <Button x:Name="DemandResetButton" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnDemandResetClick" />
+                                    <Button x:Name="DemandQueryButton" AutomationProperties.Name="查询 TransportDemand" Content="查询" Padding="16,5" Click="OnDemandQueryClick" />
+                                    <Button x:Name="DemandResetButton" AutomationProperties.Name="重置 TransportDemand 查询" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnDemandResetClick" />
                                 </StackPanel>
                             </WrapPanel>
-                            <TextBlock x:Name="DemandValidationText" Foreground="#C62828" TextWrapping="Wrap" />
-                            <TextBlock x:Name="DemandCommittedQueryText" Margin="0,6,0,0" Foreground="#37474F" TextWrapping="Wrap" />
+                            <TextBlock x:Name="DemandValidationText" AutomationProperties.Name="TransportDemand 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="DemandCommittedQueryText" AutomationProperties.Name="TransportDemand 已提交查询" Margin="0,6,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                 <TextBlock x:Name="DemandBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
-                                <TextBlock x:Name="DemandNoticeText" Margin="12,0,0,0" Foreground="#5F6B76" />
+                                <TextBlock x:Name="DemandNoticeText" AutomationProperties.Name="TransportDemand 刷新提示" Margin="12,0,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -486,9 +508,9 @@
                     <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                         <TextBlock x:Name="RowCountText" VerticalAlignment="Center" />
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                            <Button x:Name="DemandPreviousButton" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnDemandPreviousClick" />
+                            <Button x:Name="DemandPreviousButton" AutomationProperties.Name="TransportDemand 上一页" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnDemandPreviousClick" />
                             <TextBlock x:Name="DemandPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
-                            <Button x:Name="DemandNextButton" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnDemandNextClick" />
+                            <Button x:Name="DemandNextButton" AutomationProperties.Name="TransportDemand 下一页" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnDemandNextClick" />
                         </StackPanel>
                     </DockPanel>
 
@@ -499,11 +521,13 @@
                             <RowDefinition x:Name="AlertsRow" Height="3*" MinHeight="140" />
                         </Grid.RowDefinitions>
                         <DataGrid x:Name="DemandsGrid"
+                                  AutomationProperties.Name="TransportDemand 单页结果"
                                   Grid.Row="0"
                                   AutoGenerateColumns="False"
                                   IsReadOnly="True"
                                   CanUserAddRows="False"
                                   CanUserSortColumns="True"
+                                  HorizontalScrollBarVisibility="Auto"
                                   FrozenColumnCount="4"
                                   HeadersVisibility="Column"
                                   SelectionChanged="OnDemandSelectionChanged"
@@ -511,31 +535,37 @@
                                   MouseDoubleClick="OnDemandsDoubleClick"
                                   PreviewKeyDown="OnDemandsPreviewKeyDown"
                                   Sorting="OnDemandsSorting">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding DemandId}" />
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
-                                <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" Width="170" CanUserSort="True" SortMemberPath="TaskType" />
-                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" CanUserSort="True" SortMemberPath="Sublot" />
-                                <DataGridTextColumn Header="当前工序进入时间 (DATES)" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
-                                <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="100" CanUserSort="True" SortMemberPath="Area" />
-                                <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="100" CanUserSort="True" SortMemberPath="Eqp" />
-                                <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="100" CanUserSort="True" SortMemberPath="Step" />
-                                <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="140" CanUserSort="True" SortMemberPath="Package" />
-                                <DataGridTextColumn Header="status" Binding="{Binding Status}" Width="90" CanUserSort="True" SortMemberPath="Status" />
-                                <DataGridTextColumn Header="last seen" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
-                                <DataGridTextColumn Header="disappear" Binding="{Binding DisappearCount}" Width="90" CanUserSort="True" SortMemberPath="DisappearCount" />
-                                <DataGridTextColumn Header="locationRisk" Binding="{Binding LocationRisk}" Width="110" CanUserSort="True" SortMemberPath="LocationRisk" />
-                                <DataGridTextColumn Header="locationRiskCode" Binding="{Binding LocationRiskCode}" Width="160" CanUserSort="False" />
-                                <DataGridTextColumn Header="created" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
-                                <DataGridTextColumn Header="gone at" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
+                                <DataGridTextColumn Header="DemandId" AutomationProperties.Name="TransportDemand DemandId 列" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
+                                <DataGridTextColumn Header="TASK_TYPE" AutomationProperties.Name="TransportDemand TASK_TYPE 列" Binding="{Binding TaskType}" Width="170" CanUserSort="True" SortMemberPath="TaskType" />
+                                <DataGridTextColumn Header="SUBLOT" AutomationProperties.Name="TransportDemand SUBLOT 列" Binding="{Binding Sublot}" Width="120" CanUserSort="True" SortMemberPath="Sublot" />
+                                <DataGridTextColumn Header="当前工序进入时间 (DATES)" AutomationProperties.Name="TransportDemand DATES 列" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
+                                <DataGridTextColumn Header="AREA" AutomationProperties.Name="TransportDemand AREA 列" Binding="{Binding Area}" Width="100" CanUserSort="True" SortMemberPath="Area" />
+                                <DataGridTextColumn Header="EQP" AutomationProperties.Name="TransportDemand EQP 列" Binding="{Binding Eqp}" Width="100" CanUserSort="True" SortMemberPath="Eqp" />
+                                <DataGridTextColumn Header="STEP" AutomationProperties.Name="TransportDemand STEP 列" Binding="{Binding Step}" Width="100" CanUserSort="True" SortMemberPath="Step" />
+                                <DataGridTextColumn Header="PACKAGE" AutomationProperties.Name="TransportDemand PACKAGE 列" Binding="{Binding Package}" Width="140" CanUserSort="True" SortMemberPath="Package" />
+                                <DataGridTextColumn Header="status" AutomationProperties.Name="TransportDemand status 列" Binding="{Binding Status}" Width="90" CanUserSort="True" SortMemberPath="Status" />
+                                <DataGridTextColumn Header="last seen" AutomationProperties.Name="TransportDemand MesLastSeenAt 列" Binding="{Binding MesLastSeenAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="MesLastSeenAt" />
+                                <DataGridTextColumn Header="disappear" AutomationProperties.Name="TransportDemand disappear count 列" Binding="{Binding DisappearCount}" Width="90" CanUserSort="True" SortMemberPath="DisappearCount" />
+                                <DataGridTextColumn Header="locationRisk" AutomationProperties.Name="TransportDemand location risk 列" Binding="{Binding LocationRisk}" Width="110" CanUserSort="True" SortMemberPath="LocationRisk" />
+                                <DataGridTextColumn Header="locationRiskCode" AutomationProperties.Name="TransportDemand location risk code 列" Binding="{Binding LocationRiskCode}" Width="160" CanUserSort="False" />
+                                <DataGridTextColumn Header="created" AutomationProperties.Name="TransportDemand created at 列" Binding="{Binding CreatedAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="CreatedAt" />
+                                <DataGridTextColumn Header="gone at" AutomationProperties.Name="TransportDemand gone at 列" Binding="{Binding GoneAt, Converter={StaticResource LocalTime}}" Width="200" CanUserSort="True" SortMemberPath="GoneAt" />
                             </DataGrid.Columns>
                             <DataGrid.ContextMenu>
                                 <ContextMenu>
-                                    <MenuItem Header="查看详情" Click="OnDemandViewDetailsMenu" />
-                                    <MenuItem Header="复制 DemandId" Click="OnDemandCopyIdMenu" />
+                                    <MenuItem Header="查看详情" AutomationProperties.Name="查看所选 TransportDemand 详情" Click="OnDemandViewDetailsMenu" />
+                                    <MenuItem Header="复制 DemandId" AutomationProperties.Name="复制所选 TransportDemand DemandId" Click="OnDemandCopyIdMenu" />
                                 </ContextMenu>
                             </DataGrid.ContextMenu>
                         </DataGrid>
                         <GridSplitter x:Name="PanesSplitter"
+                                      AutomationProperties.Name="调整 TransportDemand 表格和详情区域"
                                       Grid.Row="1"
                                       Height="6"
                                       HorizontalAlignment="Stretch"
@@ -545,15 +575,15 @@
                                       ShowsPreview="True"
                                       MouseDoubleClick="OnPanesSplitterDoubleClick" />
                         <Border Grid.Row="2"
-                                BorderBrush="#D8DEE4"
+                                BorderBrush="{StaticResource WatchBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="4"
                                 Padding="10"
-                                Background="#FAFBFC">
+                                Background="{StaticResource WatchSurfaceBrush}">
                             <Grid>
                                 <TextBlock x:Name="DemandDetailsPlaceholder"
                                            Text="选择一条 TransportDemand，或双击 / 使用“查看详情”查看完整值。"
-                                           Foreground="#5F6B76"
+                                           Foreground="{StaticResource WatchMutedTextBrush}"
                                            VerticalAlignment="Center"
                                            HorizontalAlignment="Center"
                                            TextWrapping="Wrap"
@@ -577,14 +607,14 @@
 
                                         <TextBlock Text="{Binding MesInputGroup.Title}"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#263238"
+                                                   Foreground="{StaticResource WatchTextBrush}"
                                                    Margin="0,0,0,4" />
                                         <ItemsControl ItemsSource="{Binding MesInputGroup.Fields}"
                                                       ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
 
                                         <TextBlock Text="{Binding LocalProjectionGroup.Title}"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#263238"
+                                                   Foreground="{StaticResource WatchTextBrush}"
                                                    Margin="0,8,0,4" />
                                         <ItemsControl ItemsSource="{Binding LocalProjectionGroup.Fields}"
                                                       ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />

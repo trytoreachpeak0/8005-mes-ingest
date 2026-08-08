@@ -19,6 +19,7 @@ internal sealed class WatchApplicationComposition : IDisposable
     private readonly Func<WatchHostSettings, IWatchHostQueryAdapter> _hostAdapterFactory;
     private readonly string? _layoutPreferencesPath;
     private readonly string? _autoRefreshPreferencesPath;
+    private readonly string? _connectionPreferencesPath;
     private readonly TimeProvider? _timeProvider;
     private bool _disposed;
 
@@ -28,11 +29,13 @@ internal sealed class WatchApplicationComposition : IDisposable
         string? logDirectory,
         string? layoutPreferencesPath,
         string? autoRefreshPreferencesPath,
+        string? connectionPreferencesPath,
         TimeProvider? timeProvider)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _layoutPreferencesPath = layoutPreferencesPath;
         _autoRefreshPreferencesPath = autoRefreshPreferencesPath;
+        _connectionPreferencesPath = connectionPreferencesPath;
         _timeProvider = timeProvider;
 
         if (_options.RenderingMode == WatchRenderingMode.SoftwareOnly)
@@ -63,6 +66,7 @@ internal sealed class WatchApplicationComposition : IDisposable
         string? logDirectory = null,
         string? layoutPreferencesPath = null,
         string? autoRefreshPreferencesPath = null,
+        string? connectionPreferencesPath = null,
         TimeProvider? timeProvider = null) =>
         new(
             options,
@@ -70,11 +74,21 @@ internal sealed class WatchApplicationComposition : IDisposable
             logDirectory,
             layoutPreferencesPath,
             autoRefreshPreferencesPath,
+            connectionPreferencesPath,
             timeProvider);
 
     public MainWindow CreateMainWindow()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var connectionPreferencesPath = _connectionPreferencesPath
+            ?? (_layoutPreferencesPath is null
+                ? WatchConnectionPreferencesStore.DefaultFilePath
+                : Path.ChangeExtension(_layoutPreferencesPath, ".connection.json"));
+        var connectionPreferences = WatchConnectionPreferencesStore.Load(
+            connectionPreferencesPath,
+            WatchConnectionPreferences.FromOptions(_options));
+        _options.BaseUrl = connectionPreferences.BaseUrl;
+        _options.RequestTimeoutSeconds = connectionPreferences.RequestTimeoutSeconds;
         var initialSettings = new WatchHostSettings(
             _options.BaseUrl,
             _options.SharedSecret,
@@ -86,6 +100,7 @@ internal sealed class WatchApplicationComposition : IDisposable
             _journal,
             layoutPreferencesPath: _layoutPreferencesPath,
             autoRefreshPreferencesPath: _autoRefreshPreferencesPath,
+            connectionPreferencesPath: connectionPreferencesPath,
             telemetryIoDiagnostics: _telemetryIoDiagnostics,
             hostAdapterFactory: _hostAdapterFactory,
             timeProvider: _timeProvider);

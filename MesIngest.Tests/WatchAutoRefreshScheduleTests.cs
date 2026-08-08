@@ -132,4 +132,22 @@ public class WatchAutoRefreshScheduleTests
             }
         }
     }
+
+    [Fact]
+    public void Incompatible_auto_refresh_version_falls_back_to_safe_defaults()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"watch-refresh-{Guid.NewGuid():N}.json");
+        File.WriteAllText(
+            path,
+            """{"version":99,"overview":{"enabled":true,"intervalSeconds":10},"visible":{"enabled":true,"intervalSeconds":10},"gone":{"enabled":true,"intervalSeconds":10},"alerts":{"enabled":true,"intervalSeconds":10}}""");
+
+        try
+        {
+            Assert.Equal(WatchAutoRefreshPreferences.Default, WatchAutoRefreshPreferencesStore.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
