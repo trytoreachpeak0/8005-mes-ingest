@@ -305,6 +305,7 @@ internal sealed record AlertDetailViewModel(
     string? DemandId,
     ReappearDemandTargets ReappearTargets,
     string? Message,
+    string CreatedAtText,
     string FirstSeenAtText,
     string LastSeenAtText,
     string ResolvedAtText,
@@ -340,6 +341,7 @@ internal sealed record AlertDetailViewModel(
             DemandId: alert.DemandId,
             ReappearTargets: reappearTargets,
             Message: alert.Message,
+            CreatedAtText: WatchTimeDisplay.FormatNullable(alert.CreatedAt, zone),
             FirstSeenAtText: WatchTimeDisplay.FormatNullable(alert.FirstSeenAt ?? alert.CreatedAt, zone),
             LastSeenAtText: WatchTimeDisplay.FormatNullable(alert.LastSeenAt ?? alert.CreatedAt, zone),
             ResolvedAtText: WatchTimeDisplay.FormatNullable(alert.ResolvedAt, zone),
@@ -401,6 +403,7 @@ internal sealed record AlertDetailViewModel(
         sb.Append("Severity=").Append(Severity ?? "null").AppendLine();
         sb.Append("Source=").Append(SourceLabel).AppendLine();
         sb.Append("Lifecycle=").Append(LifecycleLabel).AppendLine();
+        sb.Append("CreatedAt=").Append(string.IsNullOrEmpty(CreatedAtText) ? "null" : CreatedAtText).AppendLine();
         sb.Append("FirstSeenAt=").Append(FirstSeenAtText).AppendLine();
         sb.Append("LastSeenAt=").Append(LastSeenAtText).AppendLine();
         sb.Append("ResolvedAt=").Append(string.IsNullOrEmpty(ResolvedAtText) ? "null" : ResolvedAtText).AppendLine();

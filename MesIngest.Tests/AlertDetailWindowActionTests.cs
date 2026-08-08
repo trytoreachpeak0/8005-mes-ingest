@@ -165,6 +165,8 @@ public class AlertDetailWindowActionTests
                 Assert.Equal(
                     "new-visible-id",
                     ((TextBlock)window.FindName("NewDemandIdText")).Text);
+                Assert.Equal("reappear-1", ((TextBlock)window.FindName("AlertIdText")).Text);
+                Assert.NotNull(window.FindName("CreatedAtText"));
                 Assert.Equal(
                     Visibility.Collapsed,
                     ((FrameworkElement)window.FindName("GenericDemandActionsPanel")).Visibility);

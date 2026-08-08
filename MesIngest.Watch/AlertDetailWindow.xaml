@@ -37,38 +37,46 @@
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Code" FontWeight="SemiBold" />
-                    <TextBlock x:Name="CodeText" Grid.Row="0" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Severity" FontWeight="SemiBold" />
-                    <TextBlock x:Name="SeverityText" Grid.Row="0" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="AlertId" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AlertIdText" Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" FontFamily="Consolas" />
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Source" FontWeight="SemiBold" />
-                    <TextBlock x:Name="SourceText" Grid.Row="1" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Lifecycle" FontWeight="SemiBold" />
-                    <TextBlock x:Name="LifecycleText" Grid.Row="1" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Code" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CodeText" Grid.Row="1" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="1" Grid.Column="2" Text="Severity" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SeverityText" Grid.Row="1" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="First seen" FontWeight="SemiBold" />
-                    <TextBlock x:Name="FirstSeenText" Grid.Row="2" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Last seen" FontWeight="SemiBold" />
-                    <TextBlock x:Name="LastSeenText" Grid.Row="2" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Source" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SourceText" Grid.Row="2" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="2" Grid.Column="2" Text="Lifecycle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="LifecycleText" Grid.Row="2" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
 
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Resolved at" FontWeight="SemiBold" />
-                    <TextBlock x:Name="ResolvedAtText" Grid.Row="3" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="3" Grid.Column="2" Text="Count" FontWeight="SemiBold" />
-                    <TextBlock x:Name="CountText" Grid.Row="3" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="First seen" FontWeight="SemiBold" />
+                    <TextBlock x:Name="FirstSeenText" Grid.Row="3" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="3" Grid.Column="2" Text="Last seen" FontWeight="SemiBold" />
+                    <TextBlock x:Name="LastSeenText" Grid.Row="3" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
 
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="TASK_TYPE" FontWeight="SemiBold" />
-                    <TextBlock x:Name="TaskTypeText" Grid.Row="4" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
-                    <TextBlock Grid.Row="4" Grid.Column="2" Text="SUBLOT" FontWeight="SemiBold" />
-                    <TextBlock x:Name="SublotText" Grid.Row="4" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Resolved at" FontWeight="SemiBold" />
+                    <TextBlock x:Name="ResolvedAtText" Grid.Row="4" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="4" Grid.Column="2" Text="Created at" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CreatedAtText" Grid.Row="4" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
 
-                    <TextBlock Grid.Row="5" Grid.Column="0" Text="DemandId" FontWeight="SemiBold" />
-                    <TextBlock x:Name="DemandIdText" Grid.Row="5" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" FontFamily="Consolas" />
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Count" FontWeight="SemiBold" />
+                    <TextBlock x:Name="CountText" Grid.Row="5" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
 
-                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Message" FontWeight="SemiBold" />
-                    <TextBlock x:Name="MessageText" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="6" Grid.Column="0" Text="TASK_TYPE" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TaskTypeText" Grid.Row="6" Grid.Column="1" Margin="0,0,8,4" TextWrapping="Wrap" />
+                    <TextBlock Grid.Row="6" Grid.Column="2" Text="SUBLOT" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SublotText" Grid.Row="6" Grid.Column="3" Margin="0,0,0,4" TextWrapping="Wrap" />
+
+                    <TextBlock Grid.Row="7" Grid.Column="0" Text="DemandId" FontWeight="SemiBold" />
+                    <TextBlock x:Name="DemandIdText" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" FontFamily="Consolas" />
+
+                    <TextBlock Grid.Row="8" Grid.Column="0" Text="Message" FontWeight="SemiBold" />
+                    <TextBlock x:Name="MessageText" Grid.Row="8" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,4" TextWrapping="Wrap" />
                 </Grid>
 
                 <Border x:Name="ReappearDemandActionsPanel"

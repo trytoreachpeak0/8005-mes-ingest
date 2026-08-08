@@ -184,6 +184,7 @@ internal partial class MainWindow : Window
     {
         _alerts.Dispose();
         _alerts = new WatchAlertSession(_hostSession);
+        _alertRefreshState = WatchRefreshState.Empty;
         ApplyAlertDraftToControls(_alerts.State.Draft);
         PrimaryNavigation.SelectedIndex = 2;
     }

@@ -51,6 +51,7 @@ public class AlertDetailViewModelTests
         var vm = AlertDetailViewModel.From(SampleAlert(), Beijing);
 
         Assert.Equal("alert-1", vm.AlertId);
+        Assert.Equal("2026-07-15 10:00:00 +08:00", vm.CreatedAtText);
         Assert.Equal("POLL_FAILURE", vm.Code);
         Assert.Equal("ERROR", vm.Severity);
         Assert.Equal(UnifiedEventSource.HostIngestAlert, vm.Source);
@@ -80,6 +81,7 @@ public class AlertDetailViewModelTests
         var summary = AlertDetailViewModel.From(SampleAlert(), Beijing).BuildSummary();
 
         Assert.Contains("AlertId=alert-1", summary, StringComparison.Ordinal);
+        Assert.Contains("CreatedAt=2026-07-15 10:00:00 +08:00", summary, StringComparison.Ordinal);
         Assert.Contains("Code=POLL_FAILURE", summary, StringComparison.Ordinal);
         Assert.Contains("Severity=ERROR", summary, StringComparison.Ordinal);
         Assert.Contains("Source=Host IngestAlert", summary, StringComparison.Ordinal);

@@ -71,6 +71,7 @@ internal partial class AlertDetailWindow : Window
             ? new SolidColorBrush(Color.FromRgb(0xBF, 0x36, 0x0C))
             : new SolidColorBrush(Color.FromRgb(0x33, 0x33, 0x33));
 
+        AlertIdText.Text = _viewModel.AlertId ?? string.Empty;
         CodeText.Text = _viewModel.Code;
         SeverityText.Text = _viewModel.Severity ?? string.Empty;
         SourceText.Text = _viewModel.SourceLabel;
@@ -78,6 +79,7 @@ internal partial class AlertDetailWindow : Window
         FirstSeenText.Text = _viewModel.FirstSeenAtText;
         LastSeenText.Text = _viewModel.LastSeenAtText;
         ResolvedAtText.Text = _viewModel.ResolvedAtText;
+        CreatedAtText.Text = _viewModel.CreatedAtText;
         CountText.Text = _viewModel.OccurrenceCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
         TaskTypeText.Text = _viewModel.TaskType ?? string.Empty;
         SublotText.Text = _viewModel.Sublot ?? string.Empty;
