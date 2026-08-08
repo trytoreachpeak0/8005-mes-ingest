@@ -1,9 +1,26 @@
 using System.Windows.Interop;
+using System.Windows.Media;
 
 namespace MesIngest.Watch.UiTests;
 
 public sealed class WatchVisualEnvironmentTests
 {
+    [Fact]
+    [Trait("Category", "watch-xaml-visual")]
+    [Trait("Category", "watch-xaml-environment")]
+    public void Current_environment_matches_the_visual_baseline_contract()
+    {
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        var result = WatchVisualEnvironment.Evaluate(WatchVisualEnvironment.Capture());
+        var isRequired = string.Equals(
+            Environment.GetEnvironmentVariable("MESINGEST_WATCH_REQUIRE_VISUAL_ENVIRONMENT"),
+            "1",
+            StringComparison.Ordinal);
+
+        Assert.SkipWhen(!isRequired && !result.IsCompatible, result.FormatReport());
+        Assert.True(result.IsCompatible, result.FormatReport());
+    }
+
     [Fact]
     public void Matching_calibrated_environment_is_accepted()
     {

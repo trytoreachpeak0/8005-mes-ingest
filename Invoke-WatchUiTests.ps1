@@ -49,12 +49,6 @@ namespace WatchUiDesktop
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool CloseDesktop(IntPtr desktop);
-
-        [DllImport("user32.dll")]
-        public static extern int GetSystemMetrics(int index);
-
-        [DllImport("user32.dll")]
-        public static extern uint GetDpiForSystem();
     }
 }
 "@
@@ -68,72 +62,28 @@ if ($desktop -eq [IntPtr]::Zero) {
 
 [void][WatchUiDesktop.NativeMethods]::CloseDesktop($desktop)
 
-if ($Suite -eq "watch-xaml-visual") {
-    $differences = [System.Collections.Generic.List[string]]::new()
-    $desktopWidth = [WatchUiDesktop.NativeMethods]::GetSystemMetrics(0)
-    $desktopHeight = [WatchUiDesktop.NativeMethods]::GetSystemMetrics(1)
-    if ($desktopWidth -ne 1920 -or $desktopHeight -ne 1080) {
-        $differences.Add("expected desktop=1920x1080; actual=${desktopWidth}x${desktopHeight}")
-    }
-
-    $dpi = [WatchUiDesktop.NativeMethods]::GetDpiForSystem()
-    if ($dpi -ne 96) {
-        $differences.Add("expected DPI=96 (100%); actual=$dpi")
-    }
-
-    $theme = Get-ItemPropertyValue `
-        -LiteralPath "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" `
-        -Name "AppsUseLightTheme" `
-        -ErrorAction SilentlyContinue
-    if ($theme -ne 1) {
-        $actualTheme = if ($null -eq $theme) { "unknown" } else { $theme }
-        $differences.Add("expected Windows apps light theme; actual=$actualTheme")
-    }
-
-    $culture = [Globalization.CultureInfo]::CurrentCulture.Name
-    if ($culture -ne "zh-CN") {
-        $differences.Add("expected culture=zh-CN; actual=$culture")
-    }
-
-    $uiCulture = [Globalization.CultureInfo]::CurrentUICulture.Name
-    if ($uiCulture -ne "zh-CN") {
-        $differences.Add("expected UI culture=zh-CN; actual=$uiCulture")
-    }
-
-    $requiredFontFiles = @{
-        "Microsoft YaHei UI" = Join-Path $env:WINDIR "Fonts\msyh.ttc"
-        "Consolas" = Join-Path $env:WINDIR "Fonts\consola.ttf"
-    }
-    foreach ($font in $requiredFontFiles.GetEnumerator()) {
-        if (-not (Test-Path -LiteralPath $font.Value -PathType Leaf)) {
-            $differences.Add("expected installed font=$($font.Key); actual=missing")
-        }
-    }
-
-    $renderingMode = [Environment]::GetEnvironmentVariable("MesIngestWatch__RenderingMode")
-    if (-not [string]::IsNullOrWhiteSpace($renderingMode) -and $renderingMode -ne "SoftwareOnly") {
-        $differences.Add("expected rendering mode=SoftwareOnly; actual=$renderingMode")
-    }
-
-    if ($differences.Count -gt 0) {
-        [Console]::Error.WriteLine("WATCH_XAML_VISUAL_ENVIRONMENT_UNAVAILABLE:")
-        foreach ($difference in $differences) {
-            [Console]::Error.WriteLine("- $difference")
-        }
-        exit 2
-    }
-
-    $effectiveRenderingMode = if ([string]::IsNullOrWhiteSpace($renderingMode)) {
-        "SoftwareOnly(default)"
-    } else {
-        $renderingMode
-    }
-    Write-Host "WATCH_XAML_VISUAL_ENVIRONMENT_OK: desktop=${desktopWidth}x${desktopHeight}; dpi=$dpi; theme=light; culture=$culture; uiCulture=$uiCulture; fonts=Microsoft YaHei UI,Consolas; rendering=$effectiveRenderingMode"
-}
-
 $project = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj"
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 $env:TESTINGPLATFORM_TELEMETRY_OPTOUT = "1"
+
+if ($Suite -eq "watch-xaml-visual") {
+    $probeVariable = "MESINGEST_WATCH_REQUIRE_VISUAL_ENVIRONMENT"
+    $previousProbeValue = [Environment]::GetEnvironmentVariable($probeVariable)
+    try {
+        [Environment]::SetEnvironmentVariable($probeVariable, "1")
+        & dotnet run --project $project --configuration $Configuration -- `
+            -trait "Category=watch-xaml-environment" -parallel none
+        $probeExitCode = $LASTEXITCODE
+    } finally {
+        [Environment]::SetEnvironmentVariable($probeVariable, $previousProbeValue)
+    }
+
+    if ($probeExitCode -ne 0) {
+        [Console]::Error.WriteLine(
+            "WATCH_XAML_VISUAL_ENVIRONMENT_UNAVAILABLE: authoritative C# probe failed; Verify was not started.")
+        exit 2
+    }
+}
 
 $traitArgument = if ($Suite -eq "watch-xaml-visual") {
     @("-trait", "Category=watch-xaml-visual")
