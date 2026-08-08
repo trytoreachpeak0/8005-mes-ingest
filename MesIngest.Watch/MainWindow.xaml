@@ -14,7 +14,7 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="WatchTheme.xaml" />
+                <local:WatchThemeDictionary />
             </ResourceDictionary.MergedDictionaries>
         <local:LocalDateTimeOffsetConverter x:Key="LocalTime" />
         <DataTemplate x:Key="DemandDetailFieldTemplate">
