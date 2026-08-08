@@ -71,17 +71,27 @@ if ($Suite -eq "watch-xaml-visual") {
     $previousProbeValue = [Environment]::GetEnvironmentVariable($probeVariable)
     try {
         [Environment]::SetEnvironmentVariable($probeVariable, "1")
-        & dotnet run --project $project --configuration $Configuration -- `
-            -trait "Category=watch-xaml-environment" -parallel none
+        $probeOutput = & dotnet run --project $project --configuration $Configuration -- `
+            -trait "Category=watch-xaml-environment" -parallel none 2>&1
         $probeExitCode = $LASTEXITCODE
     } finally {
         [Environment]::SetEnvironmentVariable($probeVariable, $previousProbeValue)
     }
 
+    $probeOutput | ForEach-Object { Write-Host $_ }
     if ($probeExitCode -ne 0) {
+        $environmentUnavailable = $probeOutput | Where-Object {
+            $_.ToString().Contains("WATCH_XAML_VISUAL_ENVIRONMENT_UNAVAILABLE:")
+        }
+        if ($null -ne $environmentUnavailable) {
+            [Console]::Error.WriteLine(
+                "WATCH_XAML_VISUAL_ENVIRONMENT_UNAVAILABLE: authoritative C# probe rejected this desktop; Verify was not started.")
+            exit 2
+        }
+
         [Console]::Error.WriteLine(
-            "WATCH_XAML_VISUAL_ENVIRONMENT_UNAVAILABLE: authoritative C# probe failed; Verify was not started.")
-        exit 2
+            "WATCH_XAML_VISUAL_PROBE_FAILED: build or test infrastructure failed before Verify started.")
+        exit $probeExitCode
     }
 }
 
