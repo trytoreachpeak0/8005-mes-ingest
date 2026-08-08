@@ -80,7 +80,14 @@ public class MainWindowStartupTests
                     || demands.ClipboardCopyMode != DataGridClipboardCopyMode.None
                     || alerts.ClipboardCopyMode != DataGridClipboardCopyMode.None
                     || !demandHeaders.SequenceEqual(
-                        new[] { "复制单元格", "复制整行", "复制整行（含列名）" })
+                        new[]
+                        {
+                            "查看详情",
+                            "复制 DemandId",
+                            "复制单元格",
+                            "复制整行",
+                            "复制整行（含列名）",
+                        })
                     || !alertHeaders.SequenceEqual(
                         new[] { "查看详情", "复制单元格", "复制整行", "复制整行（含列名）" })
                     || !demands.CommandBindings.OfType<CommandBinding>()
@@ -106,6 +113,105 @@ public class MainWindowStartupTests
         thread.Start();
         thread.Join(TimeSpan.FromSeconds(30));
 
+        Assert.Null(caught);
+        Assert.True(ok);
+    }
+
+    [Fact]
+    public void Demand_selection_shows_grouped_read_only_details_and_explicit_actions()
+    {
+        Exception? caught = null;
+        var ok = false;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+                var window = new MainWindow(
+                    new MesIngestApiClient(http),
+                    new WatchOptions
+                    {
+                        BaseUrl = "http://127.0.0.1:9",
+                        RefreshSeconds = 60,
+                    });
+                window.Show();
+                window.UpdateLayout();
+
+                var demands = (DataGrid)window.FindName("DemandsGrid");
+                var detailsPanel = (FrameworkElement)window.FindName("DemandDetailsPanel");
+                var detailsPlaceholder = (FrameworkElement)window.FindName("DemandDetailsPlaceholder");
+                var demand = new WatchDemandDto(
+                    DemandId: "abcdef0123456789abcdef0123456789",
+                    TaskType: "DIE_TO_OVEN",
+                    Sublot: "S-DETAIL",
+                    Area: "A01-01",
+                    Eqp: "EQP-01",
+                    Step: "STEP-01",
+                    Dates: DateTimeOffset.Parse("2026-08-08T08:00:00+08:00"),
+                    Package: "PACKAGE-LONG-VALUE",
+                    Status: "VISIBLE",
+                    MesLastSeenAt: DateTimeOffset.Parse("2026-08-08T09:00:00+08:00"),
+                    DisappearCount: 0,
+                    LocationRisk: false,
+                    LocationRiskCode: null,
+                    CreatedAt: DateTimeOffset.Parse("2026-08-08T08:05:00+08:00"),
+                    GoneAt: null);
+                demands.ItemsSource = new[] { demand };
+                demands.SelectedItem = null;
+                demands.SelectedCells.Clear();
+                var currentCell = new DataGridCellInfo(demand, demands.Columns[0]);
+                demands.CurrentCell = currentCell;
+                demands.SelectedCells.Add(currentCell);
+                demands.RaiseEvent(new MouseButtonEventArgs(
+                        Mouse.PrimaryDevice,
+                        Environment.TickCount,
+                        MouseButton.Left)
+                    {
+                        RoutedEvent = Control.MouseDoubleClickEvent,
+                        Source = demands,
+                    });
+                window.UpdateLayout();
+
+                var headers = demands.ContextMenu.Items
+                    .OfType<MenuItem>()
+                    .Select(item => item.Header?.ToString() ?? string.Empty)
+                    .ToArray();
+                var details = detailsPanel.DataContext as WatchDemandDetails;
+                if (!headers.SequenceEqual(
+                        new[]
+                        {
+                            "查看详情",
+                            "复制 DemandId",
+                            "复制单元格",
+                            "复制整行",
+                            "复制整行（含列名）",
+                        })
+                    || detailsPanel.Visibility != Visibility.Visible
+                    || detailsPlaceholder.Visibility != Visibility.Collapsed
+                    || details?.MesInputGroup.Fields.Count != 7
+                    || details.LocalProjectionGroup.Fields.Single(
+                        field => field.Name == "DemandId").Value != demand.DemandId
+                    || demands.IsReadOnly != true)
+                {
+                    throw new InvalidOperationException(
+                        $"Demand detail/actions incomplete: headers=[{string.Join(",", headers)}] "
+                        + $"detailVisible={detailsPanel.Visibility} placeholder={detailsPlaceholder.Visibility}");
+                }
+
+                ok = true;
+                window.Close();
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join(TimeSpan.FromSeconds(30));
+
+        Assert.True(thread.Join(0), "STA detail thread did not finish");
         Assert.Null(caught);
         Assert.True(ok);
     }

@@ -117,6 +117,7 @@ public class WatchGridClipboardTests
             ("STEP", "Step"),
             ("PACKAGE", "Package"),
             ("locationRisk", "LocationRisk"),
+            ("locationRiskCode", "LocationRiskCode"),
             ("disappear", "DisappearCount"),
         };
 
@@ -124,21 +125,22 @@ public class WatchGridClipboardTests
         var text = WatchGridClipboard.FormatRowWithHeaders(headers, values, beijing);
 
         Assert.StartsWith(
-            "DemandId\tTASK_TYPE\tSUBLOT\tstatus\t当前工序进入时间 (DATES)\tlast seen\tcreated\tgone at\tAREA\tEQP\tSTEP\tPACKAGE\tlocationRisk\tdisappear\n",
+            "DemandId\tTASK_TYPE\tSUBLOT\tstatus\t当前工序进入时间 (DATES)\tlast seen\tcreated\tgone at\tAREA\tEQP\tSTEP\tPACKAGE\tlocationRisk\tlocationRiskCode\tdisappear\n",
             text,
             StringComparison.Ordinal);
         Assert.Contains("deadbeef\tDIE_TO_OVEN\tS1\tVISIBLE\t", text, StringComparison.Ordinal);
-        Assert.Contains("\tnull\tnull\tE1\tSTEP1\tP\tFalse\t0", text, StringComparison.Ordinal);
+        Assert.Contains("\tnull\tnull\tE1\tSTEP1\tP\tFalse\tnull\t0", text, StringComparison.Ordinal);
         Assert.Contains("2026-07-15 10:30:45 +08:00", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Context_menu_headers_preserve_view_details_with_clipboard_actions()
     {
-        var headers = WatchGridClipboardBehavior.ComposeContextMenuHeaders(["查看详情"]);
+        var headers = WatchGridClipboardBehavior.ComposeContextMenuHeaders(
+            ["查看详情", "复制 DemandId"]);
 
         Assert.Equal(
-            ["查看详情", "复制单元格", "复制整行", "复制整行（含列名）"],
+            ["查看详情", "复制 DemandId", "复制单元格", "复制整行", "复制整行（含列名）"],
             headers);
     }
 

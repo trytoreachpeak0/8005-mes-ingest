@@ -511,6 +511,64 @@ public sealed class WatchDemandSessionTests
 
         Assert.Null(session.State.SelectedDemandId);
         Assert.Equal("所选 TransportDemand 已不在当前页", session.State.Notice);
+
+        await session.RefreshCurrentAsync();
+
+        Assert.Null(session.State.Notice);
+    }
+
+    [Fact]
+    public async Task Current_page_refresh_replaces_selected_demand_details_with_the_new_row()
+    {
+        var selectedId = "abcdef0123456789abcdef0123456789";
+        var requestCount = 0;
+        var queries = new StubReadQueries
+        {
+            DemandPage = (_, _) => Task.FromResult(new WatchDemandPage(
+                [Demand(selectedId) with { Eqp = ++requestCount == 1 ? "EQP-OLD" : "EQP-NEW" }],
+                null,
+                false)),
+        };
+        using var session = new WatchDemandSession(queries);
+        await session.LoadInitialAsync();
+        session.SelectDemand(selectedId);
+
+        Assert.Equal("EQP-OLD", session.State.SelectedDemand?.Eqp);
+
+        await session.RefreshCurrentAsync();
+
+        Assert.Equal(selectedId, session.State.SelectedDemandId);
+        Assert.Equal("EQP-NEW", session.State.SelectedDemand?.Eqp);
+    }
+
+    [Fact]
+    public async Task Successful_page_navigation_and_new_query_start_without_a_selection()
+    {
+        var requests = 0;
+        var queries = new StubReadQueries
+        {
+            DemandPage = (_, _) => Task.FromResult(++requests switch
+            {
+                1 => new WatchDemandPage([Demand("page-1")], "cursor-2", true),
+                2 => new WatchDemandPage([Demand("page-2")], null, false),
+                _ => new WatchDemandPage([Demand("filtered")], null, false),
+            }),
+        };
+        using var session = new WatchDemandSession(queries);
+        await session.LoadInitialAsync();
+        session.SelectDemand("page-1");
+
+        await session.MoveNextAsync();
+
+        Assert.Null(session.State.SelectedDemandId);
+        Assert.Null(session.State.SelectedDemand);
+
+        session.SelectDemand("page-2");
+        session.UpdateDraft(session.State.Draft with { Sublot = "S-FILTER" });
+        await session.SubmitDraftAsync();
+
+        Assert.Null(session.State.SelectedDemandId);
+        Assert.Null(session.State.SelectedDemand);
     }
 
     [Fact]

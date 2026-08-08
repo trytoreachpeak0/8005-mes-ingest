@@ -66,6 +66,66 @@ public sealed class WatchCompositionRootTests
     }
 
     [Fact]
+    public void Demand_refresh_updates_selected_details_then_clears_them_when_the_id_disappears()
+    {
+        RunInSta(() =>
+        {
+            var calls = 0;
+            var selectedId = "abcdef0123456789abcdef0123456789";
+            var fakeHost = new ScriptedFakeHost(new FakeHostScenario("demand-detail-refresh")
+            {
+                DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(_ =>
+                {
+                    calls++;
+                    var item = calls switch
+                    {
+                        <= 2 => Demand(selectedId, "DIE_TO_OVEN") with { Eqp = "EQP-OLD" },
+                        3 => Demand(selectedId, "DIE_TO_OVEN") with { Eqp = "EQP-NEW" },
+                        _ => Demand("fedcba9876543210fedcba9876543210", "WIRE_TO_GATE"),
+                    };
+                    return FakeHostReply.Return(new WatchDemandPage([item], null, false));
+                }),
+            });
+            var testRoot = Path.Combine(Path.GetTempPath(), $"watch-demand-detail-{Guid.NewGuid():N}");
+            using var composition = WatchApplicationComposition.Create(
+                FakeOptions(),
+                fakeHost.CreateAdapter,
+                logDirectory: Path.Combine(testRoot, "logs"),
+                layoutPreferencesPath: Path.Combine(testRoot, "layout.json"));
+            var window = composition.CreateMainWindow();
+
+            window.Show();
+            ((ListBox)window.FindName("PrimaryNavigation")).SelectedIndex = 1;
+            var grid = (DataGrid)window.FindName("DemandsGrid");
+            var detailsPanel = (FrameworkElement)window.FindName("DemandDetailsPanel");
+            var placeholder = (FrameworkElement)window.FindName("DemandDetailsPlaceholder");
+            var notice = (TextBlock)window.FindName("DemandNoticeText");
+            var refresh = (Button)window.FindName("DemandRefreshButton");
+            PumpUntil(() => grid.Items.Count == 1
+                && ((WatchDemandDto)grid.Items[0]).DemandId == selectedId);
+
+            grid.SelectedItem = grid.Items[0];
+
+            PumpUntil(() => detailsPanel.Visibility == Visibility.Visible
+                && ((WatchDemandDetails)detailsPanel.DataContext)
+                    .MesInputGroup.Fields.Single(field => field.Name == "EQP").Value == "EQP-OLD");
+            refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            PumpUntil(() => grid.SelectedItem is WatchDemandDto selected
+                && selected.DemandId == selectedId
+                && ((WatchDemandDetails)detailsPanel.DataContext)
+                    .MesInputGroup.Fields.Single(field => field.Name == "EQP").Value == "EQP-NEW");
+
+            refresh.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            PumpUntil(() => grid.SelectedItem is null
+                && detailsPanel.Visibility == Visibility.Collapsed
+                && placeholder.Visibility == Visibility.Visible
+                && notice.Text == "所选 TransportDemand 已不在当前页");
+            window.Close();
+        });
+    }
+
+    [Fact]
     public void Leaving_gone_cancels_its_refresh_and_a_late_response_cannot_mix_visible_data()
     {
         RunInSta(() =>

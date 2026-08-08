@@ -56,6 +56,12 @@ internal sealed record WatchDemandState(
 {
     public bool CanMovePrevious => PageNumber > 1;
     public bool CanMoveNext => HasMore && !string.IsNullOrWhiteSpace(NextCursor);
+    public WatchDemandDto? SelectedDemand => SelectedDemandId is null
+        ? null
+        : Items.FirstOrDefault(item => string.Equals(
+            item.DemandId,
+            SelectedDemandId,
+            StringComparison.Ordinal));
 
     public static WatchDemandState Empty { get; } = new(
         WatchDemandBrowseQuery.Default,

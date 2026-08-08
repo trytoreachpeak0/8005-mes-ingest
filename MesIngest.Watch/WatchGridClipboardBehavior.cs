@@ -108,7 +108,7 @@ internal static class WatchGridClipboardBehavior
         }
 
         var value = ReadCellValue(cell.Value.Item, cell.Value.Column);
-        SetClipboardText(WatchGridClipboard.FormatValue(value));
+        TrySetClipboardText(WatchGridClipboard.FormatValue(value));
     }
 
     private static void CopyRow(DataGrid grid, bool includeHeaders)
@@ -130,7 +130,7 @@ internal static class WatchGridClipboardBehavior
         var text = includeHeaders
             ? WatchGridClipboard.FormatRowWithHeaders(headers, values)
             : WatchGridClipboard.FormatRow(values);
-        SetClipboardText(text);
+        TrySetClipboardText(text);
     }
 
     private static object? ResolveRowItem(DataGrid grid)
@@ -190,6 +190,7 @@ internal static class WatchGridClipboardBehavior
         {
             grid.Focus();
             grid.SelectedCells.Clear();
+            grid.SelectedItem = cell.DataContext;
             var info = new DataGridCellInfo(cell);
             grid.CurrentCell = info;
             if (!grid.SelectedCells.Contains(info))
@@ -240,7 +241,7 @@ internal static class WatchGridClipboardBehavior
         return null;
     }
 
-    private static void SetClipboardText(string text)
+    internal static void TrySetClipboardText(string text)
     {
         try
         {

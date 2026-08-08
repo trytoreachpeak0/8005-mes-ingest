@@ -411,13 +411,80 @@ internal partial class MainWindow : Window
 
     private void OnDemandSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        SyncDemandSelectionFromGrid();
+    }
+
+    private void OnDemandSelectedCellsChanged(object sender, SelectedCellsChangedEventArgs e)
+    {
+        SyncDemandSelectionFromGrid();
+    }
+
+    private WatchDemandDto? SyncDemandSelectionFromGrid()
+    {
         if (_isApplyingDemandProjection)
+        {
+            return null;
+        }
+
+        var selected = ResolveCurrentDemand();
+        ActiveDemandSession.SelectDemand(selected?.DemandId);
+        ApplyDemandDetails(selected);
+        return selected;
+    }
+
+    private WatchDemandDto? ResolveCurrentDemand() =>
+        DemandsGrid.CurrentCell.Item as WatchDemandDto
+        ?? DemandsGrid.SelectedItem as WatchDemandDto
+        ?? DemandsGrid.SelectedCells.FirstOrDefault().Item as WatchDemandDto;
+
+    private void OnDemandsDoubleClick(object sender, MouseButtonEventArgs e) =>
+        ShowSelectedDemandDetails();
+
+    private void OnDemandsPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            e.Handled = true;
+            ShowSelectedDemandDetails();
+        }
+    }
+
+    private void OnDemandViewDetailsClick(object sender, RoutedEventArgs e) =>
+        ShowSelectedDemandDetails();
+
+    private void OnDemandViewDetailsMenu(object sender, RoutedEventArgs e) =>
+        ShowSelectedDemandDetails();
+
+    private void ShowSelectedDemandDetails()
+    {
+        if (SyncDemandSelectionFromGrid() is null)
         {
             return;
         }
 
-        ActiveDemandSession.SelectDemand(
-            (DemandsGrid.SelectedItem as WatchDemandDto)?.DemandId);
+        DemandDetailsPanel.BringIntoView();
+    }
+
+    private void OnDemandCopyIdMenu(object sender, RoutedEventArgs e)
+    {
+        if (ResolveCurrentDemand() is { } demand)
+        {
+            WatchGridClipboardBehavior.TrySetClipboardText(demand.DemandId);
+        }
+    }
+
+    private void ApplyDemandDetails(WatchDemandDto? demand)
+    {
+        DemandViewDetailsButton.IsEnabled = demand is not null;
+        DemandDetailsPanel.DataContext = demand is null
+            ? null
+            : WatchDemandDetails.From(demand);
+        DemandDetailsPanel.Visibility = demand is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        DemandDetailsPlaceholder.Visibility = demand is null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private async void OnDemandQueryClick(object sender, RoutedEventArgs e)
@@ -789,6 +856,7 @@ internal partial class MainWindow : Window
         {
             _isApplyingDemandProjection = false;
         }
+        ApplyDemandDetails(demand.SelectedDemand);
         AlertsGrid.ItemsSource = _browse.Alerts;
         DemandPreviousButton.IsEnabled = demand.CanMovePrevious;
         DemandNextButton.IsEnabled = demand.CanMoveNext;
