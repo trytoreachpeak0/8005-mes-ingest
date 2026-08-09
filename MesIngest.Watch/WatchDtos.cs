@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 namespace MesIngest.Watch;
 
 public sealed record WatchDemandDto(
@@ -15,7 +17,9 @@ public sealed record WatchDemandDto(
     bool LocationRisk,
     string? LocationRiskCode,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? GoneAt);
+    DateTimeOffset? GoneAt,
+    [property: DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    IReadOnlyList<WatchAlertDto>? Alerts = null);
 
 public sealed record WatchAlertDto(
     string? AlertId,

@@ -50,39 +50,211 @@
                            TextWrapping="Wrap" />
             </Grid>
         </DataTemplate>
+        <Style x:Key="DemandStatusTabItemStyle" TargetType="{x:Type TabItem}">
+            <Setter Property="MinWidth" Value="74" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource WatchSecondaryTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type TabItem}">
+                        <Border x:Name="SegmentBorder"
+                                Padding="{TemplateBinding Padding}"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              RecognizesAccessKey="True"
+                                              TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="SegmentBorder" Property="Background" Value="{StaticResource WatchAccentSoftBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="SegmentBorder" Property="BorderBrush" Value="{StaticResource WatchAccentBrush}" />
+                                <Setter TargetName="SegmentBorder" Property="BorderThickness" Value="2" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="White" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                                <Setter TargetName="SegmentBorder" Property="Background" Value="{StaticResource WatchAccentBrush}" />
+                                <Setter TargetName="SegmentBorder" Property="BorderBrush" Value="{StaticResource WatchAccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="SegmentBorder" Property="Opacity" Value="0.55" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryNavigationItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource WatchNavigationTextBrush}" />
+            <Setter Property="Padding" Value="11,9" />
+            <Setter Property="Margin" Value="0,2" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="NavBorder" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                            <StackPanel>
+                                <TextBlock x:Name="NavPrimaryText" Text="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}" />
+                                <TextBlock x:Name="NavSecondaryText" Visibility="Collapsed" Foreground="#9FC2F9" FontFamily="Cascadia Mono" FontSize="10" Margin="0,3,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag" Value="Demand"><Setter TargetName="NavPrimaryText" Property="Text" Value="任务浏览" /><Setter TargetName="NavPrimaryText" Property="FontWeight" Value="SemiBold" /><Setter TargetName="NavSecondaryText" Property="Text" Value="TransportDemand" /><Setter TargetName="NavSecondaryText" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="Tag" Value="Alert"><Setter TargetName="NavPrimaryText" Property="Text" Value="接入告警" /><Setter TargetName="NavPrimaryText" Property="FontWeight" Value="SemiBold" /><Setter TargetName="NavSecondaryText" Property="Text" Value="IngestAlert" /><Setter TargetName="NavSecondaryText" Property="Visibility" Value="Visible" /></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="#20344F" /></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="NavBorder" Property="Background" Value="{StaticResource WatchNavigationSelectedBrush}" /><Setter Property="Foreground" Value="White" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="EyebrowText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource WatchAccentBrush}" />
+            <Setter Property="FontFamily" Value="Cascadia Mono" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="FilterFieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource WatchMutedTextBrush}" />
+            <Setter Property="FontFamily" Value="Cascadia Mono" />
+            <Setter Property="FontSize" Value="10" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource WatchTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchStrongBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.86" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.72" /></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.42" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Background" Value="{StaticResource WatchAccentBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchAccentBrush}" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="9,6" />
+            <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchStrongBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="34" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchStrongBorderBrush}" />
+        </Style>
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="GridLinesVisibility" Value="Horizontal" />
+            <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource WatchBorderBrush}" />
+            <Setter Property="VerticalGridLinesBrush" Value="Transparent" />
+            <Setter Property="RowHeight" Value="38" />
+            <Setter Property="ColumnHeaderHeight" Value="36" />
+            <Setter Property="AlternatingRowBackground" Value="#FBFCFE" />
+        </Style>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#F8FAFC" />
+            <Setter Property="Foreground" Value="{StaticResource WatchMutedTextBrush}" />
+            <Setter Property="FontFamily" Value="Cascadia Mono" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="DataGridColumnHeader">
+                        <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="False" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Padding" Value="9,0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource WatchAccentSoftBrush}" /><Setter Property="Foreground" Value="{StaticResource WatchTextBrush}" /></Trigger></Style.Triggers>
+        </Style>
+        <Style TargetType="DataGridRow">
+            <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers><Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{StaticResource WatchAccentSoftBrush}" /><Setter Property="Foreground" Value="{StaticResource WatchTextBrush}" /></Trigger></Style.Triggers>
+        </Style>
         </ResourceDictionary>
     </Window.Resources>
-    <Grid Margin="12">
+    <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="230" />
-            <ColumnDefinition Width="12" />
+            <ColumnDefinition Width="194" />
+            <ColumnDefinition Width="0" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="{StaticResource WatchNavigationBrush}" CornerRadius="6" Padding="10">
+        <Border Grid.Column="0" Background="{StaticResource WatchNavigationBrush}" Padding="12">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Top" Margin="4,8,4,18">
-                    <TextBlock Text="MesIngestWatch" FontSize="19" FontWeight="SemiBold" />
-                    <TextBlock Text="单 Host · 只读运维台" Margin="0,4,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
+                <Border DockPanel.Dock="Bottom" Background="#20344F" CornerRadius="8" Padding="12" Margin="2,0,2,6">
+                    <StackPanel><TextBlock Text="只读模式" Foreground="#AFC3DC" FontSize="11" /><TextBlock Text="不会修改业务数据" Foreground="White" Margin="0,4,0,0" /></StackPanel>
+                </Border>
+                <StackPanel DockPanel.Dock="Top" Margin="10,10,4,18">
+                    <TextBlock Text="MesIngest Watch" Foreground="White" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock Text="只读接入运维台" Margin="0,4,0,0" Foreground="{StaticResource WatchNavigationMutedBrush}" />
                 </StackPanel>
                 <ListBox x:Name="PrimaryNavigation"
                          AutomationProperties.Name="主导航"
                          SelectedIndex="0"
                          SelectionChanged="OnPrimaryNavigationChanged"
+                         ItemContainerStyle="{StaticResource PrimaryNavigationItemStyle}"
                          BorderThickness="0"
                          Background="Transparent">
-                    <ListBoxItem Content="概览" AutomationProperties.Name="概览导航" Padding="10,8" />
-                    <ListBoxItem Content="MES 任务 / TransportDemand" AutomationProperties.Name="TransportDemand 导航" Padding="10,8" />
-                    <ListBoxItem Content="IngestAlert" AutomationProperties.Name="IngestAlert 导航" Padding="10,8" />
-                    <ListBoxItem Content="设置" AutomationProperties.Name="设置导航" Padding="10,8" />
+                    <ListBoxItem Content="概览" AutomationProperties.Name="概览导航" />
+                    <ListBoxItem Content="MES 任务 / TransportDemand" Tag="Demand" AutomationProperties.Name="TransportDemand 导航" />
+                    <ListBoxItem Content="IngestAlert" Tag="Alert" AutomationProperties.Name="IngestAlert 导航" />
+                    <ListBoxItem Content="设置" AutomationProperties.Name="设置导航" />
                 </ListBox>
             </DockPanel>
         </Border>
 
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" MinHeight="64" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="28" />
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0" Margin="12,0,12,8">
                 <Border Padding="10,6" Background="{StaticResource WatchSurfaceBrush}" CornerRadius="4">
@@ -218,11 +390,12 @@
                 </ScrollViewer>
             </Grid>
 
-            <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
+            <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="20,12,20,12">
                 <WrapPanel x:Name="AlertHeaderPanel" DockPanel.Dock="Top" Margin="0,0,0,12">
                     <StackPanel MinWidth="320" Margin="0,0,24,8">
-                        <TextBlock Text="IngestAlert" FontSize="26" FontWeight="SemiBold" />
-                        <TextBlock Text="活动 / 已解除 · 独立服务端单页窗口 · 每页固定 100 行"
+                        <TextBlock Text="IngestAlert" Style="{StaticResource EyebrowText}" />
+                        <TextBlock Text="接入告警" FontSize="27" FontWeight="SemiBold" Margin="0,3,0,0" />
+                        <TextBlock Text="选中告警后，区分精确目标、业务键范围与不可定位范围。"
                                    Foreground="{StaticResource WatchMutedTextBrush}"
                                    Margin="0,4,0,0" />
                     </StackPanel>
@@ -240,57 +413,74 @@
                                   Margin="8,0,8,0"
                                   AutomationProperties.Name="IngestAlert 自动刷新间隔"
                                   SelectionChanged="OnAutoRefreshIntervalChanged" />
-                        <Button x:Name="AlertRefreshButton" AutomationProperties.Name="刷新 IngestAlert 当前页" Content="刷新当前页" Padding="12,5" Click="OnAlertRefreshClick" />
+                        <Button x:Name="AlertRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 IngestAlert 当前页" Content="刷新当前页" Padding="12,5" Click="OnAlertRefreshClick" />
                         <Button x:Name="AlertCancelButton" AutomationProperties.Name="取消 IngestAlert 刷新" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnAlertCancelClick" />
                     </StackPanel>
                 </WrapPanel>
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="260" />
+                        <ColumnDefinition Width="14" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
+                        <RowDefinition Height="230" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                    <Border Grid.Row="0" Background="{StaticResource WatchSurfaceBrush}" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" Padding="10" Margin="0,0,0,8">
+                    <Border Grid.Row="0" Grid.RowSpan="4" Grid.Column="0" Background="{StaticResource WatchFilterBrush}" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="9">
+                        <ScrollViewer x:Name="AlertFiltersScrollViewer"
+                                      AutomationProperties.AutomationId="AlertFiltersScrollViewer"
+                                      AutomationProperties.Name="IngestAlert 筛选条件"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="16">
                         <StackPanel>
-                            <WrapPanel>
-                                <StackPanel Margin="0,0,12,0">
-                                    <TextBlock Text="状态" />
-                                    <ComboBox x:Name="AlertActivityFilter" AutomationProperties.Name="IngestAlert 状态筛选" Width="110" Margin="0,4,0,0" />
+                            <TextBlock Text="FILTERS" Style="{StaticResource EyebrowText}" />
+                            <TextBlock Text="筛选条件" FontSize="21" FontWeight="SemiBold" Margin="0,4,0,3" />
+                            <TextBlock Text="条件只作用于告警列表。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,0,0,18" />
+                            <StackPanel>
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="生命周期" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" />
+                                    <ComboBox x:Name="AlertActivityFilter" AutomationProperties.Name="IngestAlert 状态筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,0">
-                                    <TextBlock Text="Code" />
-                                    <ComboBox x:Name="AlertCodeFilter" AutomationProperties.Name="IngestAlert Code 筛选" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="CODE" Style="{StaticResource FilterFieldLabel}" />
+                                    <ComboBox x:Name="AlertCodeFilter" AutomationProperties.Name="IngestAlert Code 筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,0">
-                                    <TextBlock Text="Severity" />
-                                    <ComboBox x:Name="AlertSeverityFilter" AutomationProperties.Name="IngestAlert Severity 筛选" Width="120" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="SEVERITY" Style="{StaticResource FilterFieldLabel}" />
+                                    <ComboBox x:Name="AlertSeverityFilter" AutomationProperties.Name="IngestAlert Severity 筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,0">
-                                    <TextBlock Text="LastSeenAt 起始（含时区）" />
-                                    <TextBox x:Name="AlertRangeFromFilter" AutomationProperties.Name="IngestAlert LastSeenAt 起始" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,14">
+                                    <TextBlock Text="LastSeenAt" Style="{StaticResource FilterFieldLabel}" />
+                                    <TextBlock Text="起始时间（含时区）" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" Margin="0,3,0,0" />
+                                    <TextBox x:Name="AlertRangeFromFilter" AutomationProperties.Name="IngestAlert LastSeenAt 起始" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,0">
-                                    <TextBlock Text="LastSeenAt 结束（含时区）" />
-                                    <TextBox x:Name="AlertRangeToFilter" AutomationProperties.Name="IngestAlert LastSeenAt 结束" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,18">
+                                    <TextBlock Text="结束时间（含时区）" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" />
+                                    <TextBox x:Name="AlertRangeToFilter" AutomationProperties.Name="IngestAlert LastSeenAt 结束" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom">
-                                    <Button x:Name="AlertQueryButton" AutomationProperties.Name="查询 IngestAlert" Content="查询" Padding="16,5" Click="OnAlertQueryClick" />
-                                    <Button x:Name="AlertResetButton" AutomationProperties.Name="重置 IngestAlert 查询" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnAlertResetClick" />
+                                <StackPanel>
+                                    <Button x:Name="AlertQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 IngestAlert" Content="应用条件" Padding="16,7" Click="OnAlertQueryClick" />
+                                    <Button x:Name="AlertResetButton" AutomationProperties.Name="重置 IngestAlert 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnAlertResetClick" />
                                 </StackPanel>
-                            </WrapPanel>
+                            </StackPanel>
                             <TextBlock x:Name="AlertValidationText" AutomationProperties.Name="IngestAlert 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
-                            <TextBlock x:Name="AlertCommittedQueryText" AutomationProperties.Name="IngestAlert 已提交查询" Margin="0,6,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <TextBlock x:Name="AlertCommittedQueryText" AutomationProperties.Name="IngestAlert 已提交查询" Margin="0,12,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                            <StackPanel Margin="0,6,0,0">
                                 <TextBlock x:Name="AlertBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
-                                <TextBlock x:Name="AlertNoticeText" AutomationProperties.Name="IngestAlert 刷新提示" Margin="12,0,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
+                                <TextBlock x:Name="AlertNoticeText" AutomationProperties.Name="IngestAlert 刷新提示" Foreground="{StaticResource WatchMutedTextBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                         </StackPanel>
+                        </ScrollViewer>
                     </Border>
-                    <TextBlock x:Name="AlertCountText" AutomationProperties.Name="IngestAlert 查询结果摘要" Grid.Row="1" Margin="0,0,0,6" Foreground="{StaticResource WatchSecondaryTextBrush}" />
+                    <TextBlock x:Name="AlertCountText" AutomationProperties.Name="IngestAlert 查询结果摘要" Grid.Row="0" Grid.Column="2" Margin="8,0,0,6" Foreground="{StaticResource WatchSecondaryTextBrush}" />
                     <DataGrid x:Name="AlertsGrid"
                               AutomationProperties.Name="IngestAlert 单页结果"
-                              Grid.Row="2"
+                              Grid.Row="1"
+                              Grid.Column="2"
                               AutoGenerateColumns="False"
                               IsReadOnly="True"
                               CanUserAddRows="False"
@@ -345,7 +535,30 @@
                             </ContextMenu>
                         </DataGrid.ContextMenu>
                     </DataGrid>
-                    <DockPanel Grid.Row="3" Margin="6,6,6,4">
+                    <Border x:Name="AlertRelationshipPanel" Grid.Row="2" Grid.Column="2" Margin="0,10,0,0" Background="{StaticResource WatchSurfaceBrush}" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="9" Padding="16" AutomationProperties.Name="IngestAlert 关联 TransportDemand">
+                        <Grid>
+                            <TextBlock x:Name="AlertRelationshipPlaceholder" Text="选择一条 IngestAlert，查看它能否关联 TransportDemand。" Foreground="{StaticResource WatchMutedTextBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Grid x:Name="AlertRelationshipContent" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="285" /><ColumnDefinition Width="1" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Text="SELECTED" Style="{StaticResource EyebrowText}" />
+                                    <TextBlock Text="当前告警" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,10" />
+                                    <TextBlock x:Name="AlertRelationshipCodeText" FontFamily="Cascadia Mono" FontWeight="SemiBold" Foreground="{StaticResource WatchWarningBrush}" TextWrapping="Wrap" />
+                                    <TextBlock x:Name="AlertRelationshipMessageText" Foreground="{StaticResource WatchSecondaryTextBrush}" TextWrapping="Wrap" Margin="0,7,18,0" />
+                                    <Border Background="{StaticResource WatchAccentSoftBrush}" CornerRadius="7" Padding="10" Margin="0,13,18,0"><StackPanel><TextBlock x:Name="AlertRelationshipScopeText" AutomationProperties.Name="IngestAlert 关联范围类型" Style="{StaticResource FilterFieldLabel}" /><TextBlock x:Name="AlertRelationshipValueText" AutomationProperties.Name="IngestAlert 关联范围值" FontFamily="Cascadia Mono" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,0" /><TextBlock x:Name="AlertRelationshipHeadingText" AutomationProperties.Name="IngestAlert 关联范围结论" Foreground="{StaticResource WatchAccentBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,0" /></StackPanel></Border>
+                                </StackPanel>
+                                <Border Grid.Column="1" Background="{StaticResource WatchBorderBrush}" />
+                                <StackPanel Grid.Column="2" Margin="18,0,0,0">
+                                    <DockPanel><TextBlock DockPanel.Dock="Right" Text="TransportDemand" Style="{StaticResource EyebrowText}" /><TextBlock Text="相关任务" FontSize="16" FontWeight="SemiBold" /></DockPanel>
+                                    <TextBlock x:Name="AlertRelationshipExplanationText" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,8" TextWrapping="Wrap" />
+                                    <Border x:Name="AlertTargetOnePanel" Background="#F8FAFC" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,4,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetOneRoleText" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetOneIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><Button x:Name="AlertTargetOneButton" AutomationProperties.AutomationId="AlertTargetOneButton" AutomationProperties.Name="精确查看第一个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetOneClick" /></Grid></Border>
+                                    <Border x:Name="AlertTargetTwoPanel" Background="{StaticResource WatchSuccessSoftBrush}" BorderBrush="{StaticResource WatchSuccessBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetTwoRoleText" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetTwoIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><Button x:Name="AlertTargetTwoButton" AutomationProperties.AutomationId="AlertTargetTwoButton" AutomationProperties.Name="精确查看第二个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetTwoClick" /></Grid></Border>
+                                    <Button x:Name="AlertBusinessKeyButton" AutomationProperties.AutomationId="AlertBusinessKeyButton" AutomationProperties.Name="按业务键查 TransportDemand" Content="按业务键查任务" HorizontalAlignment="Left" Padding="12,5" Visibility="Collapsed" Click="OnAlertBusinessKeyClick" />
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                    <DockPanel Grid.Row="3" Grid.Column="2" Margin="6,6,6,4">
                         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
                             <Button x:Name="AlertPreviousButton" AutomationProperties.Name="IngestAlert 上一页" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
                             <TextBlock x:Name="AlertPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
@@ -415,36 +628,48 @@
                 </StackPanel>
             </Grid>
 
-            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed" Margin="12">
-                <StatusBar x:Name="WatchStatusBar" DockPanel.Dock="Bottom" Margin="0,8,0,0" Padding="4,2">
-                    <StatusBarItem>
-                        <TextBlock x:Name="StatusBarText"
-                                   AutomationProperties.Name="TransportDemand 状态栏"
-                                   FontFamily="Consolas"
-                                   FontSize="12"
-                                   TextTrimming="CharacterEllipsis"
-                                   TextWrapping="NoWrap" />
-                    </StatusBarItem>
-                </StatusBar>
-
-                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                    <TabControl x:Name="DemandStatusTabs"
-                                Margin="0,0,0,10"
-                                SelectionChanged="OnDemandStatusChanged"
-                                AutomationProperties.Name="TransportDemand 状态标签">
-                        <TabItem Header="VISIBLE" AutomationProperties.Name="VISIBLE TransportDemand" />
-                        <TabItem Header="GONE" AutomationProperties.Name="GONE TransportDemand" />
-                    </TabControl>
-                    <WrapPanel x:Name="DemandHeaderPanel" Margin="0,0,0,10">
-                        <StackPanel MinWidth="320" Margin="0,0,24,8">
-                            <TextBlock Text="MES 任务 / TransportDemand" FontSize="26" FontWeight="SemiBold" />
+            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed" Margin="20,12,20,12">
+                <ScrollViewer x:Name="DemandFiltersScrollViewer"
+                              DockPanel.Dock="Left"
+                              Width="260"
+                              Background="{StaticResource WatchFilterBrush}"
+                              Margin="0,0,14,0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              AutomationProperties.AutomationId="DemandFiltersScrollViewer"
+                              AutomationProperties.Name="TransportDemand 筛选条件">
+                <StackPanel>
+                    <WrapPanel x:Name="DemandHeaderPanel" Margin="16,16,16,10">
+                        <StackPanel Margin="0,0,0,12">
+                            <TextBlock Text="FILTERS" Style="{StaticResource EyebrowText}" />
+                            <TextBlock Text="筛选条件" FontSize="21" FontWeight="SemiBold" Margin="0,4,0,3" />
                             <TextBlock x:Name="DemandModeText"
                                        Text="VISIBLE · 服务端单页窗口 · 每页固定 100 行"
                                        Margin="0,4,0,0"
                                        Foreground="{StaticResource WatchMutedTextBrush}" />
+                            <StackPanel Margin="0,13,0,0">
+                                <TextBlock Text="状态" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" Margin="0,0,0,6" />
+                                <TabControl x:Name="DemandStatusTabs"
+                                            HorizontalAlignment="Left"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            ItemContainerStyle="{StaticResource DemandStatusTabItemStyle}"
+                                            SelectionChanged="OnDemandStatusChanged"
+                                            AutomationProperties.Name="TransportDemand 状态标签">
+                                    <TabControl.Template>
+                                        <ControlTemplate TargetType="{x:Type TabControl}">
+                                            <TabPanel IsItemsHost="True"
+                                                      KeyboardNavigation.TabIndex="1"
+                                                      SnapsToDevicePixels="True" />
+                                        </ControlTemplate>
+                                    </TabControl.Template>
+                                    <TabItem Header="VISIBLE" AutomationProperties.Name="VISIBLE TransportDemand" />
+                                    <TabItem Header="GONE" AutomationProperties.Name="GONE TransportDemand" />
+                                </TabControl>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <CheckBox x:Name="DemandAutoRefreshCheckBox"
+                        <StackPanel Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8"><CheckBox x:Name="DemandAutoRefreshCheckBox"
                                       Content="自动刷新"
                                       AutomationProperties.Name="当前 TransportDemand 视图自动刷新"
                                       VerticalAlignment="Center"
@@ -452,59 +677,67 @@
                                       Unchecked="OnAutoRefreshEnabledChanged" />
                             <ComboBox x:Name="DemandAutoRefreshInterval"
                                       Width="78"
-                                      Margin="8,0,8,0"
+                                      Margin="8,0,0,0"
                                       AutomationProperties.Name="当前 TransportDemand 视图自动刷新间隔"
-                                      SelectionChanged="OnAutoRefreshIntervalChanged" />
+                                      SelectionChanged="OnAutoRefreshIntervalChanged" /></StackPanel>
                             <Button x:Name="DemandViewDetailsButton"
                                     Content="查看详情"
                                     AutomationProperties.Name="查看所选 TransportDemand 详情"
                                     Padding="12,5"
                                     IsEnabled="False"
+                                    Margin="0,0,0,7"
                                     Click="OnDemandViewDetailsClick" />
-                            <Button x:Name="DemandRefreshButton" AutomationProperties.Name="刷新 TransportDemand 当前页" Content="刷新当前页" Padding="12,5" Click="OnDemandRefreshClick" />
-                            <Button x:Name="DemandCancelButton" AutomationProperties.Name="取消 TransportDemand 刷新" Content="取消" Margin="8,0,0,0" Padding="12,5" IsEnabled="False" Click="OnDemandCancelClick" />
+                            <Button x:Name="DemandRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 TransportDemand 当前页" Content="刷新当前页" Padding="12,5" Margin="0,0,0,7" Click="OnDemandRefreshClick" />
+                            <Button x:Name="DemandCancelButton" AutomationProperties.Name="取消 TransportDemand 刷新" Content="取消" Padding="12,5" IsEnabled="False" Click="OnDemandCancelClick" />
                         </StackPanel>
                     </WrapPanel>
 
-                    <Border BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10">
+                    <Border BorderThickness="0" Padding="16,0,16,16">
                         <StackPanel>
-                            <WrapPanel>
-                                <StackPanel Margin="0,0,12,6">
-                                    <TextBlock Text="TASK_TYPE" />
-                                    <ComboBox x:Name="DemandTaskTypeFilter" AutomationProperties.Name="TransportDemand TASK_TYPE 筛选" Width="190" Margin="0,4,0,0" />
+                            <StackPanel>
+                                <StackPanel Margin="0,0,0,13">
+                                    <TextBlock Text="TASK_TYPE" Style="{StaticResource FilterFieldLabel}" />
+                                    <ComboBox x:Name="DemandTaskTypeFilter" AutomationProperties.Name="TransportDemand TASK_TYPE 筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,6">
-                                    <TextBlock Text="SUBLOT" />
-                                    <TextBox x:Name="DemandSublotFilter" AutomationProperties.Name="TransportDemand SUBLOT 筛选" Width="130" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,13">
+                                    <TextBlock Text="SUBLOT" Style="{StaticResource FilterFieldLabel}" />
+                                    <TextBox x:Name="DemandSublotFilter" AutomationProperties.Name="TransportDemand SUBLOT 筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,6">
-                                    <TextBlock Text="DemandId（6–32 位十六进制）" />
-                                    <TextBox x:Name="DemandIdFilter" AutomationProperties.Name="TransportDemand DemandId 筛选" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,13">
+                                    <TextBlock Text="DemandId" Style="{StaticResource FilterFieldLabel}" />
+                                    <TextBlock Text="6–32 位十六进制" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="10" Margin="0,2,0,0" />
+                                    <TextBox x:Name="DemandIdFilter" AutomationProperties.Name="TransportDemand DemandId 筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,6">
-                                    <TextBlock x:Name="DemandRangeFromLabel" Text="DATES 起始（含时区）" />
-                                    <TextBox x:Name="DemandRangeFromFilter" AutomationProperties.Name="TransportDemand 时间起始筛选" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,13">
+                                    <TextBlock x:Name="DemandRangeFromLabel" Text="进入时间起始" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" />
+                                    <TextBox x:Name="DemandRangeFromFilter" AutomationProperties.Name="TransportDemand 时间起始筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Margin="0,0,12,6">
-                                    <TextBlock x:Name="DemandRangeToLabel" Text="DATES 结束（含时区）" />
-                                    <TextBox x:Name="DemandRangeToFilter" AutomationProperties.Name="TransportDemand 时间结束筛选" Width="220" Margin="0,4,0,0" />
+                                <StackPanel Margin="0,0,0,17">
+                                    <TextBlock x:Name="DemandRangeToLabel" Text="进入时间结束" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" />
+                                    <TextBox x:Name="DemandRangeToFilter" AutomationProperties.Name="TransportDemand 时间结束筛选" Margin="0,5,0,0" />
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,6">
-                                    <Button x:Name="DemandQueryButton" AutomationProperties.Name="查询 TransportDemand" Content="查询" Padding="16,5" Click="OnDemandQueryClick" />
-                                    <Button x:Name="DemandResetButton" AutomationProperties.Name="重置 TransportDemand 查询" Content="重置" Margin="8,0,0,0" Padding="16,5" Click="OnDemandResetClick" />
+                                <StackPanel>
+                                    <Button x:Name="DemandQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 TransportDemand" Content="应用条件" Padding="16,7" Click="OnDemandQueryClick" />
+                                    <Button x:Name="DemandResetButton" AutomationProperties.Name="重置 TransportDemand 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnDemandResetClick" />
                                 </StackPanel>
-                            </WrapPanel>
+                            </StackPanel>
                             <TextBlock x:Name="DemandValidationText" AutomationProperties.Name="TransportDemand 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
-                            <TextBlock x:Name="DemandCommittedQueryText" AutomationProperties.Name="TransportDemand 已提交查询" Margin="0,6,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" TextWrapping="Wrap" />
-                            <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <TextBlock x:Name="DemandCommittedQueryText" AutomationProperties.Name="TransportDemand 已提交查询" Margin="0,12,0,0" Foreground="{StaticResource WatchSecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" />
+                            <StackPanel Margin="0,4,0,0">
                                 <TextBlock x:Name="DemandBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
-                                <TextBlock x:Name="DemandNoticeText" AutomationProperties.Name="TransportDemand 刷新提示" Margin="12,0,0,0" Foreground="{StaticResource WatchMutedTextBrush}" />
+                                <TextBlock x:Name="DemandNoticeText" AutomationProperties.Name="TransportDemand 刷新提示" Foreground="{StaticResource WatchMutedTextBrush}" TextWrapping="Wrap" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
+                </ScrollViewer>
 
                 <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel><TextBlock Text="TransportDemand" Style="{StaticResource EyebrowText}" /><TextBlock Text="任务浏览" FontSize="27" FontWeight="SemiBold" Margin="0,3,0,0" /><TextBlock Text="选中任务后，查看相关接入告警及其匹配依据。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,0" /></StackPanel>
+                        <Border Grid.Column="1" Background="{StaticResource WatchSuccessSoftBrush}" CornerRadius="8" Padding="11,7" VerticalAlignment="Bottom"><TextBlock Text="只读查询" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" /></Border>
+                    </Grid>
                     <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
                         <TextBlock x:Name="RowCountText" VerticalAlignment="Center" />
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
@@ -544,7 +777,9 @@
                                 <DataGridTextColumn Header="DemandId" AutomationProperties.Name="TransportDemand DemandId 列" Binding="{Binding DemandId}" Width="180" CanUserSort="True" SortMemberPath="DemandId" />
                                 <DataGridTextColumn Header="TASK_TYPE" AutomationProperties.Name="TransportDemand TASK_TYPE 列" Binding="{Binding TaskType}" Width="170" CanUserSort="True" SortMemberPath="TaskType" />
                                 <DataGridTextColumn Header="SUBLOT" AutomationProperties.Name="TransportDemand SUBLOT 列" Binding="{Binding Sublot}" Width="120" CanUserSort="True" SortMemberPath="Sublot" />
-                                <DataGridTextColumn Header="当前工序进入时间 (DATES)" AutomationProperties.Name="TransportDemand DATES 列" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates" />
+                                <DataGridTextColumn Header="当前工序进入时间 (DATES)" AutomationProperties.Name="TransportDemand DATES 列" Binding="{Binding Dates, Converter={StaticResource LocalTime}}" Width="220" CanUserSort="True" SortMemberPath="Dates">
+                                    <DataGridTextColumn.HeaderTemplate><DataTemplate><TextBlock Text="DATES" /></DataTemplate></DataGridTextColumn.HeaderTemplate>
+                                </DataGridTextColumn>
                                 <DataGridTextColumn Header="AREA" AutomationProperties.Name="TransportDemand AREA 列" Binding="{Binding Area}" Width="100" CanUserSort="True" SortMemberPath="Area" />
                                 <DataGridTextColumn Header="EQP" AutomationProperties.Name="TransportDemand EQP 列" Binding="{Binding Eqp}" Width="100" CanUserSort="True" SortMemberPath="Eqp" />
                                 <DataGridTextColumn Header="STEP" AutomationProperties.Name="TransportDemand STEP 列" Binding="{Binding Step}" Width="100" CanUserSort="True" SortMemberPath="Step" />
@@ -588,43 +823,63 @@
                                            HorizontalAlignment="Center"
                                            TextWrapping="Wrap"
                                            AutomationProperties.Name="TransportDemand 详情未选择" />
-                                <ScrollViewer x:Name="DemandDetailsPanel"
-                                              Visibility="Collapsed"
-                                              VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled"
-                                              AutomationProperties.Name="所选 TransportDemand 只读详情">
-                                    <StackPanel>
-                                        <DockPanel Margin="0,0,0,8">
-                                            <TextBlock Text="TransportDemand 详情"
-                                                       FontSize="16"
-                                                       FontWeight="SemiBold" />
-                                            <Button DockPanel.Dock="Right"
-                                                    Content="复制 DemandId"
-                                                    AutomationProperties.Name="从详情复制 DemandId"
-                                                    Padding="10,3"
-                                                    Click="OnDemandCopyIdMenu" />
-                                        </DockPanel>
-
-                                        <TextBlock Text="{Binding MesInputGroup.Title}"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{StaticResource WatchTextBrush}"
-                                                   Margin="0,0,0,4" />
-                                        <ItemsControl ItemsSource="{Binding MesInputGroup.Fields}"
-                                                      ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
-
-                                        <TextBlock Text="{Binding LocalProjectionGroup.Title}"
-                                                   FontWeight="SemiBold"
-                                                   Foreground="{StaticResource WatchTextBrush}"
-                                                   Margin="0,8,0,4" />
-                                        <ItemsControl ItemsSource="{Binding LocalProjectionGroup.Fields}"
-                                                      ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
-                                    </StackPanel>
-                                </ScrollViewer>
+                                <Grid x:Name="DemandDetailsPanel"
+                                      Visibility="Collapsed"
+                                      AutomationProperties.Name="所选 TransportDemand 只读详情">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="0.9*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="1.35*" /></Grid.ColumnDefinitions>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,0,14,0">
+                                        <StackPanel>
+                                            <DockPanel Margin="0,0,0,8">
+                                                <TextBlock Text="当前任务"
+                                                           FontSize="16"
+                                                           FontWeight="SemiBold"
+                                                           AutomationProperties.AutomationId="DemandDetailsPanel"
+                                                           AutomationProperties.Name="所选 TransportDemand 只读详情" />
+                                                <Button DockPanel.Dock="Right" Content="复制 DemandId" AutomationProperties.Name="从详情复制 DemandId" Padding="10,3" Click="OnDemandCopyIdMenu" />
+                                            </DockPanel>
+                                            <TextBlock Text="MES INPUT" Style="{StaticResource EyebrowText}" />
+                                            <TextBlock Text="{Binding MesInputGroup.Title}" FontWeight="SemiBold" Foreground="{StaticResource WatchTextBrush}" Margin="0,4,0,4" />
+                                            <ItemsControl ItemsSource="{Binding MesInputGroup.Fields}" ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
+                                            <TextBlock Text="LOCAL PROJECTION" Style="{StaticResource EyebrowText}" Margin="0,8,0,0" />
+                                            <TextBlock Text="{Binding LocalProjectionGroup.Title}" FontWeight="SemiBold" Foreground="{StaticResource WatchTextBrush}" Margin="0,4,0,4" />
+                                            <ItemsControl ItemsSource="{Binding LocalProjectionGroup.Fields}" ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                    <Border Grid.Column="1" Background="{StaticResource WatchBorderBrush}" />
+                                    <Grid Grid.Column="2" Margin="16,0,0,0">
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                        <DockPanel><TextBlock DockPanel.Dock="Right" Text="IngestAlert" Style="{StaticResource EyebrowText}" /><TextBlock Text="相关告警" FontSize="16" FontWeight="SemiBold" /></DockPanel>
+                                        <TextBlock Grid.Row="1" Text="{Binding RelatedAlertSummary}" Foreground="{StaticResource WatchSecondaryTextBrush}" Margin="0,5,0,8" />
+                                        <DataGrid x:Name="DemandRelatedAlertsGrid" Grid.Row="2" ItemsSource="{Binding RelatedAlerts}" AutomationProperties.Name="当前 TransportDemand 相关 IngestAlert" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" HeadersVisibility="Column" HorizontalScrollBarVisibility="Auto">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="CODE" Binding="{Binding Code}" Width="190" />
+                                                <DataGridTextColumn Header="SEVERITY" Binding="{Binding Severity}" Width="80" />
+                                                <DataGridTextColumn Header="RELATION" Binding="{Binding RelationshipBasis}" Width="125" />
+                                                <DataGridTextColumn Header="说明" Binding="{Binding RelationshipLabel}" Width="95" />
+                                                <DataGridTextColumn Header="MESSAGE" Binding="{Binding Message}" Width="220" />
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </Grid>
+                                </Grid>
                             </Grid>
                         </Border>
                     </Grid>
                 </DockPanel>
             </DockPanel>
+
+            <StatusBar x:Name="WatchStatusBar"
+                       Grid.Row="2"
+                       Height="28"
+                       Padding="4,2">
+                <StatusBarItem>
+                    <TextBlock x:Name="StatusBarText"
+                               AutomationProperties.Name="MesIngestWatch 状态栏"
+                               FontFamily="Consolas"
+                               FontSize="12"
+                               TextTrimming="CharacterEllipsis"
+                               TextWrapping="NoWrap" />
+                </StatusBarItem>
+            </StatusBar>
         </Grid>
     </Grid>
 </Window>

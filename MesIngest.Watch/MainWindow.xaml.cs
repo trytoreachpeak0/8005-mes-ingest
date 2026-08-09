@@ -46,6 +46,7 @@ internal partial class MainWindow : Window
     private long _hostGeneration;
     private WatchDemandViewKind _activeDemandViewKind = WatchDemandViewKind.Visible;
     private MesIngestApiClient? _bootstrapClient;
+    private WatchAlertRelationship? _selectedAlertRelationship;
 
     public MainWindow(
         MesIngestApiClient client,
@@ -880,7 +881,78 @@ internal partial class MainWindow : Window
             return;
         }
 
-        _alerts.SelectAlert((AlertsGrid.SelectedItem as WatchAlertDto)?.AlertId);
+        var selected = AlertsGrid.SelectedItem as WatchAlertDto;
+        _alerts.SelectAlert(selected?.AlertId);
+        ApplyAlertRelationship(selected);
+    }
+
+    private void ApplyAlertRelationship(WatchAlertDto? alert)
+    {
+        _selectedAlertRelationship = alert is null ? null : WatchAlertRelationship.From(alert);
+        AlertRelationshipPlaceholder.Visibility = alert is null ? Visibility.Visible : Visibility.Collapsed;
+        AlertRelationshipContent.Visibility = alert is null ? Visibility.Collapsed : Visibility.Visible;
+        AlertTargetOnePanel.Visibility = Visibility.Collapsed;
+        AlertTargetTwoPanel.Visibility = Visibility.Collapsed;
+        AlertBusinessKeyButton.Visibility = Visibility.Collapsed;
+        if (alert is null || _selectedAlertRelationship is not { } relationship)
+        {
+            return;
+        }
+
+        AlertRelationshipCodeText.Text = alert.Code;
+        AlertRelationshipMessageText.Text = alert.Message ?? "此告警没有附加说明。";
+        AlertRelationshipScopeText.Text = relationship.ScopeToken;
+        AlertRelationshipValueText.Text = relationship.ScopeValue;
+        AlertRelationshipHeadingText.Text = relationship.Heading;
+        AlertRelationshipExplanationText.Text = relationship.Explanation;
+        ApplyAlertTarget(
+            relationship.Targets.ElementAtOrDefault(0),
+            AlertTargetOnePanel,
+            AlertTargetOneRoleText,
+            AlertTargetOneIdText);
+        ApplyAlertTarget(
+            relationship.Targets.ElementAtOrDefault(1),
+            AlertTargetTwoPanel,
+            AlertTargetTwoRoleText,
+            AlertTargetTwoIdText);
+        AlertBusinessKeyButton.Visibility = relationship.BusinessKey is null
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
+    private static void ApplyAlertTarget(
+        WatchAlertRelationshipTarget? target,
+        FrameworkElement panel,
+        TextBlock roleText,
+        TextBlock idText)
+    {
+        panel.Visibility = target is null ? Visibility.Collapsed : Visibility.Visible;
+        roleText.Text = target?.Role ?? string.Empty;
+        idText.Text = target?.Target.DemandId ?? string.Empty;
+    }
+
+    private void OnAlertTargetOneClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAlertRelationship?.Targets.ElementAtOrDefault(0)?.Target is { } target)
+        {
+            LocateDemandFromAlert(target, null);
+        }
+    }
+
+    private void OnAlertTargetTwoClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAlertRelationship?.Targets.ElementAtOrDefault(1)?.Target is { } target)
+        {
+            LocateDemandFromAlert(target, null);
+        }
+    }
+
+    private void OnAlertBusinessKeyClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedAlertRelationship?.BusinessKey is { } businessKey)
+        {
+            SearchDemandFromAlert(businessKey, null);
+        }
     }
 
     private WatchAlertDraft ReadAlertDraft() => new(
@@ -1355,6 +1427,7 @@ internal partial class MainWindow : Window
         {
             _isApplyingAlertProjection = false;
         }
+        ApplyAlertRelationship(alert.SelectedAlert);
         DemandPreviousButton.IsEnabled = demand.CanMovePrevious;
         DemandNextButton.IsEnabled = demand.CanMoveNext;
         DemandRefreshButton.IsEnabled = demand.LastSuccessfulAt is not null;
@@ -1370,8 +1443,8 @@ internal partial class MainWindow : Window
         DemandModeText.Text = isGone
             ? "GONE · 独立服务端单页窗口 · 每页固定 100 行"
             : "VISIBLE · 独立服务端单页窗口 · 每页固定 100 行";
-        DemandRangeFromLabel.Text = isGone ? "GoneAt 起始（含时区）" : "DATES 起始（含时区）";
-        DemandRangeToLabel.Text = isGone ? "GoneAt 结束（含时区）" : "DATES 结束（含时区）";
+        DemandRangeFromLabel.Text = isGone ? "消失时间起始" : "进入时间起始";
+        DemandRangeToLabel.Text = isGone ? "消失时间结束" : "进入时间结束";
         AlertPreviousButton.IsEnabled = alert.CanMovePrevious;
         AlertNextButton.IsEnabled = alert.CanMoveNext;
         AlertRefreshButton.IsEnabled = alert.LastSuccessfulAt is not null;
@@ -1411,7 +1484,8 @@ internal partial class MainWindow : Window
             _health,
             pageRefreshState.FetchError,
             activeAlertEvidence,
-            now);
+            now,
+            minHold: WatchProcessTimeProvider.IsUiTestMode ? TimeSpan.Zero : null);
         _bannerHold = banner.HoldState;
 
         ErrorBanner.Visibility = banner.ShowError ? Visibility.Visible : Visibility.Collapsed;
@@ -1474,6 +1548,44 @@ internal partial class MainWindow : Window
         ApplyDemandSortGlyphs();
         ApplyAlertSortGlyphs();
         SyncOpenAlertDetails();
+        UpdateAutomationValues();
+    }
+
+    private void UpdateAutomationValues()
+    {
+        foreach (var text in new[]
+        {
+            CurrentHostContextText,
+            PageRefreshContextText,
+            ErrorBannerText,
+            WarningBannerText,
+            OverviewConclusionText,
+            OverviewBusyText,
+            OverviewNoticeText,
+            OverviewHostText,
+            OverviewPollHealthText,
+            OverviewAlertText,
+            OverviewDemandText,
+            AlertValidationText,
+            AlertCommittedQueryText,
+            AlertBusyText,
+            AlertNoticeText,
+            AlertCountText,
+            AlertPageText,
+            SettingsValidationText,
+            DemandModeText,
+            DemandValidationText,
+            DemandCommittedQueryText,
+            DemandBusyText,
+            DemandNoticeText,
+            RowCountText,
+            DemandPageText,
+            StatusBarText,
+        })
+        {
+            System.Windows.Automation.AutomationProperties.SetHelpText(text, text.Text ?? string.Empty);
+            System.Windows.Automation.AutomationProperties.SetItemStatus(text, text.Text ?? string.Empty);
+        }
     }
 
     private string FormatPageRefreshContext(

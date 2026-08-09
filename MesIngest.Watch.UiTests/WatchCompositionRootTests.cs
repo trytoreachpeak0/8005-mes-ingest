@@ -703,9 +703,9 @@ public sealed class WatchCompositionRootTests
             PumpUntil(() => !cancel.IsEnabled);
             Assert.Equal(Visibility.Collapsed, busy.Visibility);
             Assert.Equal("已取消", ((TextBlock)window.FindName("OverviewNoticeText")).Text);
-            Assert.Contains(fakeHost.Timeline, entry =>
+            PumpUntil(() => fakeHost.Timeline.Any(entry =>
                 entry.Operation == FakeHostOperation.PollHealth
-                && entry.State == FakeHostRequestState.Canceled);
+                && entry.State == FakeHostRequestState.Canceled));
 
             window.Close();
         });

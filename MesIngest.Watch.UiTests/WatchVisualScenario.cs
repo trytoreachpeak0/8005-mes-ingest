@@ -105,7 +105,7 @@ internal sealed class WatchVisualScenario : IDisposable
             case WatchVisualState.AlertsActiveSelected:
                 Navigate(2);
                 PumpUntil(() => Grid("AlertsGrid").Items.Count == FakeAlerts(active: true).Count);
-                SelectFirst("AlertsGrid");
+                SelectAlert("REAPPEAR_AFTER_GONE");
                 break;
             case WatchVisualState.AlertsResolved:
                 Navigate(2);
@@ -206,6 +206,14 @@ internal sealed class WatchVisualScenario : IDisposable
     {
         var grid = Grid(name);
         grid.SelectedIndex = 0;
+        grid.ScrollIntoView(grid.SelectedItem);
+        PumpDispatcher();
+    }
+
+    private void SelectAlert(string code)
+    {
+        var grid = Grid("AlertsGrid");
+        grid.SelectedItem = grid.Items.Cast<WatchAlertDto>().Single(item => item.Code == code);
         grid.ScrollIntoView(grid.SelectedItem);
         PumpDispatcher();
     }
@@ -359,10 +367,14 @@ internal sealed class WatchVisualScenario : IDisposable
             "STAGING_TO_WIRE",
             "WIRE_TO_NITROGEN",
         };
-        return taskTypes.Select((taskType, index) => new WatchDemandDto(
-            DemandId: $"{index + 1:x8}{new string((char)('a' + index), 24)}",
+        return taskTypes.Select((taskType, index) =>
+        {
+            var demandId = $"{index + 1:x8}{new string((char)('a' + index), 24)}";
+            var sublot = $"Q260808-{index + 1:00}-超长子批号";
+            return new WatchDemandDto(
+            DemandId: demandId,
             TaskType: taskType,
-            Sublot: $"Q260808-{index + 1:00}-超长子批号",
+            Sublot: sublot,
             Area: $"AREA-{index + 1:00}",
             Eqp: $"EQP-{index + 1:00}",
             Step: index == 2 ? "焊线2与入库等待的超长下一工序名称" : $"STEP-{index + 1:00}",
@@ -374,7 +386,15 @@ internal sealed class WatchVisualScenario : IDisposable
             LocationRisk: index == 4,
             LocationRiskCode: index == 4 ? "AREA_UNPARSEABLE" : null,
             CreatedAt: FixedNow.AddDays(-1).AddMinutes(index),
-            GoneAt: visible ? null : FixedNow.AddMinutes(-index)))
+            GoneAt: visible ? null : FixedNow.AddMinutes(-index),
+            Alerts: index == 0
+                ? new List<WatchAlertDto>
+                {
+                    VisualAlert("FIELD_DRIFT", "ERROR", taskType, sublot, demandId, "冻结字段 EQP 与当前快照不一致。"),
+                    VisualAlert("DUPLICATE_RECONCILE_KEY", "ERROR", taskType, sublot, null, "同一 TASK_TYPE + SUBLOT 在快照中重复。"),
+                }
+                : new List<WatchAlertDto>());
+        })
             .ToArray();
     }
 
@@ -398,15 +418,19 @@ internal sealed class WatchVisualScenario : IDisposable
             "STAGING_TO_WIRE",
             "WIRE_TO_NITROGEN",
         };
+        var visibleDemands = FakeDemands(visible: true);
+        var goneDemands = FakeDemands(visible: false);
         return codes.Select((code, index) => new WatchAlertDto(
             AlertId: $"alert-{index + 1:00}",
             Code: code,
             Severity: index < 5 ? "ERROR" : "WARNING",
-            TaskType: taskTypes[index],
-            Sublot: $"Q260808-{index + 1:00}-超长子批号",
-            DemandId: FakeDemands(visible: true)[index].DemandId,
+            TaskType: index < 2 ? null : taskTypes[index],
+            Sublot: index is 2 or 4 or 5 ? $"Q260808-{index + 1:00}-超长子批号" : null,
+            DemandId: index is 4 or 5 ? visibleDemands[index].DemandId : null,
             Message: $"{code}：用于视觉回归的固定中文长文本，说明 MES 快照、投影和当前查询之间的关系。",
-            Details: "area=AREA-01; expected=EQP-01; observed=EQP-99; 不包含凭据或生产数据",
+            Details: code == "REAPPEAR_AFTER_GONE"
+                ? $"{{\"previousDemandId\":\"{new string('f', 32)}\",\"newDemandId\":\"{visibleDemands[index].DemandId}\"}}"
+                : "area=AREA-01; expected=EQP-01; observed=EQP-99; 不包含凭据或生产数据",
             FirstSeenAt: FixedNow.AddMinutes(-20 - index),
             LastSeenAt: FixedNow.AddMinutes(-index),
             OccurrenceCount: index + 1,
@@ -415,6 +439,28 @@ internal sealed class WatchVisualScenario : IDisposable
             CreatedAt: FixedNow.AddMinutes(-30 - index)))
             .ToArray();
     }
+
+    private static WatchAlertDto VisualAlert(
+        string code,
+        string severity,
+        string taskType,
+        string sublot,
+        string? demandId,
+        string message) => new(
+            $"related-{code}",
+            code,
+            severity,
+            taskType,
+            sublot,
+            demandId,
+            message,
+            null,
+            FixedNow.AddMinutes(-10),
+            FixedNow.AddMinutes(-1),
+            1,
+            true,
+            null,
+            FixedNow.AddMinutes(-10));
 
     private sealed class FixedTimeProvider : TimeProvider
     {

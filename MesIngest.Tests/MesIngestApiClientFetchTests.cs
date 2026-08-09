@@ -7,6 +7,35 @@ namespace MesIngest.Tests;
 public class MesIngestApiClientFetchTests
 {
     [Fact]
+    public async Task Caller_cancellation_is_not_reclassified_as_a_host_failure()
+    {
+        var handler = new StubHandler(async (request, cancellationToken) =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (WatchHttpTestStubs.IsContractPath(path))
+            {
+                return WatchHttpTestStubs.MatchingContract(path);
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The canceled request must not complete.");
+        });
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("http://127.0.0.1:5088/"),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30);
+        await client.VerifyContractAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+
+        var fetch = client.FetchDemandPageAsync(WatchDemandBrowseQuery.Default, cancellation.Token);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => fetch);
+    }
+
+    [Fact]
     public async Task Overview_snapshot_starts_all_three_resource_requests_concurrently()
     {
         var sync = new object();

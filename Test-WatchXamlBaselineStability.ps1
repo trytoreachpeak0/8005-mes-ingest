@@ -13,7 +13,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $runner = Join-Path $PSScriptRoot "Invoke-WatchUiTests.ps1"
-$baselineDirectory = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\Baselines"
+$baselineDirectory = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\Baselines\SelectedUi"
 $manifests = [System.Collections.Generic.List[string]]::new()
 $manifestMaps = [System.Collections.Generic.List[hashtable]]::new()
 $firstMismatchRun = $null

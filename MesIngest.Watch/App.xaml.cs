@@ -9,7 +9,9 @@ internal partial class App : Application
         base.OnStartup(e);
 
         var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
-        _composition = WatchApplicationComposition.Create(options);
+        _composition = WatchApplicationComposition.Create(
+            options,
+            timeProvider: WatchProcessTimeProvider.Resolve());
         _composition.CreateMainWindow().Show();
     }
 

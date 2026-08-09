@@ -316,6 +316,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
             RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, 1, bytes);
             return demand;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
@@ -385,6 +389,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
                 page.Items.Count,
                 bytes);
             return page;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
@@ -464,6 +472,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
                 stage: LatencyStages.HttpOk);
             return page;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
@@ -526,6 +538,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
 
             RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, items.Count, bytes.Value);
             return items;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
@@ -595,6 +611,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
         {
             throw;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {
             var stage = WatchHttpStageClassifier.Classify(ex);
@@ -646,6 +666,10 @@ internal sealed class MesIngestApiClient : IWatchHostQueryAdapter
 
             RecordWatch(correlationId, endpoint, sw.ElapsedMilliseconds, (int)response.StatusCode, rowCount: health is null ? 0 : 1, bytes: bytes);
             return health;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
         {

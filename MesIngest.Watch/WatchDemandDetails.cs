@@ -13,6 +13,12 @@ public sealed record WatchDemandDetails(
     WatchDemandDetailGroup MesInputGroup,
     WatchDemandDetailGroup LocalProjectionGroup)
 {
+    public IReadOnlyList<WatchDemandRelatedAlert> RelatedAlerts { get; init; } = [];
+
+    public string RelatedAlertSummary => RelatedAlerts.Count == 0
+        ? "当前任务没有相关 IngestAlert。"
+        : $"找到 {RelatedAlerts.Count} 条相关 IngestAlert。";
+
     public static WatchDemandDetails From(
         WatchDemandDto demand,
         TimeZoneInfo? timeZone = null)
@@ -44,6 +50,38 @@ public sealed record WatchDemandDetails(
                     new("locationRiskCode", Format(demand.LocationRiskCode), "位置风险代码；AREA_EMPTY/AREA_UNPARSEABLE 属于 Demand 风险。"),
                     new("createdAt", Format(demand.CreatedAt), "本地实例创建时间（TransportDemand）。"),
                     new("goneAt", Format(demand.GoneAt), "本地实例转为 GONE 的时间；VISIBLE 时为 null。"),
-                ]));
+                ]))
+        {
+            RelatedAlerts = (demand.Alerts ?? [])
+                .Select(alert => WatchDemandRelatedAlert.From(demand, alert, timeZone))
+                .ToList(),
+        };
+    }
+}
+
+public sealed record WatchDemandRelatedAlert(
+    string Code,
+    string Severity,
+    string RelationshipBasis,
+    string RelationshipLabel,
+    string Message,
+    string LastSeenAt)
+{
+    public static WatchDemandRelatedAlert From(
+        WatchDemandDto demand,
+        WatchAlertDto alert,
+        TimeZoneInfo? timeZone = null)
+    {
+        ArgumentNullException.ThrowIfNull(demand);
+        ArgumentNullException.ThrowIfNull(alert);
+        var exact = !string.IsNullOrWhiteSpace(alert.DemandId)
+            && string.Equals(alert.DemandId, demand.DemandId, StringComparison.Ordinal);
+        return new WatchDemandRelatedAlert(
+            alert.Code,
+            alert.Severity ?? string.Empty,
+            exact ? "EXACT DemandId" : "BUSINESS KEY",
+            exact ? "精确关联" : "业务键关联",
+            alert.Message ?? string.Empty,
+            WatchGridClipboard.FormatValue(alert.LastSeenAt, timeZone));
     }
 }

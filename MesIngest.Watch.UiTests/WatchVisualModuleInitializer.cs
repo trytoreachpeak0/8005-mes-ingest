@@ -10,6 +10,6 @@ public static class WatchVisualModuleInitializer
         WatchVisualCaptureConverter.Initialize();
         VerifyXaml.Initialize();
         VerifierSettings.InitializePlugins();
-        Verifier.UseProjectRelativeDirectory("Baselines");
+        Verifier.UseProjectRelativeDirectory("Baselines/SelectedUi");
     }
 }

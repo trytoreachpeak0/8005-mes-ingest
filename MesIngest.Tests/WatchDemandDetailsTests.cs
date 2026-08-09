@@ -53,6 +53,44 @@ public class WatchDemandDetailsTests
         Assert.Contains("VISIBLE", Field(details.LocalProjectionGroup, "goneAt").Explanation);
     }
 
+    [Fact]
+    public void Projects_related_alerts_without_flattening_exact_and_business_key_relationships()
+    {
+        var demand = new WatchDemandDto(
+            "demand-1", "DIE_TO_OVEN", "S1", "A1", "E1", "烘烤",
+            DateTimeOffset.Parse("2026-08-08T01:00:00Z"), "PKG", "VISIBLE",
+            DateTimeOffset.Parse("2026-08-08T01:01:00Z"), 0, false, null,
+            DateTimeOffset.Parse("2026-08-08T01:00:00Z"), null,
+            [
+                Alert("FIELD_DRIFT", "demand-1"),
+                Alert("DUPLICATE_RECONCILE_KEY", null),
+            ]);
+
+        var details = WatchDemandDetails.From(demand);
+
+        Assert.Equal("找到 2 条相关 IngestAlert。", details.RelatedAlertSummary);
+        Assert.Equal("EXACT DemandId", details.RelatedAlerts[0].RelationshipBasis);
+        Assert.Equal("精确关联", details.RelatedAlerts[0].RelationshipLabel);
+        Assert.Equal("BUSINESS KEY", details.RelatedAlerts[1].RelationshipBasis);
+        Assert.Equal("业务键关联", details.RelatedAlerts[1].RelationshipLabel);
+    }
+
+    private static WatchAlertDto Alert(string code, string? demandId) => new(
+        "alert-" + code,
+        code,
+        "ERROR",
+        "DIE_TO_OVEN",
+        "S1",
+        demandId,
+        "message",
+        null,
+        DateTimeOffset.Parse("2026-08-08T01:00:00Z"),
+        DateTimeOffset.Parse("2026-08-08T01:01:00Z"),
+        1,
+        true,
+        null,
+        DateTimeOffset.Parse("2026-08-08T01:00:00Z"));
+
     private static WatchDemandDetailField Field(WatchDemandDetailGroup group, string name) =>
         group.Fields.Single(field => string.Equals(field.Name, name, StringComparison.Ordinal));
 
