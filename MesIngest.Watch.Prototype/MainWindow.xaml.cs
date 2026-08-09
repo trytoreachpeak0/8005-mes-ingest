@@ -14,50 +14,45 @@ namespace MesIngest.Watch.Prototype;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
-    private static readonly string[] VariantKeys = ["A", "B", "C"];
-    private static readonly string[] VariantNames = ["全局态势看板", "事件处置优先", "证据时间线优先"];
-
+    private static readonly string[] VariantKeys = ["A", "B", "C", "D", "E"];
+    private static readonly string[] VariantNames = ["运维工作台", "关系解释器", "聚焦浏览器", "任务关联告警", "告警关联任务"];
     private readonly DispatcherTimer _autoRefreshTimer;
-    private readonly Dictionary<string, DateTimeOffset> _lastRefreshByPage = new();
+    private readonly Dictionary<string, DateTimeOffset> _lastRefreshByPage = [];
     private CancellationTokenSource? _refreshCancellation;
     private long _refreshGeneration;
     private int _variantIndex;
-    private string _scenario = "Healthy";
+    private string _scenario = "Active";
     private NavigationItem? _selectedNavigation;
     private object? _selectedPage;
-    private DemandRow? _selectedDemand;
+    private TaskRow? _selectedTask;
     private AlertRow? _selectedAlert;
-    private string _refreshStatus = "尚未刷新 · 当前窗口保留最后成功数据";
-    private string _healthLabel = "健康";
-    private string _healthDetail = "Host 在线 · 最近 poll 成功";
-    private string _latencyLabel = "2.84 s";
-    private string _ageLatencySummary = "MES 数据年龄：42 秒（字段 DATES） · 链路耗时：2.84 秒";
+    private string _refreshStatus = "当前窗口使用评审假数据；尚未连接服务。";
+    private string _connectionLabel = "在线";
+    private string _pollStatus = "最近 poll 成功 · 12:42:16";
     private string _emptyStateText = string.Empty;
     private string _pageLabel = "已加载 1–25 · 下一页 cursor 可用";
-    private int _activeAlertCount = 2;
-    private int _visibleDemandCount = 626;
+    private string _dataWindowLabel = "最后成功 12:42:16";
+    private int _activeAlertCount = 6;
+    private int _visibleDemandCount = 672;
 
-    public MainWindow(string initialVariant, string initialScenario)
+    public MainWindow(string initialVariant, string initialScenario, string initialPage = "OV")
     {
         InitializeComponent();
         DataContext = this;
-
         Navigation =
         [
-            new("OV", "概览", "10 秒内判断接入健康、当前异常、VISIBLE Demand 与最新链路耗时。", "12:42:16", new OverviewPage()),
-            new("DM", "运输需求", "显式提交筛选，VISIBLE/GONE 分别保存排序与游标分页。", "12:42:16", new DemandsPage()),
-            new("AL", "告警分析", "只读定位 Alert、关联 Demand 和原始证据，不在 Watch 中处置。", "12:42:15", new AlertsPage()),
-            new("PF", "性能分析", "分离链路处理耗时与 MES 数据年龄，下钻四阶段 trace。", "12:42:14", new PerformancePage()),
-            new("DG", "诊断", "统一事件日志与脱敏诊断包，文本日志仅作辅助取证。", "12:41:58", new DiagnosticsPage()),
-            new("ST", "设置", "单 Host、按页自动刷新、保留与容量上限。", "本机", new SettingsPage())
+            new("OV", "概览", "约 10 秒判断 Host 接入、活动 IngestAlert 与 VISIBLE TransportDemand。", "12:42:16", new OverviewPage()),
+            new("TS", "任务浏览", "同时核对七个来源字段与本地投影实例；两种可见状态分别保留。", "12:42:16", new TasksPage()),
+            new("AL", "接入告警", "只读查看接入过程产生的六类告警及关联任务，不提供处置动作。", "12:42:15", new AlertsPage()),
+            new("ST", "设置", "只保留服务连接、按页刷新与基本显示设置。", "本机", new SettingsPage())
         ];
 
-        _autoRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        _autoRefreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
         _autoRefreshTimer.Tick += async (_, _) => await RefreshCurrentPageAsync();
-
         SelectedNavigation = Navigation[0];
         _variantIndex = Math.Max(0, Array.FindIndex(VariantKeys, key => key.Equals(initialVariant, StringComparison.OrdinalIgnoreCase)));
         ApplyVariant();
+
         var normalizedScenario = NormalizeScenario(initialScenario);
         foreach (var item in ScenarioPicker.Items.OfType<ComboBoxItem>())
         {
@@ -67,26 +62,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 break;
             }
         }
+
         ApplyScenario(normalizedScenario);
+        var requestedPage = Navigation.FirstOrDefault(item => item.Code.Equals(initialPage, StringComparison.OrdinalIgnoreCase));
+        if (requestedPage is not null) SelectedNavigation = requestedPage;
     }
 
     public ObservableCollection<NavigationItem> Navigation { get; }
-    public ObservableCollection<DemandRow> Demands { get; } = [];
+    public ObservableCollection<TaskRow> Tasks { get; } = [];
     public ObservableCollection<AlertRow> Alerts { get; } = [];
-    public ObservableCollection<StageRow> Stages { get; } = [];
-    public ObservableCollection<EventRow> Events { get; } = [];
+    public ObservableCollection<TaskTypeCount> TaskCounts { get; } = [];
 
     public NavigationItem? SelectedNavigation
     {
         get => _selectedNavigation;
         set
         {
-            if (!SetField(ref _selectedNavigation, value) || value is null)
-            {
-                return;
-            }
-
-            CancelRefresh("已切换页面；旧请求已取消，未覆盖新页面。", incrementGeneration: true);
+            if (!SetField(ref _selectedNavigation, value) || value is null) return;
+            CancelRefresh("已切换页面；旧请求已取消，最后成功数据保持不变。", incrementGeneration: true);
             SelectedPage = value.Page;
             RefreshStatus = _lastRefreshByPage.TryGetValue(value.Code, out var refreshedAt)
                 ? $"{value.Label}最后成功刷新 {refreshedAt:HH:mm:ss} · 其它页面未刷新"
@@ -95,26 +88,35 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     public object? SelectedPage { get => _selectedPage; private set => SetField(ref _selectedPage, value); }
-    public DemandRow? SelectedDemand { get => _selectedDemand; set => SetField(ref _selectedDemand, value); }
+    public TaskRow? SelectedTask { get => _selectedTask; set => SetField(ref _selectedTask, value); }
     public AlertRow? SelectedAlert { get => _selectedAlert; set => SetField(ref _selectedAlert, value); }
     public string RefreshStatus { get => _refreshStatus; private set => SetField(ref _refreshStatus, value); }
-    public string HealthLabel { get => _healthLabel; private set => SetField(ref _healthLabel, value); }
-    public string HealthDetail { get => _healthDetail; private set => SetField(ref _healthDetail, value); }
-    public string LatencyLabel { get => _latencyLabel; private set => SetField(ref _latencyLabel, value); }
-    public string AgeLatencySummary { get => _ageLatencySummary; private set => SetField(ref _ageLatencySummary, value); }
+    public string ConnectionLabel { get => _connectionLabel; private set => SetField(ref _connectionLabel, value); }
+    public string PollStatus { get => _pollStatus; private set => SetField(ref _pollStatus, value); }
     public string EmptyStateText { get => _emptyStateText; private set => SetField(ref _emptyStateText, value); }
     public string PageLabel { get => _pageLabel; private set => SetField(ref _pageLabel, value); }
+    public string DataWindowLabel { get => _dataWindowLabel; private set => SetField(ref _dataWindowLabel, value); }
     public int ActiveAlertCount { get => _activeAlertCount; private set => SetField(ref _activeAlertCount, value); }
     public int VisibleDemandCount { get => _visibleDemandCount; private set => SetField(ref _visibleDemandCount, value); }
-
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public void Capture(string path)
+    public void SetCaptureMode()
+    {
+        PrototypeSwitcher.Visibility = Visibility.Collapsed;
+        PrototypeControls.Visibility = Visibility.Collapsed;
+    }
+
+    public void Capture(string path, int pixelWidth, int pixelHeight)
     {
         var absolutePath = Path.GetFullPath(path);
         Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
-        var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(this);
+        RootLayout.Width = pixelWidth;
+        RootLayout.Height = pixelHeight;
+        RootLayout.Measure(new Size(pixelWidth, pixelHeight));
+        RootLayout.Arrange(new Rect(0, 0, pixelWidth, pixelHeight));
+        RootLayout.UpdateLayout();
+        var bitmap = new RenderTargetBitmap(pixelWidth, pixelHeight, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(RootLayout);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(absolutePath);
@@ -124,156 +126,91 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ApplyScenario(string scenario)
     {
         _scenario = scenario;
-        Demands.Clear();
-        Alerts.Clear();
-        Stages.Clear();
-        Events.Clear();
+        Tasks.Clear(); Alerts.Clear(); TaskCounts.Clear();
+        foreach (var task in BuildTasks(scenario)) Tasks.Add(task);
+        foreach (var alert in BuildAlerts(scenario)) Alerts.Add(alert);
+        foreach (var item in BuildTaskCounts(scenario)) TaskCounts.Add(item);
 
-        foreach (var demand in BuildDemands(scenario))
+        ConnectionLabel = scenario == "Offline" ? "离线" : "在线";
+        PollStatus = scenario switch
         {
-            Demands.Add(demand);
-        }
-
-        foreach (var alert in BuildAlerts(scenario))
-        {
-            Alerts.Add(alert);
-        }
-
-        var slow = scenario == "Slow";
-        AddStages(slow);
-        AddEvents(scenario);
-
-        HealthLabel = scenario switch
-        {
-            "Offline" => "离线",
-            "Slow" => "需关注",
-            "Alert" => "接入健康",
-            "Empty" => "健康",
-            _ => "健康"
+            "Offline" => "服务连接失败 · 保留 12:39:44 成功窗口",
+            "Empty" => "最近 poll 成功 · 当前快照为空",
+            _ => "最近 poll 成功 · 12:42:16"
         };
-        HealthDetail = scenario switch
-        {
-            "Offline" => "Host 连接失败 · 保留 12:39:44 成功窗口",
-            "Slow" => "Host 在线 · 最近 poll 成功但 MES 读取偏慢",
-            "Alert" => "Host 在线 · poll 成功 · 领域异常待定位",
-            "Empty" => "Host 在线 · 成功快照中无 VISIBLE Demand",
-            _ => "Host 在线 · 最近 poll 成功 · 数据新鲜"
-        };
-        LatencyLabel = scenario switch
-        {
-            "Offline" => "未知",
-            "Slow" => "12.7 s",
-            _ => "2.84 s"
-        };
-        AgeLatencySummary = $"MES 数据年龄：42 秒（字段 DATES） · 链路耗时：{LatencyLabel.Replace("s", "秒")}";
-        VisibleDemandCount = scenario == "Empty" ? 0 : scenario == "Paging" ? 12_483 : 626;
+        DataWindowLabel = scenario == "Offline" ? "最后成功 12:39:44 · 已过期" : "最后成功 12:42:16";
+        VisibleDemandCount = scenario == "Empty" ? 0 : scenario == "Paging" ? 12_483 : 672;
         ActiveAlertCount = Alerts.Count;
-        EmptyStateText = scenario == "Empty" ? "当前没有活动异常或 VISIBLE Demand。这是成功空结果，不是连接失败。" : string.Empty;
+        EmptyStateText = scenario == "Empty" ? "成功空结果：当前没有活动 IngestAlert，也没有 VISIBLE TransportDemand。" : string.Empty;
         PageLabel = scenario == "Paging" ? "已加载 51–75 / 12,483 · cursor=eyJzZXEiOj..." : "已加载 1–25 · 下一页 cursor 可用";
-        SelectedDemand = Demands.FirstOrDefault();
+        SelectedTask = Tasks.FirstOrDefault();
         SelectedAlert = Alerts.FirstOrDefault();
-        RefreshStatus = $"已切换为“{ScenarioDisplayName(scenario)}”假数据场景 · 未发出网络请求";
+        RefreshStatus = $"已切换为“{ScenarioDisplayName(scenario)}”评审假数据 · 未发出网络请求";
     }
 
-    private static IEnumerable<DemandRow> BuildDemands(string scenario)
+    private static IEnumerable<TaskRow> BuildTasks(string scenario)
     {
-        if (scenario == "Empty")
+        if (scenario == "Empty") return [];
+        var rows = new[]
         {
-            return [];
-        }
-
-        return
-        [
-            new("dmd-7f91c2", "MOVE_IN", "SL240804-017", "VISIBLE", "FAB2 / EQP-17", scenario == "Slow" ? "4m 12s" : "42s", "12:42:16"),
-            new("dmd-2a10bd", "MOVE_OUT", "SL240804-021", "VISIBLE", "FAB2 / EQP-03", "1m 08s", "12:42:16"),
-            new("dmd-98c44a", "TRANSFER", "SL240804-008", "VISIBLE", "BUF1 / EQP-09", "2m 31s", "12:42:15"),
-            new("dmd-06bd33", "MOVE_IN", "SL240804-025", "VISIBLE", "FAB1 / EQP-22", "18s", "12:42:16"),
-            new("dmd-a7e145", "TRANSFER", "SL240804-013", "VISIBLE", "BUF2 / EQP-04", "3m 05s", "12:42:14")
-        ];
+            new TaskRow("dmd-7f91c2a8", "DIE_TO_WIRE_STAGING", "Q26063201-2", "C6-12", "3ZPS122", "焊线", "2026-07-24 13:58:12", "SOP8/PP(150mil)(12R)", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:10:02", "—", "DUPLICATE_RECONCILE_KEY"),
+            new TaskRow("dmd-2a10bd44", "DIE_TO_OVEN", "Q26063224-8", "C6-14", "3ZPS136", "装片烘烤", "2026-07-24 13:55:34", "SOP8/PP(150mil)(12R)", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:12:47", "—", "REAPPEAR_AFTER_GONE"),
+            new TaskRow("dmd-98c44ab1", "WIRE_TO_GATE", "Q26063189-5", "B4-09", "WB-031", "焊线关卡", "2026-07-24 13:50:08", "QFN32 5x5", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:15:19", "—", "FIELD_DRIFT"),
+            new TaskRow("dmd-06bd33c9", "WIRE_TO_OPTICAL", "Q26063177-3", "A3-18", "WB-114", "三光检验", "2026-07-24 13:47:21", "SOT23-6L", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:20:31", "—", "—"),
+            new TaskRow("dmd-a7e14502", "STAGING_TO_WIRE", "Q26063240-1", "D7-04", "WB-208", "键合", "2026-07-24 13:44:59", "DFN8 3x3", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:25:40", "—", "PAUSED_ZERO_DROP"),
+            new TaskRow("dmd-b31f084d", "WIRE_TO_NITROGEN", "Q26063161-7", "N2-06", "WB1-017", "焊线2", "2026-07-24 13:41:17", "TSSOP20", "VISIBLE", "2026-08-07 12:42:16", 0, "—", "2026-08-07 08:31:26", "—", "—"),
+            new TaskRow("dmd-e8a14273", "STAGING_TO_WIRE", "Q26063252-6", "", "WB-219", "焊线", "2026-07-24 13:38:42", "QFN48 7x7", "VISIBLE", "2026-08-07 12:42:16", 0, "AREA_EMPTY", "2026-08-07 08:34:11", "—", "—"),
+            new TaskRow("dmd-10fc9e51", "DIE_TO_OVEN", "Q26063268-4", "C00-7", "3ZPS141", "装片压力烘烤", "2026-07-24 13:35:07", "SOP16 300mil", "VISIBLE", "2026-08-07 12:42:16", 0, "AREA_UNPARSEABLE", "2026-08-07 08:39:54", "—", "—")
+        };
+        return scenario == "Offline" ? rows.Take(5) : rows;
     }
 
     private static IEnumerable<AlertRow> BuildAlerts(string scenario)
     {
-        if (scenario is "Empty" or "Healthy")
-        {
-            return [];
-        }
-
-        if (scenario == "Offline")
-        {
-            return [new("WATCH", "HOST_UNREACHABLE", "无法连接 Host；这不是 IngestAlert。", "—", "12:42:09", "12:42:09 – 现在")];
-        }
-
-        if (scenario == "Slow")
-        {
-            return [new("WARN", "POLL_LATENCY_HIGH", "MES 读取阶段连续 3 轮超过 10 秒。", "dmd-7f91c2", "12:42:16", "12:40:04 – 12:42:16")];
-        }
-
+        if (scenario is "Healthy" or "Offline" or "Empty") return [];
         return
         [
-            new("ERROR", "DUPLICATE_ACTIVE_KEY", "同一 TASK_TYPE + SUBLOT 出现两条活动行。", "dmd-7f91c2", "12:42:16", "12:38:02 – 12:42:16"),
-            new("WARN", "REAPPEAR", "GONE Demand 以同键新实例重新出现。", "dmd-2a10bd", "12:41:49", "12:41:49 – 12:41:49")
+            new("ERROR", "POLL_FAILURE", "全局", "—", "—", "—", "MES 快照读取失败；当轮投影保持不变。", "phase=oracle-read; timeout=30s", 3, "是", "12:36:20", "12:42:12", "—"),
+            new("ERROR", "POLL_INCOMPLETE", "全局", "—", "—", "—", "快照存在必需列或必需值错误；当轮投影保持不变。", "invalidRows=2; fields=TASK_TYPE,DATES", 1, "是", "12:41:50", "12:41:50", "—"),
+            new("ERROR", "DUPLICATE_RECONCILE_KEY", "业务键", "DIE_TO_WIRE_STAGING", "Q26063201-2", "dmd-7f91c2a8", "同一快照中 TASK_TYPE + SUBLOT 重复；仅阻断该键对账。", "rows=2; key=DIE_TO_WIRE_STAGING|Q26063201-2", 4, "是", "12:35:02", "12:42:16", "—"),
+            new("ERROR", "PAUSED_ZERO_DROP", "任务类型", "STAGING_TO_WIRE", "—", "—", "健康非零基线后骤降为 0；暂停该类型的消失计数与 GONE。", "previous=246; current=0; recovery=0/2", 2, "是", "12:40:01", "12:42:16", "—"),
+            new("ERROR", "FIELD_DRIFT", "Demand", "WIRE_TO_GATE", "Q26063189-5", "dmd-98c44ab1", "VISIBLE 业务键的冻结 MES 字段发生变化；继续保留原投影。", "field=EQP; frozen=WB-031; observed=WB-044", 5, "是", "12:33:17", "12:42:16", "—"),
+            new("WARNING", "REAPPEAR_AFTER_GONE", "新 Demand", "DIE_TO_OVEN", "Q26063224-8", "dmd-2a10bd44", "同一业务键在 GONE 后再现；已创建新的 DemandId。", "previousDemandId=dmd-old-116a; newDemandId=dmd-2a10bd44", 1, "是", "12:41:49", "12:41:49", "—")
         ];
     }
 
-    private void AddStages(bool slow)
+    private static IEnumerable<TaskTypeCount> BuildTaskCounts(string scenario)
     {
-        Stages.Add(new("MES 读取", slow ? 78 : 43, slow ? "9.91 s" : "1.22 s"));
-        Stages.Add(new("接入处理", slow ? 10 : 21, slow ? "1.27 s" : "0.60 s"));
-        Stages.Add(new("本地投影", slow ? 9 : 27, slow ? "1.14 s" : "0.77 s"));
-        Stages.Add(new("Watch 展示", slow ? 3 : 9, slow ? "0.38 s" : "0.25 s"));
-    }
-
-    private void AddEvents(string scenario)
-    {
-        Events.Add(new("12:42:16", "POLL", scenario == "Slow" ? "成功 · 12.7 s · MES_READ 慢" : "成功 · 2.84 s · 626 rows"));
-        Events.Add(new("12:42:14", "WATCH", "当前页刷新完成 · response generation 18"));
-        Events.Add(new("12:41:49", "ALERT", scenario switch
-        {
-            "Alert" => "REAPPEAR opened · dmd-2a10bd",
-            "Slow" => "POLL_LATENCY_HIGH opened · MES_READ",
-            _ => "无活动 IngestAlert"
-        }));
-        Events.Add(new("12:39:44", "CONNECTION", scenario == "Offline" ? "最后成功窗口；随后 Host unreachable" : "Host contract 兼容 · API v1"));
+        var counts = new[] { new TaskTypeCount("DIE_TO_WIRE_STAGING", 105), new TaskTypeCount("DIE_TO_OVEN", 94), new TaskTypeCount("WIRE_TO_GATE", 84), new TaskTypeCount("WIRE_TO_OPTICAL", 52), new TaskTypeCount("STAGING_TO_WIRE", 246), new TaskTypeCount("WIRE_TO_NITROGEN", 91) };
+        return scenario == "Empty" ? counts.Select(item => item with { Count = 0 }) : counts;
     }
 
     private async Task RefreshCurrentPageAsync()
     {
-        if (SelectedNavigation is null)
-        {
-            return;
-        }
-
+        if (SelectedNavigation is null) return;
         if (_refreshCancellation is not null)
         {
-            CancelRefresh("用户取消当前页刷新；保留最后成功窗口。", incrementGeneration: true);
+            CancelRefresh("用户取消当前页刷新；保留最后成功数据。", incrementGeneration: true);
             return;
         }
 
         var generation = ++_refreshGeneration;
         var page = SelectedNavigation;
-        var delay = _scenario == "Slow" ? TimeSpan.FromSeconds(6) : TimeSpan.FromMilliseconds(900);
         _refreshCancellation = new CancellationTokenSource();
         RefreshButton.Content = "取消刷新";
         RefreshStatus = $"正在刷新 {page.Label} · 单飞请求 generation {generation} · 可取消";
-
         try
         {
-            await Task.Delay(delay, _refreshCancellation.Token);
-            if (generation != _refreshGeneration || page != SelectedNavigation)
-            {
-                return;
-            }
-
+            await Task.Delay(_scenario == "Offline" ? 3500 : 900, _refreshCancellation.Token);
+            if (generation != _refreshGeneration || page != SelectedNavigation) return;
             var completedAt = DateTimeOffset.Now;
             _lastRefreshByPage[page.Code] = completedAt;
             page.Freshness = completedAt.ToString("HH:mm:ss");
-            RefreshStatus = $"{page.Label}刷新成功 {completedAt:HH:mm:ss} · 只更新当前页 · generation {generation}";
+            RefreshStatus = _scenario == "Offline"
+                ? $"{page.Label}刷新失败 {completedAt:HH:mm:ss} · 保留 12:39:44 成功窗口"
+                : $"{page.Label}刷新成功 {completedAt:HH:mm:ss} · 只更新当前页 · generation {generation}";
         }
-        catch (OperationCanceledException)
-        {
-            // The visible status was set by CancelRefresh.
-        }
+        catch (OperationCanceledException) { }
         finally
         {
             _refreshCancellation?.Dispose();
@@ -284,16 +221,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void CancelRefresh(string status, bool incrementGeneration)
     {
-        if (incrementGeneration)
-        {
-            _refreshGeneration++;
-        }
-
-        if (_refreshCancellation is not null)
-        {
-            _refreshCancellation.Cancel();
-            RefreshStatus = status;
-        }
+        if (incrementGeneration) _refreshGeneration++;
+        if (_refreshCancellation is null) return;
+        _refreshCancellation.Cancel();
+        RefreshStatus = status;
     }
 
     private void ApplyVariant()
@@ -301,6 +232,8 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         VariantA.Visibility = _variantIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         VariantB.Visibility = _variantIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
         VariantC.Visibility = _variantIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+        VariantD.Visibility = _variantIndex == 3 ? Visibility.Visible : Visibility.Collapsed;
+        VariantE.Visibility = _variantIndex == 4 ? Visibility.Visible : Visibility.Collapsed;
         VariantLabel.Text = $"{VariantKeys[_variantIndex]} — {VariantNames[_variantIndex]}";
     }
 
@@ -310,96 +243,91 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ApplyVariant();
     }
 
+    private void OpenPage(string code)
+    {
+        var page = Navigation.First(item => item.Code == code);
+        SelectedNavigation = page;
+    }
+
     private async void OnRefreshClick(object sender, RoutedEventArgs e) => await RefreshCurrentPageAsync();
     private void OnPreviousVariantClick(object sender, RoutedEventArgs e) => CycleVariant(-1);
     private void OnNextVariantClick(object sender, RoutedEventArgs e) => CycleVariant(1);
+    private void OnOpenAlertsClick(object sender, RoutedEventArgs e) => OpenPage("AL");
+    private void OnOpenTasksClick(object sender, RoutedEventArgs e) => OpenPage("TS");
     private void OnNextPageClick(object sender, RoutedEventArgs e) => PageLabel = "已加载 26–50 · 上一页/下一页 cursor 均可用";
 
     private void OnAlertDetailsClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button { Tag: AlertRow alert })
+        if (sender is Button { Tag: AlertRow alert }) SelectedAlert = alert;
+        OpenPage("AL");
+    }
+
+    private void OnOpenRelatedDemandClick(object sender, RoutedEventArgs e)
+    {
+        if (SelectedAlert is null || SelectedAlert.DemandId == "—")
         {
-            SelectedAlert = alert;
-            SelectedNavigation = Navigation[2];
+            RefreshStatus = "该告警没有 DemandId；保持当前全局或任务类型范围。";
+            return;
         }
+
+        SelectedTask = Tasks.FirstOrDefault(task => task.DemandId == SelectedAlert.DemandId) ?? SelectedTask;
+        OpenPage("TS");
     }
 
     private void OnScenarioChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || ScenarioPicker.SelectedItem is not ComboBoxItem { Tag: string scenario })
-        {
-            return;
-        }
-
+        if (!IsLoaded || ScenarioPicker.SelectedItem is not ComboBoxItem { Tag: string scenario }) return;
         CancelRefresh("场景已切换；旧请求取消。", incrementGeneration: true);
         ApplyScenario(scenario);
     }
 
     private void OnAutoRefreshChanged(object sender, RoutedEventArgs e)
     {
-        if (!IsLoaded)
-        {
-            return;
-        }
-
+        if (!IsLoaded) return;
         if (AutoRefreshToggle.IsChecked == true)
         {
             _autoRefreshTimer.Start();
-            RefreshStatus = $"仅为{SelectedNavigation?.Label}启用 10 秒自动刷新；切页后跟随当前页。";
+            RefreshStatus = $"仅为当前的 {SelectedNavigation?.Label} 启用 30 秒自动刷新。";
         }
         else
         {
             _autoRefreshTimer.Stop();
-            RefreshStatus = $"{SelectedNavigation?.Label}恢复默认手动刷新。";
+            RefreshStatus = $"{SelectedNavigation?.Label} 恢复默认手动刷新。";
         }
     }
 
-    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    private async void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (Keyboard.FocusedElement is TextBoxBase or ComboBox or DataGridCell)
+        if (e.Key == Key.Escape)
         {
+            CancelRefresh("用户取消当前页刷新；保留最后成功数据。", incrementGeneration: true);
+            e.Handled = true;
             return;
         }
-
-        if (e.Key == Key.Left)
+        if (e.Key == Key.F5)
         {
-            CycleVariant(-1);
+            await RefreshCurrentPageAsync();
             e.Handled = true;
+            return;
         }
-        else if (e.Key == Key.Right)
-        {
-            CycleVariant(1);
-            e.Handled = true;
-        }
+        if (Keyboard.FocusedElement is TextBoxBase or ComboBox or DataGridCell) return;
+        if (e.Key == Key.Left) { CycleVariant(-1); e.Handled = true; }
+        else if (e.Key == Key.Right) { CycleVariant(1); e.Handled = true; }
     }
-
-    private static string ScenarioDisplayName(string scenario) => scenario switch
-    {
-        "Alert" => "活动异常",
-        "Slow" => "慢链路",
-        "Offline" => "Host 离线",
-        "Empty" => "空状态",
-        "Paging" => "分页浏览",
-        _ => "健康"
-    };
 
     private static string NormalizeScenario(string scenario) => scenario.ToLowerInvariant() switch
     {
-        "alert" => "Alert",
-        "slow" => "Slow",
-        "offline" => "Offline",
-        "empty" => "Empty",
-        "paging" => "Paging",
-        _ => "Healthy"
+        "healthy" => "Healthy", "offline" => "Offline", "empty" => "Empty", "paging" => "Paging", _ => "Active"
+    };
+
+    private static string ScenarioDisplayName(string scenario) => scenario switch
+    {
+        "Healthy" => "健康", "Offline" => "服务离线", "Empty" => "成功空结果", "Paging" => "分页浏览", _ => "当前异常"
     };
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
     {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-        {
-            return false;
-        }
-
+        if (EqualityComparer<T>.Default.Equals(field, value)) return false;
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         return true;
@@ -409,42 +337,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 public sealed class NavigationItem : INotifyPropertyChanged
 {
     private string _freshness;
-
-    public NavigationItem(string code, string label, string description, string freshness, object page)
-    {
-        Code = code;
-        Label = label;
-        Description = description;
-        _freshness = freshness;
-        Page = page;
-    }
-
+    public NavigationItem(string code, string label, string description, string freshness, object page) { Code = code; Label = label; Description = description; _freshness = freshness; Page = page; }
     public string Code { get; }
     public string Label { get; }
     public string Description { get; }
     public object Page { get; }
-    public string Freshness
-    {
-        get => _freshness;
-        set
-        {
-            if (_freshness == value) return;
-            _freshness = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Freshness)));
-        }
-    }
-
+    public string Freshness { get => _freshness; set { if (_freshness == value) return; _freshness = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Freshness))); } }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 public sealed class OverviewPage;
-public sealed class DemandsPage;
+public sealed class TasksPage;
 public sealed class AlertsPage;
-public sealed class PerformancePage;
-public sealed class DiagnosticsPage;
 public sealed class SettingsPage;
 
-public sealed record DemandRow(string DemandId, string TaskType, string Sublot, string Status, string Location, string DataAge, string LastSeen);
-public sealed record AlertRow(string Severity, string Code, string Message, string DemandId, string LastSeen, string TimeRange);
-public sealed record StageRow(string Name, double Percent, string Duration);
-public sealed record EventRow(string Time, string Kind, string Message);
+public sealed record TaskRow(string DemandId, string TaskType, string Sublot, string Area, string Eqp, string Step, string Dates, string Package, string Status, string MesLastSeenAt, int DisappearCount, string LocationRiskCode, string CreatedAt, string GoneAt, string AlertSummary);
+public sealed record AlertRow(string Severity, string Code, string Scope, string TaskType, string Sublot, string DemandId, string Message, string Details, int OccurrenceCount, string IsActive, string FirstSeenAt, string LastSeenAt, string ResolvedAt);
+public sealed record TaskTypeCount(string TaskType, int Count);
