@@ -1,11 +1,12 @@
 using System.IO;
 using System.Windows.Input;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using MesIngest.Core;
 
 namespace MesIngest.Watch;
 
-internal partial class MainWindow : Window
+internal partial class MainWindow : Wpf.Ui.Controls.FluentWindow
 {
     private IWatchReadQueries _client;
     private WatchBrowseSession _browse;
@@ -61,6 +62,11 @@ internal partial class MainWindow : Window
         TimeProvider? timeProvider = null)
     {
         InitializeComponent();
+        if (Application.Current is null)
+        {
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
+        }
+
         _timeProvider = timeProvider ?? TimeProvider.System;
         DemandTaskTypeFilter.ItemsSource =
             new[] { string.Empty }.Concat(WatchDemandDraft.ProductionTaskTypes).ToArray();
@@ -236,7 +242,7 @@ internal partial class MainWindow : Window
     }
 
     private void ApplyAutoRefreshSetting(
-        CheckBox checkBox,
+        ToggleButton checkBox,
         ComboBox interval,
         WatchRefreshView view)
     {
@@ -248,7 +254,7 @@ internal partial class MainWindow : Window
 
     private void OnAutoRefreshEnabledChanged(object sender, RoutedEventArgs e)
     {
-        if (_isSyncingAutoRefreshControls || sender is not CheckBox checkBox)
+        if (_isSyncingAutoRefreshControls || sender is not ToggleButton checkBox)
         {
             return;
         }
@@ -368,6 +374,9 @@ internal partial class MainWindow : Window
         DemandsPage.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
         AlertsPage.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         SettingsPage.Visibility = selected == 3 ? Visibility.Visible : Visibility.Collapsed;
+        OverviewHeaderActions.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
+        DemandHeaderActions.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
+        AlertHeaderActions.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
         if (selected == 3)
         {
             _autoRefresh.Deactivate();
@@ -962,6 +971,12 @@ internal partial class MainWindow : Window
         LastSeenAtFrom: AlertRangeFromFilter.Text,
         LastSeenAtTo: AlertRangeToFilter.Text);
 
+    private void OnAlertActiveSegmentClick(object sender, RoutedEventArgs e) =>
+        AlertActivityFilter.SelectedIndex = 0;
+
+    private void OnAlertResolvedSegmentClick(object sender, RoutedEventArgs e) =>
+        AlertActivityFilter.SelectedIndex = 1;
+
     private void ApplyAlertDraftToControls(WatchAlertDraft draft)
     {
         AlertActivityFilter.SelectedIndex = draft.Active ? 0 : 1;
@@ -1432,6 +1447,7 @@ internal partial class MainWindow : Window
         DemandNextButton.IsEnabled = demand.CanMoveNext;
         DemandRefreshButton.IsEnabled = demand.LastSuccessfulAt is not null;
         DemandCancelButton.IsEnabled = demand.IsRefreshing;
+        DemandCancelButton.Visibility = demand.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
         DemandQueryButton.IsEnabled = true;
         DemandResetButton.IsEnabled = true;
         DemandBusyText.Visibility = demand.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
@@ -1441,14 +1457,15 @@ internal partial class MainWindow : Window
         DemandCommittedQueryText.Text = FormatCommittedDemandQuery(demand.CommittedQuery);
         var isGone = _activeDemandViewKind == WatchDemandViewKind.Gone;
         DemandModeText.Text = isGone
-            ? "GONE · 独立服务端单页窗口 · 每页固定 100 行"
-            : "VISIBLE · 独立服务端单页窗口 · 每页固定 100 行";
+            ? "条件只作用于任务列表。当前范围：GONE"
+            : "条件只作用于任务列表。";
         DemandRangeFromLabel.Text = isGone ? "消失时间起始" : "进入时间起始";
         DemandRangeToLabel.Text = isGone ? "消失时间结束" : "进入时间结束";
         AlertPreviousButton.IsEnabled = alert.CanMovePrevious;
         AlertNextButton.IsEnabled = alert.CanMoveNext;
         AlertRefreshButton.IsEnabled = alert.LastSuccessfulAt is not null;
         AlertCancelButton.IsEnabled = alert.IsRefreshing;
+        AlertCancelButton.Visibility = alert.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
         AlertQueryButton.IsEnabled = true;
         AlertResetButton.IsEnabled = true;
         AlertBusyText.Visibility = alert.IsRefreshing ? Visibility.Visible : Visibility.Collapsed;
@@ -1456,6 +1473,17 @@ internal partial class MainWindow : Window
         AlertNoticeText.Text = alert.Notice ?? string.Empty;
         AlertPageText.Text = $"第 {alert.PageNumber} 页";
         AlertCommittedQueryText.Text = FormatCommittedAlertQuery(alert.CommittedQuery);
+        DemandResultBadgeText.Text = demand.LastSuccessfulAt is null
+            ? "等待结果"
+            : demand.HasMore
+                ? "100+ 条结果"
+                : $"{demand.Items.Count} 条结果";
+        var alertLifecycle = alert.CommittedQuery.Active == false ? "已解除告警" : "活动告警";
+        AlertResultBadgeText.Text = alert.LastSuccessfulAt is null
+            ? "等待结果"
+            : alert.HasMore
+                ? $"100+ 条{alertLifecycle}"
+                : $"{alert.Items.Count} 条{alertLifecycle}";
         RowCountText.Text = demand.LastSuccessfulAt is null
             ? "尚无成功窗口"
             : demand.Items.Count == 0
@@ -1508,12 +1536,36 @@ internal partial class MainWindow : Window
             recoveryMessage: banner.RecoveryMessage);
         StatusBarText.Text = status.CompactLine;
         StatusBarText.ToolTip = status.Tooltip;
+        StatusBarSummaryText.Text = PrimaryNavigation.SelectedIndex switch
+        {
+            0 when _isOverviewRefreshing => "概览正在刷新；其他页面保持原状态",
+            0 => "概览 · Host、轮询健康、活动告警与 VISIBLE 任务摘要",
+            1 when demand.IsRefreshing => "任务浏览正在刷新；保留上次成功结果",
+            1 when demand.LastSuccessfulAt is null => "任务浏览尚未刷新；其他页面保持原状态",
+            1 => $"任务浏览 · 当前页 {demand.Items.Count} 行 · 最近成功 {demand.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}",
+            2 when alert.IsRefreshing => "接入告警正在刷新；保留上次成功结果",
+            2 when alert.LastSuccessfulAt is null => "接入告警尚未刷新；其他页面保持原状态",
+            2 => $"接入告警 · 当前页 {alert.Items.Count} 行 · 最近成功 {alert.LastSuccessfulAt.Value.ToLocalTime():yyyy-MM-dd HH:mm:ss}",
+            _ => "设置 · 自动刷新已暂停",
+        };
+        StatusBarSummaryText.ToolTip = status.Tooltip;
         CurrentHostContextText.Text = $"当前 Host：{_options.BaseUrl}";
         PageRefreshContextText.Text = CurrentRefreshView is { } currentView
             ? FormatPageRefreshContext(currentView, pageRefreshState, now)
             : "设置页 · 自动刷新已暂停";
 
         var hostState = _hostSession.State;
+        var (connectionText, connectionForeground, connectionBackground) = hostState.Status switch
+        {
+            WatchHostConnectionStatus.Connected => ("连接正常", "WatchSuccessBrush", "WatchSuccessSoftBrush"),
+            WatchHostConnectionStatus.Connecting => ("正在连接", "WatchWarningBrush", "WatchWarningSoftBrush"),
+            WatchHostConnectionStatus.Failed => ("连接异常", "WatchErrorBrush", "WatchErrorSoftBrush"),
+            _ => ("尚未连接", "WatchMutedTextBrush", "WatchFilterBrush"),
+        };
+        ConnectionStatusText.Text = connectionText;
+        ConnectionStatusText.SetResourceReference(TextBlock.ForegroundProperty, connectionForeground);
+        ConnectionStatusDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, connectionForeground);
+        ConnectionStatusChip.SetResourceReference(Border.BackgroundProperty, connectionBackground);
         var overview = WatchOverviewProjection.Project(hostState, _overview.State);
         OverviewConclusionText.Text = _isOverviewRefreshing ? "○ 刷新中" : overview.ConclusionText;
         OverviewHostText.Text = overview.HostText;
@@ -1527,6 +1579,7 @@ internal partial class MainWindow : Window
         OverviewNoticeText.Text = _overviewNotice ?? string.Empty;
         OverviewRefreshButton.IsEnabled = !_isOverviewRefreshing;
         OverviewCancelButton.IsEnabled = _isOverviewRefreshing;
+        OverviewCancelButton.Visibility = _isOverviewRefreshing ? Visibility.Visible : Visibility.Collapsed;
 
         var needsHoldTick = banner.ShowError
             || banner.ShowWarning
@@ -1557,6 +1610,9 @@ internal partial class MainWindow : Window
         {
             CurrentHostContextText,
             PageRefreshContextText,
+            ConnectionStatusText,
+            DemandResultBadgeText,
+            AlertResultBadgeText,
             ErrorBannerText,
             WarningBannerText,
             OverviewConclusionText,

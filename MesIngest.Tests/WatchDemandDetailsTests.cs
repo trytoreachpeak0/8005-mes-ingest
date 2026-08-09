@@ -27,6 +27,9 @@ public class WatchDemandDetailsTests
 
         var details = WatchDemandDetails.From(demand, beijing);
 
+        Assert.Equal(demand.DemandId, details.DemandId);
+        Assert.Equal(demand.TaskType, details.TaskType);
+        Assert.Equal(demand.Sublot, details.Sublot);
         Assert.Equal("MES 输入（创建时冻结）", details.MesInputGroup.Title);
         Assert.Equal(
             ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"],

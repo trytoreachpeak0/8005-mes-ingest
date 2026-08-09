@@ -26,8 +26,8 @@ internal sealed record WatchAlertBrowseQuery(
     public static string? SortToken(string? header) =>
         header switch
         {
-            "Code" => "code",
-            "Severity" => "severity",
+            "Code" or "CODE" => "code",
+            "Severity" or "SEVERITY" => "severity",
             "AlertId" => "alertId",
             "last seen" => "lastSeenAt",
             "first seen" => "firstSeenAt",

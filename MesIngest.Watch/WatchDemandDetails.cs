@@ -13,11 +13,20 @@ public sealed record WatchDemandDetails(
     WatchDemandDetailGroup MesInputGroup,
     WatchDemandDetailGroup LocalProjectionGroup)
 {
+    public string DemandId => FieldValue(LocalProjectionGroup, "DemandId");
+
+    public string TaskType => FieldValue(MesInputGroup, "TASK_TYPE");
+
+    public string Sublot => FieldValue(MesInputGroup, "SUBLOT");
+
     public IReadOnlyList<WatchDemandRelatedAlert> RelatedAlerts { get; init; } = [];
 
     public string RelatedAlertSummary => RelatedAlerts.Count == 0
         ? "当前任务没有相关 IngestAlert。"
         : $"找到 {RelatedAlerts.Count} 条相关 IngestAlert。";
+
+    private static string FieldValue(WatchDemandDetailGroup group, string name) =>
+        group.Fields.First(field => string.Equals(field.Name, name, StringComparison.Ordinal)).Value;
 
     public static WatchDemandDetails From(
         WatchDemandDto demand,

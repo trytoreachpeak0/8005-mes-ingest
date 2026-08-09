@@ -104,6 +104,138 @@ public sealed class WatchXamlVisualTests
     public static TheoryData<WatchVisualCase> RequiredScenarioStates =>
         TheoryDataFor(Required1440Cases);
 
+    [Fact]
+    [Trait("Category", "watch-vm-tests")]
+    public async Task Offline_visual_waits_for_the_completed_deterministic_failure()
+    {
+        await WatchVisualSta.RunAsync(async () =>
+        {
+            using var scenario = WatchVisualScenario.Create(
+                WatchVisualCase.At1440("offline-final-state", WatchVisualState.OverviewOfflineStale));
+            try
+            {
+                await scenario.PrepareAsync();
+
+                AssertVisible(scenario.Window, "ErrorBanner");
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)scenario.Window.FindName("OverviewBusyText")).Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    ((FrameworkElement)scenario.Window.FindName("OverviewCancelButton")).Visibility);
+                Assert.True(((Button)scenario.Window.FindName("OverviewRefreshButton")).IsEnabled);
+                Assert.Contains(
+                    "endpoint=/api/demands",
+                    ((TextBlock)scenario.Window.FindName("ErrorBannerText")).Text,
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                scenario.Window.Close();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(WatchVisualState.DemandsVisibleSelected)]
+    [InlineData(WatchVisualState.AlertsActiveSelected)]
+    [Trait("Category", "watch-vm-tests")]
+    public async Task Selected_ui_is_built_on_the_wpf_ui_control_system(
+        WatchVisualState state)
+    {
+        await WatchVisualSta.RunAsync(async () =>
+        {
+            using var scenario = WatchVisualScenario.Create(
+                WatchVisualCase.At1440("wpf-ui-control-system", state));
+            try
+            {
+                await scenario.PrepareAsync();
+
+                Assert.Equal(
+                    "Wpf.Ui.Controls.FluentWindow",
+                    scenario.Window.GetType().BaseType?.FullName);
+                var refreshButton = Assert.IsAssignableFrom<Button>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandRefreshButton"
+                        : "AlertRefreshButton"));
+                Assert.Equal("Wpf.Ui.Controls.Button", refreshButton.GetType().FullName);
+                var autoRefresh = Assert.IsAssignableFrom<ToggleButton>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandAutoRefreshCheckBox"
+                        : "AlertAutoRefreshCheckBox"));
+                Assert.Equal("Wpf.Ui.Controls.ToggleSwitch", autoRefresh.GetType().FullName);
+            }
+            finally
+            {
+                scenario.Window.Close();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(WatchVisualState.DemandsVisibleSelected)]
+    [InlineData(WatchVisualState.AlertsActiveSelected)]
+    [Trait("Category", "watch-vm-tests")]
+    public async Task Selected_ui_matches_the_approved_d_e_workbench_structure(
+        WatchVisualState state)
+    {
+        await WatchVisualSta.RunAsync(async () =>
+        {
+            using var scenario = WatchVisualScenario.Create(
+                WatchVisualCase.At1440("approved-d-e-workbench", state));
+            try
+            {
+                await scenario.PrepareAsync();
+
+                var root = Assert.IsType<Grid>(scenario.Window.FindName("RootLayout"));
+                var header = Assert.IsType<Border>(scenario.Window.FindName("GlobalHeader"));
+                var navigation = Assert.IsType<Border>(scenario.Window.FindName("NavigationRail"));
+                var filter = Assert.IsType<ScrollViewer>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandFiltersScrollViewer"
+                        : "AlertFiltersScrollViewer"));
+                var workspace = Assert.IsAssignableFrom<FrameworkElement>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandWorkspace"
+                        : "AlertWorkspace"));
+                var resultBadge = Assert.IsType<Border>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandResultBadge"
+                        : "AlertResultBadge"));
+
+                Assert.Equal(3, root.RowDefinitions.Count);
+                Assert.InRange(root.RowDefinitions[0].ActualHeight, 63.99, 64.01);
+                Assert.InRange(root.RowDefinitions[2].ActualHeight, 27.99, 28.01);
+                Assert.Equal(0, Grid.GetRow(header));
+                Assert.Equal(3, Grid.GetColumnSpan(header));
+                Assert.Equal(1, Grid.GetRow(navigation));
+                Assert.InRange(navigation.ActualWidth, 193.99, 194.01);
+                var filterWidth = state == WatchVisualState.DemandsVisibleSelected
+                    ? filter.ActualWidth
+                    : ((Grid)((Border)filter.Parent).Parent).ColumnDefinitions[0].ActualWidth;
+                Assert.InRange(filterWidth, 259.99, 260.01);
+                var workspaceOrigin = workspace.TranslatePoint(new Point(0, 0), root);
+                Assert.InRange(workspaceOrigin.X, 473.99, 474.01);
+                Assert.True(resultBadge.IsVisible);
+                AssertVisible(scenario.Window, "StatusBarSummaryText");
+                AssertVisible(scenario.Window, "StatusBarShortcutText");
+
+                var grid = Assert.IsType<DataGrid>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected ? "DemandsGrid" : "AlertsGrid"));
+                var headers = grid.Columns.Select(column => column.Header?.ToString()).ToArray();
+                Assert.Equal(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "DATES"]
+                        : ["SEVERITY", "CODE", "SCOPE", "TASK_TYPE", "COUNT"],
+                    headers.Take(5));
+            }
+            finally
+            {
+                scenario.Window.Close();
+            }
+        });
+    }
+
     [Theory]
     [InlineData(WatchVisualState.DemandsVisibleSelected)]
     [InlineData(WatchVisualState.AlertsActiveSelected)]
@@ -120,9 +252,6 @@ public sealed class WatchXamlVisualTests
                 await scenario.PrepareAsync();
 
                 var root = Assert.IsType<Grid>(scenario.Window.Content);
-                var content = root.Children
-                    .OfType<Grid>()
-                    .Single(element => Grid.GetColumn(element) == 2);
                 var filters = (ScrollViewer)scenario.Window.FindName(
                     state == WatchVisualState.DemandsVisibleSelected
                         ? "DemandFiltersScrollViewer"
@@ -133,9 +262,9 @@ public sealed class WatchXamlVisualTests
                     : ((Grid)((Border)filters.Parent).Parent).ColumnDefinitions[0].ActualWidth;
 
                 Assert.InRange(root.ColumnDefinitions[0].ActualWidth, 193.99, 194.01);
-                Assert.InRange(content.RowDefinitions[0].ActualHeight, 63.99, 64.01);
+                Assert.InRange(root.RowDefinitions[0].ActualHeight, 63.99, 64.01);
                 Assert.InRange(filterWidth, 259.99, 260.01);
-                Assert.InRange(content.RowDefinitions[2].ActualHeight, 27.99, 28.01);
+                Assert.InRange(root.RowDefinitions[2].ActualHeight, 27.99, 28.01);
                 Assert.InRange(statusBar.ActualHeight, 27.99, 28.01);
             }
             finally
@@ -205,10 +334,10 @@ public sealed class WatchXamlVisualTests
                     Assert.Contains("任务浏览", visibleText);
                     Assert.Contains("当前任务", visibleText);
                     Assert.Contains("相关告警", visibleText);
-                    Assert.Contains("只读查询", visibleText);
+                    Assert.Contains("关联规则", visibleText);
                     Assert.True(((Button)scenario.Window.FindName("DemandRefreshButton")).IsVisible);
-                    Assert.True(((Button)scenario.Window.FindName("DemandCancelButton")).IsVisible);
-                    Assert.True(((CheckBox)scenario.Window.FindName("DemandAutoRefreshCheckBox")).IsVisible);
+                    Assert.NotNull(scenario.Window.FindName("DemandCancelButton"));
+                    Assert.True(((ToggleButton)scenario.Window.FindName("DemandAutoRefreshCheckBox")).IsVisible);
                 }
                 else
                 {
@@ -219,8 +348,8 @@ public sealed class WatchXamlVisualTests
                     Assert.Contains("先前 GONE", visibleText);
                     Assert.Contains("当前再现", visibleText);
                     Assert.True(((Button)scenario.Window.FindName("AlertRefreshButton")).IsVisible);
-                    Assert.True(((Button)scenario.Window.FindName("AlertCancelButton")).IsVisible);
-                    Assert.True(((CheckBox)scenario.Window.FindName("AlertAutoRefreshCheckBox")).IsVisible);
+                    Assert.NotNull(scenario.Window.FindName("AlertCancelButton"));
+                    Assert.True(((ToggleButton)scenario.Window.FindName("AlertAutoRefreshCheckBox")).IsVisible);
                     foreach (var name in new[]
                              {
                                  "AlertTargetOneButton",

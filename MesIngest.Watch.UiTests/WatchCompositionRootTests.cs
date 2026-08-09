@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using MesIngest.Watch;
 
@@ -43,7 +44,7 @@ public sealed class WatchCompositionRootTests
             PumpUntil(() => demandCalls >= 2);
 
             var interval = (ComboBox)window.FindName("DemandAutoRefreshInterval");
-            var enabled = (CheckBox)window.FindName("DemandAutoRefreshCheckBox");
+            var enabled = (ToggleButton)window.FindName("DemandAutoRefreshCheckBox");
             interval.SelectedItem = 30;
             enabled.IsChecked = true;
 

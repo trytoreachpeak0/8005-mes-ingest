@@ -41,16 +41,17 @@ public sealed class WatchAlertPageTests
                 Assert.True(grid.IsReadOnly);
                 Assert.Equal(
                     [
-                        "Code",
-                        "Severity",
+                        "SEVERITY",
+                        "CODE",
+                        "SCOPE",
+                        "TASK_TYPE",
+                        "COUNT",
                         "AlertId",
                         "last seen",
                         "first seen",
-                        "TASK_TYPE",
                         "SUBLOT",
                         "DemandId",
                         "Message",
-                        "OccurrenceCount",
                         "IsActive",
                         "ResolvedAt",
                     ],

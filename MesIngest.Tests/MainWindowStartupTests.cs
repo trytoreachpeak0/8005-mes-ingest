@@ -242,12 +242,12 @@ public class MainWindowStartupTests
 
                 var expected = new[]
                 {
-                    "Code",
-                    "Severity",
+                    "SEVERITY",
+                    "CODE",
+                    "TASK_TYPE",
                     "AlertId",
                     "last seen",
                     "first seen",
-                    "TASK_TYPE",
                     "SUBLOT",
                     "DemandId",
                     "Message",

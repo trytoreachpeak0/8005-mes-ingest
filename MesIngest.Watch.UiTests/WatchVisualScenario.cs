@@ -15,21 +15,27 @@ internal sealed class WatchVisualScenario : IDisposable
 
     private readonly WatchVisualCase _visualCase;
     private readonly WatchApplicationComposition _composition;
+    private readonly ScriptedFakeHost _host;
     private readonly FixedTimeProvider _timeProvider;
     private readonly string _root;
+    private readonly OfflineFailureController? _offlineFailures;
     private WatchVisualCapture? _captureTarget;
 
     private WatchVisualScenario(
         WatchVisualCase visualCase,
         WatchApplicationComposition composition,
+        ScriptedFakeHost host,
         MainWindow window,
         FixedTimeProvider timeProvider,
-        string root)
+        string root,
+        OfflineFailureController? offlineFailures)
     {
         _visualCase = visualCase;
         _composition = composition;
+        _host = host;
         _timeProvider = timeProvider;
         _root = root;
+        _offlineFailures = offlineFailures;
         Window = window;
     }
 
@@ -37,7 +43,9 @@ internal sealed class WatchVisualScenario : IDisposable
 
     public static WatchVisualScenario Create(WatchVisualCase visualCase)
     {
-        var host = BuildHost(visualCase.State);
+        var offline = visualCase.State == WatchVisualState.OverviewOfflineStale;
+        var offlineFailures = offline ? new OfflineFailureController() : null;
+        var host = BuildHost(visualCase.State, offlineFailures);
         var timeProvider = new FixedTimeProvider();
         var root = Path.Combine(Path.GetTempPath(), $"watch-visual-{Guid.NewGuid():N}");
         var composition = WatchApplicationComposition.Create(
@@ -54,7 +62,14 @@ internal sealed class WatchVisualScenario : IDisposable
         window.WindowStyle = WindowStyle.None;
         window.ResizeMode = ResizeMode.NoResize;
         window.ShowInTaskbar = false;
-        return new WatchVisualScenario(visualCase, composition, window, timeProvider, root);
+        return new WatchVisualScenario(
+            visualCase,
+            composition,
+            host,
+            window,
+            timeProvider,
+            root,
+            offlineFailures);
     }
 
     public async Task PrepareAsync()
@@ -62,6 +77,8 @@ internal sealed class WatchVisualScenario : IDisposable
         Window.Show();
         PumpUntil(() => !Text("PageRefreshContextText")
             .Contains("lastSuccess=(none)", StringComparison.Ordinal));
+        PumpUntil(() => !Visible("OverviewBusyText")
+            && ((Button)Window.FindName("OverviewRefreshButton")).IsEnabled);
         if (_visualCase.State != WatchVisualState.OverviewOfflineStale)
         {
             _timeProvider.Advance(TimeSpan.FromSeconds(6));
@@ -74,8 +91,19 @@ internal sealed class WatchVisualScenario : IDisposable
             case WatchVisualState.OverviewDegraded:
                 break;
             case WatchVisualState.OverviewOfflineStale:
+                _offlineFailures!.Enabled = true;
                 Click("OverviewRefreshButton");
-                PumpUntil(() => Visible("ErrorBanner"));
+                _offlineFailures.PollGate.Release();
+                PumpUntil(() => FailureRecorded(FakeHostOperation.PollHealth));
+                _offlineFailures.AlertGate.Release();
+                PumpUntil(() => FailureRecorded(FakeHostOperation.AlertPage));
+                _offlineFailures.DemandGate.Release();
+                PumpUntil(() => Text("ErrorBannerText").Contains(
+                        "endpoint=/api/demands",
+                        StringComparison.Ordinal)
+                    && !Visible("OverviewBusyText")
+                    && !Visible("OverviewCancelButton")
+                    && ((Button)Window.FindName("OverviewRefreshButton")).IsEnabled);
                 break;
             case WatchVisualState.DemandsVisibleSelected:
                 Navigate(1);
@@ -232,6 +260,11 @@ internal sealed class WatchVisualScenario : IDisposable
     private bool Visible(string name) =>
         ((FrameworkElement)Window.FindName(name)).Visibility == Visibility.Visible;
 
+    private bool FailureRecorded(FakeHostOperation operation) =>
+        _host.Timeline.Any(entry =>
+            entry.Operation == operation
+            && entry.State == FakeHostRequestState.Failed);
+
     private static void PumpUntil(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
@@ -252,7 +285,9 @@ internal sealed class WatchVisualScenario : IDisposable
         Dispatcher.PushFrame(frame);
     }
 
-    private static ScriptedFakeHost BuildHost(WatchVisualState state)
+    private static ScriptedFakeHost BuildHost(
+        WatchVisualState state,
+        OfflineFailureController? offlineFailures)
     {
         var demandGate = state == WatchVisualState.DemandsLoading ? new FakeHostGate() : null;
         var alertGate = state == WatchVisualState.AlertsLoading ? new FakeHostGate() : null;
@@ -271,10 +306,10 @@ internal sealed class WatchVisualScenario : IDisposable
 
         var scenario = new FakeHostScenario($"visual-{state}")
         {
-            PollHealth = FakeHostReply.Sequence<FakeHostUnit, WatchPollHealthDto?>(
-                FakeHostReply.Return<WatchPollHealthDto?>(Health()),
-                offline
-                    ? FakeHostReply.Fail<WatchPollHealthDto?>(
+            PollHealth = FakeHostReply.Select<FakeHostUnit, WatchPollHealthDto?>(_ =>
+                offlineFailures?.Enabled == true
+                    ? FailAfter<WatchPollHealthDto?>(
+                        offlineFailures.PollGate,
                         WatchHostFailureKind.Network,
                         "/api/poll-health",
                         "固定假 Host 已离线")
@@ -282,9 +317,10 @@ internal sealed class WatchVisualScenario : IDisposable
             DemandPage = FakeHostReply.Select<WatchDemandBrowseQuery, WatchDemandPage>(query =>
             {
                 demandCalls++;
-                if (offline && demandCalls > 1)
+                if (offlineFailures?.Enabled == true)
                 {
-                    return FakeHostReply.Fail<WatchDemandPage>(
+                    return FailAfter<WatchDemandPage>(
+                        offlineFailures.DemandGate,
                         WatchHostFailureKind.Network,
                         "/api/demands",
                         "固定假 Host 已离线");
@@ -309,9 +345,10 @@ internal sealed class WatchVisualScenario : IDisposable
             AlertPage = FakeHostReply.Select<WatchAlertBrowseQuery, WatchAlertPage>(query =>
             {
                 alertCalls++;
-                if (offline && alertCalls > 1)
+                if (offlineFailures?.Enabled == true)
                 {
-                    return FakeHostReply.Fail<WatchAlertPage>(
+                    return FailAfter<WatchAlertPage>(
+                        offlineFailures.AlertGate,
                         WatchHostFailureKind.Network,
                         "/api/alerts",
                         "固定假 Host 已离线");
@@ -335,6 +372,30 @@ internal sealed class WatchVisualScenario : IDisposable
             }),
         };
         return new ScriptedFakeHost(scenario);
+    }
+
+    private static FakeHostReply<T> FailAfter<T>(
+        FakeHostGate gate,
+        WatchHostFailureKind kind,
+        string endpoint,
+        string message) =>
+        new(
+            default!,
+            FakeHostFailureShape.Query,
+            kind,
+            endpoint,
+            message,
+            Gate: gate);
+
+    private sealed class OfflineFailureController
+    {
+        public bool Enabled { get; set; }
+
+        public FakeHostGate PollGate { get; } = new();
+
+        public FakeHostGate AlertGate { get; } = new();
+
+        public FakeHostGate DemandGate { get; } = new();
     }
 
     private static WatchOptions Options() => new()

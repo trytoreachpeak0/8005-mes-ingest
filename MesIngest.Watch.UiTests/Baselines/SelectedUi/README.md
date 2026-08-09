@@ -1,13 +1,20 @@
-# Selected UI XAML baseline candidates
+# Selected UI XAML baselines
 
-This is the only active Verify.Xaml directory for ticket 11's rebuilt UI. It deliberately
-contains no approved `*.verified.xml` or `*.verified.png` files until all of these gates pass:
+This directory contains the active Ticket 11 Wpf.Ui matrix:
 
-1. the real 1440x900 preview is explicitly accepted as matching the selected UI;
-2. the calibrated desktop probe reports 1920x1080, 96 DPI, light app theme, `zh-CN`
-   culture/UI culture, the required fonts, and WPF `SoftwareOnly` rendering;
-3. all 19 received XAML/PNG pairs are byte-identical for ten consecutive runs;
-4. each before/after/diff proposal is reviewed without global tolerance or broad masks.
+- 15 scenarios at `1440x900`;
+- 4 scenarios at `2560x1440`;
+- one reviewed `*.verified.png` and `*.verified.xml` pair per scenario.
 
-The rejected pre-reset approved files remain one directory above as historical evidence.
-Neither the runner nor Verify.Xaml reads them.
+The matrix was established on `GPT-WIN11` at 1920x1080, 96 DPI, Windows light
+theme, `zh-CN`, `China Standard Time`, Microsoft YaHei UI/Consolas, and WPF
+`SoftwareOnly`. The final four-page real-window preview was accepted by the user.
+All 19 received pairs were byte-identical for ten consecutive candidate runs; each
+scenario then received an individual before/after/diff review. After approval, the
+entire verified matrix matched for ten further consecutive runs with zero received
+files (`WATCH_XAML_STABLE`).
+
+The rejected pre-reset approved files remain one directory above as historical
+evidence and are not loaded by Verify.Xaml. Do not copy or overwrite those files when
+updating this matrix. A future change must repeat the calibrated environment probe,
+10-run candidate gate, per-scenario review, and 10-run approved gate.

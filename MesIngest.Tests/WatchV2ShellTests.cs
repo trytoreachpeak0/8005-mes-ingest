@@ -242,8 +242,9 @@ public class WatchV2ShellTests
             Assert.Equal(
                 System.Windows.Media.TextRenderingMode.ClearType,
                 System.Windows.Media.TextOptions.GetTextRenderingMode(window));
+            Assert.IsType<Border>(window.FindName("GlobalHeader"));
             Assert.IsType<WrapPanel>(window.FindName("OverviewHeaderPanel"));
-            Assert.IsType<WrapPanel>(window.FindName("AlertHeaderPanel"));
+            Assert.IsType<StackPanel>(window.FindName("AlertHeaderActions"));
             Assert.IsType<WrapPanel>(window.FindName("DemandHeaderPanel"));
             foreach (var token in new[]
                      {
