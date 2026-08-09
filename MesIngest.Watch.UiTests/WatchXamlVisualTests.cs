@@ -159,11 +159,34 @@ public sealed class WatchXamlVisualTests
                         ? "DemandRefreshButton"
                         : "AlertRefreshButton"));
                 Assert.Equal("Wpf.Ui.Controls.Button", refreshButton.GetType().FullName);
+                var queryButton = Assert.IsAssignableFrom<Button>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandQueryButton"
+                        : "AlertQueryButton"));
+                Assert.Equal("Wpf.Ui.Controls.Button", queryButton.GetType().FullName);
                 var autoRefresh = Assert.IsAssignableFrom<ToggleButton>(scenario.Window.FindName(
                     state == WatchVisualState.DemandsVisibleSelected
                         ? "DemandAutoRefreshCheckBox"
                         : "AlertAutoRefreshCheckBox"));
                 Assert.Equal("Wpf.Ui.Controls.ToggleSwitch", autoRefresh.GetType().FullName);
+                if (state == WatchVisualState.DemandsVisibleSelected)
+                {
+                    var fullDetails = Assert.IsAssignableFrom<FrameworkElement>(
+                        scenario.Window.FindName("DemandFullDetailsPanel"));
+                    Assert.Equal(Visibility.Collapsed, fullDetails.Visibility);
+                    Assert.Equal(
+                        7,
+                        Assert.IsAssignableFrom<ItemsControl>(scenario.Window.FindName(
+                            "DemandMesInputFields")).Items.Count);
+                    Assert.Equal(
+                        8,
+                        Assert.IsAssignableFrom<ItemsControl>(scenario.Window.FindName(
+                            "DemandLocalProjectionFields")).Items.Count);
+                    Assert.IsType<Wpf.Ui.Controls.Button>(scenario.Window.FindName(
+                        "DemandFullDetailsCloseButton"));
+                    Assert.IsType<Wpf.Ui.Controls.Button>(scenario.Window.FindName(
+                        "DemandCopyFullRowButton"));
+                }
             }
             finally
             {

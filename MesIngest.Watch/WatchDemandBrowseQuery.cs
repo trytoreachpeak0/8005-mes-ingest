@@ -49,6 +49,7 @@ internal sealed record WatchDemandBrowseQuery(
             "status" => "status",
             "last seen" => "mesLastSeenAt",
             "当前工序进入时间 (DATES)" => "dates",
+            "DATES" => "dates",
             "created" => "createdAt",
             "gone at" => "goneAt",
             "AREA" => "area",

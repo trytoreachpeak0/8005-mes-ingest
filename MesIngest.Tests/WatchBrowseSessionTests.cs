@@ -309,6 +309,7 @@ public class WatchBrowseSessionTests
         Assert.Equal("taskType", WatchAlertBrowseQuery.SortToken("TASK_TYPE"));
         Assert.Equal("package", WatchDemandBrowseQuery.SortToken("PACKAGE"));
         Assert.Equal("status", WatchDemandBrowseQuery.SortToken("status"));
+        Assert.Equal("dates", WatchDemandBrowseQuery.SortToken("DATES"));
     }
 
     private static string? QueryValue(Uri uri, string name)

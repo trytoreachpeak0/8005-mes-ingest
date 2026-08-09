@@ -154,7 +154,7 @@
             <Setter Property="FontFamily" Value="Cascadia Mono" />
             <Setter Property="FontSize" Value="10" />
         </Style>
-        <Style TargetType="Button">
+        <Style TargetType="{x:Type ui:Button}">
             <Setter Property="Foreground" Value="{StaticResource WatchTextBrush}" />
             <Setter Property="Background" Value="{StaticResource WatchSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource WatchStrongBorderBrush}" />
@@ -162,22 +162,11 @@
             <Setter Property="Padding" Value="14,7" />
             <Setter Property="MinHeight" Value="34" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="6" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.86" /></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.72" /></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ButtonBorder" Property="Opacity" Value="0.42" /></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
-        <Style x:Key="PrimaryActionButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Style x:Key="PrimaryActionButton"
+               TargetType="{x:Type ui:Button}"
+               BasedOn="{StaticResource {x:Type ui:Button}}">
+            <Setter Property="Appearance" Value="Primary" />
             <Setter Property="Foreground" Value="White" />
             <Setter Property="Background" Value="{StaticResource WatchAccentBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource WatchAccentBrush}" />
@@ -211,8 +200,8 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ComboBox}">
                         <StackPanel Orientation="Horizontal">
-                            <Button x:Name="ActiveSegment" Content="ACTIVE" Width="76" Margin="0,0,6,0" Padding="12,6" Click="OnAlertActiveSegmentClick" />
-                            <Button x:Name="ResolvedSegment" Content="RESOLVED" Width="94" Padding="12,6" Click="OnAlertResolvedSegmentClick" />
+                            <ui:Button x:Name="ActiveSegment" Content="ACTIVE" Width="76" Margin="0,0,6,0" Padding="12,6" Click="OnAlertActiveSegmentClick" />
+                            <ui:Button x:Name="ResolvedSegment" Content="RESOLVED" Width="94" Padding="12,6" Click="OnAlertResolvedSegmentClick" />
                         </StackPanel>
                         <ControlTemplate.Triggers>
                             <Trigger Property="SelectedIndex" Value="0">
@@ -429,7 +418,7 @@
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
-                        <Button x:Name="OverviewAlertsButton"
+                        <ui:Button x:Name="OverviewAlertsButton"
                                 AutomationProperties.Name="查看活动 IngestAlert 默认查询"
                                 Margin="6"
                                 Padding="16"
@@ -446,8 +435,8 @@
                                            TextWrapping="Wrap" />
                                 <TextBlock Text="进入活动告警默认查询 →" Margin="0,12,0,0" Foreground="{StaticResource WatchAccentBrush}" />
                             </StackPanel>
-                        </Button>
-                        <Button x:Name="OverviewDemandsButton"
+                        </ui:Button>
+                        <ui:Button x:Name="OverviewDemandsButton"
                                 AutomationProperties.Name="查看 VISIBLE TransportDemand 默认查询"
                                 Margin="6"
                                 Padding="16"
@@ -464,7 +453,7 @@
                                            TextWrapping="Wrap" />
                                 <TextBlock Text="进入 VISIBLE 默认查询 →" Margin="0,12,0,0" Foreground="{StaticResource WatchAccentBrush}" />
                             </StackPanel>
-                        </Button>
+                        </ui:Button>
                     </UniformGrid>
                 </ScrollViewer>
             </Grid>
@@ -515,8 +504,8 @@
                                     <TextBox x:Name="AlertRangeToFilter" AutomationProperties.Name="IngestAlert LastSeenAt 结束" Margin="0,5,0,0" />
                                 </StackPanel>
                                 <StackPanel>
-                                    <Button x:Name="AlertQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 IngestAlert" Content="应用条件" Padding="16,7" Click="OnAlertQueryClick" />
-                                    <Button x:Name="AlertResetButton" AutomationProperties.Name="重置 IngestAlert 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnAlertResetClick" />
+                                    <ui:Button x:Name="AlertQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 IngestAlert" Content="应用条件" Padding="16,7" Click="OnAlertQueryClick" />
+                                    <ui:Button x:Name="AlertResetButton" AutomationProperties.Name="重置 IngestAlert 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnAlertResetClick" />
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock x:Name="AlertValidationText" AutomationProperties.Name="IngestAlert 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
@@ -586,7 +575,7 @@
                             <DataGridTemplateColumn Header="CODE" AutomationProperties.Name="IngestAlert Code 列" SortMemberPath="Code" Width="205" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <Button Click="OnAlertViewDetailsClick"
+                                        <ui:Button Click="OnAlertViewDetailsClick"
                                                 AutomationProperties.AutomationId="AlertDetailsButton"
                                                 AutomationProperties.Name="{Binding Code}"
                                                 ToolTip="查看 Alert 详情"
@@ -598,7 +587,7 @@
                                                 Foreground="{StaticResource WatchTextBrush}"
                                                 HorizontalContentAlignment="Left">
                                             <TextBlock Text="{Binding Code}" />
-                                        </Button>
+                                        </ui:Button>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
@@ -654,18 +643,18 @@
                                 <StackPanel Grid.Column="2" Margin="18,0,0,0">
                                     <DockPanel><TextBlock DockPanel.Dock="Right" Text="TransportDemand" Style="{StaticResource EyebrowText}" /><TextBlock Text="相关任务" FontSize="16" FontWeight="SemiBold" /></DockPanel>
                                     <TextBlock x:Name="AlertRelationshipExplanationText" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,8" TextWrapping="Wrap" />
-                                    <Border x:Name="AlertTargetOnePanel" Background="#F8FAFC" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,4,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetOneRoleText" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetOneIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><Button x:Name="AlertTargetOneButton" AutomationProperties.AutomationId="AlertTargetOneButton" AutomationProperties.Name="精确查看第一个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetOneClick" /></Grid></Border>
-                                    <Border x:Name="AlertTargetTwoPanel" Background="{StaticResource WatchSuccessSoftBrush}" BorderBrush="{StaticResource WatchSuccessBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetTwoRoleText" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetTwoIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><Button x:Name="AlertTargetTwoButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.AutomationId="AlertTargetTwoButton" AutomationProperties.Name="精确查看第二个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetTwoClick" /></Grid></Border>
-                                    <Button x:Name="AlertBusinessKeyButton" AutomationProperties.AutomationId="AlertBusinessKeyButton" AutomationProperties.Name="按业务键查 TransportDemand" Content="按业务键查任务" HorizontalAlignment="Left" Padding="12,5" Visibility="Collapsed" Click="OnAlertBusinessKeyClick" />
+                                    <Border x:Name="AlertTargetOnePanel" Background="#F8FAFC" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,4,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetOneRoleText" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetOneIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><ui:Button x:Name="AlertTargetOneButton" AutomationProperties.AutomationId="AlertTargetOneButton" AutomationProperties.Name="精确查看第一个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetOneClick" /></Grid></Border>
+                                    <Border x:Name="AlertTargetTwoPanel" Background="{StaticResource WatchSuccessSoftBrush}" BorderBrush="{StaticResource WatchSuccessBrush}" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,5" Visibility="Collapsed"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="*" /><ColumnDefinition Width="100" /></Grid.ColumnDefinitions><TextBlock x:Name="AlertTargetTwoRoleText" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" VerticalAlignment="Center" /><TextBlock x:Name="AlertTargetTwoIdText" Grid.Column="1" FontFamily="Cascadia Mono" VerticalAlignment="Center" /><ui:Button x:Name="AlertTargetTwoButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.AutomationId="AlertTargetTwoButton" AutomationProperties.Name="精确查看第二个关联 TransportDemand" Grid.Column="2" Content="精确查看" Padding="9,4" Click="OnAlertTargetTwoClick" /></Grid></Border>
+                                    <ui:Button x:Name="AlertBusinessKeyButton" AutomationProperties.AutomationId="AlertBusinessKeyButton" AutomationProperties.Name="按业务键查 TransportDemand" Content="按业务键查任务" HorizontalAlignment="Left" Padding="12,5" Visibility="Collapsed" Click="OnAlertBusinessKeyClick" />
                                 </StackPanel>
                             </Grid>
                         </Grid>
                     </Border>
                     <DockPanel Grid.Row="1" Grid.Column="2" Margin="12,0,32,16" VerticalAlignment="Bottom">
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                            <Button x:Name="AlertPreviousButton" AutomationProperties.Name="IngestAlert 上一页" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
+                            <ui:Button x:Name="AlertPreviousButton" AutomationProperties.Name="IngestAlert 上一页" Content="上一页" Padding="14,4" IsEnabled="False" Click="OnAlertPreviousClick" />
                             <TextBlock x:Name="AlertPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
-                            <Button x:Name="AlertNextButton" AutomationProperties.Name="IngestAlert 下一页" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnAlertNextClick" />
+                            <ui:Button x:Name="AlertNextButton" AutomationProperties.Name="IngestAlert 下一页" Content="下一页" Padding="14,4" IsEnabled="False" Click="OnAlertNextClick" />
                         </StackPanel>
                     </DockPanel>
                 </Grid>
@@ -720,8 +709,8 @@
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,20,0,0">
-                    <Button x:Name="ApplyHostButton" AutomationProperties.Name="应用 Host 设置" Content="应用" Padding="18,7" Click="OnApplyHostClick" />
-                    <Button x:Name="ResetLayoutButton"
+                    <ui:Button x:Name="ApplyHostButton" AutomationProperties.Name="应用 Host 设置" Content="应用" Padding="18,7" Click="OnApplyHostClick" />
+                    <ui:Button x:Name="ResetLayoutButton"
                             Content="恢复默认布局"
                             AutomationProperties.Name="恢复默认窗口和详情布局"
                             Margin="8,0,0,0"
@@ -798,8 +787,8 @@
                                     <TextBox x:Name="DemandRangeToFilter" AutomationProperties.Name="TransportDemand 时间结束筛选" Margin="0,5,0,0" />
                                 </StackPanel>
                                 <StackPanel>
-                                    <Button x:Name="DemandQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 TransportDemand" Content="应用条件" Padding="16,7" Click="OnDemandQueryClick" />
-                                    <Button x:Name="DemandResetButton" AutomationProperties.Name="重置 TransportDemand 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnDemandResetClick" />
+                                    <ui:Button x:Name="DemandQueryButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="查询 TransportDemand" Content="应用条件" Padding="16,7" Click="OnDemandQueryClick" />
+                                    <ui:Button x:Name="DemandResetButton" AutomationProperties.Name="重置 TransportDemand 查询" Content="清空条件" Margin="0,8,0,0" Padding="16,7" Click="OnDemandResetClick" />
                                 </StackPanel>
                             </StackPanel>
                             <TextBlock x:Name="DemandValidationText" AutomationProperties.Name="TransportDemand 查询校验" Foreground="{StaticResource WatchErrorBrush}" TextWrapping="Wrap" />
@@ -808,7 +797,7 @@
                                 <TextBlock x:Name="DemandBusyText" Text="正在刷新，保留上次成功窗口" Visibility="Collapsed" />
                                 <TextBlock x:Name="DemandNoticeText" AutomationProperties.Name="TransportDemand 刷新提示" Foreground="{StaticResource WatchMutedTextBrush}" TextWrapping="Wrap" />
                             </StackPanel>
-                            <Button x:Name="DemandViewDetailsButton"
+                            <ui:Button x:Name="DemandViewDetailsButton"
                                     Content="查看详情"
                                     AutomationProperties.Name="查看所选 TransportDemand 详情"
                                     IsEnabled="False"
@@ -880,15 +869,28 @@
                                 <ContextMenu>
                                     <MenuItem Header="查看详情" AutomationProperties.Name="查看所选 TransportDemand 详情" Click="OnDemandViewDetailsMenu" />
                                     <MenuItem Header="复制 DemandId" AutomationProperties.Name="复制所选 TransportDemand DemandId" Click="OnDemandCopyIdMenu" />
+                                    <MenuItem Header="复制完整任务行" AutomationProperties.Name="复制所选 TransportDemand 完整任务行" Click="OnDemandCopyFullRowMenu" />
+                                    <Separator />
+                                    <MenuItem Header="按隐藏字段排序" AutomationProperties.Name="TransportDemand 隐藏字段排序">
+                                        <MenuItem Header="DemandId" Tag="DemandId" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="STEP" Tag="STEP" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="PACKAGE" Tag="PACKAGE" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="status" Tag="status" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="last seen" Tag="last seen" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="disappear" Tag="disappear" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="locationRisk" Tag="locationRisk" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="created" Tag="created" Click="OnDemandSortMenuClick" />
+                                        <MenuItem Header="gone at" Tag="gone at" Click="OnDemandSortMenuClick" />
+                                    </MenuItem>
                                 </ContextMenu>
                             </DataGrid.ContextMenu>
                         </DataGrid>
                             <DockPanel Grid.Row="1" Margin="12,7">
                                 <TextBlock x:Name="RowCountText" Foreground="{StaticResource WatchMutedTextBrush}" VerticalAlignment="Center" />
                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button x:Name="DemandPreviousButton" AutomationProperties.Name="TransportDemand 上一页" Content="上一页" Padding="10,4" MinHeight="26" IsEnabled="False" Click="OnDemandPreviousClick" />
+                                    <ui:Button x:Name="DemandPreviousButton" AutomationProperties.Name="TransportDemand 上一页" Content="上一页" Padding="10,4" MinHeight="26" IsEnabled="False" Click="OnDemandPreviousClick" />
                                     <TextBlock x:Name="DemandPageText" Text="第 1 页" Margin="14,5" VerticalAlignment="Center" />
-                                    <Button x:Name="DemandNextButton" AutomationProperties.Name="TransportDemand 下一页" Content="下一页" Padding="10,4" MinHeight="26" IsEnabled="False" Click="OnDemandNextClick" />
+                                    <ui:Button x:Name="DemandNextButton" AutomationProperties.Name="TransportDemand 下一页" Content="下一页" Padding="10,4" MinHeight="26" IsEnabled="False" Click="OnDemandNextClick" />
                                 </StackPanel>
                             </DockPanel>
                         </Grid>
@@ -957,6 +959,58 @@
                                                 </DataGridTemplateColumn>
                                             </DataGrid.Columns>
                                         </DataGrid>
+                                    </Grid>
+                                </Grid>
+                                <Grid x:Name="DemandFullDetailsPanel"
+                                      Panel.ZIndex="2"
+                                      Visibility="Collapsed"
+                                      Background="{StaticResource WatchSurfaceBrush}"
+                                      AutomationProperties.Name="TransportDemand 完整只读字段">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="*" />
+                                    </Grid.RowDefinitions>
+                                    <DockPanel Margin="0,0,0,8">
+                                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                            <ui:Button x:Name="DemandCopyFullRowButton"
+                                                       Content="复制完整行"
+                                                       AutomationProperties.Name="复制所选 TransportDemand 完整任务行"
+                                                       Padding="10,4"
+                                                       Margin="0,0,8,0"
+                                                       Click="OnDemandCopyFullRowMenu" />
+                                            <ui:Button x:Name="DemandFullDetailsCloseButton"
+                                                       Content="返回关系卡片"
+                                                       AutomationProperties.Name="关闭 TransportDemand 完整字段"
+                                                       Padding="10,4"
+                                                       Click="OnDemandFullDetailsCloseClick" />
+                                        </StackPanel>
+                                        <StackPanel>
+                                            <TextBlock Text="FULL DETAILS" Style="{StaticResource EyebrowText}" />
+                                            <TextBlock Text="完整任务字段" Style="{StaticResource SectionTitleText}" Margin="0,3,0,0" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <Grid Grid.Row="1">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="18" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding MesInputGroup.Title}" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                                <ItemsControl x:Name="DemandMesInputFields"
+                                                              ItemsSource="{Binding MesInputGroup.Fields}"
+                                                              ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
+                                            </StackPanel>
+                                        </ScrollViewer>
+                                        <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding LocalProjectionGroup.Title}" FontWeight="SemiBold" Margin="0,0,0,5" />
+                                                <ItemsControl x:Name="DemandLocalProjectionFields"
+                                                              ItemsSource="{Binding LocalProjectionGroup.Fields}"
+                                                              ItemTemplate="{StaticResource DemandDetailFieldTemplate}" />
+                                            </StackPanel>
+                                        </ScrollViewer>
                                     </Grid>
                                 </Grid>
                             </Grid>

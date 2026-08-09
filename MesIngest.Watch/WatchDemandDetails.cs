@@ -25,6 +25,14 @@ public sealed record WatchDemandDetails(
         ? "当前任务没有相关 IngestAlert。"
         : $"找到 {RelatedAlerts.Count} 条相关 IngestAlert。";
 
+    public string ToClipboardText()
+    {
+        var fields = MesInputGroup.Fields.Concat(LocalProjectionGroup.Fields).ToArray();
+        return WatchGridClipboard.FormatRowWithHeaders(
+            fields.Select(field => field.Name).ToArray(),
+            fields.Select(field => (object?)field.Value));
+    }
+
     private static string FieldValue(WatchDemandDetailGroup group, string name) =>
         group.Fields.First(field => string.Equals(field.Name, name, StringComparison.Ordinal)).Value;
 

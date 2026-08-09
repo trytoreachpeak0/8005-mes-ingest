@@ -815,6 +815,13 @@ internal partial class MainWindow : Wpf.Ui.Controls.FluentWindow
             return;
         }
 
+        DemandFullDetailsPanel.Visibility = Visibility.Visible;
+        DemandFullDetailsPanel.BringIntoView();
+    }
+
+    private void OnDemandFullDetailsCloseClick(object sender, RoutedEventArgs e)
+    {
+        DemandFullDetailsPanel.Visibility = Visibility.Collapsed;
         DemandDetailsPanel.BringIntoView();
     }
 
@@ -826,18 +833,41 @@ internal partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         }
     }
 
+    private void OnDemandCopyFullRowMenu(object sender, RoutedEventArgs e)
+    {
+        if (DemandDetailsPanel.DataContext is WatchDemandDetails details)
+        {
+            WatchGridClipboardBehavior.TrySetClipboardText(details.ToClipboardText());
+        }
+    }
+
+    private void OnDemandSortMenuClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: string header }
+            || WatchDemandBrowseQuery.SortToken(header) is null)
+        {
+            return;
+        }
+
+        _ = RunDemandOperationAsync(token => ActiveDemandSession.ApplySortAsync(header, token));
+    }
+
     private void ApplyDemandDetails(WatchDemandDto? demand)
     {
+        var details = demand is null ? null : WatchDemandDetails.From(demand);
         DemandViewDetailsButton.IsEnabled = demand is not null;
-        DemandDetailsPanel.DataContext = demand is null
-            ? null
-            : WatchDemandDetails.From(demand);
+        DemandDetailsPanel.DataContext = details;
+        DemandFullDetailsPanel.DataContext = details;
         DemandDetailsPanel.Visibility = demand is null
             ? Visibility.Collapsed
             : Visibility.Visible;
         DemandDetailsPlaceholder.Visibility = demand is null
             ? Visibility.Visible
             : Visibility.Collapsed;
+        if (demand is null)
+        {
+            DemandFullDetailsPanel.Visibility = Visibility.Collapsed;
+        }
     }
 
     private async void OnDemandQueryClick(object sender, RoutedEventArgs e)

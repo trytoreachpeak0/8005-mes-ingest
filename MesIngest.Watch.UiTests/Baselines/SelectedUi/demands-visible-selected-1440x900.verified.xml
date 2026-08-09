@@ -19,8 +19,7 @@
   xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
   xmlns:miw="clr-namespace:MesIngest.Watch;assembly=MesIngest.Watch"
   xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-  xmlns:s="clr-namespace:System;assembly=System.Private.CoreLib"
-  xmlns:swb="clr-namespace:System.Windows.Baml2006;assembly=PresentationFramework">
+  xmlns:s="clr-namespace:System;assembly=System.Private.CoreLib">
   <WatchVisualCapture.Resources>
     <av:Style
       TargetType="av:ComboBox"
@@ -53,15 +52,15 @@
             TargetType="av:ComboBox">
             <av:StackPanel
               Orientation="Horizontal">
-              <av:Button
+              <ui:Button
                 Padding="12,6,12,6"
                 Name="ActiveSegment"
                 Width="76"
-                Margin="0,0,6,0">ACTIVE</av:Button>
-              <av:Button
+                Margin="0,0,6,0">ACTIVE</ui:Button>
+              <ui:Button
                 Padding="12,6,12,6"
                 Name="ResolvedSegment"
-                Width="94">RESOLVED</av:Button>
+                Width="94">RESOLVED</ui:Button>
             </av:StackPanel>
             <av:ControlTemplate.Triggers>
               <av:Trigger
@@ -465,11 +464,11 @@
       </av:Setter>
     </av:Style>
     <av:Style
-      TargetType="av:Button"
+      TargetType="ui:Button"
       x:Key="PrimaryActionButton">
       <av:Style.BasedOn>
         <av:Style
-          TargetType="av:Button">
+          TargetType="ui:Button">
           <av:Style.Resources>
             <av:ResourceDictionary />
           </av:Style.Resources>
@@ -515,74 +514,18 @@
               <av:Cursor>Hand</av:Cursor>
             </av:Setter.Value>
           </av:Setter>
-          <av:Setter
-            Property="av:Control.Template">
-            <av:Setter.Value>
-              <av:ControlTemplate
-                TargetType="av:Button">
-                <av:Border
-                  BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                  Padding="{av:TemplateBinding av:Control.Padding}"
-                  CornerRadius="6,6,6,6"
-                  BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                  Background="{av:TemplateBinding av:Panel.Background}"
-                  Name="ButtonBorder">
-                  <av:ContentPresenter
-                    Content="{av:TemplateBinding av:ContentControl.Content}"
-                    ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                    ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center" />
-                </av:Border>
-                <av:ControlTemplate.Triggers>
-                  <av:Trigger
-                    Property="av:UIElement.IsMouseOver">
-                    <av:Setter
-                      Property="av:UIElement.Opacity"
-                      TargetName="ButtonBorder">
-                      <av:Setter.Value>
-                        <s:Double>0.86</s:Double>
-                      </av:Setter.Value>
-                    </av:Setter>
-                    <av:Trigger.Value>
-                      <s:Boolean>True</s:Boolean>
-                    </av:Trigger.Value>
-                  </av:Trigger>
-                  <av:Trigger
-                    Property="av:ButtonBase.IsPressed">
-                    <av:Setter
-                      Property="av:UIElement.Opacity"
-                      TargetName="ButtonBorder">
-                      <av:Setter.Value>
-                        <s:Double>0.72</s:Double>
-                      </av:Setter.Value>
-                    </av:Setter>
-                    <av:Trigger.Value>
-                      <s:Boolean>True</s:Boolean>
-                    </av:Trigger.Value>
-                  </av:Trigger>
-                  <av:Trigger
-                    Property="av:UIElement.IsEnabled">
-                    <av:Setter
-                      Property="av:UIElement.Opacity"
-                      TargetName="ButtonBorder">
-                      <av:Setter.Value>
-                        <s:Double>0.42</s:Double>
-                      </av:Setter.Value>
-                    </av:Setter>
-                    <av:Trigger.Value>
-                      <s:Boolean>False</s:Boolean>
-                    </av:Trigger.Value>
-                  </av:Trigger>
-                </av:ControlTemplate.Triggers>
-              </av:ControlTemplate>
-            </av:Setter.Value>
-          </av:Setter>
         </av:Style>
       </av:Style.BasedOn>
       <av:Style.Resources>
         <av:ResourceDictionary />
       </av:Style.Resources>
+      <av:Setter
+        Property="ui:Button.Appearance">
+        <av:Setter.Value>
+          <x:Static
+            Member="ui:ControlAppearance.Primary" />
+        </av:Setter.Value>
+      </av:Setter>
       <av:Setter
         Property="av:TextElement.Foreground">
         <av:Setter.Value>
@@ -843,118 +786,6 @@
         Property="av:TextElement.FontWeight">
         <av:Setter.Value>
           <av:FontWeight>SemiBold</av:FontWeight>
-        </av:Setter.Value>
-      </av:Setter>
-    </av:Style>
-    <av:Style
-      TargetType="av:Button"
-      x:Key="{x:Type av:Button}">
-      <av:Style.Resources>
-        <av:ResourceDictionary />
-      </av:Style.Resources>
-      <av:Setter
-        Property="av:TextElement.Foreground">
-        <av:Setter.Value>
-          <av:SolidColorBrush>#FF152033</av:SolidColorBrush>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:Panel.Background">
-        <av:Setter.Value>
-          <av:SolidColorBrush>#FFFFFFFF</av:SolidColorBrush>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:Border.BorderBrush">
-        <av:Setter.Value>
-          <av:SolidColorBrush>#FFC9D2DE</av:SolidColorBrush>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:Border.BorderThickness">
-        <av:Setter.Value>
-          <av:Thickness>1,1,1,1</av:Thickness>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:Control.Padding">
-        <av:Setter.Value>
-          <av:Thickness>14,7,14,7</av:Thickness>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:FrameworkElement.MinHeight">
-        <av:Setter.Value>
-          <s:Double>34</s:Double>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:FrameworkElement.Cursor">
-        <av:Setter.Value>
-          <av:Cursor>Hand</av:Cursor>
-        </av:Setter.Value>
-      </av:Setter>
-      <av:Setter
-        Property="av:Control.Template">
-        <av:Setter.Value>
-          <av:ControlTemplate
-            TargetType="av:Button">
-            <av:Border
-              BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-              Padding="{av:TemplateBinding av:Control.Padding}"
-              CornerRadius="6,6,6,6"
-              BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-              Background="{av:TemplateBinding av:Panel.Background}"
-              Name="ButtonBorder">
-              <av:ContentPresenter
-                Content="{av:TemplateBinding av:ContentControl.Content}"
-                ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center" />
-            </av:Border>
-            <av:ControlTemplate.Triggers>
-              <av:Trigger
-                Property="av:UIElement.IsMouseOver">
-                <av:Setter
-                  Property="av:UIElement.Opacity"
-                  TargetName="ButtonBorder">
-                  <av:Setter.Value>
-                    <s:Double>0.86</s:Double>
-                  </av:Setter.Value>
-                </av:Setter>
-                <av:Trigger.Value>
-                  <s:Boolean>True</s:Boolean>
-                </av:Trigger.Value>
-              </av:Trigger>
-              <av:Trigger
-                Property="av:ButtonBase.IsPressed">
-                <av:Setter
-                  Property="av:UIElement.Opacity"
-                  TargetName="ButtonBorder">
-                  <av:Setter.Value>
-                    <s:Double>0.72</s:Double>
-                  </av:Setter.Value>
-                </av:Setter>
-                <av:Trigger.Value>
-                  <s:Boolean>True</s:Boolean>
-                </av:Trigger.Value>
-              </av:Trigger>
-              <av:Trigger
-                Property="av:UIElement.IsEnabled">
-                <av:Setter
-                  Property="av:UIElement.Opacity"
-                  TargetName="ButtonBorder">
-                  <av:Setter.Value>
-                    <s:Double>0.42</s:Double>
-                  </av:Setter.Value>
-                </av:Setter>
-                <av:Trigger.Value>
-                  <s:Boolean>False</s:Boolean>
-                </av:Trigger.Value>
-              </av:Trigger>
-            </av:ControlTemplate.Triggers>
-          </av:ControlTemplate>
         </av:Setter.Value>
       </av:Setter>
     </av:Style>
@@ -1275,6 +1106,55 @@
         </av:Setter.Value>
       </av:Setter>
     </av:Style>
+    <av:Style
+      TargetType="ui:Button"
+      x:Key="{x:Type ui:Button}">
+      <av:Style.Resources>
+        <av:ResourceDictionary />
+      </av:Style.Resources>
+      <av:Setter
+        Property="av:TextElement.Foreground">
+        <av:Setter.Value>
+          <av:SolidColorBrush>#FF152033</av:SolidColorBrush>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:Panel.Background">
+        <av:Setter.Value>
+          <av:SolidColorBrush>#FFFFFFFF</av:SolidColorBrush>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:Border.BorderBrush">
+        <av:Setter.Value>
+          <av:SolidColorBrush>#FFC9D2DE</av:SolidColorBrush>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:Border.BorderThickness">
+        <av:Setter.Value>
+          <av:Thickness>1,1,1,1</av:Thickness>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:Control.Padding">
+        <av:Setter.Value>
+          <av:Thickness>14,7,14,7</av:Thickness>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:FrameworkElement.MinHeight">
+        <av:Setter.Value>
+          <s:Double>34</s:Double>
+        </av:Setter.Value>
+      </av:Setter>
+      <av:Setter
+        Property="av:FrameworkElement.Cursor">
+        <av:Setter.Value>
+          <av:Cursor>Hand</av:Cursor>
+        </av:Setter.Value>
+      </av:Setter>
+    </av:Style>
   </WatchVisualCapture.Resources>
   <av:Grid
     Name="RootLayout">
@@ -1440,10 +1320,10 @@
               av:AutomationProperties.Name="刷新概览">
               <ui:Button.Style>
                 <av:Style
-                  TargetType="av:Button">
+                  TargetType="ui:Button">
                   <av:Style.BasedOn>
                     <av:Style
-                      TargetType="av:Button">
+                      TargetType="ui:Button">
                       <av:Style.Resources>
                         <av:ResourceDictionary />
                       </av:Style.Resources>
@@ -1489,74 +1369,18 @@
                           <av:Cursor>Hand</av:Cursor>
                         </av:Setter.Value>
                       </av:Setter>
-                      <av:Setter
-                        Property="av:Control.Template">
-                        <av:Setter.Value>
-                          <av:ControlTemplate
-                            TargetType="av:Button">
-                            <av:Border
-                              BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                              Padding="{av:TemplateBinding av:Control.Padding}"
-                              CornerRadius="6,6,6,6"
-                              BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                              Background="{av:TemplateBinding av:Panel.Background}"
-                              Name="ButtonBorder">
-                              <av:ContentPresenter
-                                Content="{av:TemplateBinding av:ContentControl.Content}"
-                                ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-                            </av:Border>
-                            <av:ControlTemplate.Triggers>
-                              <av:Trigger
-                                Property="av:UIElement.IsMouseOver">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.86</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:ButtonBase.IsPressed">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.72</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:UIElement.IsEnabled">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.42</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>False</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                            </av:ControlTemplate.Triggers>
-                          </av:ControlTemplate>
-                        </av:Setter.Value>
-                      </av:Setter>
                     </av:Style>
                   </av:Style.BasedOn>
                   <av:Style.Resources>
                     <av:ResourceDictionary />
                   </av:Style.Resources>
+                  <av:Setter
+                    Property="ui:Button.Appearance">
+                    <av:Setter.Value>
+                      <x:Static
+                        Member="ui:ControlAppearance.Primary" />
+                    </av:Setter.Value>
+                  </av:Setter>
                   <av:Setter
                     Property="av:TextElement.Foreground">
                     <av:Setter.Value>
@@ -1611,10 +1435,10 @@
               av:AutomationProperties.Name="刷新 TransportDemand 当前页">
               <ui:Button.Style>
                 <av:Style
-                  TargetType="av:Button">
+                  TargetType="ui:Button">
                   <av:Style.BasedOn>
                     <av:Style
-                      TargetType="av:Button">
+                      TargetType="ui:Button">
                       <av:Style.Resources>
                         <av:ResourceDictionary />
                       </av:Style.Resources>
@@ -1660,74 +1484,18 @@
                           <av:Cursor>Hand</av:Cursor>
                         </av:Setter.Value>
                       </av:Setter>
-                      <av:Setter
-                        Property="av:Control.Template">
-                        <av:Setter.Value>
-                          <av:ControlTemplate
-                            TargetType="av:Button">
-                            <av:Border
-                              BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                              Padding="{av:TemplateBinding av:Control.Padding}"
-                              CornerRadius="6,6,6,6"
-                              BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                              Background="{av:TemplateBinding av:Panel.Background}"
-                              Name="ButtonBorder">
-                              <av:ContentPresenter
-                                Content="{av:TemplateBinding av:ContentControl.Content}"
-                                ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-                            </av:Border>
-                            <av:ControlTemplate.Triggers>
-                              <av:Trigger
-                                Property="av:UIElement.IsMouseOver">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.86</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:ButtonBase.IsPressed">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.72</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:UIElement.IsEnabled">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.42</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>False</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                            </av:ControlTemplate.Triggers>
-                          </av:ControlTemplate>
-                        </av:Setter.Value>
-                      </av:Setter>
                     </av:Style>
                   </av:Style.BasedOn>
                   <av:Style.Resources>
                     <av:ResourceDictionary />
                   </av:Style.Resources>
+                  <av:Setter
+                    Property="ui:Button.Appearance">
+                    <av:Setter.Value>
+                      <x:Static
+                        Member="ui:ControlAppearance.Primary" />
+                    </av:Setter.Value>
+                  </av:Setter>
                   <av:Setter
                     Property="av:TextElement.Foreground">
                     <av:Setter.Value>
@@ -1784,10 +1552,10 @@
               av:AutomationProperties.Name="刷新 IngestAlert 当前页">
               <ui:Button.Style>
                 <av:Style
-                  TargetType="av:Button">
+                  TargetType="ui:Button">
                   <av:Style.BasedOn>
                     <av:Style
-                      TargetType="av:Button">
+                      TargetType="ui:Button">
                       <av:Style.Resources>
                         <av:ResourceDictionary />
                       </av:Style.Resources>
@@ -1833,74 +1601,18 @@
                           <av:Cursor>Hand</av:Cursor>
                         </av:Setter.Value>
                       </av:Setter>
-                      <av:Setter
-                        Property="av:Control.Template">
-                        <av:Setter.Value>
-                          <av:ControlTemplate
-                            TargetType="av:Button">
-                            <av:Border
-                              BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                              Padding="{av:TemplateBinding av:Control.Padding}"
-                              CornerRadius="6,6,6,6"
-                              BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                              Background="{av:TemplateBinding av:Panel.Background}"
-                              Name="ButtonBorder">
-                              <av:ContentPresenter
-                                Content="{av:TemplateBinding av:ContentControl.Content}"
-                                ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-                            </av:Border>
-                            <av:ControlTemplate.Triggers>
-                              <av:Trigger
-                                Property="av:UIElement.IsMouseOver">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.86</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:ButtonBase.IsPressed">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.72</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>True</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                              <av:Trigger
-                                Property="av:UIElement.IsEnabled">
-                                <av:Setter
-                                  Property="av:UIElement.Opacity"
-                                  TargetName="ButtonBorder">
-                                  <av:Setter.Value>
-                                    <s:Double>0.42</s:Double>
-                                  </av:Setter.Value>
-                                </av:Setter>
-                                <av:Trigger.Value>
-                                  <s:Boolean>False</s:Boolean>
-                                </av:Trigger.Value>
-                              </av:Trigger>
-                            </av:ControlTemplate.Triggers>
-                          </av:ControlTemplate>
-                        </av:Setter.Value>
-                      </av:Setter>
                     </av:Style>
                   </av:Style.BasedOn>
                   <av:Style.Resources>
                     <av:ResourceDictionary />
                   </av:Style.Resources>
+                  <av:Setter
+                    Property="ui:Button.Appearance">
+                    <av:Setter.Value>
+                      <x:Static
+                        Member="ui:ControlAppearance.Primary" />
+                    </av:Setter.Value>
+                  </av:Setter>
                   <av:Setter
                     Property="av:TextElement.Foreground">
                     <av:Setter.Value>
@@ -2872,7 +2584,7 @@
                   av:AutomationProperties.ItemStatus="outcome=SUCCESS · endedAt=2026-08-08 12:42:15 +08:00 · durationMs=1842 · 最近 MES 快照行数=626&#xD;&#xA;最新 · 最后成功：2026-08-08 12:42:16 +08:00" />
               </av:StackPanel>
             </av:Border>
-            <av:Button
+            <ui:Button
               BorderBrush="#FFE2E7EE"
               Background="#FFFFFFFF"
               HorizontalContentAlignment="Stretch"
@@ -2899,8 +2611,8 @@
                   Foreground="#FF2563EB"
                   Margin="0,12,0,0" />
               </av:StackPanel>
-            </av:Button>
-            <av:Button
+            </ui:Button>
+            <ui:Button
               BorderBrush="#FFE2E7EE"
               Background="#FFFFFFFF"
               HorizontalContentAlignment="Stretch"
@@ -2926,7 +2638,7 @@
                   Foreground="#FF2563EB"
                   Margin="0,12,0,0" />
               </av:StackPanel>
-            </av:Button>
+            </ui:Button>
           </av:UniformGrid>
         </av:ScrollViewer>
       </av:Grid>
@@ -3054,15 +2766,15 @@
                                 TargetType="av:ComboBox">
                                 <av:StackPanel
                                   Orientation="Horizontal">
-                                  <av:Button
+                                  <ui:Button
                                     Padding="12,6,12,6"
                                     Name="ActiveSegment"
                                     Width="76"
-                                    Margin="0,0,6,0">ACTIVE</av:Button>
-                                  <av:Button
+                                    Margin="0,0,6,0">ACTIVE</ui:Button>
+                                  <ui:Button
                                     Padding="12,6,12,6"
                                     Name="ResolvedSegment"
-                                    Width="94">RESOLVED</av:Button>
+                                    Width="94">RESOLVED</ui:Button>
                                 </av:StackPanel>
                                 <av:ControlTemplate.Triggers>
                                   <av:Trigger
@@ -3270,17 +2982,17 @@
                       xml:space="preserve"></av:TextBox>
                   </av:StackPanel>
                   <av:StackPanel>
-                    <av:Button
+                    <ui:Button
                       Padding="16,7,16,7"
                       Name="AlertQueryButton"
                       IsEnabled="True"
                       av:AutomationProperties.Name="查询 IngestAlert">
-                      <av:Button.Style>
+                      <ui:Button.Style>
                         <av:Style
-                          TargetType="av:Button">
+                          TargetType="ui:Button">
                           <av:Style.BasedOn>
                             <av:Style
-                              TargetType="av:Button">
+                              TargetType="ui:Button">
                               <av:Style.Resources>
                                 <av:ResourceDictionary />
                               </av:Style.Resources>
@@ -3326,74 +3038,18 @@
                                   <av:Cursor>Hand</av:Cursor>
                                 </av:Setter.Value>
                               </av:Setter>
-                              <av:Setter
-                                Property="av:Control.Template">
-                                <av:Setter.Value>
-                                  <av:ControlTemplate
-                                    TargetType="av:Button">
-                                    <av:Border
-                                      BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                                      Padding="{av:TemplateBinding av:Control.Padding}"
-                                      CornerRadius="6,6,6,6"
-                                      BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                                      Background="{av:TemplateBinding av:Panel.Background}"
-                                      Name="ButtonBorder">
-                                      <av:ContentPresenter
-                                        Content="{av:TemplateBinding av:ContentControl.Content}"
-                                        ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                        ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center" />
-                                    </av:Border>
-                                    <av:ControlTemplate.Triggers>
-                                      <av:Trigger
-                                        Property="av:UIElement.IsMouseOver">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.86</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>True</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                      <av:Trigger
-                                        Property="av:ButtonBase.IsPressed">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.72</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>True</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                      <av:Trigger
-                                        Property="av:UIElement.IsEnabled">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.42</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>False</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                    </av:ControlTemplate.Triggers>
-                                  </av:ControlTemplate>
-                                </av:Setter.Value>
-                              </av:Setter>
                             </av:Style>
                           </av:Style.BasedOn>
                           <av:Style.Resources>
                             <av:ResourceDictionary />
                           </av:Style.Resources>
+                          <av:Setter
+                            Property="ui:Button.Appearance">
+                            <av:Setter.Value>
+                              <x:Static
+                                Member="ui:ControlAppearance.Primary" />
+                            </av:Setter.Value>
+                          </av:Setter>
                           <av:Setter
                             Property="av:TextElement.Foreground">
                             <av:Setter.Value>
@@ -3413,13 +3069,13 @@
                             </av:Setter.Value>
                           </av:Setter>
                         </av:Style>
-                      </av:Button.Style>应用条件</av:Button>
-                    <av:Button
+                      </ui:Button.Style>应用条件</ui:Button>
+                    <ui:Button
                       Padding="16,7,16,7"
                       Name="AlertResetButton"
                       Margin="0,8,0,0"
                       IsEnabled="True"
-                      av:AutomationProperties.Name="重置 IngestAlert 查询">清空条件</av:Button>
+                      av:AutomationProperties.Name="重置 IngestAlert 查询">清空条件</ui:Button>
                   </av:StackPanel>
                 </av:StackPanel>
                 <av:TextBlock
@@ -3834,12 +3490,12 @@
                         Name="AlertTargetOneIdText"
                         VerticalAlignment="Center"
                         av:Grid.Column="1" />
-                      <av:Button
+                      <ui:Button
                         Padding="9,4,9,4"
                         Name="AlertTargetOneButton"
                         av:AutomationProperties.AutomationId="AlertTargetOneButton"
                         av:AutomationProperties.Name="精确查看第一个关联 TransportDemand"
-                        av:Grid.Column="2">精确查看</av:Button>
+                        av:Grid.Column="2">精确查看</ui:Button>
                     </av:Grid>
                   </av:Border>
                   <av:Border
@@ -3870,18 +3526,18 @@
                         Name="AlertTargetTwoIdText"
                         VerticalAlignment="Center"
                         av:Grid.Column="1" />
-                      <av:Button
+                      <ui:Button
                         Padding="9,4,9,4"
                         Name="AlertTargetTwoButton"
                         av:AutomationProperties.AutomationId="AlertTargetTwoButton"
                         av:AutomationProperties.Name="精确查看第二个关联 TransportDemand"
                         av:Grid.Column="2">
-                        <av:Button.Style>
+                        <ui:Button.Style>
                           <av:Style
-                            TargetType="av:Button">
+                            TargetType="ui:Button">
                             <av:Style.BasedOn>
                               <av:Style
-                                TargetType="av:Button">
+                                TargetType="ui:Button">
                                 <av:Style.Resources>
                                   <av:ResourceDictionary />
                                 </av:Style.Resources>
@@ -3927,74 +3583,18 @@
                                     <av:Cursor>Hand</av:Cursor>
                                   </av:Setter.Value>
                                 </av:Setter>
-                                <av:Setter
-                                  Property="av:Control.Template">
-                                  <av:Setter.Value>
-                                    <av:ControlTemplate
-                                      TargetType="av:Button">
-                                      <av:Border
-                                        BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                                        Padding="{av:TemplateBinding av:Control.Padding}"
-                                        CornerRadius="6,6,6,6"
-                                        BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                                        Background="{av:TemplateBinding av:Panel.Background}"
-                                        Name="ButtonBorder">
-                                        <av:ContentPresenter
-                                          Content="{av:TemplateBinding av:ContentControl.Content}"
-                                          ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                          ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                          HorizontalAlignment="Center"
-                                          VerticalAlignment="Center" />
-                                      </av:Border>
-                                      <av:ControlTemplate.Triggers>
-                                        <av:Trigger
-                                          Property="av:UIElement.IsMouseOver">
-                                          <av:Setter
-                                            Property="av:UIElement.Opacity"
-                                            TargetName="ButtonBorder">
-                                            <av:Setter.Value>
-                                              <s:Double>0.86</s:Double>
-                                            </av:Setter.Value>
-                                          </av:Setter>
-                                          <av:Trigger.Value>
-                                            <s:Boolean>True</s:Boolean>
-                                          </av:Trigger.Value>
-                                        </av:Trigger>
-                                        <av:Trigger
-                                          Property="av:ButtonBase.IsPressed">
-                                          <av:Setter
-                                            Property="av:UIElement.Opacity"
-                                            TargetName="ButtonBorder">
-                                            <av:Setter.Value>
-                                              <s:Double>0.72</s:Double>
-                                            </av:Setter.Value>
-                                          </av:Setter>
-                                          <av:Trigger.Value>
-                                            <s:Boolean>True</s:Boolean>
-                                          </av:Trigger.Value>
-                                        </av:Trigger>
-                                        <av:Trigger
-                                          Property="av:UIElement.IsEnabled">
-                                          <av:Setter
-                                            Property="av:UIElement.Opacity"
-                                            TargetName="ButtonBorder">
-                                            <av:Setter.Value>
-                                              <s:Double>0.42</s:Double>
-                                            </av:Setter.Value>
-                                          </av:Setter>
-                                          <av:Trigger.Value>
-                                            <s:Boolean>False</s:Boolean>
-                                          </av:Trigger.Value>
-                                        </av:Trigger>
-                                      </av:ControlTemplate.Triggers>
-                                    </av:ControlTemplate>
-                                  </av:Setter.Value>
-                                </av:Setter>
                               </av:Style>
                             </av:Style.BasedOn>
                             <av:Style.Resources>
                               <av:ResourceDictionary />
                             </av:Style.Resources>
+                            <av:Setter
+                              Property="ui:Button.Appearance">
+                              <av:Setter.Value>
+                                <x:Static
+                                  Member="ui:ControlAppearance.Primary" />
+                              </av:Setter.Value>
+                            </av:Setter>
                             <av:Setter
                               Property="av:TextElement.Foreground">
                               <av:Setter.Value>
@@ -4014,16 +3614,16 @@
                               </av:Setter.Value>
                             </av:Setter>
                           </av:Style>
-                        </av:Button.Style>精确查看</av:Button>
+                        </ui:Button.Style>精确查看</ui:Button>
                     </av:Grid>
                   </av:Border>
-                  <av:Button
+                  <ui:Button
                     Padding="12,5,12,5"
                     Name="AlertBusinessKeyButton"
                     HorizontalAlignment="Left"
                     Visibility="Collapsed"
                     av:AutomationProperties.AutomationId="AlertBusinessKeyButton"
-                    av:AutomationProperties.Name="按业务键查 TransportDemand">按业务键查任务</av:Button>
+                    av:AutomationProperties.Name="按业务键查 TransportDemand">按业务键查任务</ui:Button>
                 </av:StackPanel>
               </av:Grid>
             </av:Grid>
@@ -4036,11 +3636,11 @@
             <av:StackPanel
               Orientation="Horizontal"
               av:DockPanel.Dock="Right">
-              <av:Button
+              <ui:Button
                 Padding="14,4,14,4"
                 Name="AlertPreviousButton"
                 IsEnabled="False"
-                av:AutomationProperties.Name="IngestAlert 上一页">上一页</av:Button>
+                av:AutomationProperties.Name="IngestAlert 上一页">上一页</ui:Button>
               <av:TextBlock
                 Text="第 1 页"
                 Name="AlertPageText"
@@ -4048,11 +3648,11 @@
                 VerticalAlignment="Center"
                 av:AutomationProperties.HelpText="第 1 页"
                 av:AutomationProperties.ItemStatus="第 1 页" />
-              <av:Button
+              <ui:Button
                 Padding="14,4,14,4"
                 Name="AlertNextButton"
                 IsEnabled="False"
-                av:AutomationProperties.Name="IngestAlert 下一页">下一页</av:Button>
+                av:AutomationProperties.Name="IngestAlert 下一页">下一页</ui:Button>
             </av:StackPanel>
           </av:DockPanel>
         </av:Grid>
@@ -4231,15 +3831,15 @@
           Orientation="Horizontal"
           Margin="0,20,0,0"
           av:Grid.Row="5">
-          <av:Button
+          <ui:Button
             Padding="18,7,18,7"
             Name="ApplyHostButton"
-            av:AutomationProperties.Name="应用 Host 设置">应用</av:Button>
-          <av:Button
+            av:AutomationProperties.Name="应用 Host 设置">应用</ui:Button>
+          <ui:Button
             Padding="18,7,18,7"
             Name="ResetLayoutButton"
             Margin="8,0,0,0"
-            av:AutomationProperties.Name="恢复默认窗口和详情布局">恢复默认布局</av:Button>
+            av:AutomationProperties.Name="恢复默认窗口和详情布局">恢复默认布局</ui:Button>
           <av:TextBlock
             Foreground="#FFC43D4B"
             TextWrapping="Wrap"
@@ -5037,17 +4637,17 @@
                       xml:space="preserve"></av:TextBox>
                   </av:StackPanel>
                   <av:StackPanel>
-                    <av:Button
+                    <ui:Button
                       Padding="16,7,16,7"
                       Name="DemandQueryButton"
                       IsEnabled="True"
                       av:AutomationProperties.Name="查询 TransportDemand">
-                      <av:Button.Style>
+                      <ui:Button.Style>
                         <av:Style
-                          TargetType="av:Button">
+                          TargetType="ui:Button">
                           <av:Style.BasedOn>
                             <av:Style
-                              TargetType="av:Button">
+                              TargetType="ui:Button">
                               <av:Style.Resources>
                                 <av:ResourceDictionary />
                               </av:Style.Resources>
@@ -5093,74 +4693,18 @@
                                   <av:Cursor>Hand</av:Cursor>
                                 </av:Setter.Value>
                               </av:Setter>
-                              <av:Setter
-                                Property="av:Control.Template">
-                                <av:Setter.Value>
-                                  <av:ControlTemplate
-                                    TargetType="av:Button">
-                                    <av:Border
-                                      BorderThickness="{av:TemplateBinding av:Border.BorderThickness}"
-                                      Padding="{av:TemplateBinding av:Control.Padding}"
-                                      CornerRadius="6,6,6,6"
-                                      BorderBrush="{av:TemplateBinding av:Border.BorderBrush}"
-                                      Background="{av:TemplateBinding av:Panel.Background}"
-                                      Name="ButtonBorder">
-                                      <av:ContentPresenter
-                                        Content="{av:TemplateBinding av:ContentControl.Content}"
-                                        ContentTemplate="{av:TemplateBinding av:ContentControl.ContentTemplate}"
-                                        ContentStringFormat="{av:TemplateBinding av:ContentControl.ContentStringFormat}"
-                                        HorizontalAlignment="Center"
-                                        VerticalAlignment="Center" />
-                                    </av:Border>
-                                    <av:ControlTemplate.Triggers>
-                                      <av:Trigger
-                                        Property="av:UIElement.IsMouseOver">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.86</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>True</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                      <av:Trigger
-                                        Property="av:ButtonBase.IsPressed">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.72</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>True</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                      <av:Trigger
-                                        Property="av:UIElement.IsEnabled">
-                                        <av:Setter
-                                          Property="av:UIElement.Opacity"
-                                          TargetName="ButtonBorder">
-                                          <av:Setter.Value>
-                                            <s:Double>0.42</s:Double>
-                                          </av:Setter.Value>
-                                        </av:Setter>
-                                        <av:Trigger.Value>
-                                          <s:Boolean>False</s:Boolean>
-                                        </av:Trigger.Value>
-                                      </av:Trigger>
-                                    </av:ControlTemplate.Triggers>
-                                  </av:ControlTemplate>
-                                </av:Setter.Value>
-                              </av:Setter>
                             </av:Style>
                           </av:Style.BasedOn>
                           <av:Style.Resources>
                             <av:ResourceDictionary />
                           </av:Style.Resources>
+                          <av:Setter
+                            Property="ui:Button.Appearance">
+                            <av:Setter.Value>
+                              <x:Static
+                                Member="ui:ControlAppearance.Primary" />
+                            </av:Setter.Value>
+                          </av:Setter>
                           <av:Setter
                             Property="av:TextElement.Foreground">
                             <av:Setter.Value>
@@ -5180,13 +4724,13 @@
                             </av:Setter.Value>
                           </av:Setter>
                         </av:Style>
-                      </av:Button.Style>应用条件</av:Button>
-                    <av:Button
+                      </ui:Button.Style>应用条件</ui:Button>
+                    <ui:Button
                       Padding="16,7,16,7"
                       Name="DemandResetButton"
                       Margin="0,8,0,0"
                       IsEnabled="True"
-                      av:AutomationProperties.Name="重置 TransportDemand 查询">清空条件</av:Button>
+                      av:AutomationProperties.Name="重置 TransportDemand 查询">清空条件</ui:Button>
                   </av:StackPanel>
                 </av:StackPanel>
                 <av:TextBlock
@@ -5219,11 +4763,11 @@
                     av:AutomationProperties.HelpText=""
                     av:AutomationProperties.ItemStatus="" />
                 </av:StackPanel>
-                <av:Button
+                <ui:Button
                   Name="DemandViewDetailsButton"
                   Visibility="Collapsed"
                   IsEnabled="True"
-                  av:AutomationProperties.Name="查看所选 TransportDemand 详情">查看详情</av:Button>
+                  av:AutomationProperties.Name="查看所选 TransportDemand 详情">查看详情</ui:Button>
                 <av:Border
                   Padding="11,11,11,11"
                   CornerRadius="8,8,8,8"
@@ -5404,6 +4948,41 @@
                       Header="复制 DemandId"
                       av:AutomationProperties.Name="复制所选 TransportDemand DemandId" />
                     <av:MenuItem
+                      Header="复制完整任务行"
+                      av:AutomationProperties.Name="复制所选 TransportDemand 完整任务行" />
+                    <av:Separator />
+                    <av:MenuItem
+                      Header="按隐藏字段排序"
+                      av:AutomationProperties.Name="TransportDemand 隐藏字段排序">
+                      <av:MenuItem
+                        Header="DemandId"
+                        Tag="DemandId" />
+                      <av:MenuItem
+                        Header="STEP"
+                        Tag="STEP" />
+                      <av:MenuItem
+                        Header="PACKAGE"
+                        Tag="PACKAGE" />
+                      <av:MenuItem
+                        Header="status"
+                        Tag="status" />
+                      <av:MenuItem
+                        Header="last seen"
+                        Tag="last seen" />
+                      <av:MenuItem
+                        Header="disappear"
+                        Tag="disappear" />
+                      <av:MenuItem
+                        Header="locationRisk"
+                        Tag="locationRisk" />
+                      <av:MenuItem
+                        Header="created"
+                        Tag="created" />
+                      <av:MenuItem
+                        Header="gone at"
+                        Tag="gone at" />
+                    </av:MenuItem>
+                    <av:MenuItem
                       Header="复制单元格" />
                     <av:MenuItem
                       Header="复制整行" />
@@ -5526,12 +5105,12 @@
                   Orientation="Horizontal"
                   HorizontalAlignment="Right"
                   av:DockPanel.Dock="Right">
-                  <av:Button
+                  <ui:Button
                     Padding="10,4,10,4"
                     Name="DemandPreviousButton"
                     MinHeight="26"
                     IsEnabled="False"
-                    av:AutomationProperties.Name="TransportDemand 上一页">上一页</av:Button>
+                    av:AutomationProperties.Name="TransportDemand 上一页">上一页</ui:Button>
                   <av:TextBlock
                     Text="第 1 页"
                     Name="DemandPageText"
@@ -5539,12 +5118,12 @@
                     VerticalAlignment="Center"
                     av:AutomationProperties.HelpText="第 1 页"
                     av:AutomationProperties.ItemStatus="第 1 页" />
-                  <av:Button
+                  <ui:Button
                     Padding="10,4,10,4"
                     Name="DemandNextButton"
                     MinHeight="26"
                     IsEnabled="False"
-                    av:AutomationProperties.Name="TransportDemand 下一页">下一页</av:Button>
+                    av:AutomationProperties.Name="TransportDemand 下一页">下一页</ui:Button>
                 </av:StackPanel>
               </av:DockPanel>
             </av:Grid>
@@ -5954,6 +5533,274 @@
                         Message="同一 TASK_TYPE + SUBLOT 在快照中重复。"
                         LastSeenAt="2026-08-08 12:41:16 +08:00" />
                     </av:DataGrid>
+                  </av:Grid>
+                </av:Grid>
+                <av:Grid
+                  Background="#FFFFFFFF"
+                  Name="DemandFullDetailsPanel"
+                  Visibility="Collapsed"
+                  av:Panel.ZIndex="2"
+                  av:AutomationProperties.Name="TransportDemand 完整只读字段">
+                  <av:Grid.RowDefinitions>
+                    <av:RowDefinition
+                      Height="Auto" />
+                    <av:RowDefinition
+                      Height="*" />
+                  </av:Grid.RowDefinitions>
+                  <av:DockPanel
+                    Margin="0,0,0,8">
+                    <av:StackPanel
+                      Orientation="Horizontal"
+                      av:DockPanel.Dock="Right">
+                      <ui:Button
+                        Padding="10,4,10,4"
+                        Name="DemandCopyFullRowButton"
+                        Margin="0,0,8,0"
+                        av:AutomationProperties.Name="复制所选 TransportDemand 完整任务行">复制完整行</ui:Button>
+                      <ui:Button
+                        Padding="10,4,10,4"
+                        Name="DemandFullDetailsCloseButton"
+                        av:AutomationProperties.Name="关闭 TransportDemand 完整字段">返回关系卡片</ui:Button>
+                    </av:StackPanel>
+                    <av:StackPanel>
+                      <av:TextBlock
+                        Text="FULL DETAILS">
+                        <av:TextBlock.Style>
+                          <av:Style
+                            TargetType="av:TextBlock">
+                            <av:Style.Resources>
+                              <av:ResourceDictionary />
+                            </av:Style.Resources>
+                            <av:Setter
+                              Property="av:TextElement.Foreground">
+                              <av:Setter.Value>
+                                <av:SolidColorBrush>#FF2563EB</av:SolidColorBrush>
+                              </av:Setter.Value>
+                            </av:Setter>
+                            <av:Setter
+                              Property="av:TextElement.FontFamily">
+                              <av:Setter.Value>
+                                <av:FontFamily>Cascadia Mono</av:FontFamily>
+                              </av:Setter.Value>
+                            </av:Setter>
+                            <av:Setter
+                              Property="av:TextElement.FontSize">
+                              <av:Setter.Value>
+                                <s:Double>11</s:Double>
+                              </av:Setter.Value>
+                            </av:Setter>
+                            <av:Setter
+                              Property="av:TextElement.FontWeight">
+                              <av:Setter.Value>
+                                <av:FontWeight>SemiBold</av:FontWeight>
+                              </av:Setter.Value>
+                            </av:Setter>
+                          </av:Style>
+                        </av:TextBlock.Style>
+                      </av:TextBlock>
+                      <av:TextBlock
+                        Text="完整任务字段"
+                        Margin="0,3,0,0">
+                        <av:TextBlock.Style>
+                          <av:Style
+                            TargetType="av:TextBlock">
+                            <av:Style.Resources>
+                              <av:ResourceDictionary />
+                            </av:Style.Resources>
+                            <av:Setter
+                              Property="av:TextElement.FontSize">
+                              <av:Setter.Value>
+                                <s:Double>15</s:Double>
+                              </av:Setter.Value>
+                            </av:Setter>
+                            <av:Setter
+                              Property="av:TextElement.FontWeight">
+                              <av:Setter.Value>
+                                <av:FontWeight>SemiBold</av:FontWeight>
+                              </av:Setter.Value>
+                            </av:Setter>
+                          </av:Style>
+                        </av:TextBlock.Style>
+                      </av:TextBlock>
+                    </av:StackPanel>
+                  </av:DockPanel>
+                  <av:Grid
+                    av:Grid.Row="1">
+                    <av:Grid.ColumnDefinitions>
+                      <av:ColumnDefinition
+                        Width="*" />
+                      <av:ColumnDefinition
+                        Width="18" />
+                      <av:ColumnDefinition
+                        Width="*" />
+                    </av:Grid.ColumnDefinitions>
+                    <av:ScrollViewer
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
+                      <av:StackPanel>
+                        <av:TextBlock
+                          Text="MES 输入（创建时冻结）"
+                          FontWeight="SemiBold"
+                          Margin="0,0,0,5" />
+                        <av:ItemsControl
+                          Name="DemandMesInputFields">
+                          <av:ItemsControl.ItemTemplate>
+                            <av:DataTemplate>
+                              <av:Grid
+                                Margin="0,2,0,6">
+                                <av:Grid.ColumnDefinitions>
+                                  <av:ColumnDefinition
+                                    Width="145" />
+                                  <av:ColumnDefinition
+                                    Width="*" />
+                                </av:Grid.ColumnDefinitions>
+                                <av:Grid.RowDefinitions>
+                                  <av:RowDefinition
+                                    Height="Auto" />
+                                  <av:RowDefinition
+                                    Height="Auto" />
+                                </av:Grid.RowDefinitions>
+                                <av:TextBlock
+                                  Text=""
+                                  FontFamily="Consolas"
+                                  FontWeight="SemiBold" />
+                                <av:TextBox
+                                  TextWrapping="Wrap"
+                                  IsReadOnly="True"
+                                  IsReadOnlyCaretVisible="True"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  BorderThickness="0,0,0,0"
+                                  Background="#00FFFFFF"
+                                  Padding="0,0,0,0"
+                                  av:AutomationProperties.Name=""
+                                  av:Grid.Column="1"
+                                  xml:space="preserve"></av:TextBox>
+                                <av:TextBlock
+                                  Text=""
+                                  Foreground="#FF728096"
+                                  TextWrapping="Wrap"
+                                  av:Grid.Column="1"
+                                  av:Grid.Row="1" />
+                              </av:Grid>
+                            </av:DataTemplate>
+                          </av:ItemsControl.ItemTemplate>
+                          <miw:WatchDemandDetailField
+                            Name="TASK_TYPE"
+                            Value="DIE_TO_WIRE_STAGING"
+                            Explanation="MES 任务类型；创建 TransportDemand 时冻结。" />
+                          <miw:WatchDemandDetailField
+                            Name="SUBLOT"
+                            Value="Q260808-01-超长子批号"
+                            Explanation="MES 子批次；创建 TransportDemand 时冻结。" />
+                          <miw:WatchDemandDetailField
+                            Name="AREA"
+                            Value="AREA-01"
+                            Explanation="MES 当前区域原始值；创建 TransportDemand 时冻结。" />
+                          <miw:WatchDemandDetailField
+                            Name="EQP"
+                            Value="EQP-01"
+                            Explanation="MES 当前机台原始值；创建 TransportDemand 时冻结。" />
+                          <miw:WatchDemandDetailField
+                            Name="STEP"
+                            Value="STEP-01"
+                            Explanation="MES 下一工序；不是 DATES 所属的当前工序。" />
+                          <miw:WatchDemandDetailField
+                            Name="DATES"
+                            Value="2026-08-08 11:42:16 +08:00"
+                            Explanation="MES 当前工序进入时间；创建 TransportDemand 时冻结。" />
+                          <miw:WatchDemandDetailField
+                            Name="PACKAGE"
+                            Value="PKG-01-长封装名称"
+                            Explanation="MES 包装规格原始值；创建 TransportDemand 时冻结。" />
+                        </av:ItemsControl>
+                      </av:StackPanel>
+                    </av:ScrollViewer>
+                    <av:ScrollViewer
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      av:Grid.Column="2">
+                      <av:StackPanel>
+                        <av:TextBlock
+                          Text="本地 TransportDemand 投影"
+                          FontWeight="SemiBold"
+                          Margin="0,0,0,5" />
+                        <av:ItemsControl
+                          Name="DemandLocalProjectionFields">
+                          <av:ItemsControl.ItemTemplate>
+                            <av:DataTemplate>
+                              <av:Grid
+                                Margin="0,2,0,6">
+                                <av:Grid.ColumnDefinitions>
+                                  <av:ColumnDefinition
+                                    Width="145" />
+                                  <av:ColumnDefinition
+                                    Width="*" />
+                                </av:Grid.ColumnDefinitions>
+                                <av:Grid.RowDefinitions>
+                                  <av:RowDefinition
+                                    Height="Auto" />
+                                  <av:RowDefinition
+                                    Height="Auto" />
+                                </av:Grid.RowDefinitions>
+                                <av:TextBlock
+                                  Text=""
+                                  FontFamily="Consolas"
+                                  FontWeight="SemiBold" />
+                                <av:TextBox
+                                  TextWrapping="Wrap"
+                                  IsReadOnly="True"
+                                  IsReadOnlyCaretVisible="True"
+                                  VerticalScrollBarVisibility="Disabled"
+                                  BorderThickness="0,0,0,0"
+                                  Background="#00FFFFFF"
+                                  Padding="0,0,0,0"
+                                  av:AutomationProperties.Name=""
+                                  av:Grid.Column="1"
+                                  xml:space="preserve"></av:TextBox>
+                                <av:TextBlock
+                                  Text=""
+                                  Foreground="#FF728096"
+                                  TextWrapping="Wrap"
+                                  av:Grid.Column="1"
+                                  av:Grid.Row="1" />
+                              </av:Grid>
+                            </av:DataTemplate>
+                          </av:ItemsControl.ItemTemplate>
+                          <miw:WatchDemandDetailField
+                            Name="DemandId"
+                            Value="00000001aaaaaaaaaaaaaaaaaaaaaaaa"
+                            Explanation="TransportDemand 本地稳定实例标识。" />
+                          <miw:WatchDemandDetailField
+                            Name="status"
+                            Value="VISIBLE"
+                            Explanation="本地实例当前为 VISIBLE 或 GONE。" />
+                          <miw:WatchDemandDetailField
+                            Name="mesLastSeenAt"
+                            Value="2026-08-08 12:42:16 +08:00"
+                            Explanation="MesIngest 最近一次在 MES 快照中观察到此实例的时间。" />
+                          <miw:WatchDemandDetailField
+                            Name="disappearCount"
+                            Value="0"
+                            Explanation="本地连续未观察计数；不等同于 MES 业务字段。" />
+                          <miw:WatchDemandDetailField
+                            Name="locationRisk"
+                            Value="False"
+                            Explanation="AREA_EMPTY 或 AREA_UNPARSEABLE 对应的 Demand 风险；不是 IngestAlert。" />
+                          <miw:WatchDemandDetailField
+                            Name="locationRiskCode"
+                            Value="null"
+                            Explanation="位置风险代码；AREA_EMPTY/AREA_UNPARSEABLE 属于 Demand 风险。" />
+                          <miw:WatchDemandDetailField
+                            Name="createdAt"
+                            Value="2026-08-07 12:42:16 +08:00"
+                            Explanation="本地实例创建时间（TransportDemand）。" />
+                          <miw:WatchDemandDetailField
+                            Name="goneAt"
+                            Value="null"
+                            Explanation="本地实例转为 GONE 的时间；VISIBLE 时为 null。" />
+                        </av:ItemsControl>
+                      </av:StackPanel>
+                    </av:ScrollViewer>
                   </av:Grid>
                 </av:Grid>
               </av:Grid>

@@ -54,6 +54,11 @@ public class WatchDemandDetailsTests
         Assert.Contains("本地实例创建", Field(details.LocalProjectionGroup, "createdAt").Explanation);
         Assert.Equal("null", Field(details.LocalProjectionGroup, "goneAt").Value);
         Assert.Contains("VISIBLE", Field(details.LocalProjectionGroup, "goneAt").Explanation);
+
+        var clipboard = details.ToClipboardText();
+        Assert.StartsWith("TASK_TYPE\tSUBLOT\tAREA\tEQP\tSTEP\tDATES\tPACKAGE\tDemandId", clipboard);
+        Assert.Contains("WIRE_TO_NITROGEN\tS-LONG-001\tA01-01\tEQP-01\t焊线2", clipboard);
+        Assert.Contains("\tAREA_UNPARSEABLE\t", clipboard);
     }
 
     [Fact]

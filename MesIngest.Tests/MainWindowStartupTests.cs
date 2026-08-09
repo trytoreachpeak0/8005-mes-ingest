@@ -84,6 +84,8 @@ public class MainWindowStartupTests
                         {
                             "查看详情",
                             "复制 DemandId",
+                            "复制完整任务行",
+                            "按隐藏字段排序",
                             "复制单元格",
                             "复制整行",
                             "复制整行（含列名）",
@@ -140,6 +142,7 @@ public class MainWindowStartupTests
 
                 var demands = (DataGrid)window.FindName("DemandsGrid");
                 var detailsPanel = (FrameworkElement)window.FindName("DemandDetailsPanel");
+                var fullDetailsPanel = (FrameworkElement)window.FindName("DemandFullDetailsPanel");
                 var detailsPlaceholder = (FrameworkElement)window.FindName("DemandDetailsPlaceholder");
                 var demand = new WatchDemandDto(
                     DemandId: "abcdef0123456789abcdef0123456789",
@@ -183,11 +186,14 @@ public class MainWindowStartupTests
                         {
                             "查看详情",
                             "复制 DemandId",
+                            "复制完整任务行",
+                            "按隐藏字段排序",
                             "复制单元格",
                             "复制整行",
                             "复制整行（含列名）",
                         })
                     || detailsPanel.Visibility != Visibility.Visible
+                    || fullDetailsPanel.Visibility != Visibility.Visible
                     || detailsPlaceholder.Visibility != Visibility.Collapsed
                     || details?.MesInputGroup.Fields.Count != 7
                     || details.LocalProjectionGroup.Fields.Single(

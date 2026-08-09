@@ -56,6 +56,8 @@ internal static class WatchVisualCaptureConverter
             XamlWriter.Save(target, documentWriter);
         }
 
+        RemoveUnusedNamespaceDeclarations(document);
+
         var builder = new StringBuilder();
         var settings = new XmlWriterSettings
         {
@@ -71,5 +73,42 @@ internal static class WatchVisualCaptureConverter
         }
 
         return builder.ToString();
+    }
+
+    internal static void RemoveUnusedNamespaceDeclarations(XDocument document)
+    {
+        var root = document.Root
+            ?? throw new InvalidOperationException("The serialized XAML document has no root element.");
+        var nodes = root.DescendantsAndSelf().ToArray();
+        var usedNamespaces = nodes
+            .Select(element => element.Name.NamespaceName)
+            .Concat(nodes.SelectMany(element => element.Attributes())
+                .Where(attribute => !attribute.IsNamespaceDeclaration)
+                .Select(attribute => attribute.Name.NamespaceName))
+            .Where(namespaceName => namespaceName.Length > 0)
+            .ToHashSet(StringComparer.Ordinal);
+        var values = nodes
+            .SelectMany(element => element.Attributes())
+            .Where(attribute => !attribute.IsNamespaceDeclaration)
+            .Select(attribute => attribute.Value)
+            .ToArray();
+
+        foreach (var declaration in nodes
+                     .SelectMany(element => element.Attributes())
+                     .Where(attribute => attribute.IsNamespaceDeclaration)
+                     .ToArray())
+        {
+            var prefix = declaration.Name.LocalName == "xmlns"
+                ? string.Empty
+                : declaration.Name.LocalName;
+            if (prefix.Length == 0
+                || usedNamespaces.Contains(declaration.Value)
+                || values.Any(value => value.Contains(prefix + ":", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            declaration.Remove();
+        }
     }
 }
