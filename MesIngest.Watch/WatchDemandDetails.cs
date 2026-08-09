@@ -1,15 +1,15 @@
 namespace MesIngest.Watch;
 
-internal sealed record WatchDemandDetailField(
+public sealed record WatchDemandDetailField(
     string Name,
     string Value,
     string Explanation);
 
-internal sealed record WatchDemandDetailGroup(
+public sealed record WatchDemandDetailGroup(
     string Title,
     IReadOnlyList<WatchDemandDetailField> Fields);
 
-internal sealed record WatchDemandDetails(
+public sealed record WatchDemandDetails(
     WatchDemandDetailGroup MesInputGroup,
     WatchDemandDetailGroup LocalProjectionGroup)
 {

@@ -143,14 +143,18 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
 {
     private readonly object _gate = new();
     private readonly Func<WatchHostSettings, IWatchHostQueryAdapter> _adapterFactory;
+    private readonly TimeProvider _timeProvider;
     private CancellationTokenSource? _activeCancellation;
     private IWatchHostQueryAdapter? _activeAdapter;
     private long _generation;
     private bool _disposed;
 
-    public WatchHostSession(Func<WatchHostSettings, IWatchHostQueryAdapter> adapterFactory)
+    public WatchHostSession(
+        Func<WatchHostSettings, IWatchHostQueryAdapter> adapterFactory,
+        TimeProvider? timeProvider = null)
     {
         _adapterFactory = adapterFactory ?? throw new ArgumentNullException(nameof(adapterFactory));
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public WatchHostSessionState State { get; private set; } = WatchHostSessionState.Empty;
@@ -202,7 +206,7 @@ internal sealed class WatchHostSession : IWatchReadQueries, IDisposable
                 {
                     Status = WatchHostConnectionStatus.Connected,
                     PollHealth = health,
-                    LastSuccessfulAt = DateTimeOffset.UtcNow,
+                    LastSuccessfulAt = _timeProvider.GetUtcNow(),
                 });
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

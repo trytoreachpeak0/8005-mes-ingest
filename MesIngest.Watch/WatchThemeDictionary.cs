@@ -6,7 +6,7 @@ namespace MesIngest.Watch;
 /// Shared light industrial operations palette. A fresh dictionary per window avoids
 /// WPF's cross-thread URI resource loading cache in parallel test hosts.
 /// </summary>
-internal sealed class WatchThemeDictionary : ResourceDictionary
+public sealed class WatchThemeDictionary : ResourceDictionary
 {
     public WatchThemeDictionary()
     {

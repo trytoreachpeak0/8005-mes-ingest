@@ -1,6 +1,8 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Watch;
 
@@ -13,16 +15,20 @@ internal sealed class WatchVisualScenario : IDisposable
 
     private readonly WatchVisualCase _visualCase;
     private readonly WatchApplicationComposition _composition;
+    private readonly FixedTimeProvider _timeProvider;
     private readonly string _root;
+    private WatchVisualCapture? _captureTarget;
 
     private WatchVisualScenario(
         WatchVisualCase visualCase,
         WatchApplicationComposition composition,
         MainWindow window,
+        FixedTimeProvider timeProvider,
         string root)
     {
         _visualCase = visualCase;
         _composition = composition;
+        _timeProvider = timeProvider;
         _root = root;
         Window = window;
     }
@@ -32,6 +38,7 @@ internal sealed class WatchVisualScenario : IDisposable
     public static WatchVisualScenario Create(WatchVisualCase visualCase)
     {
         var host = BuildHost(visualCase.State);
+        var timeProvider = new FixedTimeProvider();
         var root = Path.Combine(Path.GetTempPath(), $"watch-visual-{Guid.NewGuid():N}");
         var composition = WatchApplicationComposition.Create(
             Options(),
@@ -40,11 +47,14 @@ internal sealed class WatchVisualScenario : IDisposable
             layoutPreferencesPath: Path.Combine(root, "layout.json"),
             autoRefreshPreferencesPath: Path.Combine(root, "auto-refresh.json"),
             connectionPreferencesPath: Path.Combine(root, "connection.json"),
-            timeProvider: new FixedTimeProvider());
+            timeProvider: timeProvider);
         var window = composition.CreateMainWindow();
         window.Width = visualCase.Width;
         window.Height = visualCase.Height;
-        return new WatchVisualScenario(visualCase, composition, window, root);
+        window.WindowStyle = WindowStyle.None;
+        window.ResizeMode = ResizeMode.NoResize;
+        window.ShowInTaskbar = false;
+        return new WatchVisualScenario(visualCase, composition, window, timeProvider, root);
     }
 
     public async Task PrepareAsync()
@@ -52,6 +62,11 @@ internal sealed class WatchVisualScenario : IDisposable
         Window.Show();
         PumpUntil(() => !Text("PageRefreshContextText")
             .Contains("lastSuccess=(none)", StringComparison.Ordinal));
+        if (_visualCase.State != WatchVisualState.OverviewOfflineStale)
+        {
+            _timeProvider.Advance(TimeSpan.FromSeconds(6));
+            PumpUntil(() => !Visible("ErrorBanner"));
+        }
 
         switch (_visualCase.State)
         {
@@ -129,6 +144,47 @@ internal sealed class WatchVisualScenario : IDisposable
 
         Window.UpdateLayout();
         await Window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+    }
+
+    public WatchVisualCapture CreateCaptureTarget()
+    {
+        if (_captureTarget is not null)
+        {
+            return _captureTarget;
+        }
+
+        var content = Window.Content as FrameworkElement
+            ?? throw new InvalidOperationException("The Watch visual window content is not a FrameworkElement.");
+        var width = _visualCase.Width;
+        var height = _visualCase.Height;
+        Window.Hide();
+        Window.Content = null;
+        var surface = new WatchVisualCapture
+        {
+            Width = width,
+            Height = height,
+            Background = Window.Background,
+            Child = content,
+            FlowDirection = Window.FlowDirection,
+            Language = Window.Language,
+            Resources = Window.Resources,
+            SnapsToDevicePixels = Window.SnapsToDevicePixels,
+            UseLayoutRounding = Window.UseLayoutRounding,
+        };
+        surface.SetValue(TextElement.FontFamilyProperty, Window.FontFamily);
+        surface.SetValue(TextElement.FontSizeProperty, Window.FontSize);
+        surface.SetValue(TextElement.FontStretchProperty, Window.FontStretch);
+        surface.SetValue(TextElement.FontStyleProperty, Window.FontStyle);
+        surface.SetValue(TextElement.FontWeightProperty, Window.FontWeight);
+        surface.SetValue(TextElement.ForegroundProperty, Window.Foreground);
+        TextOptions.SetTextFormattingMode(surface, TextOptions.GetTextFormattingMode(Window));
+        TextOptions.SetTextRenderingMode(surface, TextOptions.GetTextRenderingMode(Window));
+
+        surface.Measure(new Size(width, height));
+        surface.Arrange(new Rect(0, 0, width, height));
+        surface.UpdateLayout();
+        _captureTarget = surface;
+        return surface;
     }
 
     public void Dispose()
@@ -362,6 +418,14 @@ internal sealed class WatchVisualScenario : IDisposable
 
     private sealed class FixedTimeProvider : TimeProvider
     {
-        public override DateTimeOffset GetUtcNow() => FixedNow;
+        private DateTimeOffset _now = FixedNow;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public void Advance(TimeSpan elapsed) => _now += elapsed;
     }
+}
+
+public sealed class WatchVisualCapture : Border
+{
 }

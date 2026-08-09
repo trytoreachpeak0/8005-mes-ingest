@@ -3,7 +3,7 @@ using System.Windows.Data;
 
 namespace MesIngest.Watch;
 
-internal sealed class LocalDateTimeOffsetConverter : IValueConverter
+public sealed class LocalDateTimeOffsetConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value switch

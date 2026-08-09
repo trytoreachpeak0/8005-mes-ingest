@@ -1,6 +1,6 @@
 namespace MesIngest.Watch;
 
-internal sealed record WatchDemandDto(
+public sealed record WatchDemandDto(
     string DemandId,
     string TaskType,
     string Sublot,
@@ -17,7 +17,7 @@ internal sealed record WatchDemandDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? GoneAt);
 
-internal sealed record WatchAlertDto(
+public sealed record WatchAlertDto(
     string? AlertId,
     string Code,
     string? Severity,

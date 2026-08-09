@@ -77,28 +77,30 @@ internal partial class MainWindow : Window
         _client = client;
         _bootstrapClient = client;
         _browse = new WatchBrowseSession(client);
-        _visibleDemands = new WatchDemandSession(client);
-        _goneDemands = new WatchDemandSession(client, WatchDemandViewKind.Gone);
-        _alerts = new WatchAlertSession(client);
+        _visibleDemands = new WatchDemandSession(client, timeProvider: _timeProvider);
+        _goneDemands = new WatchDemandSession(client, WatchDemandViewKind.Gone, _timeProvider);
+        _alerts = new WatchAlertSession(client, _timeProvider);
         _overview = new WatchOverviewSession(client, () => _timeProvider.GetUtcNow());
         if (hostAdapterFactory is null)
         {
             var bootstrapAvailable = true;
-            _hostSession = new WatchHostSession(settings =>
-            {
-                if (bootstrapAvailable)
+            _hostSession = new WatchHostSession(
+                settings =>
                 {
-                    bootstrapAvailable = false;
-                    _bootstrapClient = null;
-                    return client;
-                }
+                    if (bootstrapAvailable)
+                    {
+                        bootstrapAvailable = false;
+                        _bootstrapClient = null;
+                        return client;
+                    }
 
-                return MesIngestApiClient.CreateForHost(settings);
-            });
+                    return MesIngestApiClient.CreateForHost(settings);
+                },
+                _timeProvider);
         }
         else
         {
-            _hostSession = new WatchHostSession(hostAdapterFactory);
+            _hostSession = new WatchHostSession(hostAdapterFactory, _timeProvider);
         }
         _options = options;
         _layoutPreferencesPath = layoutPreferencesPath ?? WatchLayoutPreferences.DefaultFilePath;
@@ -418,7 +420,7 @@ internal partial class MainWindow : Window
     private void OnOverviewAlertsClick(object sender, RoutedEventArgs e)
     {
         _alerts.Dispose();
-        _alerts = new WatchAlertSession(_hostSession);
+        _alerts = new WatchAlertSession(_hostSession, _timeProvider);
         _alertRefreshState = WatchRefreshState.Empty;
         ApplyAlertDraftToControls(_alerts.State.Draft);
         PrimaryNavigation.SelectedIndex = 2;
@@ -443,7 +445,7 @@ internal partial class MainWindow : Window
     private void OnOverviewDemandsClick(object sender, RoutedEventArgs e)
     {
         _visibleDemands.Dispose();
-        _visibleDemands = new WatchDemandSession(_hostSession);
+        _visibleDemands = new WatchDemandSession(_hostSession, timeProvider: _timeProvider);
         ResetDemandTabsToVisible();
         PrimaryNavigation.SelectedIndex = 1;
     }
@@ -510,11 +512,11 @@ internal partial class MainWindow : Window
         _client = _hostSession;
         _browse = new WatchBrowseSession(_hostSession);
         _visibleDemands.Dispose();
-        _visibleDemands = new WatchDemandSession(_hostSession);
+        _visibleDemands = new WatchDemandSession(_hostSession, timeProvider: _timeProvider);
         _goneDemands.Dispose();
-        _goneDemands = new WatchDemandSession(_hostSession, WatchDemandViewKind.Gone);
+        _goneDemands = new WatchDemandSession(_hostSession, WatchDemandViewKind.Gone, _timeProvider);
         _alerts.Dispose();
-        _alerts = new WatchAlertSession(_hostSession);
+        _alerts = new WatchAlertSession(_hostSession, _timeProvider);
         _overview = new WatchOverviewSession(_hostSession, () => _timeProvider.GetUtcNow());
 
         foreach (var detail in _openAlertDetails.Values.ToArray())

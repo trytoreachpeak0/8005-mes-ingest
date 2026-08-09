@@ -311,9 +311,9 @@
                             <DataGridTemplateColumn Header="Code" AutomationProperties.Name="IngestAlert Code 列" SortMemberPath="Code" Width="180" CanUserSort="True">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
-                                        <Button Content="{Binding Code}"
-                                                Click="OnAlertViewDetailsClick"
+                                        <Button Click="OnAlertViewDetailsClick"
                                                 AutomationProperties.AutomationId="AlertDetailsButton"
+                                                AutomationProperties.Name="{Binding Code}"
                                                 ToolTip="查看 Alert 详情"
                                                 Cursor="Hand"
                                                 Focusable="False"
@@ -321,7 +321,9 @@
                                                 BorderThickness="0"
                                                 Background="Transparent"
                                                 Foreground="{StaticResource WatchAccentBrush}"
-                                                HorizontalContentAlignment="Left" />
+                                                HorizontalContentAlignment="Left">
+                                            <TextBlock Text="{Binding Code}" />
+                                        </Button>
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>

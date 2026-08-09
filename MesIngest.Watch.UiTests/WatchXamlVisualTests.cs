@@ -1,6 +1,10 @@
+using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Markup;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using VerifyTests;
 using VerifyXunit;
@@ -100,6 +104,40 @@ public sealed class WatchXamlVisualTests
         TheoryDataFor(Required1440Cases);
 
     [Theory]
+    [MemberData(nameof(RequiredBaselines))]
+    [Trait("Category", "watch-vm-tests")]
+    public async Task Required_visual_scenario_creates_an_exact_offscreen_capture_surface(
+        WatchVisualCase visualCase)
+    {
+        await WatchVisualSta.RunAsync(async () =>
+        {
+            using var scenario = WatchVisualScenario.Create(visualCase);
+            try
+            {
+                await scenario.PrepareAsync();
+                var captureTarget = scenario.CreateCaptureTarget();
+
+                Assert.Null(scenario.Window.Content);
+                Assert.Same(captureTarget, scenario.CreateCaptureTarget());
+                Assert.InRange(Math.Abs(captureTarget.ActualWidth - visualCase.Width), 0, 0.01);
+                Assert.InRange(Math.Abs(captureTarget.ActualHeight - visualCase.Height), 0, 0.01);
+                Assert.False(string.IsNullOrWhiteSpace(XamlWriter.Save(captureTarget)));
+                using var png = WatchVisualCaptureConverter.CapturePng(captureTarget);
+                var decoder = new PngBitmapDecoder(
+                    png,
+                    BitmapCreateOptions.PreservePixelFormat,
+                    BitmapCacheOption.OnLoad);
+                Assert.Equal(visualCase.Width, decoder.Frames[0].PixelWidth);
+                Assert.Equal(visualCase.Height, decoder.Frames[0].PixelHeight);
+            }
+            finally
+            {
+                scenario.Window.Close();
+            }
+        });
+    }
+
+    [Theory]
     [MemberData(nameof(RequiredScenarioStates))]
     [Trait("Category", "watch-vm-tests")]
     public async Task Required_visual_scenario_reaches_its_state_without_a_live_host(
@@ -120,6 +158,29 @@ public sealed class WatchXamlVisualTests
                 else if (visualCase.State == WatchVisualState.OverviewDegraded)
                 {
                     Assert.Equal("✕ 存在活动 ERROR", conclusion);
+                }
+
+                if (visualCase.State is WatchVisualState.OverviewHealthy
+                    or WatchVisualState.OverviewDegraded)
+                {
+                    var errorBanner = (Border)scenario.Window.FindName("ErrorBanner");
+                    Assert.Equal(Visibility.Collapsed, errorBanner.Visibility);
+                }
+
+                if (visualCase.State == WatchVisualState.DemandsVisibleSelected)
+                {
+                    var rowCount = ((TextBlock)scenario.Window.FindName("RowCountText")).Text;
+                    Assert.Contains("2026-08-08 12:42:22", rowCount);
+                }
+                else if (visualCase.State == WatchVisualState.AlertsActiveSelected)
+                {
+                    var alertCount = ((TextBlock)scenario.Window.FindName("AlertCountText")).Text;
+                    Assert.Contains("2026-08-08 12:42:22", alertCount);
+                    var alertGrid = (DataGrid)scenario.Window.FindName("AlertsGrid");
+                    var detailButton = VisualDescendants<Button>(alertGrid).First(button =>
+                        AutomationProperties.GetAutomationId(button) == "AlertDetailsButton");
+                    var code = Assert.IsType<TextBlock>(detailButton.Content);
+                    Assert.Equal("POLL_FAILURE", code.Text);
                 }
             }
             finally
@@ -146,7 +207,10 @@ public sealed class WatchXamlVisualTests
             {
                 var settings = new VerifySettings();
                 settings.UseFileName(visualCase.BaselineName);
-                await Verifier.Verify(scenario.Window, settings);
+                var captureTarget = scenario.CreateCaptureTarget();
+                Assert.InRange(Math.Abs(captureTarget.ActualWidth - visualCase.Width), 0, 0.01);
+                Assert.InRange(Math.Abs(captureTarget.ActualHeight - visualCase.Height), 0, 0.01);
+                await Verifier.Verify(captureTarget, settings);
             }
             finally
             {
@@ -165,6 +229,24 @@ public sealed class WatchXamlVisualTests
         }
 
         return data;
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }
 

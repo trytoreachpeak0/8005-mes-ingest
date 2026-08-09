@@ -271,6 +271,20 @@ public sealed class ScriptedFakeHostTests
                 && entry.State == FakeHostRequestState.Completed);
     }
 
+    [Fact]
+    public async Task Host_session_uses_the_injected_clock_for_its_success_timestamp()
+    {
+        var expected = DateTimeOffset.Parse("2026-08-08T04:42:16Z");
+        var host = new ScriptedFakeHost(new FakeHostScenario("fake-fixed-clock"));
+        using var session = new WatchHostSession(
+            host.CreateAdapter,
+            new FixedTimeProvider(expected));
+
+        await session.ApplyAsync(FakeSettings("fake-fixed-clock-secret"));
+
+        Assert.Equal(expected, session.State.LastSuccessfulAt);
+    }
+
     private static WatchHostSettings FakeSettings(
         string secret,
         string baseUrl = "http://fake-watch.test") =>
@@ -326,4 +340,9 @@ public sealed class ScriptedFakeHostTests
         IsActive: true,
         ResolvedAt: null,
         CreatedAt: DateTimeOffset.Parse("2026-01-02T03:04:05+08:00"));
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 }
