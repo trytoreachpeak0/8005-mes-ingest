@@ -111,6 +111,7 @@ $taskName = "MesIngestWatch-Golden-$Ticket-$stamp"
 $session = $null
 $sqlSkipApprovalInfo = $null
 $manualAcceptanceInfo = $null
+$validationSucceeded = $false
 
 try {
     New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
@@ -369,30 +370,14 @@ try {
             throw 'PACKAGED_RELEASE_REQUIRES_MANUAL_ACCEPTANCE: ReleaseApproval\manual-acceptance.json is missing.'
         }
 
-        $releaseEvidence = Join-Path $Root 'Results\release-package'
-        New-Item -ItemType Directory -Path $releaseEvidence -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $installRoot 'VERSION.txt') -Destination $releaseEvidence
-        Copy-Item -LiteralPath (Join-Path $installRoot 'RELEASE-MANIFEST.json') -Destination $releaseEvidence
         $packageManifestPath = Join-Path $installRoot 'RELEASE-MANIFEST.json'
-        $regressionSummaryPath = Join-Path $regressionDirectory 'summary.json'
-        $uiSummaryPath = Join-Path $Root 'Results\packaged-watch-acceptance\summary.json'
-        $smokeSummaryPath = Join-Path $Root 'Results\release-smoke\release-smoke-result.json'
         [ordered]@{
             schemaVersion = 1
+            status = 'READY_FOR_HOST_CLEANUP_AND_FINALIZATION'
             completedAt = [DateTimeOffset]::Now.ToString('O')
             packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash
-            packageManifest = Get-Content -Raw -LiteralPath $packageManifestPath | ConvertFrom-Json
-            preEnvironment = 'Results/environment.json'
-            postEnvironment = 'Results/environment-post.json'
-            releaseSmoke = Get-Content -Raw -LiteralPath $smokeSummaryPath | ConvertFrom-Json
-            coreHostHttpSql = Get-Content -Raw -LiteralPath $regressionSummaryPath | ConvertFrom-Json
-            packagedWatchAcceptance = Get-Content -Raw -LiteralPath $uiSummaryPath | ConvertFrom-Json
-            manualAcceptance = Get-Content -Raw -LiteralPath $manualApprovalPath | ConvertFrom-Json
-        } | ConvertTo-Json -Depth 12 |
-            Set-Content -LiteralPath (Join-Path $releaseEvidence 'RELEASE-SIGNOFF.json') -Encoding utf8
-        Compress-Archive -Path (Join-Path $installRoot '*') `
-            -DestinationPath (Join-Path $releaseEvidence 'MesIngest-win-x64.zip') `
-            -CompressionLevel Fastest
+        } | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath (Join-Path $Root 'Results\release-gates-passed.json') -Encoding utf8
     }
     elseif ($Suite -eq 'watch-xaml-stability') {
         & '.\Test-WatchXamlBaselineStability.ps1' `
@@ -532,15 +517,7 @@ catch {
     if ($taskResult -ne 0) {
         throw "Golden renderer validation failed with scheduled-task result $taskResult."
     }
-    [ordered]@{
-        Status = 'PASSED'
-        ScheduledTaskResult = $taskResult
-        CompletedAt = [DateTimeOffset]::Now.ToString('O')
-        GuestRunDirectory = $guestRoot
-        ArtifactsDirectory = $artifacts
-    } | ConvertTo-Json |
-        Set-Content -LiteralPath (Join-Path $artifacts 'orchestration-result.json') -Encoding utf8
-    Write-Output "GOLDEN_RENDERER_VALIDATION_PASSED: suite=$Suite artifacts=$artifacts"
+    $validationSucceeded = $true
 }
 finally {
     if ($null -ne $session) {
@@ -605,21 +582,62 @@ exit `$LASTEXITCODE
                 -Destination (Join-Path $artifacts 'environment-after-host-cleanup.json') -Force
         }
         Remove-PSSession $session
-        if ($null -ne $cleanup) {
-            [ordered]@{
-                CompletedAt = [DateTimeOffset]::Now.ToString('O')
-                TaskPresent = [bool]$cleanup.TaskPresent
-                ResidualProcesses = [int]$cleanup.ResidualProcesses
-                PostCleanupTaskPresent = [bool]$cleanup.PostCleanupTaskPresent
-                PostCleanupEnvironmentResult = [int]$cleanup.PostCleanupEnvironmentResult
-            } | ConvertTo-Json |
-                Set-Content -LiteralPath (Join-Path $artifacts 'cleanup.json') -Encoding utf8
-            if ($cleanup.TaskPresent `
-                -or $cleanup.ResidualProcesses -ne 0 `
-                -or $cleanup.PostCleanupTaskPresent `
-                -or $cleanup.PostCleanupEnvironmentResult -ne 0) {
-                throw "Golden renderer cleanup or post-cleanup environment recheck failed; see cleanup.json."
+        if ($null -eq $cleanup) {
+            throw 'Golden renderer cleanup could not be completed or inspected.'
+        }
+        [ordered]@{
+            CompletedAt = [DateTimeOffset]::Now.ToString('O')
+            TaskPresent = [bool]$cleanup.TaskPresent
+            ResidualProcesses = [int]$cleanup.ResidualProcesses
+            PostCleanupTaskPresent = [bool]$cleanup.PostCleanupTaskPresent
+            PostCleanupEnvironmentResult = [int]$cleanup.PostCleanupEnvironmentResult
+        } | ConvertTo-Json |
+            Set-Content -LiteralPath (Join-Path $artifacts 'cleanup.json') -Encoding utf8
+        if ($cleanup.TaskPresent `
+            -or $cleanup.ResidualProcesses -ne 0 `
+            -or $cleanup.PostCleanupTaskPresent `
+            -or $cleanup.PostCleanupEnvironmentResult -ne 0) {
+            throw "Golden renderer cleanup or post-cleanup environment recheck failed; see cleanup.json."
+        }
+        if ($validationSucceeded) {
+            if ($Suite -eq 'watch-package-release') {
+                $releaseEvidence = Join-Path $artifacts 'Results\release-package'
+                New-Item -ItemType Directory -Path $releaseEvidence -Force | Out-Null
+                $packageManifestPath = Join-Path $packagePayload 'RELEASE-MANIFEST.json'
+                $regressionSummaryPath = Join-Path $artifacts 'Results\core-host-http-sql\summary.json'
+                $uiSummaryPath = Join-Path $artifacts 'Results\packaged-watch-acceptance\summary.json'
+                $smokeSummaryPath = Join-Path $artifacts 'Results\release-smoke\release-smoke-result.json'
+                $manualApprovalPath = (Resolve-Path -LiteralPath $ManualAcceptancePath -ErrorAction Stop).Path
+                Copy-Item -LiteralPath (Join-Path $packagePayload 'VERSION.txt') -Destination $releaseEvidence
+                Copy-Item -LiteralPath $packageManifestPath -Destination $releaseEvidence
+                [ordered]@{
+                    schemaVersion = 1
+                    completedAt = [DateTimeOffset]::Now.ToString('O')
+                    packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash
+                    packageManifest = Get-Content -Raw -LiteralPath $packageManifestPath | ConvertFrom-Json
+                    preEnvironment = 'Results/environment.json'
+                    postEnvironment = 'Results/environment-post.json'
+                    finalPostCleanupEnvironment = 'environment-after-host-cleanup.json'
+                    cleanup = Get-Content -Raw -LiteralPath (Join-Path $artifacts 'cleanup.json') | ConvertFrom-Json
+                    releaseSmoke = Get-Content -Raw -LiteralPath $smokeSummaryPath | ConvertFrom-Json
+                    coreHostHttpSql = Get-Content -Raw -LiteralPath $regressionSummaryPath | ConvertFrom-Json
+                    packagedWatchAcceptance = Get-Content -Raw -LiteralPath $uiSummaryPath | ConvertFrom-Json
+                    manualAcceptance = Get-Content -Raw -LiteralPath $manualApprovalPath | ConvertFrom-Json
+                } | ConvertTo-Json -Depth 12 |
+                    Set-Content -LiteralPath (Join-Path $releaseEvidence 'RELEASE-SIGNOFF.json') -Encoding utf8
+                Compress-Archive -Path (Join-Path $packagePayload '*') `
+                    -DestinationPath (Join-Path $releaseEvidence 'MesIngest-win-x64.zip') `
+                    -CompressionLevel Fastest
             }
+            [ordered]@{
+                Status = 'PASSED'
+                ScheduledTaskResult = $taskResult
+                CompletedAt = [DateTimeOffset]::Now.ToString('O')
+                GuestRunDirectory = $guestRoot
+                ArtifactsDirectory = $artifacts
+            } | ConvertTo-Json |
+                Set-Content -LiteralPath (Join-Path $artifacts 'orchestration-result.json') -Encoding utf8
+            Write-Output "GOLDEN_RENDERER_VALIDATION_PASSED: suite=$Suite artifacts=$artifacts"
         }
     }
     if (Test-Path -LiteralPath $tempRoot) {

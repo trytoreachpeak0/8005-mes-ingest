@@ -171,6 +171,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED", wrapper, StringComparison.Ordinal);
         Assert.Contains("ManualAcceptancePath", wrapper, StringComparison.Ordinal);
         Assert.Contains("RELEASE-SIGNOFF.json", wrapper, StringComparison.Ordinal);
+        Assert.Contains("READY_FOR_HOST_CLEANUP_AND_FINALIZATION", wrapper, StringComparison.Ordinal);
+        Assert.Contains("finalPostCleanupEnvironment", wrapper, StringComparison.Ordinal);
         Assert.Contains("core-host-http-sql.trx", wrapper, StringComparison.Ordinal);
         Assert.Contains("environment-after-host-cleanup.json", wrapper, StringComparison.Ordinal);
         Assert.Contains(":(exclude).artifacts/**", wrapper, StringComparison.Ordinal);
@@ -179,5 +181,13 @@ public class InstallPackageLayoutTests
         Assert.Contains("experiments\\definitions\\mes-ingest-factory-validation\\plan.md", wrapper, StringComparison.Ordinal);
         Assert.Contains("evidence\\README.md", wrapper, StringComparison.Ordinal);
         Assert.Contains("$_ -notin $approvedTests", wrapper, StringComparison.Ordinal);
+
+        var cleanupGate = wrapper.IndexOf(
+            "Golden renderer cleanup or post-cleanup environment recheck failed",
+            StringComparison.Ordinal);
+        var signoffPromotion = wrapper.IndexOf("RELEASE-SIGNOFF.json", StringComparison.Ordinal);
+        var zipPromotion = wrapper.IndexOf("MesIngest-win-x64.zip", StringComparison.Ordinal);
+        Assert.True(cleanupGate >= 0 && cleanupGate < signoffPromotion);
+        Assert.True(cleanupGate < zipPromotion);
     }
 }
