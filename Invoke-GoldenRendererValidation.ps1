@@ -503,14 +503,14 @@ catch {
         Invoke-Command -Session $session -ScriptBlock {
             param($root, $credential, $dataSource, $database)
             $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
-            $builder.DataSource = $dataSource
-            $builder.InitialCatalog = $database
-            $builder.UserID = $credential.UserName
-            $builder.Password = $credential.GetNetworkCredential().Password
-            $builder.Encrypt = $true
-            $builder.TrustServerCertificate = $true
-            $builder.PersistSecurityInfo = $false
-            $builder.ConnectTimeout = 15
+            $builder['Data Source'] = $dataSource
+            $builder['Initial Catalog'] = $database
+            $builder['User ID'] = $credential.UserName
+            $builder['Password'] = $credential.GetNetworkCredential().Password
+            $builder['Encrypt'] = $true
+            $builder['TrustServerCertificate'] = $true
+            $builder['Persist Security Info'] = $false
+            $builder['Connect Timeout'] = 15
             $secretPath = Join-Path $root 'sql-server-connection-string.txt'
             [IO.File]::WriteAllText(
                 $secretPath,

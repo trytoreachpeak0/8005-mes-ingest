@@ -171,6 +171,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("SqlServerDataSource", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDatabase", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlPasswordFromDpapiCredential", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$builder['Data Source']", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$builder['Initial Catalog']", wrapper, StringComparison.Ordinal);
         Assert.Contains("$env:MES_INGEST_SQLSERVER", wrapper, StringComparison.Ordinal);
         Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);
