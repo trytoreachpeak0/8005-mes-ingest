@@ -129,11 +129,14 @@ try {
         throw "robocopy failed with exit code $LASTEXITCODE"
     }
     if ($Suite -eq 'watch-package-release') {
-        $sqlInputCount = @(
+        $sqlInputs = @(
             $SqlServerCredentialPath,
             $SqlServerDataSource,
             $SqlServerDatabase
-        ).Where({ -not [string]::IsNullOrWhiteSpace($_) }).Count
+        )
+        $sqlInputCount = @($sqlInputs | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        }).Count
         if ($sqlInputCount -notin @(0, 3)) {
             throw 'SqlServerCredentialPath, SqlServerDataSource, and SqlServerDatabase must be supplied together.'
         }

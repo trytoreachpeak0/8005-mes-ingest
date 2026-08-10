@@ -170,6 +170,7 @@ public class InstallPackageLayoutTests
         Assert.Contains("SqlServerCredentialPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDataSource", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDatabase", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$sqlInputCount = @($sqlInputs | Where-Object", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlPasswordFromDpapiCredential", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Data Source']", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Initial Catalog']", wrapper, StringComparison.Ordinal);
