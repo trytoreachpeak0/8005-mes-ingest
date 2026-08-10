@@ -173,5 +173,9 @@ public class InstallPackageLayoutTests
         Assert.Contains("RELEASE-SIGNOFF.json", wrapper, StringComparison.Ordinal);
         Assert.Contains("core-host-http-sql.trx", wrapper, StringComparison.Ordinal);
         Assert.Contains("environment-after-host-cleanup.json", wrapper, StringComparison.Ordinal);
+        Assert.Contains("queries\\mes-task-union", wrapper, StringComparison.Ordinal);
+        Assert.Contains("experiments\\definitions\\mes-ingest-factory-validation\\plan.md", wrapper, StringComparison.Ordinal);
+        Assert.Contains("evidence\\README.md", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$_ -notin $approvedTests", wrapper, StringComparison.Ordinal);
     }
 }

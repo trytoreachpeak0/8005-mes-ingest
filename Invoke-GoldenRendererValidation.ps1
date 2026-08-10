@@ -88,6 +88,7 @@ $artifacts = if ([string]::IsNullOrWhiteSpace($ArtifactsDirectory)) {
 New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 
 $gitRoot = @(& git -C $source rev-parse --show-toplevel 2>$null)
+$repositoryRoot = @($gitRoot) | Select-Object -First 1
 $gitCommit = if ($LASTEXITCODE -eq 0) {
     (@(& git -C $source rev-parse HEAD 2>$null) | Select-Object -First 1)
 } else {
@@ -117,6 +118,25 @@ try {
         throw "robocopy failed with exit code $LASTEXITCODE"
     }
     if ($Suite -eq 'watch-package-release') {
+        if ([string]::IsNullOrWhiteSpace($repositoryRoot)) {
+            throw 'The package release suite requires a Git worktree so its repository-level regression inputs can be staged.'
+        }
+        $mesPayloadRoot = Join-Path $tempRoot 'payload\Source\mes'
+        $regressionInputs = @(
+            'queries\mes-task-union',
+            'experiments\definitions\mes-ingest-factory-validation\plan.md',
+            'experiments\README.md',
+            'evidence\README.md'
+        )
+        foreach ($relativeInput in $regressionInputs) {
+            $inputSource = Join-Path $repositoryRoot "mes\$relativeInput"
+            $inputDestination = Join-Path $mesPayloadRoot $relativeInput
+            if (-not (Test-Path -LiteralPath $inputSource)) {
+                throw "Required repository-level regression input is missing: $inputSource"
+            }
+            New-Item -ItemType Directory -Path (Split-Path -Parent $inputDestination) -Force | Out-Null
+            Copy-Item -LiteralPath $inputSource -Destination $inputDestination -Recurse -Force
+        }
         $packagePayload = Join-Path $tempRoot 'payload\ReleasePackage\MesIngest'
         $packageBuildLog = Join-Path $artifacts 'host-package-build.log'
         & (Join-Path $source 'pack\Publish-MesIngest.ps1') `
@@ -186,7 +206,7 @@ try {
         GuestRunDirectory = $guestRoot
         CreatedAt = [DateTimeOffset]::Now.ToString('O')
         SourceDirectory = $source
-        GitRoot = @($gitRoot) | Select-Object -First 1
+        GitRoot = $repositoryRoot
         GitCommit = $gitCommit
         GitDirty = $gitStatus.Count -gt 0
         GitStatus = $gitStatus
@@ -297,7 +317,10 @@ try {
         }
         $approvedTests = if ($null -ne $approval) { @($approval.tests | Sort-Object -Unique) } else { @() }
         $actualSkippedTests = @($skippedResults | ForEach-Object { $_.testName } | Sort-Object -Unique)
-        $approvalDifferences = @(Compare-Object -ReferenceObject $actualSkippedTests -DifferenceObject $approvedTests)
+        $approvalDifferences = @(
+            @($actualSkippedTests | Where-Object { $_ -notin $approvedTests })
+            @($approvedTests | Where-Object { $_ -notin $actualSkippedTests })
+        )
         [ordered]@{
             total = [int]$trx.TestRun.ResultSummary.Counters.total
             executed = [int]$trx.TestRun.ResultSummary.Counters.executed
