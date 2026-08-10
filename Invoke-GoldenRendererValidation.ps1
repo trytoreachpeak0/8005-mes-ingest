@@ -95,7 +95,9 @@ $gitCommit = if ($LASTEXITCODE -eq 0) {
     $null
 }
 $gitStatus = if ($null -ne $gitCommit) {
-    @(& git -C $source status --porcelain=v1 --untracked-files=normal -- . 2>$null)
+    @(& git -C $source status --porcelain=v1 --untracked-files=normal -- . `
+        ':(exclude).artifacts/**' `
+        ':(exclude)MesIngest.Tests/TestResults/**' 2>$null)
 } else {
     @()
 }
