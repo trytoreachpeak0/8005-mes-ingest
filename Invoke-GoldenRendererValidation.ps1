@@ -10,7 +10,10 @@ param(
         'watch-xaml-visual',
         'watch-xaml-stability',
         'watch-ui-journeys',
-        'watch-window-visual')]
+        'watch-window-visual',
+        'watch-window-stability',
+        'watch-window-promoted-stability',
+        'watch-ui-stability')]
     [string]$Suite = 'watch-vm-tests',
 
     [ValidateSet('Debug', 'Release')]
@@ -44,7 +47,10 @@ $ErrorActionPreference = 'Stop'
 $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $requiredFiles = @(
     'Invoke-WatchUiTests.ps1',
+    'WatchBaselineTools.ps1',
     'Test-WatchXamlBaselineStability.ps1',
+    'Test-WatchWindowBaselineStability.ps1',
+    'Test-WatchUiGateStability.ps1',
     'Test-GoldenRendererEnvironment.ps1',
     'MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj'
 )
@@ -107,7 +113,7 @@ try {
         Ticket = $Ticket
         Suite = $Suite
         Configuration = $Configuration
-        RequestedRuns = if ($Suite -eq 'watch-xaml-stability') { $Runs } else { 1 }
+        RequestedRuns = if ($Suite -like '*-stability') { $Runs } else { 1 }
         VmName = $VmName
         GuestRunDirectory = $guestRoot
         CreatedAt = [DateTimeOffset]::Now.ToString('O')
@@ -164,6 +170,29 @@ try {
             -Configuration $Configuration `
             -Runs $Runs 2>&1 | Tee-Object -FilePath $logPath -Append
     }
+    elseif ($Suite -eq 'watch-window-stability') {
+        & '.\Test-WatchWindowBaselineStability.ps1' `
+            -Configuration $Configuration `
+            -Runs $Runs `
+            -Mode Candidate `
+            -ArtifactsDirectory (Join-Path $Root 'Results\watch-window-stability') 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+    }
+    elseif ($Suite -eq 'watch-window-promoted-stability') {
+        & '.\Test-WatchWindowBaselineStability.ps1' `
+            -Configuration $Configuration `
+            -Runs $Runs `
+            -Mode Promoted `
+            -ArtifactsDirectory (Join-Path $Root 'Results\watch-window-promoted-stability') 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+    }
+    elseif ($Suite -eq 'watch-ui-stability') {
+        & '.\Test-WatchUiGateStability.ps1' `
+            -Configuration $Configuration `
+            -Runs $Runs `
+            -ArtifactsDirectory (Join-Path $Root 'Results\watch-ui-stability') 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+    }
     else {
         & '.\Invoke-WatchUiTests.ps1' `
             -Configuration $Configuration `
@@ -175,7 +204,7 @@ try {
         ExitCode = $exitCode
         CompletedAt = [DateTimeOffset]::Now.ToString('O')
         Suite = $Suite
-        Runs = if ($Suite -eq 'watch-xaml-stability') { $Runs } else { 1 }
+        Runs = if ($Suite -like '*-stability') { $Runs } else { 1 }
     } | ConvertTo-Json | Set-Content -LiteralPath $resultPath -Encoding utf8
     exit $exitCode
 }

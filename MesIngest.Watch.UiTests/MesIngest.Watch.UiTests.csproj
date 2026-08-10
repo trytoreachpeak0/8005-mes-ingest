@@ -26,4 +26,12 @@
     <ProjectReference Include="..\MesIngest.Watch\MesIngest.Watch.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="WindowBaselines\*.verified.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

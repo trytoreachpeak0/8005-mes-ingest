@@ -36,3 +36,43 @@ Microsoft YaHei UI and Consolas, and the default `SoftwareOnly` rendering mode. 
 difference exits with code `2` before Verify can write a received artifact. See
 [`Baselines/README.md`](Baselines/README.md) for the 10-run stability and human-review
 workflow. Tests and candidates contain fixed fake data only.
+
+The real-window suites launch the packaged `MesIngest.Watch.exe`, drive it through
+FlaUI.UIA3 5.0.0, and serve the public read contract from a loopback HTTP fake Host.
+They never inject a test adapter into the Watch process. The five journeys are:
+
+- cold-start overview;
+- independent VISIBLE/GONE paging and TransportDemand details;
+- IngestAlert to exact TransportDemand navigation;
+- canceling a slow request while retaining the last successful page;
+- going offline and reconnecting.
+
+Run UIA journey smoke at 100%, 125%, or 150% DPI:
+
+```powershell
+.\Invoke-WatchUiTests.ps1 -Suite watch-ui-journeys
+```
+
+Run the five pixel-exact `1440x900` client-area baselines only on the calibrated 100%
+environment:
+
+```powershell
+.\Invoke-WatchUiTests.ps1 -Suite watch-window-visual
+```
+
+The single local release-gate entry runs all four suites in order and owns a named
+desktop mutex, so neither another assembly nor another desktop driver can overlap it:
+
+```powershell
+.\Invoke-WatchUiTests.ps1 -Suite all
+```
+
+On the first failure the entry exits non-zero without rerunning. It retains the runner
+log and a redacted evidence directory containing expected/actual/diff when applicable,
+received XAML when supplied by Verify, step/failure screenshots, UIA tree, Watch logs,
+separate Watch stdout/stderr, fake Host timeline and summary, the failed step/exception/
+timeout, and an environment manifest. A rerun is a separate maintainer action and is
+diagnostic only; it never changes the original result.
+
+See [`WindowBaselines/README.md`](WindowBaselines/README.md) for baseline review and
+[`UI-GATE-POLICY.md`](UI-GATE-POLICY.md) for 50-run and flaky governance.

@@ -31,6 +31,50 @@ public sealed class WatchVisualEnvironmentTests
     }
 
     [Fact]
+    [Trait("Category", "watch-ui-environment")]
+    public void Current_environment_supports_real_window_uia_journeys()
+    {
+        RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        var isRequired = string.Equals(
+            Environment.GetEnvironmentVariable("MESINGEST_WATCH_REQUIRE_JOURNEY_ENVIRONMENT"),
+            "1",
+            StringComparison.Ordinal);
+        var result = WatchVisualEnvironment.EvaluateJourney(WatchVisualEnvironment.Capture());
+
+        Assert.SkipWhen(
+            !isRequired && !result.IsCompatible,
+            "WATCH_UI_JOURNEY_ENVIRONMENT_UNAVAILABLE:" + Environment.NewLine
+            + string.Join(Environment.NewLine, result.Differences.Select(item => $"- {item}")));
+        Assert.True(
+            result.IsCompatible,
+            "WATCH_UI_JOURNEY_ENVIRONMENT_UNAVAILABLE:" + Environment.NewLine
+            + string.Join(Environment.NewLine, result.Differences.Select(item => $"- {item}")));
+    }
+
+    [Fact]
+    public void Journey_environment_accepts_supported_dpi_and_rejects_shared_contract_drift()
+    {
+        var compatible = MatchingSnapshot() with
+        {
+            DesktopWidth = 2560,
+            DesktopHeight = 1440,
+            Dpi = 144,
+        };
+
+        Assert.True(WatchVisualEnvironment.EvaluateJourney(compatible).IsCompatible);
+
+        var drifted = compatible with
+        {
+            TimeZoneId = "UTC",
+            RenderingMode = RenderMode.Default,
+        };
+        var result = WatchVisualEnvironment.EvaluateJourney(drifted);
+
+        Assert.Contains(result.Differences, item => item.Contains("timezone", StringComparison.Ordinal));
+        Assert.Contains(result.Differences, item => item.Contains("rendering mode", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Every_environment_drift_is_reported_before_visual_artifacts_can_be_written()
     {
         var result = WatchVisualEnvironment.Evaluate(new WatchVisualEnvironmentSnapshot(
@@ -41,6 +85,7 @@ public sealed class WatchVisualEnvironmentTests
             AppsUseLightTheme: false,
             CultureName: "en-US",
             UiCultureName: "en-US",
+            TimeZoneId: "UTC",
             InstalledFonts: ["Segoe UI"],
             RenderingMode: RenderMode.Default));
 
@@ -53,6 +98,7 @@ public sealed class WatchVisualEnvironmentTests
             item => Assert.Contains("light theme", item, StringComparison.Ordinal),
             item => Assert.Contains("culture=zh-CN", item, StringComparison.Ordinal),
             item => Assert.Contains("UI culture=zh-CN", item, StringComparison.Ordinal),
+            item => Assert.Contains("timezone=China Standard Time", item, StringComparison.Ordinal),
             item => Assert.Contains("Microsoft YaHei UI", item, StringComparison.Ordinal),
             item => Assert.Contains("Consolas", item, StringComparison.Ordinal),
             item => Assert.Contains("rendering mode=SoftwareOnly", item, StringComparison.Ordinal));
@@ -66,6 +112,7 @@ public sealed class WatchVisualEnvironmentTests
         AppsUseLightTheme: true,
         CultureName: "zh-CN",
         UiCultureName: "zh-CN",
+        TimeZoneId: "China Standard Time",
         InstalledFonts: ["Microsoft YaHei UI", "Consolas"],
         RenderingMode: RenderMode.SoftwareOnly);
 }

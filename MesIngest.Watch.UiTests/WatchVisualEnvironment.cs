@@ -14,6 +14,7 @@ internal sealed record WatchVisualEnvironmentSnapshot(
     bool AppsUseLightTheme,
     string CultureName,
     string UiCultureName,
+    string TimeZoneId,
     IReadOnlyCollection<string> InstalledFonts,
     RenderMode RenderingMode);
 
@@ -32,6 +33,28 @@ internal static class WatchVisualEnvironment
     private static readonly string[] RequiredFonts = ["Microsoft YaHei UI", "Consolas"];
 
     public static WatchVisualEnvironmentResult Evaluate(WatchVisualEnvironmentSnapshot snapshot)
+        => Evaluate(
+            snapshot,
+            minimumDesktopWidth: 1920,
+            minimumDesktopHeight: 1080,
+            requireExactDesktopSize: true,
+            allowedDpis: [96]);
+
+    public static WatchVisualEnvironmentResult EvaluateJourney(
+        WatchVisualEnvironmentSnapshot snapshot) =>
+        Evaluate(
+            snapshot,
+            minimumDesktopWidth: 1440,
+            minimumDesktopHeight: 900,
+            requireExactDesktopSize: false,
+            allowedDpis: [96, 120, 144]);
+
+    private static WatchVisualEnvironmentResult Evaluate(
+        WatchVisualEnvironmentSnapshot snapshot,
+        int minimumDesktopWidth,
+        int minimumDesktopHeight,
+        bool requireExactDesktopSize,
+        IReadOnlyCollection<int> allowedDpis)
     {
         var differences = new List<string>();
         if (!snapshot.HasInteractiveInputDesktop)
@@ -39,15 +62,25 @@ internal static class WatchVisualEnvironment
             differences.Add("expected an active input desktop; actual=unavailable");
         }
 
-        if (snapshot.DesktopWidth != 1920 || snapshot.DesktopHeight != 1080)
+        if (requireExactDesktopSize
+            && (snapshot.DesktopWidth != minimumDesktopWidth
+                || snapshot.DesktopHeight != minimumDesktopHeight))
         {
             differences.Add(
-                $"expected desktop=1920x1080; actual={snapshot.DesktopWidth}x{snapshot.DesktopHeight}");
+                $"expected desktop={minimumDesktopWidth}x{minimumDesktopHeight}; actual={snapshot.DesktopWidth}x{snapshot.DesktopHeight}");
+        }
+        else if (!requireExactDesktopSize
+                 && (snapshot.DesktopWidth < minimumDesktopWidth
+                     || snapshot.DesktopHeight < minimumDesktopHeight))
+        {
+            differences.Add(
+                $"expected desktop at least {minimumDesktopWidth}x{minimumDesktopHeight}; actual={snapshot.DesktopWidth}x{snapshot.DesktopHeight}");
         }
 
-        if (snapshot.Dpi != 96)
+        if (!allowedDpis.Contains(snapshot.Dpi))
         {
-            differences.Add($"expected DPI=96 (100%); actual={snapshot.Dpi}");
+            differences.Add(
+                $"expected DPI={string.Join('/', allowedDpis)}; actual={snapshot.Dpi}");
         }
 
         if (!snapshot.AppsUseLightTheme)
@@ -63,6 +96,11 @@ internal static class WatchVisualEnvironment
         if (!string.Equals(snapshot.UiCultureName, "zh-CN", StringComparison.OrdinalIgnoreCase))
         {
             differences.Add($"expected UI culture=zh-CN; actual={snapshot.UiCultureName}");
+        }
+
+        if (!string.Equals(snapshot.TimeZoneId, "China Standard Time", StringComparison.Ordinal))
+        {
+            differences.Add($"expected timezone=China Standard Time; actual={snapshot.TimeZoneId}");
         }
 
         var installedFonts = snapshot.InstalledFonts.ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -100,6 +138,7 @@ internal static class WatchVisualEnvironment
             AppsUseLightTheme: theme is int value && value == 1,
             CultureName: CultureInfo.CurrentCulture.Name,
             UiCultureName: CultureInfo.CurrentUICulture.Name,
+            TimeZoneId: TimeZoneInfo.Local.Id,
             InstalledFonts: installedFonts,
             RenderingMode: RenderOptions.ProcessRenderMode);
     }
