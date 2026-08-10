@@ -38,8 +38,9 @@ param(
 
     [string]$ArtifactsDirectory,
 
-    [ValidatePattern('^[^\r\n"]{0,512}$')]
-    [string]$ApprovedSqlSkipReason = '',
+    [string]$SqlSkipApprovalPath,
+
+    [string]$ManualAcceptancePath,
 
     [ValidateRange(60, 14400)]
     [int]$TimeoutSeconds = 3600
@@ -105,6 +106,8 @@ $payloadZip = Join-Path $tempRoot 'payload.zip'
 $runnerPath = Join-Path $tempRoot 'run-golden-validation.ps1'
 $taskName = "MesIngestWatch-Golden-$Ticket-$stamp"
 $session = $null
+$sqlSkipApprovalInfo = $null
+$manualAcceptanceInfo = $null
 
 try {
     New-Item -ItemType Directory -Path $payloadRoot -Force | Out-Null
@@ -122,6 +125,52 @@ try {
             -Runtime 'win-x64' 2>&1 | Tee-Object -FilePath $packageBuildLog
         if ($LASTEXITCODE -ne 0) {
             throw "Host release package build failed with exit code $LASTEXITCODE."
+        }
+        if (-not [string]::IsNullOrWhiteSpace($SqlSkipApprovalPath)) {
+            $approvalSource = (Resolve-Path -LiteralPath $SqlSkipApprovalPath -ErrorAction Stop).Path
+            $approval = Get-Content -Raw -LiteralPath $approvalSource | ConvertFrom-Json
+            if ([string]::IsNullOrWhiteSpace([string]$approval.approvedBy) `
+                -or [string]::IsNullOrWhiteSpace([string]$approval.approvedAt) `
+                -or [string]::IsNullOrWhiteSpace([string]$approval.userMessage) `
+                -or @($approval.tests).Count -eq 0) {
+                throw 'SQL skip approval must contain approvedBy, approvedAt, userMessage, and the exact approved test names.'
+            }
+            $approvalPayloadDirectory = Join-Path $tempRoot 'payload\ReleaseApproval'
+            New-Item -ItemType Directory -Path $approvalPayloadDirectory -Force | Out-Null
+            Copy-Item -LiteralPath $approvalSource `
+                -Destination (Join-Path $approvalPayloadDirectory 'sql-server-skips.json')
+            $sqlSkipApprovalInfo = [ordered]@{
+                ApprovedBy = [string]$approval.approvedBy
+                ApprovedAt = [string]$approval.approvedAt
+                TestCount = @($approval.tests).Count
+                Sha256 = (Get-FileHash -LiteralPath $approvalSource -Algorithm SHA256).Hash
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ManualAcceptancePath)) {
+            $manualSource = (Resolve-Path -LiteralPath $ManualAcceptancePath -ErrorAction Stop).Path
+            $manual = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json
+            $requiredChecks = @(
+                'startup-within-10-seconds',
+                'demand-alert-visual-contract',
+                'v2-pages-and-settings',
+                'package-run-not-source'
+            )
+            $manualChecks = @($manual.confirmedChecks | Sort-Object -Unique)
+            if ([string]::IsNullOrWhiteSpace([string]$manual.approvedBy) `
+                -or [string]::IsNullOrWhiteSpace([string]$manual.approvedAt) `
+                -or [string]::IsNullOrWhiteSpace([string]$manual.userMessage) `
+                -or @(Compare-Object -ReferenceObject $requiredChecks -DifferenceObject $manualChecks).Count -gt 0) {
+                throw 'Manual acceptance must identify the approver/message and confirm all four packaged-release checks.'
+            }
+            $approvalPayloadDirectory = Join-Path $tempRoot 'payload\ReleaseApproval'
+            New-Item -ItemType Directory -Path $approvalPayloadDirectory -Force | Out-Null
+            Copy-Item -LiteralPath $manualSource `
+                -Destination (Join-Path $approvalPayloadDirectory 'manual-acceptance.json')
+            $manualAcceptanceInfo = [ordered]@{
+                ApprovedBy = [string]$manual.approvedBy
+                ApprovedAt = [string]$manual.approvedAt
+                Sha256 = (Get-FileHash -LiteralPath $manualSource -Algorithm SHA256).Hash
+            }
         }
     }
     Compress-Archive -Path (Join-Path $tempRoot 'payload\*') `
@@ -147,7 +196,8 @@ try {
             DesktopHeight = $ExpectedDesktopHeight
             Dpi = $ExpectedDpi
         }
-        ApprovedSqlSkipReason = $ApprovedSqlSkipReason
+        SqlSkipApproval = $sqlSkipApprovalInfo
+        ManualAcceptance = $manualAcceptanceInfo
     } | ConvertTo-Json -Depth 5 |
         Set-Content -LiteralPath (Join-Path $artifacts 'host-manifest.json') -Encoding utf8
 
@@ -160,8 +210,7 @@ param(
     [Parameter(Mandatory = $true)][int]$Runs,
     [Parameter(Mandatory = $true)][int]$ExpectedDpi,
     [Parameter(Mandatory = $true)][int]$ExpectedDesktopWidth,
-    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight,
-    [string]$ApprovedSqlSkipReason = ''
+    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight
 )
 
 $ErrorActionPreference = 'Stop'
@@ -240,21 +289,31 @@ try {
         $unexpectedSkips = @($skippedResults | Where-Object {
             $_.testName -notmatch '(?:SqlServer|SchemaUpgrade)'
         })
+        $approvalPath = Join-Path $Root 'ReleaseApproval\sql-server-skips.json'
+        $approval = if (Test-Path -LiteralPath $approvalPath -PathType Leaf) {
+            Get-Content -Raw -LiteralPath $approvalPath | ConvertFrom-Json
+        } else {
+            $null
+        }
+        $approvedTests = if ($null -ne $approval) { @($approval.tests | Sort-Object -Unique) } else { @() }
+        $actualSkippedTests = @($skippedResults | ForEach-Object { $_.testName } | Sort-Object -Unique)
+        $approvalDifferences = @(Compare-Object -ReferenceObject $actualSkippedTests -DifferenceObject $approvedTests)
         [ordered]@{
             total = [int]$trx.TestRun.ResultSummary.Counters.total
             executed = [int]$trx.TestRun.ResultSummary.Counters.executed
             passed = [int]$trx.TestRun.ResultSummary.Counters.passed
             failed = [int]$trx.TestRun.ResultSummary.Counters.failed
             skipped = $skippedResults.Count
-            skippedTests = @($skippedResults | ForEach-Object { $_.testName } | Sort-Object)
-            approvedSqlSkipReason = $ApprovedSqlSkipReason
+            skippedTests = $actualSkippedTests
+            approval = $approval
+            approvalMatchesEverySkippedTest = $approvalDifferences.Count -eq 0
         } | ConvertTo-Json -Depth 5 |
             Set-Content -LiteralPath (Join-Path $regressionDirectory 'summary.json') -Encoding utf8
         if ($unexpectedSkips.Count -gt 0) {
             throw "Unexpected non-SQL regression skips: $($unexpectedSkips.testName -join ', ')"
         }
-        if ($skippedResults.Count -gt 0 -and [string]::IsNullOrWhiteSpace($ApprovedSqlSkipReason)) {
-            throw "SQL_SERVER_SKIPS_REQUIRE_USER_APPROVAL: $($skippedResults.Count) named skips are recorded in $regressionDirectory\summary.json"
+        if ($skippedResults.Count -gt 0 -and ($null -eq $approval -or $approvalDifferences.Count -gt 0)) {
+            throw "SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL: $($skippedResults.Count) named skips must exactly match ReleaseApproval\sql-server-skips.json; details are in $regressionDirectory\summary.json"
         }
 
         & (Join-Path $installRoot 'validation\Invoke-WatchAcceptance.ps1') `
@@ -265,10 +324,47 @@ try {
             Tee-Object -FilePath $logPath -Append
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+        $uiRunnerLogs = @(Get-ChildItem -LiteralPath (Join-Path $Root 'Results\packaged-watch-acceptance') -Filter '*.runner.log' -File)
+        if ($uiRunnerLogs.Count -ne 4) {
+            throw "Packaged Watch acceptance must produce four runner logs; found $($uiRunnerLogs.Count)."
+        }
+        $uiSkipLines = @($uiRunnerLogs | Select-String -Pattern 'Skipped:\s+(?<count>[1-9][0-9]*)')
+        [ordered]@{
+            suites = @($uiRunnerLogs | ForEach-Object { $_.BaseName.Replace('.runner', '') } | Sort-Object)
+            runnerLogCount = $uiRunnerLogs.Count
+            skipped = @($uiSkipLines | ForEach-Object { $_.Line })
+        } | ConvertTo-Json -Depth 4 |
+            Set-Content -LiteralPath (Join-Path $Root 'Results\packaged-watch-acceptance\summary.json') -Encoding utf8
+        if ($uiSkipLines.Count -gt 0) {
+            throw "PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED: $($uiSkipLines.Line -join '; ')"
+        }
+
+        $manualApprovalPath = Join-Path $Root 'ReleaseApproval\manual-acceptance.json'
+        if (-not (Test-Path -LiteralPath $manualApprovalPath -PathType Leaf)) {
+            throw 'PACKAGED_RELEASE_REQUIRES_MANUAL_ACCEPTANCE: ReleaseApproval\manual-acceptance.json is missing.'
+        }
+
         $releaseEvidence = Join-Path $Root 'Results\release-package'
         New-Item -ItemType Directory -Path $releaseEvidence -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $installRoot 'VERSION.txt') -Destination $releaseEvidence
         Copy-Item -LiteralPath (Join-Path $installRoot 'RELEASE-MANIFEST.json') -Destination $releaseEvidence
+        $packageManifestPath = Join-Path $installRoot 'RELEASE-MANIFEST.json'
+        $regressionSummaryPath = Join-Path $regressionDirectory 'summary.json'
+        $uiSummaryPath = Join-Path $Root 'Results\packaged-watch-acceptance\summary.json'
+        $smokeSummaryPath = Join-Path $Root 'Results\release-smoke\release-smoke-result.json'
+        [ordered]@{
+            schemaVersion = 1
+            completedAt = [DateTimeOffset]::Now.ToString('O')
+            packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash
+            packageManifest = Get-Content -Raw -LiteralPath $packageManifestPath | ConvertFrom-Json
+            preEnvironment = 'Results/environment.json'
+            postEnvironment = 'Results/environment-post.json'
+            releaseSmoke = Get-Content -Raw -LiteralPath $smokeSummaryPath | ConvertFrom-Json
+            coreHostHttpSql = Get-Content -Raw -LiteralPath $regressionSummaryPath | ConvertFrom-Json
+            packagedWatchAcceptance = Get-Content -Raw -LiteralPath $uiSummaryPath | ConvertFrom-Json
+            manualAcceptance = Get-Content -Raw -LiteralPath $manualApprovalPath | ConvertFrom-Json
+        } | ConvertTo-Json -Depth 12 |
+            Set-Content -LiteralPath (Join-Path $releaseEvidence 'RELEASE-SIGNOFF.json') -Encoding utf8
         Compress-Archive -Path (Join-Path $installRoot '*') `
             -DestinationPath (Join-Path $releaseEvidence 'MesIngest-win-x64.zip') `
             -CompressionLevel Fastest
@@ -355,7 +451,7 @@ catch {
         -Destination (Join-Path $guestRoot 'run-golden-validation.ps1')
 
     Invoke-Command -Session $session -ScriptBlock {
-        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height, $approvedSqlSkipReason)
+        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height)
         Expand-Archive -LiteralPath (Join-Path $root 'payload.zip') -DestinationPath $root
         $runner = Join-Path $root 'run-golden-validation.ps1'
         $arguments = @(
@@ -367,8 +463,7 @@ catch {
             '-Runs', $runs,
             '-ExpectedDpi', $dpi,
             '-ExpectedDesktopWidth', $width,
-            '-ExpectedDesktopHeight', $height,
-            '-ApprovedSqlSkipReason', "`"$approvedSqlSkipReason`""
+            '-ExpectedDesktopHeight', $height
         ) -join ' '
         $action = New-ScheduledTaskAction `
             -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
@@ -381,7 +476,7 @@ catch {
         Start-ScheduledTask -TaskName $task
     } -ArgumentList @(
         $guestRoot, $taskName, $Suite, $Configuration, $Runs,
-        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight, $ApprovedSqlSkipReason)
+        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
@@ -425,7 +520,7 @@ catch {
 finally {
     if ($null -ne $session) {
         $cleanup = Invoke-Command -Session $session -ScriptBlock {
-            param($task)
+            param($task, $root, $dpi, $width, $height)
             $scheduled = Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
             if ($null -ne $scheduled) {
                 if ($scheduled.State -eq 'Running') {
@@ -435,21 +530,71 @@ finally {
             }
             Get-Process -Name 'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
                 -ErrorAction SilentlyContinue | Stop-Process -Force
+            $residualProcesses = @(Get-Process -Name `
+                'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
+                -ErrorAction SilentlyContinue).Count
+            $recheckTask = "$task-PostCleanup"
+            $recheckRunner = Join-Path $root 'run-post-cleanup-recheck.ps1'
+            $recheckOutput = Join-Path $root 'Results\environment-after-host-cleanup.json'
+            @"
+`$env:MesIngestWatch__RenderingMode = 'SoftwareOnly'
+& '$(Join-Path $root 'Source\mes\ingest\csharp\Test-GoldenRendererEnvironment.ps1')' -ExpectedDpi $dpi -ExpectedDesktopWidth $width -ExpectedDesktopHeight $height -OutputPath '$recheckOutput'
+exit `$LASTEXITCODE
+"@ | Set-Content -LiteralPath $recheckRunner -Encoding utf8
+            $action = New-ScheduledTaskAction `
+                -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
+                -Argument "-NoProfile -ExecutionPolicy Bypass -STA -File `"$recheckRunner`""
+            $principal = New-ScheduledTaskPrincipal `
+                -UserId 'GPT-WIN11\gpt' `
+                -LogonType Interactive `
+                -RunLevel Highest
+            Register-ScheduledTask -TaskName $recheckTask -Action $action -Principal $principal -Force | Out-Null
+            Start-ScheduledTask -TaskName $recheckTask
+            $deadline = (Get-Date).AddSeconds(60)
+            do {
+                Start-Sleep -Milliseconds 500
+                $recheckState = (Get-ScheduledTask -TaskName $recheckTask).State.ToString()
+            } while ($recheckState -eq 'Running' -and (Get-Date) -lt $deadline)
+            $recheckResult = if ($recheckState -eq 'Running') {
+                -1
+            } else {
+                [int](Get-ScheduledTask -TaskName $recheckTask | Get-ScheduledTaskInfo).LastTaskResult
+            }
+            if ($recheckState -eq 'Running') {
+                Stop-ScheduledTask -TaskName $recheckTask -ErrorAction SilentlyContinue
+            }
+            Unregister-ScheduledTask -TaskName $recheckTask -Confirm:$false -ErrorAction SilentlyContinue
             [pscustomobject]@{
                 TaskPresent = $null -ne (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
-                ResidualProcesses = @(Get-Process -Name `
-                    'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
-                    -ErrorAction SilentlyContinue).Count
+                ResidualProcesses = $residualProcesses
+                PostCleanupTaskPresent = $null -ne (Get-ScheduledTask -TaskName $recheckTask -ErrorAction SilentlyContinue)
+                PostCleanupEnvironmentResult = $recheckResult
+                PostCleanupEnvironmentOutput = $recheckOutput
             }
-        } -ArgumentList $taskName -ErrorAction SilentlyContinue
+        } -ArgumentList $taskName, $guestRoot, $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight -ErrorAction SilentlyContinue
+        $postCleanupGuestPath = Join-Path $guestRoot 'Results\environment-after-host-cleanup.json'
+        if (Invoke-Command -Session $session -ScriptBlock {
+                param($path) Test-Path -LiteralPath $path -PathType Leaf
+            } -ArgumentList $postCleanupGuestPath) {
+            Copy-Item -FromSession $session -LiteralPath $postCleanupGuestPath `
+                -Destination (Join-Path $artifacts 'environment-after-host-cleanup.json') -Force
+        }
         Remove-PSSession $session
         if ($null -ne $cleanup) {
             [ordered]@{
                 CompletedAt = [DateTimeOffset]::Now.ToString('O')
                 TaskPresent = [bool]$cleanup.TaskPresent
                 ResidualProcesses = [int]$cleanup.ResidualProcesses
+                PostCleanupTaskPresent = [bool]$cleanup.PostCleanupTaskPresent
+                PostCleanupEnvironmentResult = [int]$cleanup.PostCleanupEnvironmentResult
             } | ConvertTo-Json |
                 Set-Content -LiteralPath (Join-Path $artifacts 'cleanup.json') -Encoding utf8
+            if ($cleanup.TaskPresent `
+                -or $cleanup.ResidualProcesses -ne 0 `
+                -or $cleanup.PostCleanupTaskPresent `
+                -or $cleanup.PostCleanupEnvironmentResult -ne 0) {
+                throw "Golden renderer cleanup or post-cleanup environment recheck failed; see cleanup.json."
+            }
         }
     }
     if (Test-Path -LiteralPath $tempRoot) {
