@@ -103,11 +103,16 @@ public class InstallPackageLayoutTests
         using var doc = JsonDocument.Parse(text);
         var watch = doc.RootElement.GetProperty("Watch");
 
+        Assert.Equal("http://127.0.0.1:5088", watch.GetProperty("BaseUrl").GetString());
+        Assert.Equal("SoftwareOnly", watch.GetProperty("RenderingMode").GetString());
         Assert.Equal(30, watch.GetProperty("RequestTimeoutSeconds").GetInt32());
         Assert.Equal(30, watch.GetProperty("ConnectionLogRetentionDays").GetInt32());
         Assert.Equal(100, watch.GetProperty("ConnectionLogMaxSizeMb").GetInt32());
         Assert.Equal("", watch.GetProperty("SharedSecret").GetString());
         Assert.Contains("MesIngestWatch__RequestTimeoutSeconds", text, StringComparison.Ordinal);
+        Assert.Contains("MesIngestWatch__SharedSecret", text, StringComparison.Ordinal);
+        Assert.Contains("external-configuration", text, StringComparison.Ordinal);
+        Assert.Contains("%LocalAppData%", text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -131,8 +136,11 @@ public class InstallPackageLayoutTests
                      "INSTALL.md",
                      "UPGRADE.md",
                      "VERSION.txt",
+                     "RELEASE-MANIFEST.json",
                      "appsettings.Local.json.example",
                      "watch.appsettings.Local.json.example",
+                     "Test-ReleasePackage.ps1",
+                     "Invoke-ReleaseSmoke.ps1",
                  })
         {
             Assert.Contains(name, script, StringComparison.Ordinal);
@@ -140,5 +148,20 @@ public class InstallPackageLayoutTests
 
         Assert.Contains("appsettings.Local.json", script, StringComparison.Ordinal);
         Assert.Contains("credentials must not ship", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Clearing package output", script, StringComparison.Ordinal);
+        Assert.Contains("--ignore-failed-sources", script, StringComparison.Ordinal);
+        Assert.Contains("NuGetAudit=false", script, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Golden_renderer_exposes_packaged_release_gate()
+    {
+        var wrapper = File.ReadAllText(Path.Combine(CSharpRoot, "Invoke-GoldenRendererValidation.ps1"));
+
+        Assert.Contains("watch-package-release", wrapper, StringComparison.Ordinal);
+        Assert.Contains("Publish-MesIngest.ps1", wrapper, StringComparison.Ordinal);
+        Assert.Contains("Invoke-ReleaseSmoke.ps1", wrapper, StringComparison.Ordinal);
+        Assert.Contains("Invoke-WatchAcceptance.ps1", wrapper, StringComparison.Ordinal);
+        Assert.Contains("MesIngest-win-x64.zip", wrapper, StringComparison.Ordinal);
     }
 }

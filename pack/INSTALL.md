@@ -11,12 +11,13 @@ MesIngest/
   queries/                 # 正式 MES_TASK_UNION SQL（与仓库原稿一致）
   templates/               # 填空配置模板（无真实凭证）
   scripts/                 # 安装 / 卸载辅助脚本
-  validation/              # 工厂验证回传模板
+  validation/              # 工厂验证、发布烟测与四套 Watch 验收入口
   openapi/v1.json          # 静态 OpenAPI 契约（离线导入 Postman/代码工具）
   INSTALL.md               # 本说明
   UPGRADE.md               # 现有安装升级、备份前置与回滚
   FACTORY-VALIDATION.md    # 工厂执行与核验清单
   VERSION.txt              # 发布版本信息
+  RELEASE-MANIFEST.json    # 源提交、只读契约结论及逐文件 SHA-256
 ```
 
 ## 配置（凭证不进包）
@@ -29,7 +30,8 @@ MesIngest/
 
    `Authorization: Bearer <SharedSecret>`
 
-6. WPF 非本机访问时，在 Watch 配置（或环境变量 `MesIngestWatch__SharedSecret`）填写同一密钥
+6. WPF 非本机访问时，优先通过受保护的环境变量 `MesIngestWatch__SharedSecret` 注入同一密钥；示例文件保持空值。Watch 的 `external-configuration` 偏好只记录凭据来源，不保存密钥值
+7. Watch 只配置一个 `BaseUrl`；请求超时合法范围为 1–300 秒，连接日志保留和 `SoftwareOnly` 渲染默认值见模板注释。获准的窗口、刷新和连接偏好写入 `%LocalAppData%\MesIngest.Watch`，不保存业务列表、查询、cursor 或凭据值
 
 现有安装升级、SQL 备份与回滚见同目录 `UPGRADE.md`。
 
@@ -78,7 +80,26 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 
 ## 版本信息
 
-见安装根目录 `VERSION.txt`（发布脚本写入时间与目标 RID）。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
+见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256、只读 OpenAPI 校验结果）。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
+
+## 发布烟测与四套 Watch 验收
+
+在已登录的交互式 Windows 会话，从安装包而非源码启动真实 Host/Watch 烟测：
+
+```powershell
+.\validation\Invoke-ReleaseSmoke.ps1 -ArtifactsDirectory C:\MesIngest\release-smoke
+```
+
+该入口使用临时 CSV 和内存投影启动正式 `service\MesIngest.Host.exe`，核对运行时/离线 OpenAPI、GET 接口和正式 `watch\MesIngest.Watch.exe` 的 10 秒内可响应概览；不携带测试 fake Host。
+
+四套正式 Windows 验收仍由独立测试仓提供，避免把 fake Host、xUnit、视觉基线或候选文件装进生产包。把 `-HarnessRoot` 指向同源码提交的 `mes\ingest\csharp`，入口会强制真实窗口套件启动本包内的 Watch：
+
+```powershell
+.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-vm-tests
+.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-xaml-visual
+.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-ui-journeys
+.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-window-visual
+```
 
 ## 基本故障排查
 

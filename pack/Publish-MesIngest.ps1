@@ -38,6 +38,9 @@ $installDoc = Join-Path $PSScriptRoot "INSTALL.md"
 $upgradeDoc = Join-Path $PSScriptRoot "UPGRADE.md"
 $factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
 $validationSrc = Join-Path $PSScriptRoot "validation"
+$releaseValidator = Join-Path $PSScriptRoot "Test-ReleasePackage.ps1"
+$releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
+$watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
 $openapiSrc = Join-Path $PSScriptRoot "openapi\v1.json"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
@@ -48,8 +51,23 @@ if (-not (Test-Path $exampleWatchLocal)) { throw "Missing Watch blank config tem
 if (-not (Test-Path $upgradeDoc)) { throw "Missing upgrade/rollback doc: $upgradeDoc" }
 if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
 if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
+if (-not (Test-Path $releaseValidator)) { throw "Missing release package validator: $releaseValidator" }
+if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
+if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
 if (-not (Test-Path $openapiSrc)) { throw "Missing static OpenAPI contract: $openapiSrc" }
 
+$resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
+$pathRoot = [IO.Path]::GetPathRoot($resolvedOutput).TrimEnd('\', '/')
+$protectedPaths = @(
+    [IO.Path]::GetFullPath($csharpRoot).TrimEnd('\', '/'),
+    [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\', '/')
+)
+if ([string]::IsNullOrWhiteSpace($resolvedOutput) `
+    -or $resolvedOutput -eq $pathRoot `
+    -or $protectedPaths -contains $resolvedOutput) {
+    throw "Refusing unsafe package OutputDir: $resolvedOutput"
+}
+$OutputDir = $resolvedOutput
 $serviceDir = Join-Path $OutputDir "service"
 $watchDir = Join-Path $OutputDir "watch"
 $queriesDir = Join-Path $OutputDir "queries"
@@ -58,17 +76,21 @@ $scriptsDir = Join-Path $OutputDir "scripts"
 $validationDir = Join-Path $OutputDir "validation"
 $openapiDir = Join-Path $OutputDir "openapi"
 
+if (Test-Path -LiteralPath $OutputDir) {
+    Write-Host "Clearing package output -> $OutputDir"
+    Remove-Item -LiteralPath $OutputDir -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
-if (Test-Path $serviceDir) { Remove-Item -Recurse -Force $serviceDir }
-if (Test-Path $watchDir) { Remove-Item -Recurse -Force $watchDir }
 
 Write-Host "Publishing Host -> $serviceDir"
 dotnet publish $hostProj `
     -c $Configuration `
     -r $Runtime `
     --self-contained true `
+    --ignore-failed-sources `
     -o $serviceDir `
-    /p:PublishSingleFile=false
+    /p:PublishSingleFile=false `
+    /p:NuGetAudit=false
 if ($LASTEXITCODE -ne 0) { throw "Host publish failed ($LASTEXITCODE)" }
 
 if (-not $SkipWatch) {
@@ -77,8 +99,10 @@ if (-not $SkipWatch) {
         -c $Configuration `
         -r $Runtime `
         --self-contained true `
+        --ignore-failed-sources `
         -o $watchDir `
-        /p:PublishSingleFile=false
+        /p:PublishSingleFile=false `
+        /p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw "Watch publish failed ($LASTEXITCODE)" }
 }
 
@@ -97,14 +121,17 @@ Copy-Item $exampleWatchLocal (Join-Path $templatesDir "watch.appsettings.Local.j
 
 # Ensure no filled Local.json leaks into the package.
 $leakedLocal = Join-Path $serviceDir "appsettings.Local.json"
-if (Test-Path $leakedLocal) {
-    Remove-Item -Force $leakedLocal
-    Write-Warning "Removed service/appsettings.Local.json from package (credentials must not ship)."
+foreach ($localConfig in @($leakedLocal, (Join-Path $watchDir "appsettings.Local.json"))) {
+    if (Test-Path $localConfig) {
+        Remove-Item -Force $localConfig
+        Write-Warning "Removed $localConfig from package (credentials must not ship)."
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
 Copy-Item $installService (Join-Path $scriptsDir "install-service.ps1") -Force
 Copy-Item $uninstallService (Join-Path $scriptsDir "uninstall-service.ps1") -Force
+Copy-Item $releaseValidator (Join-Path $scriptsDir "Test-ReleasePackage.ps1") -Force
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
 Copy-Item $upgradeDoc (Join-Path $OutputDir "UPGRADE.md") -Force
 Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force
@@ -122,6 +149,10 @@ $hostVer = if (Test-Path $hostDll) {
 } else {
     "unknown"
 }
+$sourceCommit = @(& git -C $csharpRoot rev-parse HEAD 2>$null) | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($sourceCommit)) { $sourceCommit = "unknown" }
+$sourceStatus = @(& git -C $csharpRoot status --porcelain=v1 --untracked-files=normal -- . 2>$null)
+$sourceDirty = $sourceStatus.Count -gt 0
 @(
     "MesIngest install package"
     "BuiltUtc=$([DateTime]::UtcNow.ToString('o'))"
@@ -129,7 +160,21 @@ $hostVer = if (Test-Path $hostDll) {
     "Runtime=$Runtime"
     "HostFileVersion=$hostVer"
     "WatchIncluded=$(-not $SkipWatch)"
+    "SourceCommit=$sourceCommit"
+    "SourceDirty=$sourceDirty"
 ) | Set-Content -Path $versionPath -Encoding UTF8
+
+$validatorParameters = @{
+    PackageRoot = $OutputDir
+    ManifestPath = (Join-Path $OutputDir 'RELEASE-MANIFEST.json')
+    SourceCommit = $sourceCommit
+    SourceDirty = $sourceDirty
+    Configuration = $Configuration
+    Runtime = $Runtime
+}
+if ($SkipWatch) { $validatorParameters.AllowNoWatch = $true }
+& $releaseValidator @validatorParameters
+if ($LASTEXITCODE -ne 0) { throw "Release package validation failed ($LASTEXITCODE)" }
 
 Write-Host "Install package ready: $OutputDir"
 Write-Host "Next: copy folder to plant PC, fill templates/*.Local.json.example, see INSTALL.md / UPGRADE.md and FACTORY-VALIDATION.md"

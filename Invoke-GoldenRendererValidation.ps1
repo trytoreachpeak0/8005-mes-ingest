@@ -13,7 +13,8 @@ param(
         'watch-window-visual',
         'watch-window-stability',
         'watch-window-promoted-stability',
-        'watch-ui-stability')]
+        'watch-ui-stability',
+        'watch-package-release')]
     [string]$Suite = 'watch-vm-tests',
 
     [ValidateSet('Debug', 'Release')]
@@ -52,7 +53,11 @@ $requiredFiles = @(
     'Test-WatchWindowBaselineStability.ps1',
     'Test-WatchUiGateStability.ps1',
     'Test-GoldenRendererEnvironment.ps1',
-    'MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj'
+    'MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj',
+    'pack\Publish-MesIngest.ps1',
+    'pack\Test-ReleasePackage.ps1',
+    'pack\validation\Invoke-ReleaseSmoke.ps1',
+    'pack\validation\Invoke-WatchAcceptance.ps1'
 )
 foreach ($required in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $source $required))) {
@@ -105,7 +110,18 @@ try {
     if ($LASTEXITCODE -gt 7) {
         throw "robocopy failed with exit code $LASTEXITCODE"
     }
-    Compress-Archive -LiteralPath (Join-Path $tempRoot 'payload\Source') `
+    if ($Suite -eq 'watch-package-release') {
+        $packagePayload = Join-Path $tempRoot 'payload\ReleasePackage\MesIngest'
+        $packageBuildLog = Join-Path $artifacts 'host-package-build.log'
+        & (Join-Path $source 'pack\Publish-MesIngest.ps1') `
+            -OutputDir $packagePayload `
+            -Configuration $Configuration `
+            -Runtime 'win-x64' 2>&1 | Tee-Object -FilePath $packageBuildLog
+        if ($LASTEXITCODE -ne 0) {
+            throw "Host release package build failed with exit code $LASTEXITCODE."
+        }
+    }
+    Compress-Archive -Path (Join-Path $tempRoot 'payload\*') `
         -DestinationPath $payloadZip -CompressionLevel Fastest
 
     $payloadHash = (Get-FileHash -LiteralPath $payloadZip -Algorithm SHA256).Hash
@@ -165,7 +181,33 @@ try {
         Tee-Object -FilePath $logPath
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    if ($Suite -eq 'watch-xaml-stability') {
+    if ($Suite -eq 'watch-package-release') {
+        $packageBuild = Join-Path $Root 'ReleasePackage\MesIngest'
+        $installRoot = Join-Path $Root 'CleanInstall\MesIngest'
+        New-Item -ItemType Directory -Path (Split-Path -Parent $installRoot) -Force | Out-Null
+        Copy-Item -LiteralPath $packageBuild -Destination $installRoot -Recurse
+        & (Join-Path $installRoot 'validation\Invoke-ReleaseSmoke.ps1') `
+            -ArtifactsDirectory (Join-Path $Root 'Results\release-smoke') 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        & (Join-Path $installRoot 'validation\Invoke-WatchAcceptance.ps1') `
+            -HarnessRoot $source `
+            -Suite all `
+            -Configuration $Configuration `
+            -ArtifactsDirectory (Join-Path $Root 'Results\packaged-watch-acceptance') 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $releaseEvidence = Join-Path $Root 'Results\release-package'
+        New-Item -ItemType Directory -Path $releaseEvidence -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $installRoot 'VERSION.txt') -Destination $releaseEvidence
+        Copy-Item -LiteralPath (Join-Path $installRoot 'RELEASE-MANIFEST.json') -Destination $releaseEvidence
+        Compress-Archive -Path (Join-Path $installRoot '*') `
+            -DestinationPath (Join-Path $releaseEvidence 'MesIngest-win-x64.zip') `
+            -CompressionLevel Fastest
+    }
+    elseif ($Suite -eq 'watch-xaml-stability') {
         & '.\Test-WatchXamlBaselineStability.ps1' `
             -Configuration $Configuration `
             -Runs $Runs 2>&1 | Tee-Object -FilePath $logPath -Append
@@ -312,12 +354,12 @@ finally {
                 }
                 Unregister-ScheduledTask -TaskName $task -Confirm:$false
             }
-            Get-Process -Name 'MesIngest.Watch', 'testhost', 'vstest.console' `
+            Get-Process -Name 'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
                 -ErrorAction SilentlyContinue | Stop-Process -Force
             [pscustomobject]@{
                 TaskPresent = $null -ne (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)
                 ResidualProcesses = @(Get-Process -Name `
-                    'MesIngest.Watch', 'testhost', 'vstest.console' `
+                    'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
                     -ErrorAction SilentlyContinue).Count
             }
         } -ArgumentList $taskName -ErrorAction SilentlyContinue
