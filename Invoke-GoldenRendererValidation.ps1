@@ -100,13 +100,13 @@ $gitCommit = if ($LASTEXITCODE -eq 0) {
 } else {
     $null
 }
-$gitStatus = if ($null -ne $gitCommit) {
-    @(& git -C $source status --porcelain=v1 --untracked-files=normal -- . `
-        ':(exclude).artifacts/**' `
-        ':(exclude)MesIngest.Tests/TestResults/**' 2>$null)
-} else {
-    @()
-}
+$gitStatus = @(
+    if ($null -ne $gitCommit) {
+        & git -C $source status --porcelain=v1 --untracked-files=normal -- . `
+            ':(exclude).artifacts/**' `
+            ':(exclude)MesIngest.Tests/TestResults/**' 2>$null
+    }
+)
 
 $tempBase = Join-Path $env:TEMP 'MesIngestGoldenRenderer'
 $tempRoot = Join-Path $tempBase ([Guid]::NewGuid().ToString('N'))

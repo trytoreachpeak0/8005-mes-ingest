@@ -186,6 +186,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("environment-after-host-cleanup.json", wrapper, StringComparison.Ordinal);
         Assert.Contains(":(exclude).artifacts/**", wrapper, StringComparison.Ordinal);
         Assert.Contains(":(exclude)MesIngest.Tests/TestResults/**", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$gitStatus = @(", wrapper, StringComparison.Ordinal);
+        Assert.Contains("GitDirty = $gitStatus.Count -gt 0", wrapper, StringComparison.Ordinal);
         Assert.Contains("queries\\mes-task-union", wrapper, StringComparison.Ordinal);
         Assert.Contains("experiments\\definitions\\mes-ingest-factory-validation\\plan.md", wrapper, StringComparison.Ordinal);
         Assert.Contains("evidence\\README.md", wrapper, StringComparison.Ordinal);
