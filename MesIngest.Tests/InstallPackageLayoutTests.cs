@@ -167,6 +167,12 @@ public class InstallPackageLayoutTests
         Assert.Contains("Invoke-WatchAcceptance.ps1", wrapper, StringComparison.Ordinal);
         Assert.Contains("MesIngest-win-x64.zip", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlSkipApprovalPath", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlServerCredentialPath", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlServerDataSource", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlServerDatabase", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlPasswordFromDpapiCredential", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$env:MES_INGEST_SQLSERVER", wrapper, StringComparison.Ordinal);
+        Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);
         Assert.Contains("PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED", wrapper, StringComparison.Ordinal);
         Assert.Contains("ManualAcceptancePath", wrapper, StringComparison.Ordinal);

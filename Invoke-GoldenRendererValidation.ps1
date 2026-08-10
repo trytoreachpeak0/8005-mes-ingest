@@ -42,6 +42,12 @@ param(
 
     [string]$ManualAcceptancePath,
 
+    [string]$SqlServerCredentialPath,
+
+    [string]$SqlServerDataSource,
+
+    [string]$SqlServerDatabase,
+
     [ValidateRange(60, 14400)]
     [int]$TimeoutSeconds = 3600
 )
@@ -111,6 +117,8 @@ $taskName = "MesIngestWatch-Golden-$Ticket-$stamp"
 $session = $null
 $sqlSkipApprovalInfo = $null
 $manualAcceptanceInfo = $null
+$sqlServerCredential = $null
+$sqlServerConnectionInfo = $null
 $validationSucceeded = $false
 
 try {
@@ -121,6 +129,28 @@ try {
         throw "robocopy failed with exit code $LASTEXITCODE"
     }
     if ($Suite -eq 'watch-package-release') {
+        $sqlInputCount = @(
+            $SqlServerCredentialPath,
+            $SqlServerDataSource,
+            $SqlServerDatabase
+        ).Where({ -not [string]::IsNullOrWhiteSpace($_) }).Count
+        if ($sqlInputCount -notin @(0, 3)) {
+            throw 'SqlServerCredentialPath, SqlServerDataSource, and SqlServerDatabase must be supplied together.'
+        }
+        if ($sqlInputCount -eq 3) {
+            $credentialSource = (Resolve-Path -LiteralPath $SqlServerCredentialPath -ErrorAction Stop).Path
+            $sqlServerCredential = Import-Clixml -LiteralPath $credentialSource
+            if ($sqlServerCredential -isnot [PSCredential] `
+                -or [string]::IsNullOrWhiteSpace($sqlServerCredential.UserName)) {
+                throw 'SqlServerCredentialPath must contain a DPAPI-protected PSCredential exported by the current host user.'
+            }
+            $sqlServerConnectionInfo = [ordered]@{
+                Configured = $true
+                DataSource = $SqlServerDataSource
+                Database = $SqlServerDatabase
+                Authentication = 'SqlPasswordFromDpapiCredential'
+            }
+        }
         if ([string]::IsNullOrWhiteSpace($repositoryRoot)) {
             throw 'The package release suite requires a Git worktree so its repository-level regression inputs can be staged.'
         }
@@ -221,6 +251,7 @@ try {
         }
         SqlSkipApproval = $sqlSkipApprovalInfo
         ManualAcceptance = $manualAcceptanceInfo
+        SqlServer = $sqlServerConnectionInfo
     } | ConvertTo-Json -Depth 5 |
         Set-Content -LiteralPath (Join-Path $artifacts 'host-manifest.json') -Encoding utf8
 
@@ -271,6 +302,15 @@ try {
     $env:TESTINGPLATFORM_TELEMETRY_OPTOUT = '1'
     $env:DOTNET_NOLOGO = '1'
     $env:MesIngestWatch__RenderingMode = 'SoftwareOnly'
+    $sqlConnectionStringPath = Join-Path $Root 'sql-server-connection-string.txt'
+    if (Test-Path -LiteralPath $sqlConnectionStringPath -PathType Leaf) {
+        $sqlConnectionString = [IO.File]::ReadAllText($sqlConnectionStringPath)
+        Remove-Item -LiteralPath $sqlConnectionStringPath -Force
+        if ([string]::IsNullOrWhiteSpace($sqlConnectionString)) {
+            throw 'The injected SQL Server connection string is empty.'
+        }
+        $env:MES_INGEST_SQLSERVER = $sqlConnectionString
+    }
 
     & '.\Test-GoldenRendererEnvironment.ps1' `
         -ExpectedDpi $ExpectedDpi `
@@ -459,6 +499,29 @@ catch {
         -Destination (Join-Path $guestRoot 'payload.zip')
     Copy-Item -ToSession $session -LiteralPath $runnerPath `
         -Destination (Join-Path $guestRoot 'run-golden-validation.ps1')
+    if ($null -ne $sqlServerCredential) {
+        Invoke-Command -Session $session -ScriptBlock {
+            param($root, $credential, $dataSource, $database)
+            $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder
+            $builder.DataSource = $dataSource
+            $builder.InitialCatalog = $database
+            $builder.UserID = $credential.UserName
+            $builder.Password = $credential.GetNetworkCredential().Password
+            $builder.Encrypt = $true
+            $builder.TrustServerCertificate = $true
+            $builder.PersistSecurityInfo = $false
+            $builder.ConnectTimeout = 15
+            $secretPath = Join-Path $root 'sql-server-connection-string.txt'
+            [IO.File]::WriteAllText(
+                $secretPath,
+                $builder.ConnectionString,
+                [Text.UTF8Encoding]::new($false))
+        } -ArgumentList @(
+            $guestRoot,
+            $sqlServerCredential,
+            $SqlServerDataSource,
+            $SqlServerDatabase)
+    }
 
     Invoke-Command -Session $session -ScriptBlock {
         param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height)
@@ -532,6 +595,8 @@ finally {
             }
             Get-Process -Name 'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
                 -ErrorAction SilentlyContinue | Stop-Process -Force
+            Remove-Item -LiteralPath (Join-Path $root 'sql-server-connection-string.txt') `
+                -Force -ErrorAction SilentlyContinue
             $residualProcesses = @(Get-Process -Name `
                 'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' `
                 -ErrorAction SilentlyContinue).Count
