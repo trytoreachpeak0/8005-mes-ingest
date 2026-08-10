@@ -37,6 +37,7 @@ $exampleWatchLocal = Join-Path $csharpRoot "MesIngest.Watch\appsettings.Local.js
 $installDoc = Join-Path $PSScriptRoot "INSTALL.md"
 $upgradeDoc = Join-Path $PSScriptRoot "UPGRADE.md"
 $factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
+$releaseEvidence = Join-Path $PSScriptRoot "RELEASE-EVIDENCE.json"
 $validationSrc = Join-Path $PSScriptRoot "validation"
 $releaseValidator = Join-Path $PSScriptRoot "Test-ReleasePackage.ps1"
 $releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
@@ -50,6 +51,7 @@ if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exa
 if (-not (Test-Path $exampleWatchLocal)) { throw "Missing Watch blank config template: $exampleWatchLocal" }
 if (-not (Test-Path $upgradeDoc)) { throw "Missing upgrade/rollback doc: $upgradeDoc" }
 if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
+if (-not (Test-Path $releaseEvidence)) { throw "Missing release evidence index: $releaseEvidence" }
 if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
 if (-not (Test-Path $releaseValidator)) { throw "Missing release package validator: $releaseValidator" }
 if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
@@ -135,6 +137,7 @@ Copy-Item $releaseValidator (Join-Path $scriptsDir "Test-ReleasePackage.ps1") -F
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
 Copy-Item $upgradeDoc (Join-Path $OutputDir "UPGRADE.md") -Force
 Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force
+Copy-Item $releaseEvidence (Join-Path $OutputDir "RELEASE-EVIDENCE.json") -Force
 
 if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
 Copy-Item -Recurse $validationSrc $validationDir

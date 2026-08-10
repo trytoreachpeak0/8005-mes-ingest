@@ -44,6 +44,7 @@ $required = @(
     "INSTALL.md",
     "UPGRADE.md",
     "FACTORY-VALIDATION.md",
+    "RELEASE-EVIDENCE.json",
     "VERSION.txt"
 )
 if (-not $AllowNoWatch) {
@@ -124,6 +125,17 @@ foreach ($expected in $expectedPaths) {
         throw "Offline OpenAPI is missing required read endpoint: $expected"
     }
 }
+
+$releaseEvidencePath = Join-Path $root 'RELEASE-EVIDENCE.json'
+$releaseEvidence = (Get-Content -Raw -LiteralPath $releaseEvidencePath) | ConvertFrom-Json
+if ($releaseEvidence.rebuildDecision -ne '2026-08-09' `
+    -or $releaseEvidence.oldVisualEvidenceAccepted -ne $false `
+    -or $releaseEvidence.tickets.'11'.xamlScenarioCount -ne 19 `
+    -or $releaseEvidence.tickets.'12'.realWindowBaselineCount -ne 5 `
+    -or $releaseEvidence.tickets.'12'.completeGateRuns -ne 50 `
+    -or $releaseEvidence.tickets.'13'.generation -ne '2026-08-09-rebuild') {
+    throw 'Release evidence must pin the Ticket 11/12/13 rebuild lineage and reject old visual evidence.'
+}
 foreach ($path in $openApi.paths.PSObject.Properties) {
     $operations = @($path.Value.PSObject.Properties.Name | Where-Object { $_ -ne 'parameters' })
     $writes = @($operations | Where-Object { $_ -ne 'get' })
@@ -156,6 +168,7 @@ $inventory = @(
     configuration = $Configuration
     runtime = $Runtime
     businessApiMethods = @('GET')
+    rebuildEvidence = $releaseEvidence
     files = $inventory
 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifest -Encoding UTF8
 

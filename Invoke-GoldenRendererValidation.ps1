@@ -38,6 +38,9 @@ param(
 
     [string]$ArtifactsDirectory,
 
+    [ValidatePattern('^[^\r\n"]{0,512}$')]
+    [string]$ApprovedSqlSkipReason = '',
+
     [ValidateRange(60, 14400)]
     [int]$TimeoutSeconds = 3600
 )
@@ -144,6 +147,7 @@ try {
             DesktopHeight = $ExpectedDesktopHeight
             Dpi = $ExpectedDpi
         }
+        ApprovedSqlSkipReason = $ApprovedSqlSkipReason
     } | ConvertTo-Json -Depth 5 |
         Set-Content -LiteralPath (Join-Path $artifacts 'host-manifest.json') -Encoding utf8
 
@@ -156,14 +160,37 @@ param(
     [Parameter(Mandatory = $true)][int]$Runs,
     [Parameter(Mandatory = $true)][int]$ExpectedDpi,
     [Parameter(Mandatory = $true)][int]$ExpectedDesktopWidth,
-    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight
+    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight,
+    [string]$ApprovedSqlSkipReason = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $resultPath = Join-Path $Root 'Results\result.json'
 $logPath = Join-Path $Root 'Results\validation.log'
+$source = Join-Path $Root 'Source\mes\ingest\csharp'
+
+function Invoke-PostRunEnvironmentCheck {
+    $residualProcesses = @(Get-Process -Name 'MesIngest.Host', 'MesIngest.Watch', 'testhost', 'vstest.console' -ErrorAction SilentlyContinue)
+    if ($residualProcesses.Count -gt 0) {
+        throw "Post-run cleanup found residual test processes: $($residualProcesses.ProcessName -join ', ')"
+    }
+    $postEnvironmentPath = Join-Path $Root 'Results\environment-post.json'
+    $environmentScript = Join-Path $source 'Test-GoldenRendererEnvironment.ps1'
+    & 'C:\Program Files\PowerShell\7\pwsh.exe' `
+        -NoProfile `
+        -ExecutionPolicy Bypass `
+        -File $environmentScript `
+        -ExpectedDpi $ExpectedDpi `
+        -ExpectedDesktopWidth $ExpectedDesktopWidth `
+        -ExpectedDesktopHeight $ExpectedDesktopHeight `
+        -OutputPath $postEnvironmentPath 2>&1 |
+        Tee-Object -FilePath $logPath -Append
+    if ($LASTEXITCODE -ne 0) {
+        throw "Post-run golden environment recheck failed with exit code $LASTEXITCODE."
+    }
+}
+
 try {
-    $source = Join-Path $Root 'Source\mes\ingest\csharp'
     New-Item -ItemType Directory -Path (Join-Path $Root 'Results') -Force | Out-Null
     Set-Location -LiteralPath $source
     $env:NUGET_PACKAGES = 'C:\MesIngest\Ticket11\NuGetPackages'
@@ -190,6 +217,45 @@ try {
             -ArtifactsDirectory (Join-Path $Root 'Results\release-smoke') 2>&1 |
             Tee-Object -FilePath $logPath -Append
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $regressionDirectory = Join-Path $Root 'Results\core-host-http-sql'
+        New-Item -ItemType Directory -Path $regressionDirectory -Force | Out-Null
+        $regressionProject = Join-Path $source 'MesIngest.Tests\MesIngest.Tests.csproj'
+        & dotnet restore $regressionProject `
+            --ignore-failed-sources `
+            -p:NuGetAudit=false 2>&1 | Tee-Object -FilePath $logPath -Append
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        & dotnet test $regressionProject `
+            --configuration $Configuration `
+            --no-restore `
+            --results-directory $regressionDirectory `
+            --logger 'trx;LogFileName=core-host-http-sql.trx' 2>&1 |
+            Tee-Object -FilePath $logPath -Append
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+        $trxPath = Join-Path $regressionDirectory 'core-host-http-sql.trx'
+        [xml]$trx = Get-Content -Raw -LiteralPath $trxPath
+        $allResults = @($trx.TestRun.Results.UnitTestResult)
+        $skippedResults = @($allResults | Where-Object { $_.outcome -eq 'NotExecuted' })
+        $unexpectedSkips = @($skippedResults | Where-Object {
+            $_.testName -notmatch '(?:SqlServer|SchemaUpgrade)'
+        })
+        [ordered]@{
+            total = [int]$trx.TestRun.ResultSummary.Counters.total
+            executed = [int]$trx.TestRun.ResultSummary.Counters.executed
+            passed = [int]$trx.TestRun.ResultSummary.Counters.passed
+            failed = [int]$trx.TestRun.ResultSummary.Counters.failed
+            skipped = $skippedResults.Count
+            skippedTests = @($skippedResults | ForEach-Object { $_.testName } | Sort-Object)
+            approvedSqlSkipReason = $ApprovedSqlSkipReason
+        } | ConvertTo-Json -Depth 5 |
+            Set-Content -LiteralPath (Join-Path $regressionDirectory 'summary.json') -Encoding utf8
+        if ($unexpectedSkips.Count -gt 0) {
+            throw "Unexpected non-SQL regression skips: $($unexpectedSkips.testName -join ', ')"
+        }
+        if ($skippedResults.Count -gt 0 -and [string]::IsNullOrWhiteSpace($ApprovedSqlSkipReason)) {
+            throw "SQL_SERVER_SKIPS_REQUIRE_USER_APPROVAL: $($skippedResults.Count) named skips are recorded in $regressionDirectory\summary.json"
+        }
 
         & (Join-Path $installRoot 'validation\Invoke-WatchAcceptance.ps1') `
             -HarnessRoot $source `
@@ -241,6 +307,9 @@ try {
             -Suite $Suite 2>&1 | Tee-Object -FilePath $logPath -Append
     }
     $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+        Invoke-PostRunEnvironmentCheck
+    }
     [pscustomobject]@{
         Status = if ($exitCode -eq 0) { 'PASSED' } else { 'FAILED' }
         ExitCode = $exitCode
@@ -251,12 +320,21 @@ try {
     exit $exitCode
 }
 catch {
+    $primaryError = $_.Exception.ToString()
+    $postRunError = $null
+    try {
+        Invoke-PostRunEnvironmentCheck
+    }
+    catch {
+        $postRunError = $_.Exception.ToString()
+    }
     New-Item -ItemType Directory -Path (Join-Path $Root 'Results') -Force | Out-Null
     [pscustomobject]@{
         Status = 'FAILED'
         ExitCode = 1
         CompletedAt = [DateTimeOffset]::Now.ToString('O')
-        Error = $_.Exception.ToString()
+        Error = $primaryError
+        PostRunEnvironmentError = $postRunError
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $resultPath -Encoding utf8
     exit 1
 }
@@ -277,7 +355,7 @@ catch {
         -Destination (Join-Path $guestRoot 'run-golden-validation.ps1')
 
     Invoke-Command -Session $session -ScriptBlock {
-        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height)
+        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height, $approvedSqlSkipReason)
         Expand-Archive -LiteralPath (Join-Path $root 'payload.zip') -DestinationPath $root
         $runner = Join-Path $root 'run-golden-validation.ps1'
         $arguments = @(
@@ -289,7 +367,8 @@ catch {
             '-Runs', $runs,
             '-ExpectedDpi', $dpi,
             '-ExpectedDesktopWidth', $width,
-            '-ExpectedDesktopHeight', $height
+            '-ExpectedDesktopHeight', $height,
+            '-ApprovedSqlSkipReason', "`"$approvedSqlSkipReason`""
         ) -join ' '
         $action = New-ScheduledTaskAction `
             -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
@@ -302,7 +381,7 @@ catch {
         Start-ScheduledTask -TaskName $task
     } -ArgumentList @(
         $guestRoot, $taskName, $Suite, $Configuration, $Runs,
-        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight)
+        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight, $ApprovedSqlSkipReason)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {

@@ -18,6 +18,11 @@ public sealed class ReleasePackageValidationTests
             Assert.True(File.Exists(manifestPath), result.Output);
             using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
             Assert.Equal("PASSED", manifest.RootElement.GetProperty("validationStatus").GetString());
+            var rebuild = manifest.RootElement.GetProperty("rebuildEvidence");
+            Assert.Equal("2026-08-09", rebuild.GetProperty("rebuildDecision").GetString());
+            Assert.False(rebuild.GetProperty("oldVisualEvidenceAccepted").GetBoolean());
+            Assert.Equal(19, rebuild.GetProperty("tickets").GetProperty("11").GetProperty("xamlScenarioCount").GetInt32());
+            Assert.Equal(50, rebuild.GetProperty("tickets").GetProperty("12").GetProperty("completeGateRuns").GetInt32());
             Assert.NotEmpty(manifest.RootElement.GetProperty("files").EnumerateArray());
             Assert.All(
                 manifest.RootElement.GetProperty("files").EnumerateArray(),
@@ -73,6 +78,9 @@ public sealed class ReleasePackageValidationTests
         File.WriteAllText(Path.Combine(root, "INSTALL.md"), "install");
         File.WriteAllText(Path.Combine(root, "UPGRADE.md"), "upgrade");
         File.WriteAllText(Path.Combine(root, "FACTORY-VALIDATION.md"), "validate");
+        File.WriteAllText(
+            Path.Combine(root, "RELEASE-EVIDENCE.json"),
+            """{"schemaVersion":1,"rebuildDecision":"2026-08-09","oldVisualEvidenceAccepted":false,"tickets":{"11":{"generation":"2026-08-09-rebuild","xamlScenarioCount":19},"12":{"generation":"2026-08-09-rebuild","realWindowBaselineCount":5,"completeGateRuns":50},"13":{"generation":"2026-08-09-rebuild"}}}""");
         File.WriteAllText(Path.Combine(root, "VERSION.txt"), "version");
         File.WriteAllText(
             Path.Combine(root, "templates", "appsettings.Local.json.example"),

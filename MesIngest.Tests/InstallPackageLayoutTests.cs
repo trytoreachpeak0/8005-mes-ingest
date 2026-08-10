@@ -137,6 +137,7 @@ public class InstallPackageLayoutTests
                      "UPGRADE.md",
                      "VERSION.txt",
                      "RELEASE-MANIFEST.json",
+                     "RELEASE-EVIDENCE.json",
                      "appsettings.Local.json.example",
                      "watch.appsettings.Local.json.example",
                      "Test-ReleasePackage.ps1",
@@ -163,5 +164,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("Invoke-ReleaseSmoke.ps1", wrapper, StringComparison.Ordinal);
         Assert.Contains("Invoke-WatchAcceptance.ps1", wrapper, StringComparison.Ordinal);
         Assert.Contains("MesIngest-win-x64.zip", wrapper, StringComparison.Ordinal);
+        Assert.Contains("ApprovedSqlSkipReason", wrapper, StringComparison.Ordinal);
+        Assert.Contains("core-host-http-sql.trx", wrapper, StringComparison.Ordinal);
+        Assert.Contains("environment-post.json", wrapper, StringComparison.Ordinal);
     }
 }

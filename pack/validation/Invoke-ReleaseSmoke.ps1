@@ -79,9 +79,9 @@ try {
     $liveOpenApiText | Set-Content -LiteralPath (Join-Path $artifacts 'live-openapi.json') -Encoding UTF8
     $liveOpenApi = $liveOpenApiText | ConvertFrom-Json
     $staticOpenApi = (Get-Content -Raw -LiteralPath $staticOpenApiPath) | ConvertFrom-Json
-    $livePaths = $liveOpenApi.paths | ConvertTo-Json -Depth 100 -Compress
-    $staticPaths = $staticOpenApi.paths | ConvertTo-Json -Depth 100 -Compress
-    if ($livePaths -cne $staticPaths) { throw 'Packaged runtime OpenAPI paths differ from the offline OpenAPI contract.' }
+    $liveContract = $liveOpenApi | ConvertTo-Json -Depth 100 -Compress
+    $staticContract = $staticOpenApi | ConvertTo-Json -Depth 100 -Compress
+    if ($liveContract -cne $staticContract) { throw 'Packaged runtime OpenAPI differs from the complete offline OpenAPI contract.' }
 
     $demands = Invoke-RestMethod -Uri "$baseUrl/api/demands?status=VISIBLE" -TimeoutSec 5
     $alerts = Invoke-RestMethod -Uri "$baseUrl/api/alerts?active=true" -TimeoutSec 5
@@ -93,6 +93,10 @@ try {
 
     $watchStartupMs = $null
     if (-not $SkipWatch) {
+        $preferenceDirectory = Join-Path $localData 'MesIngest.Watch'
+        New-Item -ItemType Directory -Path $preferenceDirectory -Force | Out-Null
+        '{"version":1,"windowWidth":1333,"windowHeight":777,"demandShare":0.65}' |
+            Set-Content -LiteralPath (Join-Path $preferenceDirectory 'layout-preferences.json') -Encoding UTF8
         $watchInfo = [Diagnostics.ProcessStartInfo]::new()
         $watchInfo.FileName = $watchExecutable
         $watchInfo.WorkingDirectory = Split-Path -Parent $watchExecutable
@@ -120,6 +124,9 @@ try {
 
         Add-Type -AssemblyName UIAutomationClient
         $window = [Windows.Automation.AutomationElement]::FromHandle($watchProcess.MainWindowHandle)
+        if ($window.Current.BoundingRectangle.Width -lt 1250) {
+            throw 'Packaged Watch did not load the isolated LocalApplicationData layout preference.'
+        }
         $requiredNames = @(
             '概览健康结论',
             'Host 接入状态',
@@ -133,6 +140,17 @@ try {
                 $name)
             $element = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
             if ($null -eq $element) { throw "Packaged Watch overview is missing UI Automation element: $name" }
+        }
+
+        $watchLogDirectory = Join-Path $sandbox 'watch-logs'
+        $logDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
+        do {
+            $latencyLogs = @(Get-ChildItem -LiteralPath $watchLogDirectory -Filter 'watch-latency-*.log' -File -ErrorAction SilentlyContinue)
+            if ($latencyLogs.Count -gt 0 -and $latencyLogs[0].Length -gt 0) { break }
+            Start-Sleep -Milliseconds 200
+        } while ([DateTimeOffset]::UtcNow -lt $logDeadline)
+        if ($latencyLogs.Count -eq 0 -or $latencyLogs[0].Length -eq 0) {
+            throw 'Packaged Watch did not write latency evidence under the isolated LocalApplicationData sandbox.'
         }
     }
 
@@ -150,6 +168,8 @@ try {
         changeCount = @($changes.items).Count
         openApiMatched = $true
         watchValidated = -not $SkipWatch
+        isolatedPreferenceLoaded = -not $SkipWatch
+        isolatedLogWritten = -not $SkipWatch
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $artifacts 'release-smoke-result.json') -Encoding UTF8
     Write-Output "MESINGEST_RELEASE_SMOKE_PASSED: artifacts=$artifacts"
 }

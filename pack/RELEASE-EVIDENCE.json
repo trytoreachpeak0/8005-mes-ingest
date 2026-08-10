@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "rebuildDecision": "2026-08-09",
+  "oldVisualEvidenceAccepted": false,
+  "tickets": {
+    "11": {
+      "generation": "2026-08-09-rebuild",
+      "evidenceRepositoryPath": ".scratch/mes-ingest-watch-v2-implementation/evidence/ticket11-regression-2026-08-09.md",
+      "ticket01To10Regression": true,
+      "xamlScenarioCount": 19,
+      "candidateStabilityRuns": 10,
+      "promotedStabilityRuns": 10
+    },
+    "12": {
+      "generation": "2026-08-09-rebuild",
+      "evidenceRepositoryPath": ".scratch/mes-ingest-watch-v2-implementation/evidence/ticket12-flaui-window-baselines-2026-08-10.md",
+      "realWindowBaselineCount": 5,
+      "candidateStabilityRuns": 10,
+      "promotedStabilityRuns": 10,
+      "completeGateRuns": 50,
+      "userApprovalRecorded": true
+    },
+    "13": {
+      "generation": "2026-08-09-rebuild",
+      "evidenceRepositoryPath": ".scratch/mes-ingest-watch-v2-implementation/evidence/ticket13-release-acceptance-2026-08-10.md",
+      "requiresCleanSource": true,
+      "requiresNamedSkipApproval": true
+    }
+  }
+}

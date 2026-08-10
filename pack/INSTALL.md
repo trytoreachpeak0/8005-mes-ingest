@@ -18,6 +18,7 @@ MesIngest/
   FACTORY-VALIDATION.md    # 工厂执行与核验清单
   VERSION.txt              # 发布版本信息
   RELEASE-MANIFEST.json    # 源提交、只读契约结论及逐文件 SHA-256
+  RELEASE-EVIDENCE.json    # Ticket 11/12/13 重建代次与证据索引
 ```
 
 ## 配置（凭证不进包）
