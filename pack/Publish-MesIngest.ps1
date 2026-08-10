@@ -154,7 +154,10 @@ $hostVer = if (Test-Path $hostDll) {
 }
 $sourceCommit = @(& git -C $csharpRoot rev-parse HEAD 2>$null) | Select-Object -First 1
 if ([string]::IsNullOrWhiteSpace($sourceCommit)) { $sourceCommit = "unknown" }
-$sourceStatus = @(& git -C $csharpRoot status --porcelain=v1 --untracked-files=normal -- . 2>$null)
+$sourceStatus = @(& git -C $csharpRoot status --porcelain=v1 --untracked-files=normal -- `
+    . `
+    ':(exclude).artifacts/**' `
+    ':(exclude)MesIngest.Tests/TestResults/**' 2>$null)
 $sourceDirty = $sourceStatus.Count -gt 0
 @(
     "MesIngest install package"

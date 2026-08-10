@@ -152,6 +152,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("Clearing package output", script, StringComparison.Ordinal);
         Assert.Contains("--ignore-failed-sources", script, StringComparison.Ordinal);
         Assert.Contains("NuGetAudit=false", script, StringComparison.Ordinal);
+        Assert.Contains(":(exclude).artifacts/**", script, StringComparison.Ordinal);
+        Assert.Contains(":(exclude)MesIngest.Tests/TestResults/**", script, StringComparison.Ordinal);
     }
 
     [Fact]
