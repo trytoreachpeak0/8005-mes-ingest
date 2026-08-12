@@ -174,6 +174,7 @@ internal sealed record DemandRawObservationDto(
     int Ordinal,
     string PollTraceId,
     string ProjectionCommitId,
+    string Assignment,
     string? SeriesId,
     string? DemandId,
     string? WorkType,
@@ -189,6 +190,15 @@ internal sealed record DemandRawObservationDto(
             snapshot.Ordinal,
             snapshot.PollTraceId,
             snapshot.ProjectionCommitId,
+            snapshot.Assignment switch
+            {
+                MesObservationAssignment.Assigned => "ASSIGNED",
+                MesObservationAssignment.Unassigned => "UNASSIGNED",
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(snapshot),
+                    snapshot.Assignment,
+                    "Unknown MES observation assignment."),
+            },
             snapshot.SeriesId,
             snapshot.DemandId,
             snapshot.WorkType,
@@ -266,7 +276,7 @@ internal sealed record PollTraceDto(
     DateTimeOffset CompletedAt,
     int RowCount,
     string ContentDigest,
-    ProjectionCommitDto ProjectionCommit,
+    ProjectionCommitDto? ProjectionCommit,
     IReadOnlyList<DemandRawObservationDto> Observations)
 {
     public static PollTraceDto From(PollTraceSnapshot snapshot) =>
@@ -278,6 +288,8 @@ internal sealed record PollTraceDto(
             snapshot.CompletedAt,
             snapshot.RowCount,
             snapshot.ContentDigest,
-            ProjectionCommitDto.From(snapshot.ProjectionCommit),
+            snapshot.ProjectionCommit is null
+                ? null
+                : ProjectionCommitDto.From(snapshot.ProjectionCommit),
             snapshot.Observations.Select(DemandRawObservationDto.From).ToList());
 }

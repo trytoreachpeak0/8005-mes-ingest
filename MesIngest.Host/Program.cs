@@ -45,7 +45,7 @@ if (newV2Enabled)
 {
     builder.Services.AddSingleton<IMesIngestProjection>(
         new SqlServerMesIngestProjection(configured.NewSqlServerConnectionString));
-    builder.Services.AddSingleton<SuccessRoundIngestor>();
+    builder.Services.AddSingleton<RoundIngestor>();
 }
 builder.Services.AddSingleton<ILatencyTelemetry>(sp =>
     new LoggingLatencyTelemetry(sp.GetRequiredService<ILoggerFactory>().CreateLogger("MesIngest.Latency")));

@@ -22,6 +22,16 @@ public sealed record MesTaskUnionObservation(
     DateTimeOffset? MesSourceDate,
     string? Package);
 
+/// <summary>Canonical value semantics shared by evidence and projection logic.</summary>
+public static class MesTaskUnionValueSemantics
+{
+    public static DateTimeOffset? NormalizeSourceDate(DateTimeOffset? value) =>
+        value?.ToUniversalTime();
+
+    public static bool SourceDatesEqual(DateTimeOffset? left, DateTimeOffset? right) =>
+        NormalizeSourceDate(left) == NormalizeSourceDate(right);
+}
+
 /// <summary>A complete causal result of one MES_TASK_UNION execution.</summary>
 public sealed record MesTaskUnionRound(
     string PollTraceId,
@@ -77,7 +87,8 @@ public static class MesTaskUnionRoundDigest
         AppendValue(builder, observation.Step);
         AppendValue(
             builder,
-            observation.MesSourceDate?.ToString("O", CultureInfo.InvariantCulture));
+            MesTaskUnionValueSemantics.NormalizeSourceDate(observation.MesSourceDate)?
+                .ToString("O", CultureInfo.InvariantCulture));
         AppendValue(builder, observation.Package);
         return builder.ToString();
     }

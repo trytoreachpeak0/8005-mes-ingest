@@ -55,7 +55,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
             await using var factory = CreateFactory();
             var client = factory.CreateClient();
-            var ingestor = factory.Services.GetRequiredService<SuccessRoundIngestor>();
+            var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
             Assert.Equal(
                 Environments.Production,
                 factory.Services.GetRequiredService<IHostEnvironment>().EnvironmentName);
@@ -202,7 +202,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
             await using var factory = CreateFactory();
             var client = factory.CreateClient();
-            var ingestor = factory.Services.GetRequiredService<SuccessRoundIngestor>();
+            var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
 
             var firstReceipt = await ingestor.IngestAsync(CreateRound(
                 "poll-ticket01-equivalent-1",
@@ -214,10 +214,21 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
                 .Select(item => item.GetProperty("eventId").GetString())
                 .ToArray();
 
-            var secondReceipt = await ingestor.IngestAsync(CreateRound(
+            var secondRound = CreateRound(
                 "poll-ticket01-equivalent-2",
                 secondStartedAt,
-                secondCompletedAt));
+                secondCompletedAt);
+            secondRound = secondRound with
+            {
+                Observations =
+                [
+                    secondRound.Observations[0] with
+                    {
+                        MesSourceDate = secondRound.Observations[0].MesSourceDate!.Value.ToUniversalTime(),
+                    },
+                ],
+            };
+            var secondReceipt = await ingestor.IngestAsync(secondRound);
             var after = await client.GetFromJsonAsync<JsonElement>(SeriesByKeyUri);
 
             Assert.Equal(firstReceipt.SeriesIds, secondReceipt.SeriesIds);
@@ -294,7 +305,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             await using (var firstFactory = CreateFactory())
             {
                 var firstClient = firstFactory.CreateClient();
-                var ingestor = firstFactory.Services.GetRequiredService<SuccessRoundIngestor>();
+                var ingestor = firstFactory.Services.GetRequiredService<RoundIngestor>();
                 var receipt = await ingestor.IngestAsync(CreateRound(
                     pollTraceId,
                     startedAt,
@@ -303,7 +314,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
 
                 seriesId = beforeRestart.GetProperty("seriesId").GetString()!;
                 demandId = beforeRestart.GetProperty("currentDemand").GetProperty("demandId").GetString()!;
-                projectionCommitId = receipt.ProjectionCommitId;
+                projectionCommitId = receipt.ProjectionCommitId!;
                 eventIds = beforeRestart.GetProperty("events")
                     .EnumerateArray()
                     .Select(item => item.GetProperty("eventId").GetString()!)

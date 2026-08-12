@@ -1,12 +1,12 @@
 namespace MesIngest.Core.SeriesProjection;
 
 /// <summary>
-/// Deep seam for the new projection: one successful round is committed atomically,
-/// while all reads return only committed evidence.
+/// Deep seam for the new projection: every round result leaves immutable evidence,
+/// only SUCCESS mutates business projections, and reads expose committed state.
 /// </summary>
 public interface IMesIngestProjection
 {
-    Task<SuccessRoundCommitReceipt> CommitSuccessRoundAsync(
+    Task<RoundCommitReceipt> CommitRoundAsync(
         MesTaskUnionRound round,
         CancellationToken cancellationToken = default);
 

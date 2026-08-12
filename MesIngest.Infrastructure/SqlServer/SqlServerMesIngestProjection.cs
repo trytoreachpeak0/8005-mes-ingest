@@ -6,9 +6,9 @@ using Microsoft.Data.SqlClient;
 namespace MesIngest.Infrastructure.SqlServer;
 
 /// <summary>
-/// SQL Server implementation of the new MesIngest projection seam. A successful
-/// MES_TASK_UNION round and every fact derived from it share one serializable
-/// transaction and one projection-commit identity.
+/// SQL Server implementation of the new MesIngest projection seam. Every round
+/// result is recorded transactionally; only SUCCESS receives a projection commit
+/// and can change business state.
 /// </summary>
 public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 {
@@ -35,12 +35,18 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         _connectionString = connectionString;
     }
 
-    public async Task<SuccessRoundCommitReceipt> CommitSuccessRoundAsync(
+    public async Task<RoundCommitReceipt> CommitRoundAsync(
         MesTaskUnionRound round,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(round);
         cancellationToken.ThrowIfCancellationRequested();
-        var prepared = PrepareSuccessRound(round, cancellationToken);
+        round = round with
+        {
+            StartedAt = round.StartedAt.ToUniversalTime(),
+            CompletedAt = round.CompletedAt.ToUniversalTime(),
+        };
+        var prepared = PrepareRound(round, cancellationToken);
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
 
         await using var connection = new SqlConnection(_connectionString);
@@ -51,11 +57,46 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 
         try
         {
-            await RejectExistingPollTraceAsync(
+            var existing = await LoadExistingPollTraceForUpdateAsync(
                 connection,
                 transaction,
                 round.PollTraceId,
                 cancellationToken).ConfigureAwait(false);
+            if (existing is not null)
+            {
+                if (!IsSameAcceptedContent(existing, round, prepared.ContentDigest))
+                {
+                    throw new PollTraceConflictException(round.PollTraceId);
+                }
+
+                var replay = await ReadAcceptedReceiptAsync(
+                    connection,
+                    transaction,
+                    existing,
+                    cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return replay;
+            }
+
+            EnsureSupportedNewRound(prepared);
+
+            if (round.Outcome is not MesTaskUnionRoundOutcome.Success)
+            {
+                await InsertPollTraceAsync(
+                    connection,
+                    transaction,
+                    round,
+                    prepared.ContentDigest,
+                    cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return new RoundCommitReceipt(
+                    round.PollTraceId,
+                    round.Outcome,
+                    ProjectionCommitId: null,
+                    SeriesIds: [],
+                    DemandIds: [],
+                    IsReplay: false);
+            }
 
             var projectionCommitId = NewId();
             await InsertPollTraceAndCommitAsync(
@@ -71,6 +112,19 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             foreach (var item in prepared.Observations)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (item.KeyToken is null)
+                {
+                    await InsertRawObservationAsync(
+                        connection,
+                        transaction,
+                        round.PollTraceId,
+                        projectionCommitId,
+                        identity: null,
+                        item,
+                        cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var current = await LoadCurrentProjectionForUpdateAsync(
                     connection,
                     transaction,
@@ -114,11 +168,13 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             }
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return new SuccessRoundCommitReceipt(
+            return new RoundCommitReceipt(
                 round.PollTraceId,
+                round.Outcome,
                 projectionCommitId,
-                seriesIds,
-                demandIds);
+                StableDistinct(seriesIds),
+                StableDistinct(demandIds),
+                IsReplay: false);
         }
         catch (Exception exception)
         {
@@ -187,7 +243,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         c.ProjectionCommitId,
                         c.CommittedAt
                     FROM mesingest.PollTraces AS p
-                    INNER JOIN mesingest.ProjectionCommits AS c
+                    LEFT JOIN mesingest.ProjectionCommits AS c
                         ON c.PollTraceId = p.PollTraceId
                     WHERE p.PollTraceId = @pollTraceId;
                     """;
@@ -221,10 +277,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 trace.CompletedAt,
                 trace.RowCount,
                 trace.ContentDigest,
-                new ProjectionCommitSnapshot(
-                    trace.ProjectionCommitId,
-                    trace.PollTraceId,
-                    trace.CommittedAt),
+                trace.ProjectionCommitId is null
+                    ? null
+                    : new ProjectionCommitSnapshot(
+                        trace.ProjectionCommitId,
+                        trace.PollTraceId,
+                        trace.CommittedAt!.Value),
                 observations);
         }
         catch (Exception exception)
@@ -390,18 +448,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
-    private static PreparedRound PrepareSuccessRound(
+    private static PreparedRound PrepareRound(
         MesTaskUnionRound round,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(round);
-        if (round.Outcome != MesTaskUnionRoundOutcome.Success)
-        {
-            throw new ArgumentException(
-                "This projection seam accepts complete SUCCESS rounds only.",
-                nameof(round));
-        }
-
         ValidateRequiredText(round.PollTraceId, nameof(round.PollTraceId), 128);
         ValidateRequiredText(round.QueryVersion, nameof(round.QueryVersion), 128);
         ArgumentNullException.ThrowIfNull(round.Observations);
@@ -412,36 +463,34 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 nameof(round));
         }
 
+        if (round.Outcome is not MesTaskUnionRoundOutcome.Success)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new PreparedRound(
+                Observations: [],
+                MesTaskUnionRoundDigest.Compute(round.Observations));
+        }
+
         var prepared = new List<PreparedObservation>(round.Observations.Count);
-        var keyTokens = new HashSet<string>(StringComparer.Ordinal);
         for (var ordinal = 0; ordinal < round.Observations.Count; ordinal++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var observation = round.Observations[ordinal]
                 ?? throw new ArgumentException("A round observation cannot be null.", nameof(round));
-            if (string.IsNullOrWhiteSpace(observation.WorkType)
-                || string.IsNullOrWhiteSpace(observation.Sublot))
-            {
-                throw new NotSupportedException(
-                    "Unassigned MES observations are introduced by ticket 02 and are not supported by the ticket 01 spine.");
-            }
-
-            ValidateRequiredText(observation.WorkType, nameof(observation.WorkType), 128);
-            ValidateRequiredText(observation.Sublot, nameof(observation.Sublot), 256);
+            var isAssigned = !string.IsNullOrWhiteSpace(observation.WorkType)
+                && !string.IsNullOrWhiteSpace(observation.Sublot);
+            ValidateOptionalText(observation.WorkType, nameof(observation.WorkType), 128);
+            ValidateOptionalText(observation.Sublot, nameof(observation.Sublot), 256);
             ValidateOptionalText(observation.Area, nameof(observation.Area), 128);
             ValidateOptionalText(observation.Eqp, nameof(observation.Eqp), 256);
             ValidateOptionalText(observation.Step, nameof(observation.Step), 256);
             ValidateOptionalText(observation.Package, nameof(observation.Package), 256);
 
-            var keyToken = TransportDemandKeyIdentity.CreateToken(
-                observation.WorkType,
-                observation.Sublot);
-            if (!keyTokens.Add(keyToken))
-            {
-                throw new NotSupportedException(
-                    "Duplicate TransportDemandKey observations are introduced by ticket 04 and are not supported by the ticket 01 spine.");
-            }
-
+            var keyToken = isAssigned
+                ? TransportDemandKeyIdentity.CreateToken(
+                    observation.WorkType!,
+                    observation.Sublot!)
+                : null;
             prepared.Add(new PreparedObservation(ordinal, keyToken, observation));
         }
 
@@ -449,7 +498,20 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         return new PreparedRound(prepared, MesTaskUnionRoundDigest.Compute(round.Observations));
     }
 
-    private static async Task RejectExistingPollTraceAsync(
+    private static void EnsureSupportedNewRound(PreparedRound prepared)
+    {
+        var keyTokens = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in prepared.Observations)
+        {
+            if (item.KeyToken is not null && !keyTokens.Add(item.KeyToken))
+            {
+                throw new NotSupportedException(
+                    "A new SUCCESS round with duplicate TransportDemandKey observations is owned by ticket 04.");
+            }
+        }
+    }
+
+    private static async Task<PollTraceRow?> LoadExistingPollTraceForUpdateAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         string pollTraceId,
@@ -458,16 +520,98 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT 1
-            FROM mesingest.PollTraces WITH (UPDLOCK, HOLDLOCK)
-            WHERE PollTraceId = @pollTraceId;
+            SELECT
+                p.PollTraceId,
+                p.QueryVersion,
+                p.Outcome,
+                p.StartedAt,
+                p.CompletedAt,
+                p.[RowCount],
+                p.ContentDigest,
+                c.ProjectionCommitId,
+                c.CommittedAt
+            FROM mesingest.PollTraces AS p WITH (UPDLOCK, HOLDLOCK)
+            LEFT JOIN mesingest.ProjectionCommits AS c WITH (UPDLOCK, HOLDLOCK)
+                ON c.PollTraceId = p.PollTraceId
+            WHERE p.PollTraceId = @pollTraceId;
             """;
         AddNVarChar(command, "@pollTraceId", 128, pollTraceId);
-        if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not null)
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? ReadPollTraceRow(reader)
+            : null;
+    }
+
+    private static bool IsSameAcceptedContent(
+        PollTraceRow existing,
+        MesTaskUnionRound round,
+        string contentDigest) =>
+        string.Equals(existing.QueryVersion, round.QueryVersion, StringComparison.Ordinal)
+        && string.Equals(existing.Outcome, GetOutcome(round.Outcome), StringComparison.Ordinal)
+        && existing.RowCount == round.Observations.Count
+        && string.Equals(existing.ContentDigest, contentDigest, StringComparison.Ordinal);
+
+    private static async Task<RoundCommitReceipt> ReadAcceptedReceiptAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        PollTraceRow existing,
+        CancellationToken cancellationToken)
+    {
+        if (existing.ProjectionCommitId is null)
         {
-            throw new NotSupportedException(
-                "PollTrace replay and conflict semantics are introduced by ticket 02; ticket 01 requires a new PollTraceId.");
+            return new RoundCommitReceipt(
+                existing.PollTraceId,
+                ParseOutcome(existing.Outcome),
+                ProjectionCommitId: null,
+                SeriesIds: [],
+                DemandIds: [],
+                IsReplay: true);
         }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT SeriesId, DemandId
+            FROM mesingest.DemandRawObservations
+            WHERE PollTraceId = @pollTraceId
+              AND SeriesId IS NOT NULL
+              AND DemandId IS NOT NULL
+            ORDER BY Ordinal;
+            """;
+        AddNVarChar(command, "@pollTraceId", 128, existing.PollTraceId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var seriesIds = new List<string>();
+        var demandIds = new List<string>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            seriesIds.Add(reader.GetString(0));
+            demandIds.Add(reader.GetString(1));
+        }
+
+        return new RoundCommitReceipt(
+            existing.PollTraceId,
+            ParseOutcome(existing.Outcome),
+            existing.ProjectionCommitId,
+            StableDistinct(seriesIds),
+            StableDistinct(demandIds),
+            IsReplay: true);
+    }
+
+    private static IReadOnlyList<string> StableDistinct(IReadOnlyList<string> values)
+    {
+        var distinct = new List<string>(values.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var value in values)
+        {
+            if (seen.Add(value))
+            {
+                distinct.Add(value);
+            }
+        }
+
+        return distinct;
     }
 
     private static async Task InsertPollTraceAndCommitAsync(
@@ -493,13 +637,54 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
-        AddDateTimeOffset(command, "@startedAt", round.StartedAt);
-        AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
+        AddDateTimeOffset(command, "@startedAt", round.StartedAt.ToUniversalTime());
+        AddDateTimeOffset(command, "@completedAt", round.CompletedAt.ToUniversalTime());
         command.Parameters.Add("@rowCount", SqlDbType.Int).Value = round.Observations.Count;
         AddChar(command, "@contentDigest", 64, contentDigest);
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private static async Task InsertPollTraceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        MesTaskUnionRound round,
+        string contentDigest,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.PollTraces
+                (PollTraceId, QueryVersion, Outcome, StartedAt, CompletedAt, [RowCount], ContentDigest)
+            VALUES
+                (@pollTraceId, @queryVersion, @outcome, @startedAt, @completedAt, @rowCount, @contentDigest);
+            """;
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
+        AddNVarChar(command, "@outcome", 16, GetOutcome(round.Outcome));
+        AddDateTimeOffset(command, "@startedAt", round.StartedAt.ToUniversalTime());
+        AddDateTimeOffset(command, "@completedAt", round.CompletedAt.ToUniversalTime());
+        command.Parameters.Add("@rowCount", SqlDbType.Int).Value = round.Observations.Count;
+        AddChar(command, "@contentDigest", 64, contentDigest);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string GetOutcome(MesTaskUnionRoundOutcome outcome) => outcome switch
+    {
+        MesTaskUnionRoundOutcome.Success => SuccessOutcome,
+        MesTaskUnionRoundOutcome.Failure => "FAILURE",
+        MesTaskUnionRoundOutcome.Incomplete => "INCOMPLETE",
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, "Unknown round outcome."),
+    };
+
+    private static MesTaskUnionRoundOutcome ParseOutcome(string outcome) => outcome switch
+    {
+        SuccessOutcome => MesTaskUnionRoundOutcome.Success,
+        "FAILURE" => MesTaskUnionRoundOutcome.Failure,
+        "INCOMPLETE" => MesTaskUnionRoundOutcome.Incomplete,
+        _ => throw new InvalidOperationException($"Stored round outcome '{outcome}' is not supported."),
+    };
 
     private static async Task<CurrentProjectionRow?> LoadCurrentProjectionForUpdateAsync(
         SqlConnection connection,
@@ -603,7 +788,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 WHERE SeriesId = @seriesId;
                 """;
             AddNVarChar(command, "@seriesId", 64, seriesId);
-            AddChar(command, "@keyToken", 64, item.KeyToken);
+            AddChar(command, "@keyToken", 64, item.KeyToken!);
             AddNVarChar(command, "@workType", 128, observation.WorkType!);
             AddNVarChar(command, "@sublot", 256, observation.Sublot!);
             AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
@@ -722,7 +907,9 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         if (!string.Equals(current.Area, observation.Area, StringComparison.Ordinal)
             || !string.Equals(current.Eqp, observation.Eqp, StringComparison.Ordinal)
             || !string.Equals(current.Step, observation.Step, StringComparison.Ordinal)
-            || !DateTimeOffsetEqualsExact(current.MesSourceDate, observation.MesSourceDate)
+            || !MesTaskUnionValueSemantics.SourceDatesEqual(
+                current.MesSourceDate,
+                observation.MesSourceDate)
             || !string.Equals(current.Package, observation.Package, StringComparison.Ordinal))
         {
             throw new NotSupportedException(
@@ -767,7 +954,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         SqlTransaction transaction,
         string pollTraceId,
         string projectionCommitId,
-        ProjectedIdentity identity,
+        ProjectedIdentity? identity,
         PreparedObservation item,
         CancellationToken cancellationToken)
     {
@@ -785,10 +972,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         AddNVarChar(command, "@pollTraceId", 128, pollTraceId);
         command.Parameters.Add("@ordinal", SqlDbType.Int).Value = item.Ordinal;
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
-        AddNVarChar(command, "@seriesId", 64, identity.SeriesId);
-        AddNVarChar(command, "@demandId", 64, identity.DemandId);
-        AddNVarChar(command, "@workType", 128, observation.WorkType!);
-        AddNVarChar(command, "@sublot", 256, observation.Sublot!);
+        AddNullableNVarChar(command, "@seriesId", 64, identity?.SeriesId);
+        AddNullableNVarChar(command, "@demandId", 64, identity?.DemandId);
+        AddNullableNVarChar(command, "@workType", 128, observation.WorkType);
+        AddNullableNVarChar(command, "@sublot", 256, observation.Sublot);
         AddNullableNVarChar(command, "@area", 128, observation.Area);
         AddNullableNVarChar(command, "@eqp", 256, observation.Eqp);
         AddNullableNVarChar(command, "@step", 256, observation.Step);
@@ -836,6 +1023,9 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 reader.GetInt32(0),
                 reader.GetString(1),
                 reader.GetString(2),
+                reader.IsDBNull(3) && reader.IsDBNull(4)
+                    ? MesObservationAssignment.Unassigned
+                    : MesObservationAssignment.Assigned,
                 GetNullableString(reader, 3),
                 GetNullableString(reader, 4),
                 GetNullableString(reader, 5),
@@ -933,20 +1123,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetFieldValue<DateTimeOffset>(4),
             reader.GetInt32(5),
             reader.GetString(6),
-            reader.GetString(7),
-            reader.GetFieldValue<DateTimeOffset>(8));
-
-    private static bool DateTimeOffsetEqualsExact(
-        DateTimeOffset? left,
-        DateTimeOffset? right)
-    {
-        if (left is null || right is null)
-        {
-            return left is null && right is null;
-        }
-
-        return left.Value.EqualsExact(right.Value);
-    }
+            GetNullableString(reader, 7),
+            GetNullableDateTimeOffset(reader, 8));
 
     private static string? GetNullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -1018,7 +1196,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 
     private sealed record PreparedObservation(
         int Ordinal,
-        string KeyToken,
+        string? KeyToken,
         MesTaskUnionObservation Observation);
 
     private sealed record ProjectedIdentity(string SeriesId, string DemandId);
@@ -1072,6 +1250,6 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         DateTimeOffset CompletedAt,
         int RowCount,
         string ContentDigest,
-        string ProjectionCommitId,
-        DateTimeOffset CommittedAt);
+        string? ProjectionCommitId,
+        DateTimeOffset? CommittedAt);
 }

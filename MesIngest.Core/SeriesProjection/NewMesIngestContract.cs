@@ -2,13 +2,13 @@ namespace MesIngest.Core.SeriesProjection;
 
 /// <summary>
 /// Identity of the isolated new-MesIngest tracer contract. The complete product
-/// contract is frozen by ticket 17; this version covers only ticket 01's spine.
+/// contract is frozen by ticket 17; this version covers the round-evidence spine.
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.tracer.1";
+    public const string Version = "2026.08.new-mes-ingest.tracer.2";
 
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>
     /// WorkType and SUBLOT are compared ordinally and case-sensitively. Their

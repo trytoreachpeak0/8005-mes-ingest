@@ -62,6 +62,8 @@ internal static class SqlServerMesIngestSchema
     private const string AcquireSchemaLockAndCountSql = """
         SET XACT_ABORT ON;
 
+        -- Keep the lock identity stable so old and new contract binaries cannot
+        -- validate or bootstrap the same database concurrently.
         DECLARE @lockResult INT;
         EXEC @lockResult = sys.sp_getapplock
             @Resource = N'mesingest.schema.contract.v1',

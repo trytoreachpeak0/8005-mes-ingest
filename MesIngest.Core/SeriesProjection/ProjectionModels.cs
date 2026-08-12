@@ -1,10 +1,12 @@
 namespace MesIngest.Core.SeriesProjection;
 
-public sealed record SuccessRoundCommitReceipt(
+public sealed record RoundCommitReceipt(
     string PollTraceId,
-    string ProjectionCommitId,
+    MesTaskUnionRoundOutcome Outcome,
+    string? ProjectionCommitId,
     IReadOnlyList<string> SeriesIds,
-    IReadOnlyList<string> DemandIds);
+    IReadOnlyList<string> DemandIds,
+    bool IsReplay);
 
 public sealed record ProjectionCommitSnapshot(
     string ProjectionCommitId,
@@ -31,10 +33,17 @@ public sealed record TransportDemandSnapshot(
     string LatestProjectionCommitId,
     LiveMesFieldSetSnapshot LiveMesFields);
 
+public enum MesObservationAssignment
+{
+    Assigned,
+    Unassigned,
+}
+
 public sealed record DemandRawObservationSnapshot(
     int Ordinal,
     string PollTraceId,
     string ProjectionCommitId,
+    MesObservationAssignment Assignment,
     string? SeriesId,
     string? DemandId,
     string? WorkType,
@@ -80,5 +89,5 @@ public sealed record PollTraceSnapshot(
     DateTimeOffset CompletedAt,
     int RowCount,
     string ContentDigest,
-    ProjectionCommitSnapshot ProjectionCommit,
+    ProjectionCommitSnapshot? ProjectionCommit,
     IReadOnlyList<DemandRawObservationSnapshot> Observations);
