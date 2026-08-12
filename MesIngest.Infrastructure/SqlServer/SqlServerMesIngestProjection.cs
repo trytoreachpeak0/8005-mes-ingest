@@ -106,6 +106,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 prepared.ContentDigest,
                 projectionCommitId,
                 cancellationToken).ConfigureAwait(false);
+            var bootstrapRound = await IsFirstProjectionCommitAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
 
             var seriesIds = new List<string>(prepared.Observations.Count);
             var demandIds = new List<string>(prepared.Observations.Count);
@@ -141,18 +145,37 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         projectionCommitId,
                         item,
                         cancellationToken).ConfigureAwait(false);
+                    await SynchronizeFieldConditionsAsync(
+                        connection,
+                        transaction,
+                        identity,
+                        item.Observation,
+                        round,
+                        projectionCommitId,
+                        bootstrapRound,
+                        cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
-                    EnsureEquivalentCurrentObservation(current, item.Observation, round.CompletedAt);
-                    await AdvanceEquivalentObservationAsync(
+                    EnsureCurrentObservationCanAdvance(current, item.Observation, round.CompletedAt);
+                    await AdvanceLiveObservationAsync(
                         connection,
                         transaction,
                         current,
+                        item.Observation,
+                        round,
                         projectionCommitId,
-                        round.CompletedAt,
                         cancellationToken).ConfigureAwait(false);
                     identity = new ProjectedIdentity(current.SeriesId, current.DemandId);
+                    await SynchronizeFieldConditionsAsync(
+                        connection,
+                        transaction,
+                        identity,
+                        item.Observation,
+                        round,
+                        projectionCommitId,
+                        bootstrapRound: false,
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 await InsertRawObservationAsync(
@@ -382,6 +405,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 transaction,
                 series.SeriesId,
                 cancellationToken).ConfigureAwait(false);
+            var errorState = await ReadErrorStateAsync(
+                connection,
+                transaction,
+                series.SeriesId,
+                cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
             return new DemandSeriesSnapshot(
@@ -410,9 +438,18 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         series.Eqp,
                         series.Step,
                         series.MesSourceDate,
-                        series.Package)),
+                        series.Package),
+                    ExternalReadabilityState: errorState.CurrentConditions.Count == 0
+                        ? "READABLE"
+                        : "NOT_READABLE",
+                    ReadabilityBlockers: errorState.CurrentConditions
+                        .Select(condition => condition.Code)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray()),
                 observations,
-                events);
+                events,
+                errorState.CurrentConditions,
+                errorState.ErrorPeriods);
         }
         catch (Exception exception)
         {
@@ -481,10 +518,6 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 && !string.IsNullOrWhiteSpace(observation.Sublot);
             ValidateOptionalText(observation.WorkType, nameof(observation.WorkType), 128);
             ValidateOptionalText(observation.Sublot, nameof(observation.Sublot), 256);
-            ValidateOptionalText(observation.Area, nameof(observation.Area), 128);
-            ValidateOptionalText(observation.Eqp, nameof(observation.Eqp), 256);
-            ValidateOptionalText(observation.Step, nameof(observation.Step), 256);
-            ValidateOptionalText(observation.Package, nameof(observation.Package), 256);
 
             var keyToken = isAssigned
                 ? TransportDemandKeyIdentity.CreateToken(
@@ -612,6 +645,19 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
 
         return distinct;
+    }
+
+    private static async Task<bool> IsFirstProjectionCommitAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT COUNT_BIG(*) FROM mesingest.ProjectionCommits;";
+        return Convert.ToInt64(
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            System.Globalization.CultureInfo.InvariantCulture) == 1;
     }
 
     private static async Task InsertPollTraceAndCommitAsync(
@@ -795,11 +841,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
             AddNVarChar(command, "@demandId", 64, demandId);
-            AddNullableNVarChar(command, "@area", 128, observation.Area);
-            AddNullableNVarChar(command, "@eqp", 256, observation.Eqp);
-            AddNullableNVarChar(command, "@step", 256, observation.Step);
+            AddNullableNVarChar(command, "@area", -1, observation.Area);
+            AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
+            AddNullableNVarChar(command, "@step", -1, observation.Step);
             AddNullableDateTimeOffset(command, "@mesSourceDate", observation.MesSourceDate);
-            AddNullableNVarChar(command, "@package", 256, observation.Package);
+            AddNullableNVarChar(command, "@package", -1, observation.Package);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -840,7 +886,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         return new ProjectedIdentity(seriesId, demandId);
     }
 
-    private static async Task InsertInitialEventAsync(
+    private static Task InsertInitialEventAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         string seriesId,
@@ -851,8 +897,34 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionRound round,
         string projectionCommitId,
         string payloadJson,
+        CancellationToken cancellationToken) =>
+        InsertEventAsync(
+            connection,
+            transaction,
+            seriesId,
+            sequence,
+            eventType,
+            subjectKind,
+            subjectId,
+            round,
+            projectionCommitId,
+            payloadJson,
+            cancellationToken);
+
+    private static async Task<string> InsertEventAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        long sequence,
+        string eventType,
+        string subjectKind,
+        string? subjectId,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        string payloadJson,
         CancellationToken cancellationToken)
     {
+        var eventId = NewId();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -865,20 +937,21 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                  @subjectKind, @subjectId, @pollTraceId, @projectionCommitId,
                  1, @payload);
             """;
-        AddNVarChar(command, "@eventId", 64, NewId());
+        AddNVarChar(command, "@eventId", 64, eventId);
         AddNVarChar(command, "@seriesId", 64, seriesId);
         command.Parameters.Add("@seriesSequence", SqlDbType.BigInt).Value = sequence;
         AddNVarChar(command, "@eventType", 128, eventType);
         AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
         AddNVarChar(command, "@subjectKind", 64, subjectKind);
-        AddNVarChar(command, "@subjectId", 128, subjectId);
+        AddNullableNVarChar(command, "@subjectId", 128, subjectId);
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddNVarChar(command, "@payload", -1, payloadJson);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        return eventId;
     }
 
-    private static void EnsureEquivalentCurrentObservation(
+    private static void EnsureCurrentObservationCanAdvance(
         CurrentProjectionRow current,
         MesTaskUnionObservation observation,
         DateTimeOffset completedAt)
@@ -904,43 +977,77 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 "A successful round cannot move DemandLastSeenAt backwards.");
         }
 
-        if (!string.Equals(current.Area, observation.Area, StringComparison.Ordinal)
-            || !string.Equals(current.Eqp, observation.Eqp, StringComparison.Ordinal)
-            || !string.Equals(current.Step, observation.Step, StringComparison.Ordinal)
-            || !MesTaskUnionValueSemantics.SourceDatesEqual(
-                current.MesSourceDate,
-                observation.MesSourceDate)
-            || !string.Equals(current.Package, observation.Package, StringComparison.Ordinal))
-        {
-            throw new NotSupportedException(
-                "Live MES field changes are introduced by ticket 03 and are not supported by the ticket 01 spine.");
-        }
     }
 
-    private static async Task AdvanceEquivalentObservationAsync(
+    private static async Task AdvanceLiveObservationAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         CurrentProjectionRow current,
+        MesTaskUnionObservation observation,
+        MesTaskUnionRound round,
         string projectionCommitId,
-        DateTimeOffset completedAt,
         CancellationToken cancellationToken)
     {
+        var changes = GetLiveFieldChanges(current, observation);
+        var nextSequence = await GetNextSeriesSequenceAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            cancellationToken).ConfigureAwait(false);
+        foreach (var change in changes)
+        {
+            await InsertEventAsync(
+                connection,
+                transaction,
+                current.SeriesId,
+                nextSequence++,
+                "MES_FIELD_CHANGED",
+                change.SubjectKind,
+                current.DemandId,
+                round,
+                projectionCommitId,
+                JsonSerializer.Serialize(new
+                {
+                    field = change.SubjectKind,
+                    before = change.Before,
+                    after = change.After,
+                }),
+                cancellationToken).ConfigureAwait(false);
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
             UPDATE mesingest.DemandSeries
-            SET LatestProjectionCommitId = @projectionCommitId
+            SET LatestProjectionCommitId = @projectionCommitId,
+                LastSeriesSequence = @lastSeriesSequence
             WHERE SeriesId = @seriesId;
 
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
-                DemandLastSeenAt = @completedAt
+                DemandLastSeenAt = @completedAt,
+                Area = @area,
+                Eqp = @eqp,
+                Step = @step,
+                MesSourceDate = @mesSourceDate,
+                Package = @package
             WHERE DemandId = @demandId;
             """;
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddNVarChar(command, "@seriesId", 64, current.SeriesId);
         AddNVarChar(command, "@demandId", 64, current.DemandId);
-        AddDateTimeOffset(command, "@completedAt", completedAt);
+        command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = nextSequence - 1;
+        AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
+        AddNullableNVarChar(command, "@area", -1, observation.Area);
+        AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
+        AddNullableNVarChar(command, "@step", -1, observation.Step);
+        AddNullableDateTimeOffset(
+            command,
+            "@mesSourceDate",
+            MesTaskUnionValueSemantics.SourceDatesEqual(current.MesSourceDate, observation.MesSourceDate)
+                ? current.MesSourceDate
+                : observation.MesSourceDate);
+        AddNullableNVarChar(command, "@package", -1, observation.Package);
         var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (affected != 2)
         {
@@ -948,6 +1055,425 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 "The current DemandSeries projection changed while applying an equivalent observation.");
         }
     }
+
+    private static IReadOnlyList<LiveFieldChange> GetLiveFieldChanges(
+        CurrentProjectionRow current,
+        MesTaskUnionObservation observation)
+    {
+        var changes = new List<LiveFieldChange>(5);
+        AddStringChange(changes, "AREA", current.Area, observation.Area);
+        AddStringChange(changes, "EQP", current.Eqp, observation.Eqp);
+        AddStringChange(changes, "STEP", current.Step, observation.Step);
+        if (!MesTaskUnionValueSemantics.SourceDatesEqual(current.MesSourceDate, observation.MesSourceDate))
+        {
+            changes.Add(new LiveFieldChange(
+                "DATES",
+                current.MesSourceDate,
+                observation.MesSourceDate));
+        }
+        AddStringChange(changes, "PACKAGE", current.Package, observation.Package);
+        return changes;
+    }
+
+    private static void AddStringChange(
+        ICollection<LiveFieldChange> changes,
+        string subjectKind,
+        string? before,
+        string? after)
+    {
+        if (!string.Equals(before, after, StringComparison.Ordinal))
+        {
+            changes.Add(new LiveFieldChange(subjectKind, before, after));
+        }
+    }
+
+    private static async Task SynchronizeFieldConditionsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProjectedIdentity identity,
+        MesTaskUnionObservation observation,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        bool bootstrapRound,
+        CancellationToken cancellationToken)
+    {
+        var expected = MesFieldValidation.Evaluate(observation).Issues
+            .ToDictionary(
+                issue => new ConditionKey(issue.Code, issue.SubjectKind),
+                issue => issue);
+        var current = await LoadCurrentConditionsForUpdateAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            identity.DemandId,
+            cancellationToken).ConfigureAwait(false);
+
+        var nextSequence = await GetNextSeriesSequenceAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            cancellationToken).ConfigureAwait(false);
+        var changed = false;
+        foreach (var (key, existing) in current.OrderBy(pair => pair.Key, ConditionKeyComparer.Instance))
+        {
+            if (expected.TryGetValue(key, out var issue))
+            {
+                if (!string.Equals(existing.ObservedValue, issue.ObservedValue, StringComparison.Ordinal))
+                {
+                    await AppendConditionEvidenceAsync(
+                        connection,
+                        transaction,
+                        identity,
+                        existing.PeriodId,
+                        key.SubjectKind,
+                        existing.ExpectedRule,
+                        issue.ObservedValue,
+                        "CONDITION_EVIDENCE_CHANGED",
+                        round,
+                        projectionCommitId,
+                        nextSequence++,
+                        cancellationToken).ConfigureAwait(false);
+                    changed = true;
+                }
+                expected.Remove(key);
+                continue;
+            }
+
+            await CloseConditionAsync(
+                connection,
+                transaction,
+                identity,
+                key.SubjectKind,
+                existing,
+                observation,
+                round,
+                projectionCommitId,
+                nextSequence++,
+                cancellationToken).ConfigureAwait(false);
+            changed = true;
+        }
+
+        foreach (var issue in expected.Values
+                     .OrderBy(issue => GetFieldOrder(issue.SubjectKind))
+                     .ThenBy(issue => issue.Code, StringComparer.Ordinal))
+        {
+            await OpenConditionAsync(
+                connection,
+                transaction,
+                identity,
+                issue,
+                bootstrapRound ? "BOOTSTRAPPED_CURRENT_CONDITION" : "CONDITION_DETECTED",
+                round,
+                projectionCommitId,
+                nextSequence++,
+                cancellationToken).ConfigureAwait(false);
+            changed = true;
+        }
+
+        if (changed)
+        {
+            await SetLastSeriesSequenceAsync(
+                connection,
+                transaction,
+                identity.SeriesId,
+                nextSequence - 1,
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static int GetFieldOrder(string subjectKind) => subjectKind switch
+    {
+        "AREA" => 0,
+        "EQP" => 1,
+        "STEP" => 2,
+        "DATES" => 3,
+        "PACKAGE" => 4,
+        _ => int.MaxValue,
+    };
+
+    private static async Task<long> GetNextSeriesSequenceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT LastSeriesSequence FROM mesingest.DemandSeries WITH (UPDLOCK, HOLDLOCK) WHERE SeriesId = @seriesId;";
+        AddNVarChar(command, "@seriesId", 64, seriesId);
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("DemandSeries disappeared while allocating an event sequence.");
+        return Convert.ToInt64(value, System.Globalization.CultureInfo.InvariantCulture) + 1;
+    }
+
+    private static async Task SetLastSeriesSequenceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        long sequence,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE mesingest.DemandSeries SET LastSeriesSequence = @sequence WHERE SeriesId = @seriesId;";
+        command.Parameters.Add("@sequence", SqlDbType.BigInt).Value = sequence;
+        AddNVarChar(command, "@seriesId", 64, seriesId);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException("DemandSeries disappeared while publishing event sequence state.");
+        }
+    }
+
+    private static async Task<Dictionary<ConditionKey, CurrentConditionRow>> LoadCurrentConditionsForUpdateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        string demandId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT c.ErrorCode, c.SubjectKind, c.PeriodId, e.ObservedValue, e.ExpectedRule
+            FROM mesingest.DemandSeriesCurrentConditions AS c WITH (UPDLOCK, HOLDLOCK)
+            INNER JOIN mesingest.SeriesErrorPeriodEvidence AS e
+                ON e.EvidenceId = c.LatestEvidenceId
+            WHERE c.SeriesId = @seriesId
+              AND c.Target = @target;
+            """;
+        AddNVarChar(command, "@seriesId", 64, seriesId);
+        AddNVarChar(command, "@target", 128, $"DEMAND:{demandId}");
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var conditions = new Dictionary<ConditionKey, CurrentConditionRow>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var key = new ConditionKey(reader.GetString(0), reader.GetString(1));
+            conditions.Add(
+                key,
+                new CurrentConditionRow(
+                    reader.GetString(2),
+                    GetNullableString(reader, 3),
+                    reader.GetString(4)));
+        }
+        return conditions;
+    }
+
+    private static async Task OpenConditionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProjectedIdentity identity,
+        MesFieldValidationIssue issue,
+        string startReason,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long sequence,
+        CancellationToken cancellationToken)
+    {
+        var definition = SeriesErrorCatalog.GetRequired(issue.Code);
+        var periodId = NewId();
+        var evidenceId = NewId();
+        var target = $"DEMAND:{identity.DemandId}";
+        var eventId = await InsertEventAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            sequence,
+            "SERIES_ERROR_PERIOD_STARTED",
+            issue.SubjectKind,
+            identity.DemandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                periodId,
+                code = issue.Code,
+                category = definition.Category,
+                target,
+                issue.SubjectKind,
+                startReason,
+                observedValue = issue.ObservedValue,
+                issue.ExpectedRule,
+            }),
+            cancellationToken).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.DemandSeriesErrorPeriods
+                (PeriodId, SeriesId, ErrorCode, Category, Severity, Target, SubjectKind,
+                 StartReason, StartedAt, EndedAt, EndReason, OpenedEventId, ClosedEventId)
+            VALUES
+                (@periodId, @seriesId, @errorCode, @category, @severity, @target, @subjectKind,
+                 @startReason, @observedAt, NULL, NULL, @eventId, NULL);
+
+            INSERT INTO mesingest.SeriesErrorPeriodEvidence
+                (EvidenceId, PeriodId, EventId, EvidenceKind, ObservedAt, PollTraceId,
+                 ProjectionCommitId, DemandId, ObservedValue, ExpectedRule)
+            VALUES
+                (@evidenceId, @periodId, @eventId, @evidenceKind, @observedAt, @pollTraceId,
+                 @projectionCommitId, @demandId, @observedValue, @expectedRule);
+
+            INSERT INTO mesingest.DemandSeriesCurrentConditions
+                (SeriesId, ErrorCode, Target, SubjectKind, PeriodId, LatestEvidenceId)
+            VALUES
+                (@seriesId, @errorCode, @target, @subjectKind, @periodId, @evidenceId);
+            """;
+        AddNVarChar(command, "@periodId", 64, periodId);
+        AddNVarChar(command, "@seriesId", 64, identity.SeriesId);
+        AddNVarChar(command, "@errorCode", 128, issue.Code);
+        AddNVarChar(command, "@category", 64, definition.Category);
+        AddNVarChar(command, "@severity", 32, definition.Severity);
+        AddNVarChar(command, "@target", 128, target);
+        AddNVarChar(command, "@subjectKind", 64, issue.SubjectKind);
+        AddNVarChar(command, "@startReason", 64, startReason);
+        AddDateTimeOffset(command, "@observedAt", round.CompletedAt);
+        AddNVarChar(command, "@eventId", 64, eventId);
+        AddNVarChar(command, "@evidenceId", 64, evidenceId);
+        AddNVarChar(command, "@evidenceKind", 64, startReason);
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@demandId", 64, identity.DemandId);
+        AddNullableNVarChar(command, "@observedValue", -1, issue.ObservedValue);
+        AddNVarChar(command, "@expectedRule", 256, issue.ExpectedRule);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task AppendConditionEvidenceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProjectedIdentity identity,
+        string periodId,
+        string subjectKind,
+        string expectedRule,
+        string? observedValue,
+        string evidenceKind,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long sequence,
+        CancellationToken cancellationToken)
+    {
+        var evidenceId = NewId();
+        var eventId = await InsertEventAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            sequence,
+            "SERIES_ERROR_EVIDENCE_CHANGED",
+            subjectKind,
+            identity.DemandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new { periodId, evidenceKind, observedValue, expectedRule }),
+            cancellationToken).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.SeriesErrorPeriodEvidence
+                (EvidenceId, PeriodId, EventId, EvidenceKind, ObservedAt, PollTraceId,
+                 ProjectionCommitId, DemandId, ObservedValue, ExpectedRule)
+            VALUES
+                (@evidenceId, @periodId, @eventId, @evidenceKind, @observedAt, @pollTraceId,
+                 @projectionCommitId, @demandId, @observedValue, @expectedRule);
+
+            UPDATE mesingest.DemandSeriesCurrentConditions
+            SET LatestEvidenceId = @evidenceId
+            WHERE PeriodId = @periodId;
+            """;
+        AddNVarChar(command, "@evidenceId", 64, evidenceId);
+        AddNVarChar(command, "@periodId", 64, periodId);
+        AddNVarChar(command, "@eventId", 64, eventId);
+        AddNVarChar(command, "@evidenceKind", 64, evidenceKind);
+        AddDateTimeOffset(command, "@observedAt", round.CompletedAt);
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@demandId", 64, identity.DemandId);
+        AddNullableNVarChar(command, "@observedValue", -1, observedValue);
+        AddNVarChar(command, "@expectedRule", 256, expectedRule);
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (affected != 2)
+        {
+            throw new InvalidOperationException("The current Series error condition changed while appending evidence.");
+        }
+    }
+
+    private static async Task CloseConditionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProjectedIdentity identity,
+        string subjectKind,
+        CurrentConditionRow existing,
+        MesTaskUnionObservation observation,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long sequence,
+        CancellationToken cancellationToken)
+    {
+        var observedValue = GetObservedValue(observation, subjectKind);
+        var evidenceId = NewId();
+        var eventId = await InsertEventAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            sequence,
+            "SERIES_ERROR_PERIOD_ENDED",
+            subjectKind,
+            identity.DemandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                periodId = existing.PeriodId,
+                endReason = "CONDITION_CLEARED",
+                observedValue,
+            }),
+            cancellationToken).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.SeriesErrorPeriodEvidence
+                (EvidenceId, PeriodId, EventId, EvidenceKind, ObservedAt, PollTraceId,
+                 ProjectionCommitId, DemandId, ObservedValue, ExpectedRule)
+            VALUES
+                (@evidenceId, @periodId, @eventId, N'CONDITION_CLEARED', @observedAt, @pollTraceId,
+                 @projectionCommitId, @demandId, @observedValue, @expectedRule);
+
+            DELETE FROM mesingest.DemandSeriesCurrentConditions
+            WHERE PeriodId = @periodId;
+
+            UPDATE mesingest.DemandSeriesErrorPeriods
+            SET EndedAt = @observedAt,
+                EndReason = N'CONDITION_CLEARED',
+                ClosedEventId = @eventId
+            WHERE PeriodId = @periodId AND EndedAt IS NULL;
+            """;
+        AddNVarChar(command, "@evidenceId", 64, evidenceId);
+        AddNVarChar(command, "@periodId", 64, existing.PeriodId);
+        AddNVarChar(command, "@eventId", 64, eventId);
+        AddDateTimeOffset(command, "@observedAt", round.CompletedAt);
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@demandId", 64, identity.DemandId);
+        AddNullableNVarChar(command, "@observedValue", -1, observedValue);
+        AddNVarChar(command, "@expectedRule", 256, existing.ExpectedRule);
+        var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (affected != 3)
+        {
+            throw new InvalidOperationException("The current Series error condition changed while closing its period.");
+        }
+    }
+
+    private static string? GetObservedValue(MesTaskUnionObservation observation, string subjectKind) =>
+        subjectKind switch
+        {
+            "AREA" => observation.Area,
+            "EQP" => observation.Eqp,
+            "STEP" => observation.Step,
+            "DATES" => observation.MesSourceDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            "PACKAGE" => observation.Package,
+            _ => null,
+        };
 
     private static async Task InsertRawObservationAsync(
         SqlConnection connection,
@@ -976,11 +1502,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         AddNullableNVarChar(command, "@demandId", 64, identity?.DemandId);
         AddNullableNVarChar(command, "@workType", 128, observation.WorkType);
         AddNullableNVarChar(command, "@sublot", 256, observation.Sublot);
-        AddNullableNVarChar(command, "@area", 128, observation.Area);
-        AddNullableNVarChar(command, "@eqp", 256, observation.Eqp);
-        AddNullableNVarChar(command, "@step", 256, observation.Step);
+        AddNullableNVarChar(command, "@area", -1, observation.Area);
+        AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
+        AddNullableNVarChar(command, "@step", -1, observation.Step);
         AddNullableDateTimeOffset(command, "@mesSourceDate", observation.MesSourceDate);
-        AddNullableNVarChar(command, "@package", 256, observation.Package);
+        AddNullableNVarChar(command, "@package", -1, observation.Package);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1086,6 +1612,129 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
 
         return events;
+    }
+
+    private static async Task<ErrorStateSnapshot> ReadErrorStateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        CancellationToken cancellationToken)
+    {
+        var currentConditions = new List<DemandSeriesCurrentConditionSnapshot>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT
+                    p.PeriodId, p.ErrorCode, p.Category, p.Severity, p.Target, p.SubjectKind,
+                    p.StartedAt, e.ObservedAt, e.PollTraceId, e.ProjectionCommitId,
+                    e.DemandId, e.ObservedValue, e.ExpectedRule
+                FROM mesingest.DemandSeriesCurrentConditions AS c
+                INNER JOIN mesingest.DemandSeriesErrorPeriods AS p ON p.PeriodId = c.PeriodId
+                INNER JOIN mesingest.SeriesErrorPeriodEvidence AS e ON e.EvidenceId = c.LatestEvidenceId
+                WHERE c.SeriesId = @seriesId
+                ORDER BY p.StartedAt, p.PeriodId;
+                """;
+            AddNVarChar(command, "@seriesId", 64, seriesId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                currentConditions.Add(new DemandSeriesCurrentConditionSnapshot(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetFieldValue<DateTimeOffset>(6),
+                    reader.GetFieldValue<DateTimeOffset>(7),
+                    reader.GetString(8),
+                    reader.GetString(9),
+                    reader.GetString(10),
+                    GetNullableString(reader, 11),
+                    reader.GetString(12)));
+            }
+        }
+
+        var periodRows = new List<ErrorPeriodRow>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT
+                    PeriodId, ErrorCode, Category, Severity, Target, SubjectKind,
+                    StartReason, StartedAt, EndedAt, EndReason
+                FROM mesingest.DemandSeriesErrorPeriods
+                WHERE SeriesId = @seriesId
+                ORDER BY StartedAt, PeriodId;
+                """;
+            AddNVarChar(command, "@seriesId", 64, seriesId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                periodRows.Add(new ErrorPeriodRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetString(6),
+                    reader.GetFieldValue<DateTimeOffset>(7),
+                    GetNullableDateTimeOffset(reader, 8),
+                    GetNullableString(reader, 9)));
+            }
+        }
+
+        var evidenceByPeriod = periodRows.ToDictionary(
+            period => period.PeriodId,
+            _ => new List<SeriesErrorPeriodEvidenceSnapshot>(),
+            StringComparer.Ordinal);
+        if (periodRows.Count > 0)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT
+                    e.PeriodId, e.EvidenceId, e.EvidenceKind, e.ObservedAt,
+                    e.PollTraceId, e.ProjectionCommitId, e.DemandId,
+                    e.ObservedValue, e.ExpectedRule
+                FROM mesingest.SeriesErrorPeriodEvidence AS e
+                INNER JOIN mesingest.DemandSeriesErrorPeriods AS p ON p.PeriodId = e.PeriodId
+                WHERE p.SeriesId = @seriesId
+                ORDER BY e.ObservedAt, e.EvidenceId;
+                """;
+            AddNVarChar(command, "@seriesId", 64, seriesId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                evidenceByPeriod[reader.GetString(0)].Add(new SeriesErrorPeriodEvidenceSnapshot(
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetFieldValue<DateTimeOffset>(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetString(6),
+                    GetNullableString(reader, 7),
+                    reader.GetString(8)));
+            }
+        }
+
+        return new ErrorStateSnapshot(
+            currentConditions,
+            periodRows.Select(period => new DemandSeriesErrorPeriodSnapshot(
+                    period.PeriodId,
+                    period.Code,
+                    period.Category,
+                    period.Severity,
+                    period.Target,
+                    period.SubjectKind,
+                    period.StartReason,
+                    period.StartedAt,
+                    period.EndedAt,
+                    period.EndReason,
+                    evidenceByPeriod[period.PeriodId]))
+                .ToArray());
     }
 
     private static DemandSeriesRow ReadDemandSeriesRow(SqlDataReader reader) =>
@@ -1200,6 +1849,44 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionObservation Observation);
 
     private sealed record ProjectedIdentity(string SeriesId, string DemandId);
+
+    private sealed record LiveFieldChange(string SubjectKind, object? Before, object? After);
+
+    private readonly record struct ConditionKey(string Code, string SubjectKind);
+
+    private sealed class ConditionKeyComparer : IComparer<ConditionKey>
+    {
+        public static ConditionKeyComparer Instance { get; } = new();
+
+        public int Compare(ConditionKey x, ConditionKey y)
+        {
+            var fieldComparison = GetFieldOrder(x.SubjectKind).CompareTo(GetFieldOrder(y.SubjectKind));
+            return fieldComparison != 0
+                ? fieldComparison
+                : string.Compare(x.Code, y.Code, StringComparison.Ordinal);
+        }
+    }
+
+    private sealed record CurrentConditionRow(
+        string PeriodId,
+        string? ObservedValue,
+        string ExpectedRule);
+
+    private sealed record ErrorPeriodRow(
+        string PeriodId,
+        string Code,
+        string Category,
+        string Severity,
+        string Target,
+        string SubjectKind,
+        string StartReason,
+        DateTimeOffset StartedAt,
+        DateTimeOffset? EndedAt,
+        string? EndReason);
+
+    private sealed record ErrorStateSnapshot(
+        IReadOnlyList<DemandSeriesCurrentConditionSnapshot> CurrentConditions,
+        IReadOnlyList<DemandSeriesErrorPeriodSnapshot> ErrorPeriods);
 
     private sealed record CurrentProjectionRow(
         string SeriesId,

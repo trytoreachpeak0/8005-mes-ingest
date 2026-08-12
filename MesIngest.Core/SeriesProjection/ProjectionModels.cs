@@ -20,6 +20,44 @@ public sealed record LiveMesFieldSetSnapshot(
     DateTimeOffset? MesSourceDate,
     string? Package);
 
+public sealed record SeriesErrorPeriodEvidenceSnapshot(
+    string EvidenceId,
+    string EvidenceKind,
+    DateTimeOffset ObservedAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string DemandId,
+    string? ObservedValue,
+    string ExpectedRule);
+
+public sealed record DemandSeriesCurrentConditionSnapshot(
+    string PeriodId,
+    string Code,
+    string Category,
+    string Severity,
+    string Target,
+    string SubjectKind,
+    DateTimeOffset StartedAt,
+    DateTimeOffset LatestEvidenceAt,
+    string LatestPollTraceId,
+    string LatestProjectionCommitId,
+    string DemandId,
+    string? ObservedValue,
+    string ExpectedRule);
+
+public sealed record DemandSeriesErrorPeriodSnapshot(
+    string PeriodId,
+    string Code,
+    string Category,
+    string Severity,
+    string Target,
+    string SubjectKind,
+    string StartReason,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    string? EndReason,
+    IReadOnlyList<SeriesErrorPeriodEvidenceSnapshot> Evidence);
+
 public sealed record TransportDemandSnapshot(
     string DemandId,
     string SeriesId,
@@ -31,7 +69,9 @@ public sealed record TransportDemandSnapshot(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
-    LiveMesFieldSetSnapshot LiveMesFields);
+    LiveMesFieldSetSnapshot LiveMesFields,
+    string ExternalReadabilityState,
+    IReadOnlyList<string> ReadabilityBlockers);
 
 public enum MesObservationAssignment
 {
@@ -79,7 +119,9 @@ public sealed record DemandSeriesSnapshot(
     string LatestProjectionCommitId,
     TransportDemandSnapshot CurrentDemand,
     IReadOnlyList<DemandRawObservationSnapshot> RawObservations,
-    IReadOnlyList<DemandSeriesEventSnapshot> Events);
+    IReadOnlyList<DemandSeriesEventSnapshot> Events,
+    IReadOnlyList<DemandSeriesCurrentConditionSnapshot> CurrentConditions,
+    IReadOnlyList<DemandSeriesErrorPeriodSnapshot> ErrorPeriods);
 
 public sealed record PollTraceSnapshot(
     string PollTraceId,

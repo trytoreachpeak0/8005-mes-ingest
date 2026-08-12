@@ -59,6 +59,27 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         var beforeProblems = await client.GetFromJsonAsync<JsonElement>(SeriesByKeyUri);
         var beforeProjection = beforeProblems.GetRawText();
         Assert.Equal(successReceipt.ProjectionCommitId, beforeProblems.GetProperty("latestProjectionCommitId").GetString());
+        Assert.Equal(
+            "NOT_READABLE",
+            beforeProblems.GetProperty("currentDemand").GetProperty("externalReadabilityState").GetString());
+        var initialConditions = beforeProblems.GetProperty("currentConditions").EnumerateArray().ToArray();
+        Assert.Equal(4, initialConditions.Length);
+        Assert.Contains(initialConditions, condition =>
+            condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
+            && condition.GetProperty("subjectKind").GetString() == "AREA");
+        Assert.Contains(initialConditions, condition =>
+            condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
+            && condition.GetProperty("subjectKind").GetString() == "EQP");
+        Assert.Contains(initialConditions, condition =>
+            condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
+            && condition.GetProperty("subjectKind").GetString() == "DATES");
+        Assert.Contains(initialConditions, condition =>
+            condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
+            && condition.GetProperty("subjectKind").GetString() == "PACKAGE");
+        var initialPeriods = beforeProblems.GetProperty("errorPeriods").EnumerateArray().ToArray();
+        Assert.Equal(4, initialPeriods.Length);
+        Assert.All(initialPeriods, period =>
+            Assert.Equal("BOOTSTRAPPED_CURRENT_CONDITION", period.GetProperty("startReason").GetString()));
 
         var failureStartedAt = successStartedAt.AddMinutes(1);
         var failureReceipt = await ingestor.IngestAsync(new MesTaskUnionRound(
@@ -163,7 +184,7 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         Assert.True(incompleteReplay.IsReplay);
         Assert.Equal(failureTrace.GetRawText(), (await ReadTraceAsync(client, "poll-ticket02-failure")).GetRawText());
         Assert.Equal(incompleteTrace.GetRawText(), (await ReadTraceAsync(client, "poll-ticket02-incomplete")).GetRawText());
-        Assert.Equal(new DatabaseCounts(3, 1, 1, 1, 1, 2), await ReadDatabaseCountsAsync(database.ConnectionString));
+        Assert.Equal(new DatabaseCounts(3, 1, 1, 1, 1, 6), await ReadDatabaseCountsAsync(database.ConnectionString));
 
         var afterProblems = await client.GetFromJsonAsync<JsonElement>(SeriesByKeyUri);
         Assert.Equal(beforeProjection, afterProblems.GetRawText());
@@ -401,6 +422,19 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         Assert.Contains(conflictingSeries.GetProperty("seriesId").GetString(), receipt.SeriesIds);
         Assert.Equal("invalid-area", conflictingSeries.GetProperty("currentDemand").GetProperty("liveMesFields").GetProperty("area").GetString());
         Assert.Equal("", conflictingSeries.GetProperty("currentDemand").GetProperty("liveMesFields").GetProperty("eqp").GetString());
+        Assert.Equal(
+            "NOT_READABLE",
+            conflictingSeries.GetProperty("currentDemand").GetProperty("externalReadabilityState").GetString());
+        var fieldConditions = conflictingSeries.GetProperty("currentConditions").EnumerateArray().ToArray();
+        Assert.Equal(2, fieldConditions.Length);
+        Assert.Contains(fieldConditions, condition =>
+            condition.GetProperty("code").GetString() == "INVALID_MES_FIELD_FORMAT"
+            && condition.GetProperty("category").GetString() == "DATA_FORMAT"
+            && condition.GetProperty("subjectKind").GetString() == "AREA");
+        Assert.Contains(fieldConditions, condition =>
+            condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
+            && condition.GetProperty("category").GetString() == "DATA_COMPLETENESS"
+            && condition.GetProperty("subjectKind").GetString() == "EQP");
 
         using var guessedFromSublot = await client.GetAsync(
             "/api/v2/demand-series/by-key?workType=LOADPORT_TO_OVEN&sublot=SL-GUESSED-FROM-MISSING-SUBLOT");
@@ -408,7 +442,7 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         using var guessedFromWorkType = await client.GetAsync(
             "/api/v2/demand-series/by-key?workType=WIRE_TO_NITROGEN&sublot=SL-BLANK-TASK-TYPE");
         Assert.Equal(HttpStatusCode.NotFound, guessedFromWorkType.StatusCode);
-        Assert.Equal(new DatabaseCounts(1, 1, 2, 2, 4, 4), await ReadDatabaseCountsAsync(database.ConnectionString));
+        Assert.Equal(new DatabaseCounts(1, 1, 2, 2, 4, 6), await ReadDatabaseCountsAsync(database.ConnectionString));
     }
 
     [Ticket01SqlServerFact]

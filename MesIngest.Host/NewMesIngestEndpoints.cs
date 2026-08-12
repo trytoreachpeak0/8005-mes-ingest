@@ -26,7 +26,8 @@ internal static class NewMesIngestEndpoints
         TypedResults.Ok(new NewMesIngestContractDto(
             NewMesIngestContract.Version,
             NewMesIngestContract.SchemaVersion,
-            NewMesIngestContract.KeyComparison));
+            NewMesIngestContract.KeyComparison,
+            SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray()));
 
     private static async Task<Results<Ok<DemandSeriesDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetDemandSeriesByKeyAsync(
         string workType,
@@ -120,7 +121,19 @@ internal sealed record NewMesIngestErrorDto(string Code, string Error);
 internal sealed record NewMesIngestContractDto(
     string ContractVersion,
     int SchemaVersion,
-    string TransportDemandKeyComparison);
+    string TransportDemandKeyComparison,
+    IReadOnlyList<SeriesErrorDefinitionDto> SeriesErrorCatalog);
+
+internal sealed record SeriesErrorDefinitionDto(
+    string Code,
+    string Category,
+    string Severity,
+    string Scope,
+    string Meaning)
+{
+    public static SeriesErrorDefinitionDto From(SeriesErrorDefinition definition) =>
+        new(definition.Code, definition.Category, definition.Severity, definition.Scope, definition.Meaning);
+}
 
 internal sealed record ProjectionCommitDto(
     string ProjectionCommitId,
@@ -153,7 +166,9 @@ internal sealed record TransportDemandV2Dto(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
-    LiveMesFieldSetDto LiveMesFields)
+    LiveMesFieldSetDto LiveMesFields,
+    string ExternalReadabilityState,
+    IReadOnlyList<string> ReadabilityBlockers)
 {
     public static TransportDemandV2Dto From(TransportDemandSnapshot snapshot) =>
         new(
@@ -167,7 +182,9 @@ internal sealed record TransportDemandV2Dto(
             snapshot.CreatedPollTraceId,
             snapshot.CreatedProjectionCommitId,
             snapshot.LatestProjectionCommitId,
-            LiveMesFieldSetDto.From(snapshot.LiveMesFields));
+            LiveMesFieldSetDto.From(snapshot.LiveMesFields),
+            snapshot.ExternalReadabilityState,
+            snapshot.ReadabilityBlockers);
 }
 
 internal sealed record DemandRawObservationDto(
@@ -238,6 +255,88 @@ internal sealed record DemandSeriesEventDto(
             snapshot.PayloadJson);
 }
 
+internal sealed record SeriesErrorPeriodEvidenceDto(
+    string EvidenceId,
+    string EvidenceKind,
+    DateTimeOffset ObservedAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string DemandId,
+    string? ObservedValue,
+    string ExpectedRule)
+{
+    public static SeriesErrorPeriodEvidenceDto From(SeriesErrorPeriodEvidenceSnapshot snapshot) =>
+        new(
+            snapshot.EvidenceId,
+            snapshot.EvidenceKind,
+            snapshot.ObservedAt,
+            snapshot.PollTraceId,
+            snapshot.ProjectionCommitId,
+            snapshot.DemandId,
+            snapshot.ObservedValue,
+            snapshot.ExpectedRule);
+}
+
+internal sealed record DemandSeriesCurrentConditionDto(
+    string PeriodId,
+    string Code,
+    string Category,
+    string Severity,
+    string Target,
+    string SubjectKind,
+    DateTimeOffset StartedAt,
+    DateTimeOffset LatestEvidenceAt,
+    string LatestPollTraceId,
+    string LatestProjectionCommitId,
+    string DemandId,
+    string? ObservedValue,
+    string ExpectedRule)
+{
+    public static DemandSeriesCurrentConditionDto From(DemandSeriesCurrentConditionSnapshot snapshot) =>
+        new(
+            snapshot.PeriodId,
+            snapshot.Code,
+            snapshot.Category,
+            snapshot.Severity,
+            snapshot.Target,
+            snapshot.SubjectKind,
+            snapshot.StartedAt,
+            snapshot.LatestEvidenceAt,
+            snapshot.LatestPollTraceId,
+            snapshot.LatestProjectionCommitId,
+            snapshot.DemandId,
+            snapshot.ObservedValue,
+            snapshot.ExpectedRule);
+}
+
+internal sealed record DemandSeriesErrorPeriodDto(
+    string PeriodId,
+    string Code,
+    string Category,
+    string Severity,
+    string Target,
+    string SubjectKind,
+    string StartReason,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    string? EndReason,
+    IReadOnlyList<SeriesErrorPeriodEvidenceDto> Evidence)
+{
+    public static DemandSeriesErrorPeriodDto From(DemandSeriesErrorPeriodSnapshot snapshot) =>
+        new(
+            snapshot.PeriodId,
+            snapshot.Code,
+            snapshot.Category,
+            snapshot.Severity,
+            snapshot.Target,
+            snapshot.SubjectKind,
+            snapshot.StartReason,
+            snapshot.StartedAt,
+            snapshot.EndedAt,
+            snapshot.EndReason,
+            snapshot.Evidence.Select(SeriesErrorPeriodEvidenceDto.From).ToArray());
+}
+
 internal sealed record DemandSeriesDto(
     string SeriesId,
     string WorkType,
@@ -250,7 +349,9 @@ internal sealed record DemandSeriesDto(
     string LatestProjectionCommitId,
     TransportDemandV2Dto CurrentDemand,
     IReadOnlyList<DemandRawObservationDto> RawObservations,
-    IReadOnlyList<DemandSeriesEventDto> Events)
+    IReadOnlyList<DemandSeriesEventDto> Events,
+    IReadOnlyList<DemandSeriesCurrentConditionDto> CurrentConditions,
+    IReadOnlyList<DemandSeriesErrorPeriodDto> ErrorPeriods)
 {
     public static DemandSeriesDto From(DemandSeriesSnapshot snapshot) =>
         new(
@@ -265,7 +366,9 @@ internal sealed record DemandSeriesDto(
             snapshot.LatestProjectionCommitId,
             TransportDemandV2Dto.From(snapshot.CurrentDemand),
             snapshot.RawObservations.Select(DemandRawObservationDto.From).ToList(),
-            snapshot.Events.Select(DemandSeriesEventDto.From).ToList());
+            snapshot.Events.Select(DemandSeriesEventDto.From).ToList(),
+            snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToList(),
+            snapshot.ErrorPeriods.Select(DemandSeriesErrorPeriodDto.From).ToList());
 }
 
 internal sealed record PollTraceDto(
