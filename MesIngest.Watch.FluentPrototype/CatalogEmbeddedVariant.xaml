@@ -1,0 +1,53 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.CatalogEmbeddedVariant"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <ui:NavigationView x:Name="Navigation"
+                       PaneDisplayMode="LeftMinimal"
+                       CompactPaneLength="48"
+                       OpenPaneLength="224"
+                       IsPaneOpen="False"
+                       IsBackButtonVisible="Collapsed"
+                       IsPaneToggleVisible="True"
+                       HeaderVisibility="Collapsed">
+        <ui:NavigationView.MenuItems>
+            <ui:NavigationViewItem x:Name="OverviewNav" Content="概览" Click="OnOverviewClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="SeriesNav" Content="需求系列" IsActive="True" Click="OnSeriesClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Timeline24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="AuditNav" Content="资格审计" Click="OnAuditClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="DocumentBulletList24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="ErrorSearchNav" Content="错误检索" Click="OnErrorSearchClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Search24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="AreaFilterNav" Content="AREA 筛选" Click="OnAreaFilterClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Filter24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="AlertsNav" Content="接入告警">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon>
+                <ui:NavigationViewItem.InfoBadge><ui:InfoBadge Value="3" /></ui:NavigationViewItem.InfoBadge>
+            </ui:NavigationViewItem>
+        </ui:NavigationView.MenuItems>
+        <ui:NavigationView.FooterMenuItems>
+            <ui:NavigationViewItem Content="Host 已连接" ToolTip="Host 已连接 · 契约兼容 · 最近成功 12:42:16">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="设置">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+        </ui:NavigationView.FooterMenuItems>
+        <ui:NavigationView.ContentOverlay>
+            <Grid Margin="24,16,24,16">
+                <local:SelectedOverviewPage x:Name="OverviewPage" Visibility="Collapsed" />
+                <local:DemandSeriesPage x:Name="SeriesPage" />
+                <local:ReadabilityAuditPage x:Name="AuditPage" Visibility="Collapsed" />
+                <local:ErrorSearchPage x:Name="ErrorSearchPage" Visibility="Collapsed" />
+                <local:AreaFilterPage x:Name="AreaFilterPage" Visibility="Collapsed" />
+            </Grid>
+        </ui:NavigationView.ContentOverlay>
+    </ui:NavigationView>
+</UserControl>

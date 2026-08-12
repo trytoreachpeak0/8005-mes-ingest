@@ -79,6 +79,12 @@ internal static class WatchWindowNative
     }
 
     public static byte[] CaptureClientArea(IntPtr handle)
+        => CaptureClientArea(handle, 1440, 900);
+
+    public static byte[] CaptureClientAreaAtCurrentSize(IntPtr handle)
+        => CaptureClientArea(handle, null, null);
+
+    private static byte[] CaptureClientArea(IntPtr handle, int? expectedWidth, int? expectedHeight)
     {
         if (!GetClientRect(handle, out var rect))
         {
@@ -88,10 +94,18 @@ internal static class WatchWindowNative
 
         var width = rect.Right - rect.Left;
         var height = rect.Bottom - rect.Top;
-        if (width != 1440 || height != 900)
+        if (width <= 0 || height <= 0)
         {
             throw new InvalidOperationException(
-                $"Expected a 1440x900 client area, but got {width}x{height}.");
+                $"Expected a non-empty client area, but got {width}x{height}.");
+        }
+
+        if (expectedWidth is not null
+            && expectedHeight is not null
+            && (width != expectedWidth || height != expectedHeight))
+        {
+            throw new InvalidOperationException(
+                $"Expected a {expectedWidth}x{expectedHeight} client area, but got {width}x{height}.");
         }
 
         using var bitmap = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);

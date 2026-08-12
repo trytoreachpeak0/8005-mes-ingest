@@ -1,0 +1,96 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.CatalogPageVariant"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <ui:NavigationView PaneDisplayMode="LeftFluent"
+                       OpenPaneLength="228"
+                       CompactPaneLength="48"
+                       IsPaneOpen="True"
+                       IsBackButtonVisible="Collapsed"
+                       IsPaneToggleVisible="True"
+                       HeaderVisibility="Collapsed">
+        <ui:NavigationView.PaneHeader><TextBlock Text="MES 接入观察" Style="{StaticResource Caption}" Margin="12,8,0,12" /></ui:NavigationView.PaneHeader>
+        <ui:NavigationView.MenuItems>
+            <ui:NavigationViewItem Content="概览"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="全部 Demand"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="TaskListSquareLtr24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="外部可读目录 · 当前" Background="{StaticResource WatchAccentSoftBrush}" Foreground="{StaticResource WatchTextBrush}">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Share24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="接入告警"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon><ui:NavigationViewItem.InfoBadge><ui:InfoBadge Value="3" /></ui:NavigationViewItem.InfoBadge></ui:NavigationViewItem>
+        </ui:NavigationView.MenuItems>
+        <ui:NavigationView.FooterMenuItems>
+            <ui:NavigationViewItem Content="Host 已连接"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Content="设置"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+        </ui:NavigationView.FooterMenuItems>
+        <ui:NavigationView.ContentOverlay>
+            <Grid Margin="24,16,24,72">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="外部可读目录" Style="{StaticResource PageTitle}" /><TextBlock Text="MesIngest 发布的完整当前合格集合 · 自动刷新 10 秒" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" /></StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Text="CatalogRevision" Style="{StaticResource Caption}" HorizontalAlignment="Right" /><TextBlock Text="184" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource WatchAccentBrush}" HorizontalAlignment="Right" /><TextBlock Text="更新于 12:42:16" Style="{StaticResource Caption}" HorizontalAlignment="Right" /></StackPanel>
+                </Grid>
+
+                <ui:InfoBar Grid.Row="2" IsOpen="True" IsClosable="False" Severity="Informational" Title="读取契约" Message="If-None-Match: W/&#x22;catalog-184&#x22; → 未变化返回 304；变化时返回全部 1,842 条当前合格 Demand。没有 Feed、Cursor 或持久镜像。" />
+
+                <Grid Grid.Row="4">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="250" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <ui:Card Padding="16" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel>
+                                <TextBlock Text="目录状态" Style="{StaticResource Subtitle}" />
+                                <TextBlock Text="1,842" FontSize="34" FontWeight="SemiBold" Foreground="{StaticResource WatchSuccessBrush}" Margin="0,12,0,0" />
+                                <TextBlock Text="ExternallyReadableDemand" Style="{StaticResource Caption}" />
+                                <Border Height="1" Background="{StaticResource WatchStrokeBrush}" Margin="0,14" />
+                                <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="当前 VISIBLE" Style="{StaticResource BodySecondary}" /><TextBlock Grid.Column="1" Text="2,347" Style="{StaticResource BodyStrong}" /></Grid>
+                                <Grid Margin="0,8,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="因异常阻断" Style="{StaticResource BodySecondary}" /><TextBlock Grid.Column="1" Text="505" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchWarningBrush}" /></Grid>
+                            </StackPanel>
+                        </ui:Card>
+                        <ui:Card Padding="16" Margin="0,12,0,0" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <StackPanel>
+                                <TextBlock Text="模块 seam" Style="{StaticResource Subtitle}" />
+                                <TextBlock Text="MesIngest 输出" Style="{StaticResource Caption}" Margin="0,12,0,5" />
+                                <TextBlock Text="完整 Catalog + Revision" Style="{StaticResource BodyStrong}" />
+                                <TextBlock Text="Dispatch 自己完成" Style="{StaticResource Caption}" Margin="0,14,0,5" />
+                                <TextBlock Text="WorkType + AREA 范围筛选" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" />
+                                <TextBlock Text="AREA → Station 映射" Style="{StaticResource BodySecondary}" Margin="0,5,0,0" />
+                                <TextBlock Text="路线代价与最近任务" Style="{StaticResource BodySecondary}" Margin="0,5,0,0" />
+                                <TextBlock Text="取消、占用与建单" Style="{StaticResource BodySecondary}" Margin="0,5,0,0" />
+                            </StackPanel>
+                        </ui:Card>
+                    </StackPanel>
+
+                    <Grid Grid.Column="2">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <ui:Card Padding="14" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="12" /><ColumnDefinition Width="180" /><ColumnDefinition Width="12" /><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="WORKTYPE" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="0"><ComboBoxItem Content="全部工序类型" /><ComboBoxItem Content="DIE_TO_OVEN" /><ComboBoxItem Content="WIRE_TO_GATE" /></ComboBox></StackPanel>
+                                <StackPanel Grid.Column="2"><TextBlock Text="AREA" Style="{StaticResource Caption}" Margin="0,0,0,5" /><TextBox ToolTip="精确 AREA" /></StackPanel>
+                                <StackPanel Grid.Column="4"><TextBlock Text="SUBLOT" Style="{StaticResource Caption}" Margin="0,0,0,5" /><TextBox ToolTip="SUBLOT" /></StackPanel>
+                                <ui:Button Grid.Column="6" Appearance="Secondary" Content="应用条件" Padding="14,6" VerticalAlignment="Bottom" />
+                            </Grid>
+                        </ui:Card>
+                        <ui:Card Grid.Row="2" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                            <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="42" /></Grid.RowDefinitions>
+                                <Grid Margin="16,13"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="完整当前 Catalog" Style="{StaticResource Subtitle}" /><TextBlock Text="筛选只影响本页面查看，不改变发布集合" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><Border Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchSuccessSoftBrush}" VerticalAlignment="Center"><TextBlock Text="Revision 184" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /></Border></Grid>
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding ReadableCatalog}" SelectedIndex="0" HorizontalScrollBarVisibility="Auto">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="118" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="WORKTYPE" Binding="{Binding WorkType}" Width="175" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="135" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="92" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="88" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="80" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="Demand Revision" Binding="{Binding DemandRevision}" Width="110" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="LAST SEEN" Binding="{Binding LastSeen}" Width="100" ElementStyle="{StaticResource DataGridTextCell}" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                                <Border Grid.Row="2" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="0,1,0,0" Padding="12,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="第 1 / 19 页 · 共 1,842 条" Style="{StaticResource Caption}" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Secondary" Content="上一页" IsEnabled="False" Padding="9,5" /><ui:Button Appearance="Primary" Content="1" Padding="9,5" Margin="4,0" /><ui:Button Appearance="Transparent" Content="2" Padding="9,5" /><ui:Button Appearance="Transparent" Content="3" Padding="9,5" /><TextBlock Text="…" Style="{StaticResource Caption}" Margin="6,0" VerticalAlignment="Center" /><ui:Button Appearance="Transparent" Content="19" Padding="9,5" /><ui:Button Appearance="Secondary" Content="下一页" Padding="9,5" Margin="4,0,0,0" /></StackPanel></Grid></Border>
+                            </Grid>
+                        </ui:Card>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </ui:NavigationView.ContentOverlay>
+    </ui:NavigationView>
+</UserControl>

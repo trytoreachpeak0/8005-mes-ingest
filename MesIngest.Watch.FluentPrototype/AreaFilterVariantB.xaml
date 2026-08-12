@@ -1,0 +1,48 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.AreaFilterVariantB"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Border Style="{StaticResource SurfaceBorder}" Padding="14"><StackPanel><TextBlock Text="当前显示范围" Style="{StaticResource Caption}" /><TextBlock Text="东区" FontSize="22" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="12 个 AREA · 两个数据页共享" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" /></StackPanel></Border>
+            <Border Grid.Column="2" Style="{StaticResource SurfaceBorder}" Padding="14"><StackPanel><TextBlock Text="配置健康" Style="{StaticResource Caption}" /><TextBlock Text="3 / 4 有效" FontSize="22" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="临时范围.txt 需要修复" Style="{StaticResource BodySecondary}" Foreground="{StaticResource WatchCriticalBrush}" Margin="0,3,0,0" /></StackPanel></Border>
+            <Border Grid.Column="4" Style="{StaticResource SurfaceBorder}" Padding="14"><StackPanel><TextBlock Text="本地存储" Style="{StaticResource Caption}" /><TextBlock Text="当前 Windows 用户" FontSize="22" FontWeight="SemiBold" Margin="0,7,0,0" /><TextBlock Text="最后检查 17:42:16 · 无冲突" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" /></StackPanel></Border>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="1.5*" /><ColumnDefinition Width="16" /><ColumnDefinition Width="1*" /></Grid.ColumnDefinitions>
+            <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Grid Margin="16,13"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="全部配置" Style="{StaticResource Subtitle}" /><TextBlock Text="先比较状态，再打开右侧编辑抽屉" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><ui:Button Grid.Column="1" Appearance="Secondary" Content="＋ 新建配置" Padding="12,6" /></Grid>
+                    <DataGrid Grid.Row="1" SelectedIndex="0">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="名称" Binding="{Binding Name}" Width="*" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="AREA" Binding="{Binding AreaCount}" Width="80" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="状态" Binding="{Binding State}" Width="110" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="最后修改" Binding="{Binding Modified}" Width="130" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="使用范围" Binding="{Binding Scope}" Width="120" ElementStyle="{StaticResource DataGridTextCell}" />
+                        </DataGrid.Columns>
+                        <DataGrid.Items>
+                            <local:AreaProfileRow Name="东区" AreaCount="12" State="当前应用" Modified="今天 17:32" Scope="两个数据页" />
+                            <local:AreaProfileRow Name="西区" AreaCount="9" State="有效" Modified="昨天 16:08" Scope="未应用" />
+                            <local:AreaProfileRow Name="焊线区域" AreaCount="24" State="有效" Modified="08-10 11:24" Scope="未应用" />
+                            <local:AreaProfileRow Name="临时范围" AreaCount="0" State="无效 · 第 3 行" Modified="今天 09:15" Scope="禁止应用" />
+                        </DataGrid.Items>
+                    </DataGrid>
+                </Grid>
+            </ui:Card>
+
+            <ui:Card Grid.Column="2" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid Margin="16,13"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="编辑 · 东区" Style="{StaticResource Subtitle}" /><TextBlock Text="东区.txt" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><TextBlock Grid.Column="1" Text="12 / 500" Style="{StaticResource Caption}" VerticalAlignment="Center" /></Grid>
+                    <Border Grid.Row="1" Background="{StaticResource WatchStrokeBrush}" />
+                    <Grid Grid.Row="2" Margin="16,14"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="*" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><TextBlock Text="紧凑编辑抽屉" Style="{StaticResource BodyStrong}" /><TextBox Grid.Row="2" Text="A1-1&#x0a;A1-2&#x0a;A2-1&#x0a;A2-2&#x0a;B1-1&#x0a;B1-2&#x0a;B2-1&#x0a;B2-2&#x0a;C1-1&#x0a;C1-2&#x0a;C2-1&#x0a;C2-2" AcceptsReturn="True" FontFamily="Consolas" FontSize="13" TextBlock.LineHeight="23" Padding="10" VerticalScrollBarVisibility="Auto" /><Border Grid.Row="4" Background="{StaticResource WatchSuccessSoftBrush}" CornerRadius="4" Padding="10"><TextBlock Text="✓ 格式有效 · 12 个 AREA · 无重复" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /></Border></Grid>
+                    <Grid Grid.Row="3" Margin="16,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><ui:Button Appearance="Secondary" Content="更多操作 ···" Padding="11,6" HorizontalAlignment="Left" /><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Secondary" Content="应用" Padding="13,6" /><ui:Button Appearance="Primary" Content="保存" Padding="16,6" Margin="8,0,0,0" IsEnabled="False" /></StackPanel></Grid>
+                </Grid>
+            </ui:Card>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Input;
 using FlaUI.UIA3;
 using MesIngest.Watch;
 using FlaUIApplication = FlaUI.Core.Application;
@@ -26,6 +27,13 @@ public sealed class WatchWindowJourneyTests
     public async Task Operator_completes_high_value_real_window_journey(string journeyName)
     {
         await RunJourneyAsync(journeyName);
+    }
+
+    [Fact]
+    [Trait("Category", "watch-ui-journeys")]
+    public async Task Fluent_window_chrome_supports_keyboard_uia_double_click_and_drag()
+    {
+        await RunJourneyAsync("fluent-window-chrome");
     }
 
     private static async Task RunJourneyAsync(string journeyName)
@@ -127,6 +135,9 @@ public sealed class WatchWindowJourneyTests
                     break;
                 case "offline-reconnect":
                     RunOfflineReconnect(window, host);
+                    break;
+                case "fluent-window-chrome":
+                    RunFluentWindowChrome(window, evidence, process.MainWindowHandle);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(journeyName), journeyName, null);
@@ -232,6 +243,118 @@ public sealed class WatchWindowJourneyTests
             "SUCCESS",
             DynamicText(FindRequiredById(window, "OverviewPollHealthText")),
             StringComparison.Ordinal);
+    }
+
+    private static void RunFluentWindowChrome(
+        FlaUI.Core.AutomationElements.Window window,
+        WatchJourneyEvidence evidence,
+        IntPtr windowHandle)
+    {
+        RunColdStartOverview(window);
+        var windowPattern = window.Patterns.Window.Pattern;
+        var minimize = FindRequiredById(window, "TitleBarMinimizeButton");
+        var maximize = FindRequiredById(window, "TitleBarMaximizeButton");
+        var close = FindRequiredById(window, "TitleBarCloseButton");
+        Assert.Equal("最小化窗口", minimize.Name);
+        Assert.Equal("最大化窗口", maximize.Name);
+        Assert.Equal("关闭窗口", close.Name);
+        Assert.True(windowPattern.CanMaximize.ValueOrDefault);
+        Assert.True(windowPattern.CanMinimize.ValueOrDefault);
+
+        foreach (var button in new[] { minimize, maximize, close })
+        {
+            button.Focus();
+            WaitUntil(
+                () => button.Properties.HasKeyboardFocus.ValueOrDefault,
+                $"keyboard focus for {button.AutomationId}",
+                StepTimeout);
+        }
+
+        var normalBounds = window.BoundingRectangle;
+        evidence.RecordStep(
+            "chrome-normal",
+            WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle));
+        maximize.AsButton().Invoke();
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Maximized,
+            "UIA maximize",
+            StepTimeout);
+        WaitUntil(
+            () => string.Equals(maximize.Name, "还原窗口", StringComparison.Ordinal),
+            "restore automation name",
+            StepTimeout);
+        WaitUntil(
+            () => window.BoundingRectangle.Width >= normalBounds.Width + 300,
+            "maximized window bounds",
+            StepTimeout);
+        Thread.Sleep(250);
+        evidence.RecordStep(
+            "chrome-maximized",
+            WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle));
+
+        maximize.AsButton().Invoke();
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Normal,
+            "UIA restore",
+            StepTimeout);
+        WaitUntil(
+            () => Math.Abs(window.BoundingRectangle.Width - normalBounds.Width) <= 2
+                && Math.Abs(window.BoundingRectangle.Height - normalBounds.Height) <= 2,
+            "restored window bounds",
+            StepTimeout);
+        Thread.Sleep(250);
+        evidence.RecordStep(
+            "chrome-restored",
+            WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle));
+
+        var bounds = window.BoundingRectangle;
+        var captionPoint = new System.Drawing.Point(
+            bounds.Left + (bounds.Width / 2),
+            bounds.Top + 24);
+        Mouse.LeftDoubleClick(captionPoint);
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Maximized,
+            "caption double-click maximize",
+            StepTimeout);
+        bounds = window.BoundingRectangle;
+        Mouse.LeftDoubleClick(new System.Drawing.Point(
+            bounds.Left + (bounds.Width / 2),
+            bounds.Top + 24));
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Normal,
+            "caption double-click restore",
+            StepTimeout);
+
+        var beforeDrag = window.BoundingRectangle;
+        captionPoint = new System.Drawing.Point(
+            beforeDrag.Left + (beforeDrag.Width / 2),
+            beforeDrag.Top + 24);
+        Mouse.Drag(
+            captionPoint,
+            new System.Drawing.Point(captionPoint.X + 80, captionPoint.Y + 50),
+            MouseButton.Left);
+        WaitUntil(
+            () => Math.Abs(window.BoundingRectangle.Left - beforeDrag.Left) >= 40
+                && Math.Abs(window.BoundingRectangle.Top - beforeDrag.Top) >= 20,
+            "caption mouse drag",
+            StepTimeout);
+
+        minimize.AsButton().Invoke();
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Minimized,
+            "UIA minimize",
+            StepTimeout);
+        windowPattern.SetWindowVisualState(FlaUI.Core.Definitions.WindowVisualState.Normal);
+        WaitUntil(
+            () => windowPattern.WindowVisualState.ValueOrDefault
+                == FlaUI.Core.Definitions.WindowVisualState.Normal,
+            "UIA restore after minimize",
+            StepTimeout);
     }
 
     private static void RunVisibleGonePaging(FlaUI.Core.AutomationElements.Window window)

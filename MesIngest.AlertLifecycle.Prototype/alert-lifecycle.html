@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DemandSeries 完整 UNION 投影 + 修订快照原型</title>
+  <style>
+    :root { color-scheme:light; font-family:"Segoe UI","Microsoft YaHei UI",sans-serif; --ink:#17202a; --muted:#667085; --line:#d9dee7; --bg:#f5f7fa; --accent:#2458a6; --soft:#eaf1fb; --danger:#a43d3d; --danger-soft:#fff0f0; --ok:#27754f; --ok-soft:#edf8f2; }
+    * { box-sizing:border-box } body { margin:0; color:var(--ink); background:var(--bg) } button { font:inherit }
+    .page { width:min(1560px,calc(100% - 32px)); margin:24px auto 60px } .hero,.panel { background:#fff; border:1px solid var(--line); border-radius:10px; min-width:0 }
+    .hero { padding:26px 30px; border-top:5px solid var(--accent) } .panel { padding:20px; margin-top:16px } .eyebrow { color:var(--danger); font-size:12px; font-weight:800; letter-spacing:.12em }
+    h1 { margin:8px 0 10px; font-size:clamp(26px,4vw,40px) } h2 { margin:0 0 14px; font-size:21px } h3 { margin:14px 0 8px; font-size:15px } p { line-height:1.6 }
+    .question { max-width:1200px; color:#344054 } .pills,.tabs,.buttons { display:flex; flex-wrap:wrap; gap:8px } .pill { display:inline-flex; padding:5px 9px; border-radius:999px; background:var(--soft); color:#234b82; font-size:12px; font-weight:700 }
+    .grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:16px } .notice { border:1px solid #b8c9e5; border-left:4px solid var(--accent); background:#f6f9fe; padding:13px; border-radius:7px }
+    .notice.ok { border-color:#a7d5bd; border-left-color:var(--ok); background:var(--ok-soft) } .notice.illegal { border-color:#edb4b4; border-left-color:var(--danger); background:var(--danger-soft) } .notice strong,.notice span { display:block } .notice span { margin-top:4px; color:#475467 }
+    button { border:1px solid #b8c3d1; background:#fff; color:#243142; border-radius:7px; padding:9px 11px; cursor:pointer } button:hover { border-color:var(--accent); color:var(--accent) } button:disabled { cursor:not-allowed; opacity:.48 }
+    .action.reset { color:var(--danger); border-color:#e0aaaa } .group { margin-top:12px } .group:first-child { margin-top:0 } .group h3 { color:#475467 }
+    .tab.active { background:var(--accent); border-color:var(--accent); color:#fff } .walk { margin-top:12px; border:1px solid var(--line); border-radius:8px; padding:15px; background:#fbfcfe }
+    .walk-step { display:flex; width:100%; text-align:left; gap:10px; margin-top:8px } .walk-step.done { border-color:#9ccbb4; color:var(--ok) } .step-no { min-width:22px; font-weight:800 }
+    .facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:12px } .fact { border:1px solid var(--line); border-radius:7px; padding:10px; min-width:0 } .fact.wide { grid-column:1/-1 }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em } .value { margin-top:4px; overflow-wrap:anywhere } code { font-family:"Cascadia Mono",Consolas,monospace; font-size:12px }
+    .tables { display:grid; gap:20px; min-width:0 } .tables > div { min-width:0 } .table-wrap { width:100%; max-width:100%; overflow-x:auto; border:1px solid var(--line); border-radius:8px } table { width:100%; border-collapse:collapse; min-width:900px; font-size:13px }
+    th,td { padding:9px 10px; border-bottom:1px solid #e7ebf0; text-align:left; vertical-align:top } th { color:#475467; background:#f8fafc; white-space:nowrap } tr:last-child td { border-bottom:0 } .empty { color:var(--muted); padding:12px; border:1px dashed var(--line); border-radius:7px }
+    .legend { display:grid; gap:9px } .legend div { display:grid; grid-template-columns:250px 1fr; gap:12px; border-top:1px solid #edf0f3; padding-top:9px } .legend span { color:#475467 }
+    @media(max-width:900px){ .grid,.facts { grid-template-columns:1fr } .fact.wide { grid-column:auto } .page { width:min(100% - 20px,1560px); margin-top:10px } .hero,.panel { padding:16px } .legend div { grid-template-columns:1fr } }
+  </style>
+</head>
+<body>
+<main class="page">
+  <section class="hero">
+    <div class="eyebrow">THROWAWAY LOGIC PROTOTYPE · 不进入生产</div>
+    <h1>方案 6：完整 UNION 投影 + 修订快照读取</h1>
+    <p class="question">本原型验证“Watch 真实可见、外部按需读取”的闭环：六个 TASK_TYPE 由同一条 MES_TASK_UNION 语句一次性返回；只有 SUCCESS 才原子更新全部 DemandSeries，FAILURE / INCOMPLETE 保持投影不变。外部程序不再复制 ChangeFeed 或维护 Cursor，而是在调度周期按 CatalogRevision 条件读取当前完整 ExternallyReadableDemandCatalog，在自己的可丢弃缓存中按 WorkType 与 AREA 白名单选择候选，并在执行承诺点再次读取最新 Demand、保存不可变 AcceptedDemandSnapshot 与可靠 OrderIntent。</p>
+    <div class="pills">
+      <span class="pill">一条 Oracle UNION ALL</span><span class="pill">SUCCESS 全量原子提交</span>
+      <span class="pill">FAILURE / INCOMPLETE 不改投影</span><span class="pill">PollTraceId 全结果幂等</span>
+      <span class="pill">六类 Series 同轮处理</span><span class="pill">12h + 内建权威规则</span>
+      <span class="pill">CatalogRevision + ETag / 304</span><span class="pill">无 Feed、无 Cursor、无持久镜像</span>
+      <span class="pill">字段异常仍生成 Demand</span><span class="pill">无业务键原始行归 PollRun</span>
+      <span class="pill">执行前最终读取</span><span class="pill">AcceptedDemandSnapshot 不可变</span>
+      <span class="pill">OrderIntent 幂等建单</span><span class="pill">取消按 TransportDemandKey 抑制</span>
+    </div>
+  </section>
+  <div class="grid">
+    <section class="panel"><h2>本次动作</h2><div id="last-change"></div><div id="focus"></div></section>
+    <section class="panel"><h2>自由操作</h2><div id="free-play"></div></section>
+  </div>
+  <section class="panel"><h2>引导演示</h2><div id="scenario-tabs" class="tabs"></div><div id="scenario-body"></div></section>
+  <section class="panel"><h2>完整状态</h2><div id="state-tables" class="tables"></div></section>
+  <section class="panel"><h2>领域与事务边界</h2><div class="legend">
+    <div><strong>ApplyMesTaskUnionResult</strong><span>六分支是同一 Oracle 语句级快照；SUCCESS 才进入投影，FAILURE / INCOMPLETE 只更新 PollRun 证据。</span></div>
+    <div><strong>DemandSeriesEvent</strong><span>每个 SUBLOT + TASK_TYPE 有独立 SeriesSequence；同一提交可原子更新多个 Series。</span></div>
+    <div><strong>WatchDemandProjection</strong><span>异常 Demand、全部当前原始行、NULL、空字符串和非法值均可见；不为了外部读取而隐藏源数据。</span></div>
+    <div><strong>ExternallyReadableDemandCatalog</strong><span>MesIngest 返回当前全部合格 Demand，不接受车辆、站点、车间或调度范围配置；集合或成员业务值改变时 CatalogRevision 递增，未变化只得到 304。</span></div>
+    <div><strong>ExternalProgram</strong><span>在可丢弃目录缓存上按 WorkType 和自身 AREA 白名单精确过滤，再自行映射站点并选择最近任务；只持久保存 DispatchTask、取消抑制、AcceptedDemandSnapshot 与 OrderIntent。</span></div>
+    <div><strong>执行承诺点</strong><span>创建 OrderIntent 前按 DemandId 最终读取当前目录项；本地事务保存接受快照与幂等意图，远程 RIoT 调用在事务外执行并可查询结果。</span></div>
+    <div><strong>PollTrace</strong><span>统一覆盖 SUCCESS / FAILURE / INCOMPLETE，保存查询版本、行数、规范化内容摘要和未归属行数。</span></div>
+    <div><strong>Absence authority</strong><span>由模块根据 SUCCESS、RestartBarrier 与 TaskTypeProtection 计算；调用方不能传入一个自相矛盾的布尔值。</span></div>
+  </div></section>
+</main>
+<script>
+const DemandSeriesModel = (() => {
+  const START = Date.parse("2026-08-11T09:00:00+08:00");
+  const TASK_TYPES = ["DIE_TO_WIRE_STAGING","DIE_TO_OVEN","WIRE_TO_GATE","WIRE_TO_OPTICAL","STAGING_TO_WIRE","WIRE_TO_NITROGEN"];
+  const TARGET = "DIE_TO_OVEN";
+  const OTHER = "WIRE_TO_GATE";
+  const SUBLOT = "LOT-8005";
+  const FIELD_SPECS = [
+    {name:"area",label:"AREA",required:false},
+    {name:"eqp",label:"EQP",required:false},
+    {name:"step",label:"STEP",required:true},
+    {name:"dates",label:"DATES",required:true,date:true},
+    {name:"package",label:"PACKAGE",required:true}
+  ];
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const at = minute => new Date(START + minute * 60000).toISOString();
+  const stable = value => {
+    if(Array.isArray(value)) return value.map(stable);
+    if(value && typeof value === "object") return Object.keys(value).sort().reduce((out,key)=>(out[key]=stable(value[key]),out),{});
+    return value;
+  };
+  const digest = value => JSON.stringify(stable(value));
+  const canonicalRows = rows => clone(rows).sort((a,b)=>digest(a).localeCompare(digest(b)));
+  const isBlank = value => value===null || value===undefined || (typeof value==="string" && value.trim()==="");
+  const validDate = value => !isBlank(value) && !Number.isNaN(Date.parse(value));
+  const keyText = (sublot,taskType) => sublot + " + " + taskType;
+  const rowKey = item => isBlank(item.sublot)||isBlank(item.taskType) ? null : keyText(item.sublot,item.taskType);
+  const row = (overrides={}) => ({taskType:TARGET,sublot:SUBLOT,area:"WB-A",eqp:"WB-07",step:"入库",dates:"2026-08-11T00:20:00+08:00",package:"SOP16-300MIL",...overrides});
+
+  function initialState(){
+    return {
+      nextIds:{SERIES:1,D:1,EVT:1,COMMIT:1,POLL_EVENT:1,AUTH_EVENT:1,EXTTX:1,DISPATCH:1,INTENT:1,ORDER:1},
+      series:[],demands:[],currentConditions:[],demandSeriesEvents:[],commits:[],
+      pollTraces:[],processedPolls:{},
+      pollRun:{activeIssue:null,unassignedRows:[],events:[]},
+      authority:{restartPhase:"NORMAL",protections:{},events:[]},
+      catalog:{revision:0,digest:digest([]),items:[],changedAt:null},
+      external:{selectionScope:{workType:TARGET,allowedAreas:["WB-A","WB-B"]},lastCatalogRevision:null,cachedCatalog:[],catalogChecks:0,dispatchTasks:[],suppressions:[],orderIntents:[],transactions:[],actionMinute:800},
+      focus:{scope:null,id:null,commitId:null},
+      lastChange:{kind:"info",title:"等待 MES_TASK_UNION 结果",detail:"选择一个引导演示，或从“完整 UNION 首次成功”开始。"}
+    };
+  }
+  const nextId=(state,prefix)=>prefix+"-"+String(state.nextIds[prefix]++).padStart(3,"0");
+  const findSeries=(state,key)=>state.series.find(item=>item.key===key);
+  const demandById=(state,id)=>state.demands.find(item=>item.demandId===id)||null;
+  const currentDemand=(state,series)=>demandById(state,series.currentDemandId);
+  const conditionKey=(seriesId,code,subject)=>seriesId+"::"+code+"::"+subject;
+  const findCondition=(state,series,code,subject)=>state.currentConditions.find(item=>item.key===conditionKey(series.demandSeriesId,code,subject));
+
+  function appendSeriesEvent(state,tx,series,eventKind,subject,payload,conditionCode=null){
+    const event={eventId:nextId(state,"EVT"),demandSeriesId:series.demandSeriesId,seriesSequence:++series.lastSeriesSequence,pollTraceId:tx.pollTraceId,eventKind,conditionCode,subject,observedAt:tx.observedAt,payloadVersion:1,payload,commitId:tx.commitId};
+    state.demandSeriesEvents.push(event);tx.eventIds.push(event.eventId);state.focus={scope:"DemandSeries",id:event.eventId,commitId:tx.commitId};return event;
+  }
+  function appendPollEvent(state,eventKind,observedAt,detail,pollTraceId,commitId=null){
+    const event={eventId:nextId(state,"POLL_EVENT"),eventKind,pollTraceId,observedAt,detail,commitId};
+    state.pollRun.events.push(event);state.focus={scope:"PollRun",id:event.eventId,commitId};return event;
+  }
+  function observeCondition(state,tx,series,code,subject,fingerprint,detail,eventKind,extra={}){
+    const current=findCondition(state,series,code,subject);
+    if(!current){
+      state.currentConditions.push({key:conditionKey(series.demandSeriesId,code,subject),demandSeriesId:series.demandSeriesId,conditionCode:code,subject,fingerprint,detail,since:tx.observedAt,lastChangedAt:tx.observedAt,commitId:tx.commitId});
+      appendSeriesEvent(state,tx,series,eventKind||code+"_OBSERVED",subject,{detail,...extra},code);tx.conditionMutations.push("+ "+code+" @ "+series.key);return true;
+    }
+    if(current.fingerprint===fingerprint)return false;
+    const before={fingerprint:current.fingerprint,detail:current.detail};
+    current.fingerprint=fingerprint;current.detail=detail;current.lastChangedAt=tx.observedAt;current.commitId=tx.commitId;
+    appendSeriesEvent(state,tx,series,code+"_CHANGED",subject,{before,after:{fingerprint,detail},...extra},code);tx.conditionMutations.push("~ "+code+" @ "+series.key);return true;
+  }
+  function clearCondition(state,tx,series,code,subject,eventKind,extra={}){
+    const current=findCondition(state,series,code,subject);if(!current)return false;
+    state.currentConditions=state.currentConditions.filter(item=>item!==current);
+    appendSeriesEvent(state,tx,series,eventKind||code+"_CLEARED",subject,{previous:{fingerprint:current.fingerprint,detail:current.detail,since:current.since},...extra},code);tx.conditionMutations.push("- "+code+" @ "+series.key);return true;
+  }
+  function clearSeriesConditions(state,tx,series,reason){
+    for(const item of [...state.currentConditions].filter(value=>value.demandSeriesId===series.demandSeriesId)){
+      clearCondition(state,tx,series,item.conditionCode,item.subject,item.conditionCode+"_ENDED_"+reason,{reason});
+    }
+  }
+  function ensureSeries(state,tx,sublot,taskType,rowCount){
+    const key=keyText(sublot,taskType);let series=findSeries(state,key);if(series)return series;
+    series={demandSeriesId:nextId(state,"SERIES"),key,sublot,taskType,lifecycleState:"Tracking",presenceState:rowCount===1?"VISIBLE":"AMBIGUOUS",startedAt:tx.observedAt,goneSince:null,archivedAt:null,archivedVisible:false,currentDemandId:null,demandCount:0,lastSeriesSequence:0,commitId:tx.commitId};
+    state.series.push(series);appendSeriesEvent(state,tx,series,"SERIES_STARTED",key,{key:{sublot,taskType},firstObservation:{matchingRowCount:rowCount}});tx.seriesMutations.push("created "+series.demandSeriesId+" "+key);return series;
+  }
+  function createDemand(state,tx,series,sourceRows,eventKind,afterArchive=false){
+    const previous=currentDemand(state,series),demandId=nextId(state,"D"),rows=canonicalRows(sourceRows),unique=rows.length===1,source=rows[0];
+    const demand={demandId,demandSeriesId:series.demandSeriesId,transportDemandKey:series.key,generation:(previous?.generation||0)+1,status:"VISIBLE",observationState:unique?"UNIQUE":"DUPLICATE",observedRows:rows,predecessorDemandId:previous?.demandId||null,createdAt:tx.observedAt,lastSeenAt:tx.observedAt,valueObservedAt:tx.observedAt,goneAt:null,revision:1,externalReadable:false,externalReadBlockers:[],mes:unique?{taskType:source.taskType,area:source.area??null,eqp:source.eqp??null,step:source.step??null,dates:source.dates??null,package:source.package??null}:null,commitId:tx.commitId};
+    state.demands.push(demand);series.currentDemandId=demandId;series.demandCount+=1;series.presenceState=afterArchive?"ARCHIVED_VISIBLE":unique?"VISIBLE":"AMBIGUOUS";if(!afterArchive)series.goneSince=null;series.commitId=tx.commitId;
+    appendSeriesEvent(state,tx,series,eventKind,demandId,{generation:demand.generation,predecessorDemandId:demand.predecessorDemandId,observationState:demand.observationState,observedRows:rows,afterArchive});tx.demandMutations.push("created "+demandId+" generation "+demand.generation);return demand;
+  }
+  const fieldSubject=(demand,label)=>demand.demandId+" / "+label;
+  function applyObservations(state,tx,series,demand,sourceRows,isNew){
+    const rows=canonicalRows(sourceRows),rowsChanged=!isNew&&digest(demand.observedRows)!==digest(rows),unique=rows.length===1,source=rows[0];
+    let valueChanged=rowsChanged;
+    if(rowsChanged)appendSeriesEvent(state,tx,series,"DEMAND_SOURCE_ROWS_CHANGED",demand.demandId,{before:demand.observedRows,after:rows});
+    const wasUnique=demand.observationState==="UNIQUE";demand.observedRows=rows;demand.observationState=unique?"UNIQUE":"DUPLICATE";
+    if(!unique){
+      if(wasUnique&&!isNew)appendSeriesEvent(state,tx,series,"DEMAND_OBSERVATION_BECAME_DUPLICATE",demand.demandId,{matchingRowCount:rows.length});
+      demand.mes=null;
+      for(const item of [...state.currentConditions].filter(c=>c.demandSeriesId===series.demandSeriesId&&c.subject.startsWith(demand.demandId+" / ")))clearCondition(state,tx,series,item.conditionCode,item.subject,item.conditionCode+"_CLEARED",{reason:"OBSERVATION_NOT_UNIQUE"});
+      demand.lastSeenAt=tx.observedAt;demand.commitId=tx.commitId;if(valueChanged)demand.revision+=1;return valueChanged;
+    }
+    const becameUnique=!demand.mes;
+    if(becameUnique){demand.mes={taskType:source.taskType,area:source.area??null,eqp:source.eqp??null,step:source.step??null,dates:source.dates??null,package:source.package??null};if(!isNew)appendSeriesEvent(state,tx,series,"DEMAND_OBSERVATION_BECAME_UNIQUE",demand.demandId,{currentMesObservation:demand.mes});valueChanged=true;}
+    for(const spec of FIELD_SPECS){
+      const observed=source[spec.name]??null,previous=demand.mes[spec.name]??null,subject=fieldSubject(demand,spec.label),emptyCode=spec.required?"REQUIRED_MES_FIELD_EMPTY":"OPTIONAL_MES_FIELD_EMPTY";
+      if(!isNew&&!becameUnique&&previous!==observed){demand.mes[spec.name]=observed;valueChanged=true;appendSeriesEvent(state,tx,series,"MES_FIELD_CHANGED",subject,{field:spec.label,beforeAfterDiff:{before:previous,after:observed}});tx.demandMutations.push(demand.demandId+"."+spec.label+": "+String(previous)+" -> "+String(observed));}
+      if(isBlank(observed)){observeCondition(state,tx,series,emptyCode,subject,spec.label+":"+JSON.stringify(observed),spec.label+" "+(spec.required?"必填":"非必填")+"字段为空；保留真实形态并阻断外部读取",emptyCode+"_OBSERVED",{field:spec.label,required:spec.required,observed});clearCondition(state,tx,series,"INVALID_MES_FIELD_VALUE",subject,"INVALID_MES_FIELD_VALUE_CLEARED");continue;}
+      clearCondition(state,tx,series,emptyCode,subject,emptyCode+"_CLEARED",{field:spec.label,observed});
+      if(spec.date&&!validDate(observed))observeCondition(state,tx,series,"INVALID_MES_FIELD_VALUE",subject,"DATES:"+String(observed),"DATES 不是可解析的 MES 来源时间；Demand 保留但阻断外部读取","INVALID_MES_FIELD_VALUE_OBSERVED",{field:spec.label,observed});
+      else clearCondition(state,tx,series,"INVALID_MES_FIELD_VALUE",subject,"INVALID_MES_FIELD_VALUE_CLEARED",{field:spec.label,observed});
+    }
+    demand.lastSeenAt=tx.observedAt;demand.commitId=tx.commitId;if(valueChanged){demand.revision+=1;demand.valueObservedAt=tx.observedAt;}return valueChanged;
+  }
+  function blockers(state,series,demand){
+    const out=[];if(demand.status!=="VISIBLE")out.push("DEMAND_NOT_VISIBLE");if(demand.observationState!=="UNIQUE")out.push("OBSERVATION_NOT_UNIQUE");if(series.lifecycleState==="Archived")out.push("SERIES_ARCHIVED");
+    for(const c of state.currentConditions.filter(item=>item.demandSeriesId===series.demandSeriesId))out.push(c.conditionCode+":"+c.subject);
+    return [...new Set(out)].sort();
+  }
+  function refreshEligibility(state,tx,series){
+    const demand=currentDemand(state,series);if(!demand)return;
+    const before=demand.externalReadable,beforeBlockers=[...demand.externalReadBlockers],next=blockers(state,series,demand),readable=next.length===0;
+    demand.externalReadable=readable;demand.externalReadBlockers=next;demand.commitId=tx.commitId;
+    if(before!==readable||digest(beforeBlockers)!==digest(next))appendSeriesEvent(state,tx,series,readable?"DEMAND_BECAME_EXTERNALLY_READABLE":"DEMAND_BECAME_EXTERNALLY_BLOCKED",demand.demandId,{before:{readable:before,blockers:beforeBlockers},after:{readable,blockers:next}});
+  }
+  function externalSnapshot(state,series,demand){
+    return {demandId:demand.demandId,demandSeriesId:series.demandSeriesId,transportDemandKey:series.key,sublot:series.sublot,taskType:series.taskType,generation:demand.generation,demandRevision:demand.revision,createdAt:demand.createdAt,valueObservedAt:demand.valueObservedAt,mes:clone(demand.mes)};
+  }
+  function recomputeCatalog(state,tx){
+    const items=state.series.map(series=>({series,demand:currentDemand(state,series)})).filter(x=>x.demand?.externalReadable).map(x=>externalSnapshot(state,x.series,x.demand)).sort((a,b)=>a.demandId.localeCompare(b.demandId));
+    const nextDigest=digest(items);if(nextDigest!==state.catalog.digest){state.catalog.revision+=1;state.catalog.digest=nextDigest;state.catalog.changedAt=tx.observedAt;tx.catalogMutation="CatalogRevision -> "+state.catalog.revision;}state.catalog.items=items;
+  }
+  function markGone(state,tx,series,demand){
+    demand.status="GONE";demand.goneAt=tx.observedAt;demand.commitId=tx.commitId;series.presenceState="GONE";if(series.lifecycleState!=="Archived")series.goneSince=tx.observedAt;series.archivedVisible=false;series.commitId=tx.commitId;
+    appendSeriesEvent(state,tx,series,"DEMAND_GONE",demand.demandId,{goneConfirmedAt:tx.observedAt,lastSeenAt:demand.lastSeenAt});tx.demandMutations.push(demand.demandId+" -> GONE");clearSeriesConditions(state,tx,series,"SUBJECT_GONE");
+  }
+  function archiveSeries(state,tx,series){
+    series.lifecycleState="Archived";series.archivedAt=tx.observedAt;series.archivedVisible=false;series.commitId=tx.commitId;
+    appendSeriesEvent(state,tx,series,"GONE_TIMEOUT_ARCHIVED",series.key,{goneSince:series.goneSince,confirmedAbsentAt:tx.observedAt,elapsedMinutes:Math.floor((Date.parse(tx.observedAt)-Date.parse(series.goneSince))/60000)});tx.seriesMutations.push(series.demandSeriesId+" Tracking -> Archived");
+  }
+  function hasAbsenceAuthority(state,taskType){return state.authority.restartPhase==="NORMAL"&&!state.authority.protections[taskType]?.active;}
+  function syncCrossTaskTypes(state,tx,presentGroups){
+    const bySublot={};for(const group of presentGroups){(bySublot[group.sublot]??=[]).push(group.taskType);}
+    for(const group of presentGroups){
+      const series=findSeries(state,keyText(group.sublot,group.taskType)),types=[...new Set(bySublot[group.sublot])].sort();
+      if(types.length>1)observeCondition(state,tx,series,"SUBLOT_MULTIPLE_TASK_TYPES",series.key,types.join("|"),"同一 SUBLOT 同时出现在 "+types.length+" 个 TASK_TYPE："+types.join(", "),"SUBLOT_MULTIPLE_TASK_TYPES_OBSERVED",{sublot:group.sublot,taskTypes:types});
+      else clearCondition(state,tx,series,"SUBLOT_MULTIPLE_TASK_TYPES",series.key,"SUBLOT_MULTIPLE_TASK_TYPES_CLEARED",{taskTypes:types});
+    }
+  }
+  function syncUnassignedRows(state,round,commitId){
+    const rows=canonicalRows(round.rows.filter(item=>!rowKey(item))),before=digest(state.pollRun.unassignedRows),after=digest(rows);
+    if(before===after)return;
+    state.pollRun.unassignedRows=rows;
+    appendPollEvent(state,rows.length?"UNASSIGNED_SOURCE_ROWS_OBSERVED":"UNASSIGNED_SOURCE_ROWS_CLEARED",round.observedAt,rows.length?rows.length+" 条完整 UNION 原始行缺少 SUBLOT/TASK_TYPE，不能归属 DemandSeries；其它可识别键仍按完整快照处理":"未归属原始行已经清除",round.pollTraceId,commitId);
+  }
+  function clearPollIssueOnSuccess(state,round,commitId){
+    if(!state.pollRun.activeIssue)return;
+    appendPollEvent(state,"POLL_RUN_ISSUE_CLEARED",round.observedAt,state.pollRun.activeIssue.kind+" 已由完整 SUCCESS 解除",round.pollTraceId,commitId);state.pollRun.activeIssue=null;
+  }
+  function advanceRestartPhase(state,round){
+    if(state.authority.restartPhase==="BARRIER"){state.authority.restartPhase="POST_BARRIER";state.authority.events.push({eventId:nextId(state,"AUTH_EVENT"),eventKind:"RESTART_BARRIER_ROUND_COMPLETED",observedAt:round.observedAt,detail:"第一轮完整结果只建立基线，不提供缺席权威"});}
+    else if(state.authority.restartPhase==="POST_BARRIER"){state.authority.restartPhase="NORMAL";state.authority.events.push({eventId:nextId(state,"AUTH_EVENT"),eventKind:"RESTART_AUTHORITY_RESTORED",observedAt:round.observedAt,detail:"第二轮完整结果结束重启保护；下一轮可提供缺席权威"});}
+  }
+  function checkProcessed(previous,pollTraceId,contentDigest){
+    const processed=previous.processedPolls[pollTraceId];if(!processed)return null;
+    const state=clone(previous);state.focus={scope:null,id:null,commitId:processed.commitId||null};
+    state.lastChange=processed.digest===contentDigest?{kind:"info",title:"PollTraceId 幂等重放",detail:pollTraceId+" 内容相同；没有新增 PollTrace、事件或投影。"}:{kind:"illegal",title:"PollTraceId 内容冲突",detail:pollTraceId+" 已绑定另一份结果；所有状态保持不变。"};return state;
+  }
+  function applySuccessfulRound(previous,round){
+    const rows=canonicalRows(round.rows),content={outcome:"SUCCESS",pollTraceId:round.pollTraceId,observedAt:round.observedAt,queryVersion:round.queryVersion||"MES_TASK_UNION/v1",rows},contentDigest=digest(content),replayed=checkProcessed(previous,round.pollTraceId,contentDigest);if(replayed)return replayed;
+    const state=clone(previous),commitId=nextId(state,"COMMIT"),tx={commitId,pollTraceId:round.pollTraceId,observedAt:round.observedAt,eventIds:[],seriesMutations:[],demandMutations:[],conditionMutations:[],catalogMutation:null};
+    clearPollIssueOnSuccess(state,round,commitId);syncUnassignedRows(state,{...round,rows},commitId);
+    const assigned=rows.filter(rowKey),map=new Map();for(const item of assigned){const key=rowKey(item);if(!map.has(key))map.set(key,[]);map.get(key).push(item);}
+    const presentGroups=[];
+    for(const [key,groupRows] of map){const sample=groupRows[0],series=ensureSeries(state,tx,sample.sublot,sample.taskType,groupRows.length);presentGroups.push({key,sublot:sample.sublot,taskType:sample.taskType,rows:groupRows});
+      if(series.lifecycleState==="Archived"&&!series.archivedVisible){series.archivedVisible=true;observeCondition(state,tx,series,"LONG_GONE_BUT_VISIBLE",series.key,"visible","Archived 后同键再次可见；继续生成实时 Demand，但永久阻断外部读取","LONG_GONE_BUT_VISIBLE_OBSERVED",{matchingRowCount:groupRows.length});}
+      const prior=currentDemand(state,series),isNew=!prior||prior.status==="GONE",demand=isNew?createDemand(state,tx,series,groupRows,series.lifecycleState==="Archived"?"DEMAND_CREATED_AFTER_ARCHIVE":prior?"DEMAND_REAPPEARED":"DEMAND_CREATED",series.lifecycleState==="Archived"):prior;
+      if(groupRows.length>1)observeCondition(state,tx,series,"DUPLICATE_RECONCILE_KEY",series.key,"rows:"+groupRows.length,"同一 SUBLOT + TASK_TYPE 在完整 UNION 中出现 "+groupRows.length+" 条记录","DUPLICATE_RECONCILE_KEY_OBSERVED",{matchingRowCount:groupRows.length});
+      else clearCondition(state,tx,series,"DUPLICATE_RECONCILE_KEY",series.key,"DUPLICATE_RECONCILE_KEY_CLEARED",{matchingRowCount:1});
+      applyObservations(state,tx,series,demand,groupRows,isNew);series.presenceState=series.lifecycleState==="Archived"?"ARCHIVED_VISIBLE":groupRows.length===1?"VISIBLE":"AMBIGUOUS";series.commitId=commitId;
+    }
+    const presentKeys=new Set(presentGroups.map(g=>g.key));
+    for(const series of state.series.filter(s=>!presentKeys.has(s.key))){
+      const demand=currentDemand(state,series);if(!demand||!hasAbsenceAuthority(state,series.taskType))continue;
+      if(demand.status==="VISIBLE")markGone(state,tx,series,demand);
+      else if(series.lifecycleState!=="Archived"&&demand.status==="GONE"&&Date.parse(round.observedAt)-Date.parse(series.goneSince)>=12*60*60000)archiveSeries(state,tx,series);
+    }
+    syncCrossTaskTypes(state,tx,presentGroups);
+    for(const series of state.series)refreshEligibility(state,tx,series);
+    recomputeCatalog(state,tx);advanceRestartPhase(state,round);
+    state.pollTraces.push({pollTraceId:round.pollTraceId,outcome:"SUCCESS",observedAt:round.observedAt,queryVersion:content.queryVersion,sourceRowCount:rows.length,assignedRowCount:assigned.length,unassignedRowCount:rows.length-assigned.length,canonicalRowsDigest:digest(rows),commitId});
+    state.commits.push({...tx});state.processedPolls[round.pollTraceId]={digest:contentDigest,commitId};validate(state);state.lastChange={kind:"ok",title:commitId+"：完整 UNION 已原子提交",detail:rows.length+" 行、"+presentGroups.length+" 个复合键、"+tx.eventIds.length+" 个 Series 事件；"+(tx.catalogMutation||"外部目录未变化")+"。"};return state;
+  }
+  function recordPollProblem(previous,problem){
+    const content={outcome:problem.outcome,pollTraceId:problem.pollTraceId,observedAt:problem.observedAt,fingerprint:problem.fingerprint,detail:problem.detail,queryVersion:problem.queryVersion||"MES_TASK_UNION/v1"},contentDigest=digest(content),replayed=checkProcessed(previous,problem.pollTraceId,contentDigest);if(replayed)return replayed;
+    const state=clone(previous),active=state.pollRun.activeIssue,eventKind=!active?problem.outcome==="FAILURE"?"POLL_RUN_FAILED":"POLL_RUN_INCOMPLETE":active.fingerprint===problem.fingerprint&&active.kind===problem.outcome?null:"POLL_RUN_ISSUE_CHANGED";
+    state.pollTraces.push({pollTraceId:problem.pollTraceId,outcome:problem.outcome,observedAt:problem.observedAt,queryVersion:content.queryVersion,sourceRowCount:0,assignedRowCount:0,unassignedRowCount:0,canonicalRowsDigest:null,commitId:null});
+    if(eventKind){appendPollEvent(state,eventKind,problem.observedAt,problem.detail,problem.pollTraceId);state.pollRun.activeIssue={kind:problem.outcome,fingerprint:problem.fingerprint,detail:problem.detail,since:active?.since||problem.observedAt};}
+    state.processedPolls[problem.pollTraceId]={digest:contentDigest,commitId:null};validate(state);state.lastChange={kind:"ok",title:problem.outcome+" 已记录，Demand 投影保持不变",detail:eventKind?problem.detail:"相同问题持续；只增加唯一 PollTrace，不重复写语义事件。"};return state;
+  }
+  function changeAuthority(previous,change){
+    const state=clone(previous);
+    if(change.kind==="RESTART"){state.authority.restartPhase="BARRIER";state.authority.events.push({eventId:nextId(state,"AUTH_EVENT"),eventKind:"RESTART_BARRIER_ENTERED",observedAt:change.observedAt,detail:"接下来两轮完整结果不提供缺席权威"});}
+    else {
+      const p=state.authority.protections[change.taskType]||{active:false,recoveryStreak:0,required:2};state.authority.protections[change.taskType]=p;
+      if(change.kind==="ENTER"){if(p.active){state.lastChange={kind:"info",title:"保护已经生效",detail:"不重复写进入事件。"};return state;}p.active=true;p.recoveryStreak=0;}
+      else if(!p.active){state.lastChange={kind:"illegal",title:"当前没有可恢复的保护",detail:change.taskType};return state;}
+      else p.recoveryStreak+=1;
+      const cleared=p.active&&p.recoveryStreak>=p.required;if(cleared){p.active=false;p.recoveryStreak=0;}
+      state.authority.events.push({eventId:nextId(state,"AUTH_EVENT"),eventKind:change.kind==="ENTER"?"TASK_TYPE_PROTECTION_ENTERED":cleared?"TASK_TYPE_PROTECTION_CLEARED":"TASK_TYPE_PROTECTION_RECOVERY_PROGRESS",taskType:change.taskType,observedAt:change.observedAt,detail:change.kind==="ENTER"?"zero-drop 阻断该 TASK_TYPE 缺席权威":cleared?"连续两轮健康恢复，下一完整轮可提供权威":"恢复进度 "+p.recoveryStreak+" / "+p.required});
+    }
+    state.lastChange={kind:"ok",title:"缺席权威状态已更新",detail:"权威由模块内部计算，成功轮次不能绕过 RestartBarrier 或 TaskTypeProtection。"};validate(state);return state;
+  }
+  function beginExternalTx(state,kind,source){return {externalTxId:nextId(state,"EXTTX"),kind,source,performedAt:at(state.external.actionMinute++),mutations:[]};}
+  function finishExternalTx(state,tx,title,detail){state.external.transactions.push(tx);state.focus={scope:"ExternalProgram",id:tx.externalTxId,commitId:tx.externalTxId};state.lastChange={kind:"ok",title,detail};validate(state);return state;}
+  const suppressed=(state,key)=>state.external.suppressions.some(item=>item.transportDemandKey===key);
+  const inSelectionScope=(state,item)=>item.taskType===state.external.selectionScope.workType&&state.external.selectionScope.allowedAreas.includes(item.mes.area);
+  const decisionDigest=snapshot=>digest({transportDemandKey:snapshot.transportDemandKey,mes:snapshot.mes});
+  function refreshCatalog(previous){
+    const state=clone(previous);state.external.catalogChecks+=1;
+    if(state.external.lastCatalogRevision===state.catalog.revision){state.lastChange={kind:"info",title:"304 Not Modified",detail:"CatalogRevision "+state.catalog.revision+" 未变化；没有传输目录正文，也没有业务事务。"};return state;}
+    const tx=beginExternalTx(state,"CATALOG_REFRESH","If-None-Match revision "+String(state.external.lastCatalogRevision)),items=clone(state.catalog.items),byId=new Map(items.map(item=>[item.demandId,item])),candidates=items.filter(item=>inSelectionScope(state,item)),candidateById=new Map(candidates.map(item=>[item.demandId,item]));
+    state.external.cachedCatalog=items;state.external.lastCatalogRevision=state.catalog.revision;
+    for(const task of state.external.dispatchTasks){
+      const current=byId.get(task.demandId),candidate=candidateById.get(task.demandId),isSuppressed=suppressed(state,task.transportDemandKey);
+      if(isSuppressed){if(!task.acceptedDemandSnapshot){task.dispatchState="CANCELLED_BY_KEY_SUPPRESSION";task.lastDecision="业务键已永久取消抑制";}else{task.dispatchState="SOURCE_BLOCKED_REVIEW_REQUIRED";task.lastDecision="已承诺任务命中永久抑制，需要人工处置";}tx.mutations.push(task.dispatchTaskId+" -> "+task.dispatchState);continue;}
+      if(!current){if(task.dispatchState==="PENDING"){task.dispatchState="SOURCE_BLOCKED_BEFORE_START";task.lastDecision="当前目录不再包含 Demand；未承诺任务暂停";tx.mutations.push(task.dispatchTaskId+" -> SOURCE_BLOCKED_BEFORE_START");}else if(["ORDER_SUBMISSION_PENDING","ORDER_OUTCOME_UNKNOWN","EXECUTING","SOURCE_CHANGED_REVIEW_REQUIRED"].includes(task.dispatchState)){task.dispatchState="SOURCE_BLOCKED_REVIEW_REQUIRED";task.lastDecision="已承诺任务退出当前合格目录，需要人工处置";tx.mutations.push(task.dispatchTaskId+" -> SOURCE_BLOCKED_REVIEW_REQUIRED");}continue;}
+      if(!candidate){if(!task.acceptedDemandSnapshot){task.dispatchState="OUTSIDE_SELECTION_SCOPE_BEFORE_START";task.lastDecision="Demand 仍在完整目录，但不属于当前 WorkType + AREA 调度范围";}else{task.dispatchState="SOURCE_CHANGED_REVIEW_REQUIRED";task.lastDecision="已承诺 Demand 离开当前 WorkType + AREA 调度范围，需要人工处置";}tx.mutations.push(task.dispatchTaskId+" -> "+task.dispatchState);continue;}
+      if(["SOURCE_BLOCKED_BEFORE_START","OUTSIDE_SELECTION_SCOPE_BEFORE_START"].includes(task.dispatchState)){task.dispatchState="PENDING";task.lastDecision="同一 Demand 恢复合格且重新进入当前调度范围；因尚未承诺而自动恢复待调度";tx.mutations.push(task.dispatchTaskId+" -> PENDING");}
+      if(task.dispatchState==="EXECUTING"&&task.acceptedDemandSnapshot&&decisionDigest(task.acceptedDemandSnapshot)!==decisionDigest(current)){task.dispatchState="SOURCE_CHANGED_REVIEW_REQUIRED";task.lastDecision="承诺后 MES 业务字段变化；接受快照保持不变并进入复核";tx.mutations.push(task.dispatchTaskId+" -> SOURCE_CHANGED_REVIEW_REQUIRED");}
+    }
+    for(const item of candidates){
+      if(suppressed(state,item.transportDemandKey)||state.external.dispatchTasks.some(task=>task.demandId===item.demandId))continue;
+      const task={dispatchTaskId:nextId(state,"DISPATCH"),demandId:item.demandId,demandSeriesId:item.demandSeriesId,transportDemandKey:item.transportDemandKey,dispatchState:"PENDING",riotOrderId:null,acceptedCatalogRevision:null,acceptedAt:null,acceptedDemandSnapshot:null,lastDecision:"等待外部调度",reviewDecision:null};
+      state.external.dispatchTasks.push(task);tx.mutations.push("created "+task.dispatchTaskId+" for "+item.demandId);
+    }
+    return finishExternalTx(state,tx,"外部目录修订 "+state.catalog.revision+" 已读取","缓存完整目录 "+items.length+" 个合格 Demand；当前 WorkType + AREA 范围命中 "+candidates.length+" 个候选，无需 Cursor、Feed 重放或镜像修复。");
+  }
+  function startDispatch(previous){
+    const state=clone(previous),task=state.external.dispatchTasks.find(item=>item.dispatchState==="PENDING");
+    if(!task){state.lastChange={kind:"illegal",title:"没有可承诺的 PENDING 任务",detail:"先读取当前目录，或处理已有复核。"};return state;}
+    const current=state.catalog.items.find(item=>item.demandId===task.demandId);
+    if(!current||!inSelectionScope(state,current)||suppressed(state,task.transportDemandKey)){task.dispatchState=!current?"SOURCE_BLOCKED_BEFORE_START":!inSelectionScope(state,current)?"OUTSIDE_SELECTION_SCOPE_BEFORE_START":"CANCELLED_BY_KEY_SUPPRESSION";task.lastDecision="承诺点最终读取失败；没有创建 OrderIntent";state.lastChange={kind:"illegal",title:"执行承诺被拒绝",detail:task.lastDecision};return state;}
+    const tx=beginExternalTx(state,"ACCEPT_AND_ENQUEUE","Final read "+task.demandId),intent={orderIntentId:nextId(state,"INTENT"),idempotencyKey:"RIOT/"+task.demandId+"/r"+current.demandRevision,demandId:task.demandId,dispatchTaskId:task.dispatchTaskId,status:"PENDING",attempts:0,riotOrderId:null,lastResult:null};
+    task.dispatchState="ORDER_SUBMISSION_PENDING";task.acceptedCatalogRevision=state.catalog.revision;task.acceptedAt=tx.performedAt;task.acceptedDemandSnapshot=clone(current);task.lastDecision="最终读取后冻结接受快照，并在本地事务写入可靠 OrderIntent";state.external.orderIntents.push(intent);tx.mutations.push(task.dispatchTaskId+" accepted at catalog revision "+state.catalog.revision, "created "+intent.orderIntentId);
+    return finishExternalTx(state,tx,"接受快照与 OrderIntent 已原子保存","尚未假装远程 RIoT 已成功；事务外 worker 将使用稳定 IdempotencyKey 调用。");
+  }
+  function processOrderIntent(previous,outcome){
+    const state=clone(previous),intent=state.external.orderIntents.find(item=>["PENDING","OUTCOME_UNKNOWN"].includes(item.status));
+    if(!intent){state.lastChange={kind:"illegal",title:"没有待处理 OrderIntent",detail:"先执行承诺。"};return state;}
+    const task=state.external.dispatchTasks.find(item=>item.dispatchTaskId===intent.dispatchTaskId),tx=beginExternalTx(state,"ORDER_WORKER",intent.idempotencyKey);intent.attempts+=1;
+    if(outcome==="TIMEOUT"){intent.status="OUTCOME_UNKNOWN";intent.lastResult="HTTP timeout；禁止盲目换幂等键重建";task.dispatchState="ORDER_OUTCOME_UNKNOWN";task.lastDecision="远程结果未知，必须按 IdempotencyKey 查询";tx.mutations.push(intent.orderIntentId+" -> OUTCOME_UNKNOWN");return finishExternalTx(state,tx,"RIoT 结果未知","本地接受事实不回滚；下一步是按相同 IdempotencyKey 查询结果。");}
+    intent.status="SUCCEEDED";intent.riotOrderId=intent.riotOrderId||nextId(state,"ORDER");intent.lastResult="RIoT 已确认订单存在";task.riotOrderId=intent.riotOrderId;if(!["SOURCE_BLOCKED_REVIEW_REQUIRED","SOURCE_CHANGED_REVIEW_REQUIRED"].includes(task.dispatchState))task.dispatchState="EXECUTING";task.lastDecision="按幂等键确认 RIoT 订单 "+intent.riotOrderId;tx.mutations.push(intent.orderIntentId+" -> SUCCEEDED",task.dispatchTaskId+" order="+intent.riotOrderId);
+    return finishExternalTx(state,tx,"RIoT 订单结果已确认","未知结果通过查询收敛；不会因为本地事务重试而重复建单。");
+  }
+  function addSuppression(previous){
+    const state=clone(previous),key=keyText(SUBLOT,TARGET);if(suppressed(state,key)){state.lastChange={kind:"info",title:"业务键已经永久抑制",detail:key};return state;}
+    const tx=beginExternalTx(state,"CANCEL_SUPPRESSION","Local dispatch cancellation ledger");state.external.suppressions.push({transportDemandKey:key,reason:"CANCELLED_BY_STOP_COMPLETE",suppressedAt:tx.performedAt});
+    for(const task of state.external.dispatchTasks.filter(item=>item.transportDemandKey===key&&!item.acceptedDemandSnapshot)){task.dispatchState="CANCELLED_BY_KEY_SUPPRESSION";task.lastDecision="业务键已永久取消抑制";tx.mutations.push(task.dispatchTaskId+" -> CANCELLED_BY_KEY_SUPPRESSION");}
+    return finishExternalTx(state,tx,"TransportDemandKey 已永久抑制","MesIngest 仍会展示同键后续 Demand；外部不得为 D-002/D-003 创建新业务任务。");
+  }
+  function review(previous,decision){
+    const state=clone(previous),task=state.external.dispatchTasks.find(item=>["SOURCE_BLOCKED_REVIEW_REQUIRED","SOURCE_CHANGED_REVIEW_REQUIRED"].includes(item.dispatchState));
+    if(!task){state.lastChange={kind:"illegal",title:"没有待人工复核任务",detail:"只有已经产生执行承诺的任务需要此动作。"};return state;}
+    const tx=beginExternalTx(state,"HUMAN_REVIEW",decision);task.reviewDecision=decision;task.dispatchState=decision==="CONTINUE"&&task.riotOrderId?"EXECUTING":"CANCELLED_AFTER_REVIEW";task.lastDecision=decision==="CONTINUE"?"操作员基于车辆/装载/订单事实确认继续":"操作员决定终止并进入外部补偿流程";tx.mutations.push(task.dispatchTaskId+" -> "+task.dispatchState);return finishExternalTx(state,tx,"人工复核已形成终态决定",task.lastDecision);
+  }
+  function externalRestart(previous){const state=clone(previous);state.external.lastCatalogRevision=null;state.external.cachedCatalog=[];state.lastChange={kind:"ok",title:"模拟外部程序重启","detail":"只丢弃可恢复目录缓存；DispatchTask、AcceptedDemandSnapshot、抑制账本和 OrderIntent 保留。"};return state;}
+  function reduce(previous,action){
+    if(action.type==="RESET")return initialState();
+    if(action.type==="APPLY_ROUND")return applySuccessfulRound(previous,action.round);
+    if(action.type==="POLL_PROBLEM")return recordPollProblem(previous,action.problem);
+    if(action.type==="AUTHORITY")return changeAuthority(previous,action.change);
+    if(action.type==="CATALOG_REFRESH")return refreshCatalog(previous);
+    if(action.type==="START_DISPATCH")return startDispatch(previous);
+    if(action.type==="ORDER_TIMEOUT")return processOrderIntent(previous,"TIMEOUT");
+    if(action.type==="ORDER_CONFIRM")return processOrderIntent(previous,"CONFIRM");
+    if(action.type==="SUPPRESS_KEY")return addSuppression(previous);
+    if(action.type==="REVIEW_CONTINUE")return review(previous,"CONTINUE");
+    if(action.type==="REVIEW_CANCEL")return review(previous,"CANCEL");
+    if(action.type==="EXTERNAL_RESTART")return externalRestart(previous);
+    const state=clone(previous);state.lastChange={kind:"illegal",title:"未知动作",detail:action.type};return state;
+  }
+  function validate(state){
+    for(const series of state.series){const seq=state.demandSeriesEvents.filter(e=>e.demandSeriesId===series.demandSeriesId).map(e=>e.seriesSequence);if(seq.some((n,i)=>n!==i+1)||series.lastSeriesSequence!==seq.length)throw new Error("每个 SeriesSequence 必须严格连续");}
+    if(new Set(state.pollTraces.map(x=>x.pollTraceId)).size!==state.pollTraces.length)throw new Error("PollTraceId 必须全结果唯一");
+    if(new Set(state.currentConditions.map(x=>x.key)).size!==state.currentConditions.length)throw new Error("CurrentCondition 键必须唯一");
+    if(state.demands.some(d=>d.observationState==="DUPLICATE"&&(d.mes!==null||d.observedRows.length<2)))throw new Error("DUPLICATE Demand 不得伪造唯一 MES 值");
+    for(const series of state.series){const demand=currentDemand(state,series);if(demand){const expected=blockers(state,series,demand);if(demand.externalReadable!==(expected.length===0)||digest(demand.externalReadBlockers)!==digest(expected))throw new Error("外部资格必须由当前状态唯一推导");}}
+    const expectedCatalog=state.series.map(s=>({series:s,demand:currentDemand(state,s)})).filter(x=>x.demand?.externalReadable).map(x=>externalSnapshot(state,x.series,x.demand)).sort((a,b)=>a.demandId.localeCompare(b.demandId));if(digest(expectedCatalog)!==digest(state.catalog.items))throw new Error("目录必须等于当前 ExternallyReadableDemand 集合");
+    if(new Set(state.external.dispatchTasks.map(x=>x.demandId)).size!==state.external.dispatchTasks.length)throw new Error("每个 DemandId 最多一个 DispatchTask");
+    if(new Set(state.external.orderIntents.map(x=>x.idempotencyKey)).size!==state.external.orderIntents.length)throw new Error("OrderIntent IdempotencyKey 必须唯一");
+  }
+  return {initialState,reduce,validate,row,at,keyText,TASK_TYPES,TARGET,OTHER,SUBLOT,digest};
+})();
+
+const round=(pollTraceId,minute,rows)=>({type:"APPLY_ROUND",round:{pollTraceId,observedAt:DemandSeriesModel.at(minute),queryVersion:"MES_TASK_UNION/2026-08-12",rows}});
+const problem=(outcome,pollTraceId,minute,fingerprint,detail)=>({type:"POLL_PROBLEM",problem:{outcome,pollTraceId,observedAt:DemandSeriesModel.at(minute),fingerprint,detail}});
+const presets={
+  FIRST_VISIBLE:round("TRACE-001",0,[DemandSeriesModel.row()]),
+  UNCHANGED:round("TRACE-002",1,[DemandSeriesModel.row()]),
+  FIELD_CHANGED:round("TRACE-003",2,[DemandSeriesModel.row({area:"WB-B",step:"入炉"})]),
+  SCOPE_MIXED:round("TRACE-SCOPE-001",2,[DemandSeriesModel.row(),DemandSeriesModel.row({sublot:"LOT-OTHER-AREA",area:"OTHER-WORKSHOP"}),DemandSeriesModel.row({taskType:DemandSeriesModel.OTHER,sublot:"LOT-OTHER-WORKTYPE",area:"WB-A"})]),
+  REQUIRED_EMPTY:round("TRACE-REQ-001",3,[DemandSeriesModel.row({step:"",dates:null,package:null})]),
+  REQUIRED_RESTORED:round("TRACE-REQ-002",4,[DemandSeriesModel.row()]),
+  OPTIONAL_EMPTY:round("TRACE-OPT-001",3,[DemandSeriesModel.row({area:null,eqp:""})]),
+  INVALID_DATE:round("TRACE-BAD-DATE",3,[DemandSeriesModel.row({dates:"not-a-date"})]),
+  DATE_FIXED:round("TRACE-DATE-FIX",4,[DemandSeriesModel.row()]),
+  DUPLICATE_AB:round("TRACE-DUP-1",0,[DemandSeriesModel.row({eqp:"A"}),DemandSeriesModel.row({eqp:"B"})]),
+  DUPLICATE_BA:round("TRACE-DUP-2",1,[DemandSeriesModel.row({eqp:"B"}),DemandSeriesModel.row({eqp:"A"})]),
+  DUPLICATE_RESOLVED:round("TRACE-DUP-3",2,[DemandSeriesModel.row({eqp:"B"})]),
+  CROSS_BOTH:round("TRACE-CROSS-1",0,[DemandSeriesModel.row(),DemandSeriesModel.row({taskType:DemandSeriesModel.OTHER,area:"WB-C",eqp:"WB-22",step:"出库"})]),
+  CROSS_TARGET_ONLY:round("TRACE-CROSS-2",1,[DemandSeriesModel.row()]),
+  GONE:round("TRACE-GONE",10,[]),
+  STILL_GONE_12H:round("TRACE-ARCHIVE",731,[]),
+  REAPPEAR_SHORT:round("TRACE-REAPPEAR",60,[DemandSeriesModel.row({eqp:"WB-09"})]),
+  REAPPEAR_ARCHIVED:round("TRACE-LONG",732,[DemandSeriesModel.row({eqp:"WB-99"})]),
+  POLL_FAILED:problem("FAILURE","TRACE-FAIL",1,"timeout","Oracle 查询超时；整条 UNION 没有成功结果"),
+  POLL_INCOMPLETE:problem("INCOMPLETE","TRACE-INCOMPLETE",1,"contract","列契约或行映射不完整；整轮投影保持不变"),
+  POLL_FAILED_REPLAY:problem("FAILURE","TRACE-FAIL",1,"timeout","Oracle 查询超时；整条 UNION 没有成功结果"),
+  BLANK_SUBLOT:round("TRACE-BLANK-KEY",0,[DemandSeriesModel.row({sublot:null}),DemandSeriesModel.row({sublot:"LOT-OK"})]),
+  RESTART:{type:"AUTHORITY",change:{kind:"RESTART",observedAt:DemandSeriesModel.at(5)}},
+  RESTART_EMPTY_1:round("TRACE-RST-1",6,[]),
+  RESTART_EMPTY_2:round("TRACE-RST-2",7,[]),
+  RESTART_EMPTY_3:round("TRACE-RST-3",8,[]),
+  PROTECT_ENTER:{type:"AUTHORITY",change:{kind:"ENTER",taskType:DemandSeriesModel.TARGET,observedAt:DemandSeriesModel.at(5)}},
+  PROTECT_EMPTY:round("TRACE-PROTECT-EMPTY",6,[]),
+  PROTECT_RECOVER_1:{type:"AUTHORITY",change:{kind:"RECOVER",taskType:DemandSeriesModel.TARGET,observedAt:DemandSeriesModel.at(7)}},
+  PROTECT_RECOVER_2:{type:"AUTHORITY",change:{kind:"RECOVER",taskType:DemandSeriesModel.TARGET,observedAt:DemandSeriesModel.at(8)}},
+  AFTER_PROTECT_EMPTY:round("TRACE-PROTECT-AUTH",9,[]),
+  CATALOG_REFRESH:{type:"CATALOG_REFRESH"},
+  START_DISPATCH:{type:"START_DISPATCH"},
+  ORDER_TIMEOUT:{type:"ORDER_TIMEOUT"},
+  ORDER_CONFIRM:{type:"ORDER_CONFIRM"},
+  SUPPRESS_KEY:{type:"SUPPRESS_KEY"},
+  REVIEW_CONTINUE:{type:"REVIEW_CONTINUE"},
+  REVIEW_CANCEL:{type:"REVIEW_CANCEL"},
+  EXTERNAL_RESTART:{type:"EXTERNAL_RESTART"},
+  RESET:{type:"RESET"}
+};
+const groups=[
+  {title:"完整 UNION 与实时投影",actions:[["FIRST_VISIBLE","完整 UNION 首次成功"],["UNCHANGED","完整 UNION 无变化"],["FIELD_CHANGED","字段实时变化"],["CROSS_BOTH","同 SUBLOT 两个 TASK_TYPE"],["CROSS_TARGET_ONLY","恢复单 TASK_TYPE"]]},
+  {title:"数据异常与恢复",actions:[["REQUIRED_EMPTY","必填字段变空"],["REQUIRED_RESTORED","必填字段恢复"],["OPTIONAL_EMPTY","AREA / EQP 为空"],["INVALID_DATE","DATES 非法"],["DATE_FIXED","DATES 修复"],["DUPLICATE_AB","重复行 A/B"],["DUPLICATE_BA","重复行换序"],["DUPLICATE_RESOLVED","重复恢复唯一"],["BLANK_SUBLOT","无 SUBLOT 原始行"]]},
+  {title:"生命周期与权威",actions:[["GONE","完整权威缺席"],["STILL_GONE_12H","12h 后归档"],["REAPPEAR_SHORT","归档前重现"],["REAPPEAR_ARCHIVED","归档后重现"],["POLL_FAILED","整条 UNION 失败"],["POLL_INCOMPLETE","整轮契约不完整"],["POLL_FAILED_REPLAY","失败 PollTrace 重放"],["RESTART","进入 RestartBarrier"],["RESTART_EMPTY_1","Barrier 空结果"],["RESTART_EMPTY_2","PostBarrier 空结果"],["RESTART_EMPTY_3","恢复权威后空结果"],["PROTECT_ENTER","进入 zero-drop 保护"],["PROTECT_EMPTY","保护中空结果"],["PROTECT_RECOVER_1","保护恢复 1/2"],["PROTECT_RECOVER_2","保护恢复 2/2"],["AFTER_PROTECT_EMPTY","保护解除后空结果"]]},
+  {title:"外部按需读取与业务闭环",actions:[["SCOPE_MIXED","混合 WorkType / AREA 目录"],["CATALOG_REFRESH","按修订读取目录"],["START_DISPATCH","最终读取并写 OrderIntent"],["ORDER_TIMEOUT","远程调用超时"],["ORDER_CONFIRM","按幂等键确认订单"],["SUPPRESS_KEY","永久抑制业务键"],["REVIEW_CONTINUE","人工确认继续"],["REVIEW_CANCEL","人工取消/补偿"],["EXTERNAL_RESTART","外部重启丢弃缓存"]]},
+  {title:"原型",actions:[["RESET","重置全部状态"]]}
+];
+const scenarios=[
+  {id:"union-atomic",title:"完整 UNION 全成或全不投影",description:"六个分支是一条 Oracle 语句。SUCCESS 原子提交；FAILURE / INCOMPLETE 只留下 PollRun 证据，Demand 和目录均不改变。",steps:[["FIRST_VISIBLE","首次完整成功"],["POLL_FAILED","下一轮整条查询失败"],["POLL_INCOMPLETE","下一轮结果契约不完整"],["UNCHANGED","完整成功恢复并解除 PollRun 问题"]]},
+  {id:"multi-series",title:"同轮创建多个独立 Series",description:"同一 SUBLOT 同时位于两个 TASK_TYPE 时创建两个 Series 和两个 Demand；两者都带跨 TASK_TYPE 条件。下一完整轮只剩一个类型时，另一个 Demand GONE，当前类型解除阻断。",steps:[["CROSS_BOTH","一次创建两个独立 Series"],["CROSS_TARGET_ONLY","一个 GONE、一个恢复外部可读"]]},
+  {id:"live-fields",title:"实时字段与修订目录",description:"无变化轮不增加 CatalogRevision；AREA / STEP 改变时当前 Demand 和目录成员一起更新，Revision 只增加一次。",steps:[["FIRST_VISIBLE","创建 D-001"],["UNCHANGED","无业务变化"],["FIELD_CHANGED","字段变化并增加目录修订"]]},
+  {id:"invalid-data",title:"空值与非法 DATES 都保留 Demand",description:"复合键可识别时，NULL、空字符串和非法日期都保留真实形态、形成具体条件并阻断目录；修复后更新同一个 Demand。",steps:[["FIRST_VISIBLE","建立正常 Demand"],["REQUIRED_EMPTY","必填字段为空"],["INVALID_DATE","DATES 变为非法字符串"],["DATE_FIXED","恢复全部有效值"]]},
+  {id:"duplicate-order",title:"重复行换序不是变化",description:"原始行按规范化内容排序；A/B 与 B/A 是同一多重集合，不制造 SOURCE_ROWS_CHANGED。恢复唯一时仍更新同一个 Demand。",steps:[["DUPLICATE_AB","两条重复行"],["DUPLICATE_BA","数据库返回顺序互换"],["DUPLICATE_RESOLVED","恢复唯一"]]},
+  {id:"unassigned",title:"无业务键行归 PollRun",description:"完整 UNION 中 SUBLOT/TASK_TYPE 无法识别的原始行不生成 Series，但保存在 PollRun 未归属行投影；其它可识别键继续处理。",steps:[["BLANK_SUBLOT","一条无键、一条可识别"]]},
+  {id:"poll-idempotency",title:"失败结果也按 PollTraceId 幂等",description:"SUCCESS、FAILURE、INCOMPLETE 共用同一幂等账本；相同失败重放不新增 PollTrace 或事件，完整成功会写 CLEARED。",steps:[["POLL_FAILED","记录失败"],["POLL_FAILED_REPLAY","完全相同失败重放"],["FIRST_VISIBLE","成功解除失败"]]},
+  {id:"restart-authority",title:"RestartBarrier 内建阻断缺席",description:"外部动作不能传入 absenceAuthority。重启后的 Barrier 与 PostBarrier 两轮即使为空也不推进 GONE，第三轮恢复权威后才确认缺席。",steps:[["FIRST_VISIBLE","创建 Demand"],["RESTART","进入重启保护"],["RESTART_EMPTY_1","第一轮只建基线"],["RESTART_EMPTY_2","第二轮结束保护"],["RESTART_EMPTY_3","第三轮才 GONE"]]},
+  {id:"protection-authority",title:"TaskTypeProtection 不能被绕过",description:"保护活动时完整空结果也没有该 TASK_TYPE 的缺席权威；连续两次恢复后，下一完整空结果才推进 GONE。",steps:[["FIRST_VISIBLE","创建 Demand"],["PROTECT_ENTER","进入保护"],["PROTECT_EMPTY","空结果不 GONE"],["PROTECT_RECOVER_1","恢复 1/2"],["PROTECT_RECOVER_2","恢复 2/2"],["AFTER_PROTECT_EMPTY","保护解除后 GONE"]]},
+  {id:"lifecycle",title:"GONE、归档与重现",description:"完整权威缺席使 Demand GONE；12 小时后下一轮完整缺席归档。归档后同键重现仍创建 Watch 可见的新 Demand，但永不进入外部目录。",steps:[["FIRST_VISIBLE","创建 D-001"],["GONE","D-001 GONE"],["STILL_GONE_12H","Series 归档"],["REAPPEAR_ARCHIVED","创建不可外读的 D-002"]]},
+  {id:"catalog-efficient",title:"按修订读取，无 Cursor",description:"第一次读取取得完整当前目录；下一次相同 Revision 返回 304，不传正文、不写外部事务，也不存在 Cursor 过期或重放。",steps:[["FIRST_VISIBLE","目录 Revision 1"],["CATALOG_REFRESH","读取 Revision 1"],["CATALOG_REFRESH","If-None-Match 得到 304"]]},
+  {id:"dispatch-scope",title:"完整目录与调度范围保持分离",description:"MesIngest 返回 3 条完整合格目录：目标范围 1 条、其他 AREA 1 条、其他 WorkType 1 条；Dispatch 缓存全部目录，但只为目标 WorkType + AREA 白名单中的 1 条创建任务。",steps:[["SCOPE_MIXED","创建三类合格 Demand"],["CATALOG_REFRESH","缓存完整目录并筛选候选"]]},
+  {id:"pending-recovery",title:"未承诺任务阻断后自动恢复",description:"PENDING Demand 退出目录时暂停；同一 Demand 恢复合格后，因为从未形成执行承诺，可自动回到 PENDING。",steps:[["FIRST_VISIBLE","创建目录项"],["CATALOG_REFRESH","创建 PENDING 任务"],["REQUIRED_EMPTY","退出目录"],["CATALOG_REFRESH","任务暂停"],["REQUIRED_RESTORED","重新进入目录"],["CATALOG_REFRESH","自动恢复 PENDING"]]},
+  {id:"accepted-change",title:"承诺后字段变化进入复核",description:"承诺点保存不可变快照并可靠建单；之后 STEP / AREA 即使仍合格，目录刷新也不会改写接受快照，而是把执行任务转入 SOURCE_CHANGED_REVIEW_REQUIRED。",steps:[["FIRST_VISIBLE","创建目录项"],["CATALOG_REFRESH","创建任务"],["START_DISPATCH","最终读取并写意图"],["ORDER_CONFIRM","确认 RIoT 订单"],["FIELD_CHANGED","MES 字段改变"],["CATALOG_REFRESH","进入人工复核"],["REVIEW_CONTINUE","操作员确认继续"]]},
+  {id:"outbox",title:"RIoT 超时不重复建单",description:"接受快照和 OrderIntent 先在本地事务提交。HTTP 超时只进入 OUTCOME_UNKNOWN，随后用相同 IdempotencyKey 查询并确认已有订单。",steps:[["FIRST_VISIBLE","创建目录项"],["CATALOG_REFRESH","创建任务"],["START_DISPATCH","保存接受快照和意图"],["ORDER_TIMEOUT","远程结果未知"],["ORDER_CONFIRM","按相同幂等键收敛成功"]]},
+  {id:"snapshot-block",title:"整体目录替换不会遗漏阻断",description:"外部每次取得当前完整目录后直接与持久任务对账；Demand 消失时即使错过中间变化，也会把 PENDING 任务阻断，不存在旧镜像残留。",steps:[["FIRST_VISIBLE","创建目录项"],["CATALOG_REFRESH","创建 PENDING"],["GONE","当前目录变空"],["CATALOG_REFRESH","PENDING 转为阻断"]]},
+  {id:"suppression",title:"取消按业务键永久抑制",description:"MesIngest 仍记录同键新一代 Demand；外部取消账本按 TransportDemandKey 抑制，因此 D-002 不会重新创建业务任务。",steps:[["FIRST_VISIBLE","创建 D-001"],["CATALOG_REFRESH","创建 PENDING"],["SUPPRESS_KEY","永久抑制业务键"],["GONE","D-001 GONE"],["REAPPEAR_SHORT","创建 D-002"],["CATALOG_REFRESH","目录可见但不创建任务"]]},
+  {id:"external-restart",title:"外部重启无需追 Cursor",description:"目录缓存可直接丢弃；持久 DispatchTask、接受快照、抑制和 OrderIntent 保留。重启后读取当前 Revision 即可恢复工作。",steps:[["FIRST_VISIBLE","创建目录"],["CATALOG_REFRESH","创建任务"],["EXTERNAL_RESTART","丢弃缓存"],["CATALOG_REFRESH","重新读取当前目录且不重复建任务"]]}
+];
+globalThis.DemandSeriesPrototype={DemandSeriesModel,presets,scenarios};
+
+let state=DemandSeriesModel.initialState(),activeScenario=scenarios[0].id,walkStep=0,walkStarted=false;
+const esc=value=>String(value??"—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+const raw=value=>value===null||value===undefined?"NULL":value===""?'"" (EMPTY STRING)':esc(value);
+const dt=value=>value?new Date(value).toLocaleString("zh-CN",{hour12:false}):"—";
+const json=value=>esc(JSON.stringify(value));
+function dispatch(name){state=DemandSeriesModel.reduce(state,presets[name]||{type:name});render();}
+function renderFocus(){
+  document.querySelector("#last-change").innerHTML='<div class="notice '+esc(state.lastChange.kind)+'"><strong>'+esc(state.lastChange.title)+'</strong><span>'+esc(state.lastChange.detail)+'</span></div>';
+  const commit=state.commits.find(c=>c.commitId===state.focus.commitId),tx=state.external.transactions.find(t=>t.externalTxId===state.focus.commitId);
+  document.querySelector("#focus").innerHTML='<div class="facts"><div class="fact"><div class="label">Scope</div><div class="value">'+esc(state.focus.scope)+'</div></div><div class="fact"><div class="label">Focus</div><div class="value"><code>'+esc(state.focus.id)+'</code></div></div><div class="fact wide"><div class="label">Atomic evidence</div><div class="value"><code>'+json(commit||tx||null)+'</code></div></div></div>';
+}
+function renderActions(){document.querySelector("#free-play").innerHTML=groups.map(g=>'<div class="group"><h3>'+esc(g.title)+'</h3><div class="buttons">'+g.actions.map(a=>'<button class="action '+(a[0]==="RESET"?"reset":"")+'" data-action="'+a[0]+'">'+esc(a[1])+'</button>').join("")+'</div></div>').join("");document.querySelectorAll("[data-action]").forEach(b=>b.onclick=()=>dispatch(b.dataset.action));}
+function renderScenario(){
+  document.querySelector("#scenario-tabs").innerHTML=scenarios.map(s=>'<button class="tab '+(s.id===activeScenario?"active":"")+'" data-scenario="'+s.id+'">'+esc(s.title)+'</button>').join("");
+  document.querySelectorAll("[data-scenario]").forEach(b=>b.onclick=()=>{activeScenario=b.dataset.scenario;walkStep=0;walkStarted=false;renderScenario();});
+  const s=scenarios.find(x=>x.id===activeScenario);
+  document.querySelector("#scenario-body").innerHTML='<div class="walk"><h3>'+esc(s.title)+'</h3><p>'+esc(s.description)+'</p><button id="start">'+(walkStarted?"重新开始":"开始此演示（重置状态）")+'</button><div>'+s.steps.map((a,i)=>'<button class="walk-step '+(i<walkStep?"done":"")+'" data-step="'+i+'" data-step-action="'+a[0]+'" '+(!walkStarted||i!==walkStep?"disabled":"")+'><span class="step-no">'+(i<walkStep?"✓":i+1)+'</span><span>'+esc(a[1])+'</span></button>').join("")+'</div></div>';
+  document.querySelector("#start").onclick=()=>{state=DemandSeriesModel.initialState();walkStep=0;walkStarted=true;render();};
+  document.querySelectorAll("[data-step-action]").forEach(b=>b.onclick=()=>{if(Number(b.dataset.step)!==walkStep)return;state=DemandSeriesModel.reduce(state,presets[b.dataset.stepAction]);walkStep++;render();});
+}
+function table(title,headers,rows){return '<div><h3>'+esc(title)+' <span class="pill">'+rows.length+'</span></h3>'+(rows.length?'<div class="table-wrap"><table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join("")+'</tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':'<div class="empty">暂无记录</div>')+'</div>';}
+function renderTables(){
+  const seriesRows=state.series.map(s=>'<tr><td><code>'+s.demandSeriesId+'</code></td><td>'+esc(s.sublot)+'</td><td>'+esc(s.taskType)+'</td><td>'+s.lifecycleState+'</td><td>'+s.presenceState+'</td><td>'+dt(s.goneSince)+'</td><td>'+dt(s.archivedAt)+'</td><td><code>'+esc(s.currentDemandId)+'</code></td><td>'+s.demandCount+'</td><td>'+s.lastSeriesSequence+'</td></tr>');
+  const conditionRows=state.currentConditions.map(c=>'<tr><td><code>'+c.demandSeriesId+'</code></td><td><code>'+c.conditionCode+'</code></td><td>'+esc(c.subject)+'</td><td>'+esc(c.detail)+'</td><td>'+dt(c.since)+'</td><td>'+dt(c.lastChangedAt)+'</td></tr>');
+  const eventRows=state.demandSeriesEvents.map(e=>'<tr><td><code>'+e.demandSeriesId+'</code></td><td>'+e.seriesSequence+'</td><td><code>'+e.eventKind+'</code></td><td><code>'+esc(e.conditionCode)+'</code></td><td>'+esc(e.subject)+'</td><td>'+dt(e.observedAt)+'</td><td><code>'+json(e.payload)+'</code></td><td><code>'+e.commitId+'</code></td></tr>');
+  const demandRows=state.demands.map(d=>'<tr><td><code>'+d.demandId+'</code></td><td>'+esc(d.transportDemandKey)+'</td><td>'+d.generation+'</td><td>'+d.status+'</td><td>'+d.observationState+'</td><td>'+d.revision+'</td><td>'+(d.externalReadable?"是":"否")+'</td><td><code>'+esc(d.externalReadBlockers.join(" | "))+'</code></td><td>'+raw(d.mes?.area)+'</td><td>'+raw(d.mes?.eqp)+'</td><td>'+raw(d.mes?.step)+'</td><td>'+raw(d.mes?.dates)+'</td><td>'+raw(d.mes?.package)+'</td><td>'+dt(d.lastSeenAt)+'</td><td>'+dt(d.goneAt)+'</td></tr>');
+  const observationRows=state.demands.flatMap(d=>d.observedRows.map((r,i)=>'<tr><td><code>'+d.demandId+'</code></td><td>'+(i+1)+' / '+d.observedRows.length+'</td><td>'+raw(r.taskType)+'</td><td>'+raw(r.sublot)+'</td><td>'+raw(r.area)+'</td><td>'+raw(r.eqp)+'</td><td>'+raw(r.step)+'</td><td>'+raw(r.dates)+'</td><td>'+raw(r.package)+'</td></tr>'));
+  const catalogRows=state.catalog.items.map(d=>'<tr><td>'+state.catalog.revision+'</td><td><code>'+d.demandId+'</code></td><td>'+esc(d.transportDemandKey)+'</td><td>'+d.demandRevision+'</td><td>'+esc(d.mes.area)+'</td><td>'+esc(d.mes.eqp)+'</td><td>'+esc(d.mes.step)+'</td><td>'+esc(d.mes.dates)+'</td><td>'+esc(d.mes.package)+'</td></tr>');
+  const cachedRows=state.external.cachedCatalog.map(d=>'<tr><td>'+esc(state.external.lastCatalogRevision)+'</td><td><code>'+d.demandId+'</code></td><td>'+esc(d.transportDemandKey)+'</td><td>'+d.demandRevision+'</td><td><code>'+json(d.mes)+'</code></td></tr>');
+  const taskRows=state.external.dispatchTasks.map(t=>'<tr><td><code>'+t.dispatchTaskId+'</code></td><td><code>'+t.demandId+'</code></td><td>'+esc(t.transportDemandKey)+'</td><td><strong>'+t.dispatchState+'</strong></td><td><code>'+esc(t.riotOrderId)+'</code></td><td>'+esc(t.acceptedCatalogRevision)+'</td><td>'+dt(t.acceptedAt)+'</td><td><code>'+json(t.acceptedDemandSnapshot)+'</code></td><td>'+esc(t.lastDecision)+'</td><td>'+esc(t.reviewDecision)+'</td></tr>');
+  const intentRows=state.external.orderIntents.map(i=>'<tr><td><code>'+i.orderIntentId+'</code></td><td><code>'+i.idempotencyKey+'</code></td><td><code>'+i.dispatchTaskId+'</code></td><td><strong>'+i.status+'</strong></td><td>'+i.attempts+'</td><td><code>'+esc(i.riotOrderId)+'</code></td><td>'+esc(i.lastResult)+'</td></tr>');
+  const traceRows=state.pollTraces.map(p=>'<tr><td><code>'+p.pollTraceId+'</code></td><td>'+p.outcome+'</td><td>'+esc(p.queryVersion)+'</td><td>'+p.sourceRowCount+'</td><td>'+p.assignedRowCount+'</td><td>'+p.unassignedRowCount+'</td><td><code>'+esc(p.canonicalRowsDigest)+'</code></td><td>'+dt(p.observedAt)+'</td><td><code>'+esc(p.commitId)+'</code></td></tr>');
+  const pollRows=state.pollRun.events.map(e=>'<tr><td><code>'+e.eventId+'</code></td><td><code>'+e.eventKind+'</code></td><td><code>'+e.pollTraceId+'</code></td><td>'+esc(e.detail)+'</td><td>'+dt(e.observedAt)+'</td></tr>');
+  const unassignedRows=state.pollRun.unassignedRows.map((r,i)=>'<tr><td>'+(i+1)+'</td><td>'+raw(r.taskType)+'</td><td>'+raw(r.sublot)+'</td><td>'+raw(r.area)+'</td><td>'+raw(r.eqp)+'</td><td>'+raw(r.step)+'</td><td>'+raw(r.dates)+'</td><td>'+raw(r.package)+'</td></tr>');
+  const authorityRows=state.authority.events.map(e=>'<tr><td><code>'+e.eventId+'</code></td><td><code>'+e.eventKind+'</code></td><td>'+esc(e.taskType)+'</td><td>'+esc(e.detail)+'</td><td>'+dt(e.observedAt)+'</td></tr>');
+  const suppressionRows=state.external.suppressions.map(s=>'<tr><td>'+esc(s.transportDemandKey)+'</td><td><code>'+s.reason+'</code></td><td>'+dt(s.suppressedAt)+'</td></tr>');
+  const txRows=state.external.transactions.map(t=>'<tr><td><code>'+t.externalTxId+'</code></td><td>'+t.kind+'</td><td>'+esc(t.source)+'</td><td>'+esc(t.mutations.join("; "))+'</td><td>'+dt(t.performedAt)+'</td></tr>');
+  document.querySelector("#state-tables").innerHTML=[
+    table("DemandSeries（每个复合键独立）",["Series","SUBLOT","TASK_TYPE","生命周期","出现状态","GONE since","ArchivedAt","当前 Demand","Demand 数","Last Seq"],seriesRows),
+    table("DemandSeriesCurrentCondition",["Series","ConditionCode","Subject","当前详情","首次出现","最近变化"],conditionRows),
+    table("DemandSeriesEvent",["Series","Seq","EventKind","ConditionCode","Subject","ObservedAt","Payload","Commit"],eventRows),
+    table("TransportDemand（Watch 全量）",["DemandId","业务键","Generation","状态","观测","Revision","外部可读","阻断原因","AREA","EQP","STEP","DATES","PACKAGE","LastSeenAt","GoneAt"],demandRows),
+    table("DemandRawObservation（规范化顺序）",["DemandId","行","TASK_TYPE","SUBLOT","AREA","EQP","STEP","DATES","PACKAGE"],observationRows),
+    table("ExternallyReadableDemandCatalog · Revision "+state.catalog.revision,["CatalogRevision","DemandId","业务键","DemandRevision","AREA","EQP","STEP","DATES","PACKAGE"],catalogRows),
+    table("外部可丢弃目录缓存 · checks "+state.external.catalogChecks,["LastRevision","DemandId","业务键","DemandRevision","MES"],cachedRows),
+    table("DispatchTask（持久业务历史）",["Task","DemandId","业务键","状态","RIoT Order","Accepted Revision","AcceptedAt","AcceptedDemandSnapshot","决定","复核"],taskRows),
+    table("OrderIntent（可靠副作用）",["Intent","IdempotencyKey","Task","状态","Attempts","RIoT Order","Last Result"],intentRows),
+    table("取消抑制账本",["TransportDemandKey","Reason","SuppressedAt"],suppressionRows),
+    table("ExternalTransaction",["Tx","Kind","Source","Mutations","Time"],txRows),
+    table("PollTrace（全结果幂等证据）",["PollTraceId","Outcome","QueryVersion","Rows","Assigned","Unassigned","CanonicalDigest","ObservedAt","Commit"],traceRows),
+    table("PollRunEvent",["Event","EventKind","PollTraceId","Detail","ObservedAt"],pollRows),
+    table("PollRun 未归属原始行",["Row","TASK_TYPE","SUBLOT","AREA","EQP","STEP","DATES","PACKAGE"],unassignedRows),
+    table("AbsenceAuthorityEvent · phase "+state.authority.restartPhase,["Event","EventKind","TASK_TYPE","Detail","ObservedAt"],authorityRows)
+  ].join("");
+}
+function render(){renderFocus();renderActions();renderScenario();renderTables();}
+render();
+</script>
+</body>
+</html>

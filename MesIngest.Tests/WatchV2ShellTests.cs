@@ -1,12 +1,75 @@
 using MesIngest.Watch;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Automation;
+using System.Windows.Input;
 
 namespace MesIngest.Tests;
 
 public class WatchV2ShellTests
 {
+    [Fact]
+    public void Fluent_title_bar_exposes_keyboard_accessible_system_commands_and_window_states() =>
+        RunInSta(() =>
+        {
+            using var http = new HttpClient { BaseAddress = new Uri("http://127.0.0.1:9/") };
+            var window = new MainWindow(
+                new MesIngestApiClient(http),
+                new WatchOptions { BaseUrl = "http://127.0.0.1:9", RefreshSeconds = 60 },
+                layoutPreferencesPath: Path.Combine(Path.GetTempPath(), $"watch-titlebar-{Guid.NewGuid():N}.json"));
+
+            Assert.True(window.ExtendsContentIntoTitleBar);
+            Assert.Equal(ResizeMode.CanResize, window.ResizeMode);
+            Assert.Equal(WindowStyle.SingleBorderWindow, window.WindowStyle);
+            Assert.Equal(Wpf.Ui.Controls.WindowCornerPreference.Round, window.WindowCornerPreference);
+
+            window.Show();
+            window.UpdateLayout();
+
+            var titleBar = Assert.IsType<Wpf.Ui.Controls.TitleBar>(window.FindName("WindowTitleBar"));
+            Assert.Equal(window.Title, titleBar.Title);
+            var titleHeader = Assert.IsType<StackPanel>(titleBar.Header);
+            Assert.Equal(window.Title, Assert.IsType<TextBlock>(titleHeader.Children[1]).Text);
+            Assert.Null(titleBar.TrailingContent);
+            var statusBar = Assert.IsType<StatusBar>(window.FindName("WatchStatusBar"));
+            var statusLayout = Assert.IsType<DockPanel>(Assert.Single(statusBar.Items));
+            Assert.Contains(
+                Assert.IsType<Border>(window.FindName("ConnectionStatusChip")),
+                statusLayout.Children.Cast<UIElement>());
+            Assert.True(titleBar.ShowMinimize);
+            Assert.True(titleBar.ShowMaximize);
+            Assert.True(titleBar.ShowClose);
+            Assert.True(titleBar.CanMaximize);
+
+            var expectedButtons = new Dictionary<string, string>
+            {
+                ["PART_MinimizeButton"] = "最小化窗口",
+                ["PART_MaximizeButton"] = "最大化窗口",
+                ["PART_CloseButton"] = "关闭窗口",
+            };
+            foreach (var (partName, automationName) in expectedButtons)
+            {
+                var button = Assert.IsType<Wpf.Ui.Controls.TitleBarButton>(titleBar.Template.FindName(partName, titleBar));
+                Assert.True(button.Focusable, $"{partName} must be keyboard focusable");
+                Assert.True(KeyboardNavigation.GetIsTabStop(button), $"{partName} must be a tab stop");
+                Assert.Equal(automationName, AutomationProperties.GetName(button));
+            }
+
+            ((ICommand)titleBar.TemplateButtonCommand).Execute(Wpf.Ui.Controls.TitleBarButtonType.Maximize);
+            Assert.Equal(WindowState.Maximized, window.WindowState);
+            Assert.Equal("还原窗口", AutomationProperties.GetName(
+                Assert.IsType<Wpf.Ui.Controls.TitleBarButton>(titleBar.Template.FindName("PART_MaximizeButton", titleBar))));
+
+            ((ICommand)titleBar.TemplateButtonCommand).Execute(Wpf.Ui.Controls.TitleBarButtonType.Restore);
+            Assert.Equal(WindowState.Normal, window.WindowState);
+
+            ((ICommand)titleBar.TemplateButtonCommand).Execute(Wpf.Ui.Controls.TitleBarButtonType.Minimize);
+            Assert.Equal(WindowState.Minimized, window.WindowState);
+            window.WindowState = WindowState.Normal;
+            window.Close();
+        });
+
     [Fact]
     public void Shell_starts_on_overview_and_exposes_only_the_four_approved_pages() =>
         RunInSta(() =>
@@ -124,16 +187,21 @@ public class WatchV2ShellTests
                 new MesIngestApiClient(http),
                 new WatchOptions { BaseUrl = "http://127.0.0.1:9", RefreshSeconds = 60 },
                 layoutPreferencesPath: layoutPath);
+            var workArea = SystemParameters.WorkArea;
 
-            Assert.Equal(1360, window.Width);
-            Assert.Equal(840, window.Height);
+            Assert.Equal(Math.Max(window.MinWidth, Math.Min(1360, workArea.Width)), window.Width);
+            Assert.Equal(Math.Max(window.MinHeight, Math.Min(840, workArea.Height)), window.Height);
             Assert.Equal(0.56, ((RowDefinition)window.FindName("DemandsRow")).Height.Value, 3);
 
             ((Button)window.FindName("ResetLayoutButton")).RaiseEvent(
                 new RoutedEventArgs(Button.ClickEvent));
 
-            Assert.Equal(WatchWindowLayout.Default.WindowWidth, window.Width);
-            Assert.Equal(WatchWindowLayout.Default.WindowHeight, window.Height);
+            Assert.Equal(
+                Math.Max(window.MinWidth, Math.Min(WatchWindowLayout.Default.WindowWidth, workArea.Width)),
+                window.Width);
+            Assert.Equal(
+                Math.Max(window.MinHeight, Math.Min(WatchWindowLayout.Default.WindowHeight, workArea.Height)),
+                window.Height);
             Assert.Equal(
                 WatchWindowLayout.Default.DemandShare,
                 ((RowDefinition)window.FindName("DemandsRow")).Height.Value,
@@ -242,8 +310,9 @@ public class WatchV2ShellTests
             Assert.Equal(
                 System.Windows.Media.TextRenderingMode.ClearType,
                 System.Windows.Media.TextOptions.GetTextRenderingMode(window));
-            Assert.IsType<Border>(window.FindName("GlobalHeader"));
-            Assert.IsType<WrapPanel>(window.FindName("OverviewHeaderPanel"));
+            Assert.Null(window.FindName("GlobalHeader"));
+            Assert.IsType<Grid>(window.FindName("OverviewHeaderPanel"));
+            Assert.IsType<Border>(window.FindName("ConnectionStatusChip"));
             Assert.IsType<StackPanel>(window.FindName("AlertHeaderActions"));
             Assert.IsType<WrapPanel>(window.FindName("DemandHeaderPanel"));
             foreach (var token in new[]

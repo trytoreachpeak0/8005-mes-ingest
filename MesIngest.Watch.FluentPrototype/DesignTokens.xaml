@@ -1,0 +1,107 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- PROTOTYPE tokens. Production should map these semantic names to WPF UI theme resources. -->
+    <sys:Double x:Key="Space4" xmlns:sys="clr-namespace:System;assembly=mscorlib">4</sys:Double>
+    <sys:Double x:Key="Space8" xmlns:sys="clr-namespace:System;assembly=mscorlib">8</sys:Double>
+    <sys:Double x:Key="Space12" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
+    <sys:Double x:Key="Space16" xmlns:sys="clr-namespace:System;assembly=mscorlib">16</sys:Double>
+    <sys:Double x:Key="Space24" xmlns:sys="clr-namespace:System;assembly=mscorlib">24</sys:Double>
+    <sys:Double x:Key="Space32" xmlns:sys="clr-namespace:System;assembly=mscorlib">32</sys:Double>
+
+    <CornerRadius x:Key="RadiusControl">4</CornerRadius>
+    <CornerRadius x:Key="RadiusSurface">8</CornerRadius>
+
+    <SolidColorBrush x:Key="WatchCanvasBrush" Color="#F3F3F3" />
+    <SolidColorBrush x:Key="WatchSurfaceBrush" Color="#FAFAFA" />
+    <SolidColorBrush x:Key="WatchSurfaceStrongBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="WatchSubtleBrush" Color="#F7F7F7" />
+    <SolidColorBrush x:Key="WatchStrokeBrush" Color="#E5E5E5" />
+    <SolidColorBrush x:Key="WatchStrokeStrongBrush" Color="#D6D6D6" />
+    <SolidColorBrush x:Key="WatchTextBrush" Color="#1A1A1A" />
+    <SolidColorBrush x:Key="WatchTextSecondaryBrush" Color="#5D5D5D" />
+    <SolidColorBrush x:Key="WatchTextTertiaryBrush" Color="#767676" />
+    <SolidColorBrush x:Key="WatchAccentBrush" Color="#0067C0" />
+    <SolidColorBrush x:Key="WatchAccentSoftBrush" Color="#E7F3FF" />
+    <SolidColorBrush x:Key="WatchSuccessBrush" Color="#0F7B0F" />
+    <SolidColorBrush x:Key="WatchSuccessSoftBrush" Color="#EAF6EA" />
+    <SolidColorBrush x:Key="WatchWarningBrush" Color="#9D5D00" />
+    <SolidColorBrush x:Key="WatchWarningSoftBrush" Color="#FFF4CE" />
+    <SolidColorBrush x:Key="WatchCriticalBrush" Color="#C42B1C" />
+    <SolidColorBrush x:Key="WatchCriticalSoftBrush" Color="#FDE7E9" />
+
+    <Style TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource WatchTextBrush}" />
+    </Style>
+    <Style x:Key="PageTitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="28" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="LineHeight" Value="36" />
+    </Style>
+    <Style x:Key="Subtitle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="18" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style x:Key="BodyStrong" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style x:Key="BodySecondary" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource WatchTextSecondaryBrush}" />
+    </Style>
+    <Style x:Key="Caption" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource WatchTextTertiaryBrush}" />
+    </Style>
+    <Style x:Key="CodeText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+    <Style x:Key="SurfaceBorder" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource WatchSurfaceStrongBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource WatchStrokeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSurface}" />
+        <Setter Property="Padding" Value="16" />
+    </Style>
+    <Style x:Key="StatusPill" TargetType="Border">
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="10,4" />
+    </Style>
+    <Style TargetType="DataGrid">
+        <Setter Property="AutoGenerateColumns" Value="False" />
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="CanUserAddRows" Value="False" />
+        <Setter Property="GridLinesVisibility" Value="Horizontal" />
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource WatchStrokeBrush}" />
+        <Setter Property="VerticalGridLinesBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="RowHeight" Value="42" />
+        <Setter Property="ColumnHeaderHeight" Value="38" />
+        <Setter Property="HeadersVisibility" Value="Column" />
+        <Setter Property="SelectionMode" Value="Single" />
+        <Setter Property="SelectionUnit" Value="FullRow" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource WatchSubtleBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource WatchTextSecondaryBrush}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="BorderBrush" Value="{StaticResource WatchStrokeBrush}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style TargetType="DataGridCell">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="DataGridTextCell" TargetType="TextBlock">
+        <Setter Property="Margin" Value="10,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+</ResourceDictionary>

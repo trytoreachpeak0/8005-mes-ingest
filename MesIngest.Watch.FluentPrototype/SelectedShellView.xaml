@@ -1,0 +1,46 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.SelectedShellView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <ui:NavigationView x:Name="Navigation"
+                       PaneDisplayMode="LeftMinimal"
+                       CompactPaneLength="48"
+                       OpenPaneLength="232"
+                       IsPaneOpen="False"
+                       IsBackButtonVisible="Collapsed"
+                       IsPaneToggleVisible="True"
+                       HeaderVisibility="Collapsed">
+        <ui:NavigationView.MenuItems>
+            <ui:NavigationViewItem x:Name="OverviewNav" Content="概览" IsActive="True" Click="OnOverviewClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="TasksNav" Content="任务浏览" Click="OnTasksClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="TaskListSquareLtr24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="AlertsNav" Content="接入告警" Click="OnAlertsClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon>
+                <ui:NavigationViewItem.InfoBadge><ui:InfoBadge Value="3" /></ui:NavigationViewItem.InfoBadge>
+            </ui:NavigationViewItem>
+        </ui:NavigationView.MenuItems>
+        <ui:NavigationView.FooterMenuItems>
+            <ui:NavigationViewItem x:Name="HostNav"
+                                   Content="Host 已连接"
+                                   ToolTip="Host 已连接 · 契约兼容 · http://127.0.0.1:49837"
+                                   Click="OnSettingsClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+            <ui:NavigationViewItem x:Name="SettingsNav" Content="设置" Click="OnSettingsClick">
+                <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon>
+            </ui:NavigationViewItem>
+        </ui:NavigationView.FooterMenuItems>
+        <ui:NavigationView.ContentOverlay>
+            <Grid Margin="24,16,24,16">
+                <local:SelectedOverviewPage x:Name="OverviewPage" />
+                <local:SelectedTasksPage x:Name="TasksPage" Visibility="Collapsed" />
+                <local:SelectedAlertsPage x:Name="AlertsPage" Visibility="Collapsed" />
+                <local:SelectedSettingsPage x:Name="SettingsPage" Visibility="Collapsed" />
+            </Grid>
+        </ui:NavigationView.ContentOverlay>
+    </ui:NavigationView>
+</UserControl>

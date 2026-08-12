@@ -1,0 +1,63 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.AreaFilterVariantA"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="318" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+
+        <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Margin="16,14,16,10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="筛选配置" Style="{StaticResource Subtitle}" /><TextBlock Text="4 个文件 · 1 个需要修复" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel>
+                    <ui:Button Grid.Column="1" Appearance="Secondary" Content="＋ 新建" Padding="10,5" VerticalAlignment="Center" />
+                </Grid>
+                <TextBox Grid.Row="1" Margin="12,0,12,10" ToolTip="搜索配置" Text="搜索配置" Foreground="{StaticResource WatchTextTertiaryBrush}" />
+                <ListBox Grid.Row="2" SelectedIndex="0" BorderThickness="0" Background="Transparent">
+                    <ListBoxItem Padding="0" HorizontalContentAlignment="Stretch">
+                        <Grid Margin="14,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="东区" Style="{StaticResource BodyStrong}" /><TextBlock Text="12 个 AREA · 17:32 修改" Style="{StaticResource Caption}" Margin="0,4,0,0" /></StackPanel><Border Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchAccentSoftBrush}" VerticalAlignment="Center"><TextBlock Text="当前应用" Foreground="{StaticResource WatchAccentBrush}" Style="{StaticResource Caption}" /></Border></Grid>
+                    </ListBoxItem>
+                    <ListBoxItem Padding="0" HorizontalContentAlignment="Stretch">
+                        <Grid Margin="14,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="西区" Style="{StaticResource BodyStrong}" /><TextBlock Text="9 个 AREA · 昨天修改" Style="{StaticResource Caption}" Margin="0,4,0,0" /></StackPanel><TextBlock Grid.Column="1" Text="有效" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource Caption}" VerticalAlignment="Center" /></Grid>
+                    </ListBoxItem>
+                    <ListBoxItem Padding="0" HorizontalContentAlignment="Stretch">
+                        <Grid Margin="14,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="焊线区域" Style="{StaticResource BodyStrong}" /><TextBlock Text="24 个 AREA · 08-10 修改" Style="{StaticResource Caption}" Margin="0,4,0,0" /></StackPanel><TextBlock Grid.Column="1" Text="有效" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource Caption}" VerticalAlignment="Center" /></Grid>
+                    </ListBoxItem>
+                    <ListBoxItem Padding="0" HorizontalContentAlignment="Stretch">
+                        <Grid Margin="14,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="临时范围" Style="{StaticResource BodyStrong}" /><TextBlock Text="第 3 行格式无效" Style="{StaticResource Caption}" Foreground="{StaticResource WatchCriticalBrush}" Margin="0,4,0,0" /></StackPanel><Border Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchCriticalSoftBrush}" VerticalAlignment="Center"><TextBlock Text="无效" Foreground="{StaticResource WatchCriticalBrush}" Style="{StaticResource Caption}" /></Border></Grid>
+                    </ListBoxItem>
+                </ListBox>
+                <Border Grid.Row="3" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="0,1,0,0" Padding="14,11">
+                    <TextBlock Text="仅影响本机当前用户的显示" Style="{StaticResource Caption}" />
+                </Border>
+            </Grid>
+        </ui:Card>
+
+        <ui:Card Grid.Column="2" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="*" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid Margin="16,12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel><TextBlock Text="东区.txt" Style="{StaticResource Subtitle}" /><TextBlock Text="%LocalAppData%\MesIngest.Watch\area-filters · UTF-8" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><ui:Button Appearance="Secondary" Content="另存为" Padding="10,5" /><ui:Button Appearance="Secondary" Content="重命名" Padding="10,5" Margin="6,0,0,0" /><ui:Button Appearance="Secondary" Content="删除" Padding="10,5" Margin="6,0,0,0" /></StackPanel>
+                </Grid>
+                <Border Grid.Row="1" Background="{StaticResource WatchStrokeBrush}" />
+                <Grid Grid.Row="2" Margin="16,14">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="*" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="AREA（每行一个）" Style="{StaticResource BodyStrong}" /><TextBlock Text="格式：A1-1 或 A11-11 · 空行和 # 注释会忽略" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><Border Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchSuccessSoftBrush}" VerticalAlignment="Center"><TextBlock Text="✓ 12 个有效 AREA" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /></Border></Grid>
+                    <Border Grid.Row="2" BorderBrush="{StaticResource WatchStrokeStrongBrush}" BorderThickness="1" CornerRadius="4" Background="{StaticResource WatchSurfaceStrongBrush}">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="44" /><ColumnDefinition Width="1" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <TextBlock Text="1&#x0a;2&#x0a;3&#x0a;4&#x0a;5&#x0a;6&#x0a;7&#x0a;8&#x0a;9&#x0a;10&#x0a;11&#x0a;12&#x0a;13" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource WatchTextTertiaryBrush}" TextAlignment="Right" LineHeight="24" Padding="0,12,9,0" />
+                            <Border Grid.Column="1" Background="{StaticResource WatchStrokeBrush}" />
+                            <TextBox Grid.Column="2" Text="# 东区生产范围&#x0a;A1-1&#x0a;A1-2&#x0a;A2-1&#x0a;A2-2&#x0a;B1-1&#x0a;B1-2&#x0a;B2-1&#x0a;B2-2&#x0a;C1-1&#x0a;C1-2&#x0a;C2-1&#x0a;C2-2" AcceptsReturn="True" FontFamily="Consolas" FontSize="13" TextBlock.LineHeight="24" Padding="12,10" BorderThickness="0" Background="Transparent" VerticalScrollBarVisibility="Auto" />
+                        </Grid>
+                    </Border>
+                    <Grid Grid.Row="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><TextBlock Text="✓ 格式有效" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /><TextBlock Text=" · 0 个重复 · 183 B" Style="{StaticResource Caption}" VerticalAlignment="Center" /></StackPanel><TextBlock Grid.Column="1" Text="磁盘版本未变化" Style="{StaticResource Caption}" /></Grid>
+                </Grid>
+                <Border Grid.Row="3" Background="{StaticResource WatchStrokeBrush}" />
+                <Grid Grid.Row="4" Margin="16,11"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal" VerticalAlignment="Center"><Ellipse Width="8" Height="8" Fill="{StaticResource WatchSuccessBrush}" /><TextBlock Text="当前配置已应用；保存后立即刷新当前可见数据页" Style="{StaticResource BodySecondary}" Margin="7,0,0,0" /></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Secondary" Content="放弃修改" Padding="12,6" IsEnabled="False" /><ui:Button Appearance="Primary" Content="保存" Padding="18,6" Margin="8,0,0,0" IsEnabled="False" /></StackPanel></Grid>
+            </Grid>
+        </ui:Card>
+    </Grid>
+</UserControl>

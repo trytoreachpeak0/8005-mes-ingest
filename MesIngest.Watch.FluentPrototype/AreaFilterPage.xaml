@@ -1,0 +1,64 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.AreaFilterPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <!-- PROTOTYPE: three AREA filter-management layouts, switched by the review bar. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="AREA 筛选" Style="{StaticResource PageTitle}" />
+                <TextBlock Text="管理当前 Windows 用户的 Watch 显示范围 · 不改变外部资格、Catalog 或 Dispatch" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <ui:Button Appearance="Secondary" Content="打开配置文件夹" Padding="12,6" />
+                <ui:Button Appearance="Secondary" Content="重新载入" Padding="12,6" Margin="8,0,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <ui:InfoBar Grid.Row="2"
+                    IsOpen="True"
+                    IsClosable="False"
+                    Severity="Informational"
+                    Title="当前应用：东区"
+                    Message="12 个 AREA · DemandSeries 与资格审计共享此范围；未应用配置的编辑不会改变当前列表。" />
+
+        <Grid Grid.Row="4" Margin="0,0,0,54">
+            <local:AreaFilterVariantA x:Name="VariantA" />
+            <local:AreaFilterVariantB x:Name="VariantB" Visibility="Collapsed" />
+            <local:AreaFilterVariantC x:Name="VariantC" Visibility="Collapsed" />
+        </Grid>
+
+        <Border Grid.Row="4"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,4"
+                Padding="6"
+                CornerRadius="18"
+                Background="#E61F1F1F"
+                BorderBrush="#55000000"
+                BorderThickness="1">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="←" Click="OnPreviousVariant" Width="34" Height="30" Padding="0" />
+                <TextBlock x:Name="VariantLabel"
+                           Text="A — 主从编辑器"
+                           Foreground="White"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Margin="12,0"
+                           MinWidth="176"
+                           TextAlignment="Center" />
+                <Button Content="→" Click="OnNextVariant" Width="34" Height="30" Padding="0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

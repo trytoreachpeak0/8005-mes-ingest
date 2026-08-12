@@ -9,6 +9,9 @@
         Width="1180"
         MinHeight="600"
         MinWidth="720"
+        ResizeMode="CanResize"
+        ExtendsContentIntoTitleBar="True"
+        WindowCornerPreference="Round"
         FontFamily="Microsoft YaHei UI"
         TextOptions.TextFormattingMode="Display"
         TextOptions.TextRenderingMode="ClearType"
@@ -281,7 +284,7 @@
     </Window.Resources>
     <Grid x:Name="RootLayout">
         <Grid.RowDefinitions>
-            <RowDefinition Height="64" />
+            <RowDefinition Height="48" />
             <RowDefinition Height="*" />
             <RowDefinition Height="28" />
         </Grid.RowDefinitions>
@@ -291,60 +294,47 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border x:Name="GlobalHeader"
-                Grid.Row="0"
-                Grid.ColumnSpan="3"
-                Background="{StaticResource WatchSurfaceBrush}"
-                BorderBrush="{StaticResource WatchBorderBrush}"
-                BorderThickness="0,0,0,1"
-                Padding="20,0">
-            <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="34" Height="34" CornerRadius="8" Background="{StaticResource WatchAccentBrush}" Margin="0,0,12,0">
-                        <TextBlock Text="MI" Foreground="White" FontFamily="Cascadia Mono" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        <ui:TitleBar x:Name="WindowTitleBar"
+                     Grid.Row="0"
+                     Grid.ColumnSpan="3"
+                     Title="{Binding Title, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                     Background="{StaticResource WatchSurfaceBrush}"
+                     ButtonsForeground="{StaticResource WatchTextBrush}"
+                     AutomationProperties.AutomationId="WindowTitleBar"
+                     AutomationProperties.Name="MesIngestWatch 窗口标题栏"
+                     ShowMinimize="True"
+                     ShowMaximize="True"
+                     ShowClose="True"
+                     CanMaximize="True"
+                     Loaded="OnWindowTitleBarLoaded">
+            <ui:TitleBar.Header>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="24"
+                            Height="24"
+                            Margin="0,0,8,0"
+                            Background="{StaticResource WatchAccentBrush}"
+                            CornerRadius="6">
+                        <TextBlock Text="MI"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   FontFamily="Cascadia Mono"
+                                   FontSize="10"
+                                   FontWeight="Bold"
+                                   Foreground="White" />
                     </Border>
-                    <StackPanel>
-                        <TextBlock Text="MesIngest Watch" FontSize="17" FontWeight="SemiBold" />
-                        <TextBlock Text="只读接入运维台" Foreground="{StaticResource WatchMutedTextBrush}" FontSize="11" />
-                    </StackPanel>
-                    <TextBlock x:Name="CurrentHostContextText" AutomationProperties.Name="当前 Host 基址" Visibility="Collapsed" />
-                    <TextBlock x:Name="PageRefreshContextText" AutomationProperties.Name="当前视图刷新上下文" Visibility="Collapsed" />
+                    <TextBlock VerticalAlignment="Center"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Foreground="{StaticResource WatchTextBrush}"
+                               Text="{Binding Title, RelativeSource={RelativeSource AncestorType={x:Type Window}}}" />
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border x:Name="ErrorBanner" Background="{StaticResource WatchErrorSoftBrush}" CornerRadius="14" Padding="10,5" Margin="0,0,10,0" Visibility="Collapsed">
-                        <TextBlock x:Name="ErrorBannerText" AutomationProperties.Name="连接错误" Foreground="{StaticResource WatchErrorBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="420" />
-                    </Border>
-                    <Border x:Name="WarningBanner" Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="14" Padding="10,5" Margin="0,0,10,0" Visibility="Collapsed">
-                        <TextBlock x:Name="WarningBannerText" AutomationProperties.Name="连接警告" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" MaxWidth="420" />
-                    </Border>
-                    <Border x:Name="ConnectionStatusChip" Background="{StaticResource WatchSuccessSoftBrush}" CornerRadius="14" Padding="10,5" Margin="0,0,12,0">
-                        <StackPanel Orientation="Horizontal">
-                            <Ellipse x:Name="ConnectionStatusDot" Width="7" Height="7" Fill="{StaticResource WatchSuccessBrush}" Margin="0,0,6,0" />
-                            <TextBlock x:Name="ConnectionStatusText" Text="连接正常" Foreground="{StaticResource WatchSuccessBrush}" FontSize="12" FontWeight="SemiBold" />
-                        </StackPanel>
-                    </Border>
-                    <StackPanel x:Name="OverviewHeaderActions" Orientation="Horizontal">
-                        <ui:ToggleSwitch x:Name="OverviewAutoRefreshCheckBox" Tag="{x:Static local:WatchRefreshView.Overview}" Content="自动刷新" Margin="0,0,12,0" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
-                        <ComboBox x:Name="OverviewAutoRefreshInterval" Tag="{x:Static local:WatchRefreshView.Overview}" Width="0" Visibility="Collapsed" SelectionChanged="OnAutoRefreshIntervalChanged" />
-                        <ui:Button x:Name="OverviewRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新概览" Content="刷新" Click="OnOverviewRefreshClick" />
-                        <ui:Button x:Name="OverviewCancelButton" AutomationProperties.Name="取消概览刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnOverviewCancelClick" />
-                    </StackPanel>
-                    <StackPanel x:Name="DemandHeaderActions" Orientation="Horizontal" Visibility="Collapsed">
-                        <ui:ToggleSwitch x:Name="DemandAutoRefreshCheckBox" Content="自动刷新" Margin="0,0,12,0" AutomationProperties.Name="当前 TransportDemand 视图自动刷新" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
-                        <ComboBox x:Name="DemandAutoRefreshInterval" Width="0" Visibility="Collapsed" AutomationProperties.Name="当前 TransportDemand 视图自动刷新间隔" SelectionChanged="OnAutoRefreshIntervalChanged" />
-                        <ui:Button x:Name="DemandRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 TransportDemand 当前页" Content="刷新" Click="OnDemandRefreshClick" />
-                        <ui:Button x:Name="DemandCancelButton" AutomationProperties.Name="取消 TransportDemand 刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnDemandCancelClick" />
-                    </StackPanel>
-                    <StackPanel x:Name="AlertHeaderActions" Orientation="Horizontal" Visibility="Collapsed">
-                        <ui:ToggleSwitch x:Name="AlertAutoRefreshCheckBox" Tag="{x:Static local:WatchRefreshView.Alerts}" Content="自动刷新" Margin="0,0,12,0" AutomationProperties.Name="IngestAlert 自动刷新" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
-                        <ComboBox x:Name="AlertAutoRefreshInterval" Tag="{x:Static local:WatchRefreshView.Alerts}" Width="0" Visibility="Collapsed" AutomationProperties.Name="IngestAlert 自动刷新间隔" SelectionChanged="OnAutoRefreshIntervalChanged" />
-                        <ui:Button x:Name="AlertRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 IngestAlert 当前页" Content="刷新" Click="OnAlertRefreshClick" />
-                        <ui:Button x:Name="AlertCancelButton" AutomationProperties.Name="取消 IngestAlert 刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnAlertCancelClick" />
-                    </StackPanel>
-                </StackPanel>
-            </Grid>
-        </Border>
+            </ui:TitleBar.Header>
+        </ui:TitleBar>
+
+        <Grid Visibility="Collapsed">
+            <TextBlock x:Name="CurrentHostContextText" AutomationProperties.Name="当前 Host 基址" />
+            <TextBlock x:Name="PageRefreshContextText" AutomationProperties.Name="当前视图刷新上下文" />
+        </Grid>
 
         <Border x:Name="NavigationRail" Grid.Row="1" Grid.Column="0" Background="{StaticResource WatchNavigationBrush}" Padding="12">
             <DockPanel>
@@ -369,16 +359,49 @@
 
         <Grid x:Name="ContentHost" Grid.Row="1" Grid.Column="2">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid x:Name="OverviewPage" Grid.Row="0" Visibility="Visible">
+            <StackPanel x:Name="ConnectionNoticeHost"
+                        Grid.Row="0"
+                        Margin="12,8,12,0">
+                <Border x:Name="ErrorBanner"
+                        Padding="12,8"
+                        Background="{StaticResource WatchErrorSoftBrush}"
+                        CornerRadius="8"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="ErrorBannerText"
+                               AutomationProperties.Name="连接错误"
+                               Foreground="{StaticResource WatchErrorBrush}"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                </Border>
+                <Border x:Name="WarningBanner"
+                        Margin="0,6,0,0"
+                        Padding="12,8"
+                        Background="{StaticResource WatchWarningSoftBrush}"
+                        CornerRadius="8"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="WarningBannerText"
+                               AutomationProperties.Name="连接警告"
+                               Foreground="{StaticResource WatchWarningBrush}"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                </Border>
+            </StackPanel>
+
+            <Grid x:Name="OverviewPage" Grid.Row="1" Visibility="Visible">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <WrapPanel x:Name="OverviewHeaderPanel" Margin="12,8,12,12">
-                    <StackPanel MinWidth="320" Margin="0,0,24,8">
+                <Grid x:Name="OverviewHeaderPanel" Margin="20,16,20,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
                         <TextBlock Text="概览" FontSize="26" FontWeight="SemiBold" />
                         <TextBlock x:Name="OverviewConclusionText"
                                    AutomationProperties.Name="概览健康结论"
@@ -396,7 +419,16 @@
                                    Margin="0,4,0,0"
                                    Foreground="{StaticResource WatchMutedTextBrush}" />
                     </StackPanel>
-                </WrapPanel>
+                    <StackPanel x:Name="OverviewHeaderActions"
+                                Grid.Column="1"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <ui:ToggleSwitch x:Name="OverviewAutoRefreshCheckBox" Tag="{x:Static local:WatchRefreshView.Overview}" Content="自动刷新" Margin="0,0,12,0" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
+                        <ComboBox x:Name="OverviewAutoRefreshInterval" Tag="{x:Static local:WatchRefreshView.Overview}" Width="0" Visibility="Collapsed" SelectionChanged="OnAutoRefreshIntervalChanged" />
+                        <ui:Button x:Name="OverviewRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新概览" Content="刷新" Click="OnOverviewRefreshClick" />
+                        <ui:Button x:Name="OverviewCancelButton" AutomationProperties.Name="取消概览刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnOverviewCancelClick" />
+                    </StackPanel>
+                </Grid>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <UniformGrid Columns="2" Margin="6">
                         <Border Margin="6" Padding="16" BorderBrush="{StaticResource WatchBorderBrush}" BorderThickness="1" CornerRadius="6">
@@ -458,7 +490,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <DockPanel x:Name="AlertsPage" Grid.Row="0" Visibility="Collapsed" Margin="0">
+            <DockPanel x:Name="AlertsPage" Grid.Row="1" Visibility="Collapsed" Margin="0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="260" />
@@ -524,13 +556,19 @@
                         </ScrollViewer>
                     </Border>
                     <Grid x:Name="AlertWorkspace" Grid.Row="0" Grid.Column="2" Margin="0,15,20,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel>
                             <TextBlock Text="IngestAlert" Style="{StaticResource EyebrowText}" />
                             <TextBlock Text="接入告警" Style="{StaticResource PageTitleText}" Margin="0,2,0,0" />
                             <TextBlock Text="选中告警后，区分精确目标、业务键范围与不可定位范围。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,0" />
                         </StackPanel>
-                        <Border x:Name="AlertResultBadge" Grid.Column="1" Background="{StaticResource WatchErrorSoftBrush}" CornerRadius="8" Padding="11,7" VerticalAlignment="Bottom">
+                        <StackPanel x:Name="AlertHeaderActions" Grid.Column="1" Margin="0,0,12,0" Orientation="Horizontal" VerticalAlignment="Bottom" Visibility="Collapsed">
+                            <ui:ToggleSwitch x:Name="AlertAutoRefreshCheckBox" Tag="{x:Static local:WatchRefreshView.Alerts}" Content="自动刷新" Margin="0,0,12,0" AutomationProperties.Name="IngestAlert 自动刷新" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
+                            <ComboBox x:Name="AlertAutoRefreshInterval" Tag="{x:Static local:WatchRefreshView.Alerts}" Width="0" Visibility="Collapsed" AutomationProperties.Name="IngestAlert 自动刷新间隔" SelectionChanged="OnAutoRefreshIntervalChanged" />
+                            <ui:Button x:Name="AlertRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 IngestAlert 当前页" Content="刷新" Click="OnAlertRefreshClick" />
+                            <ui:Button x:Name="AlertCancelButton" AutomationProperties.Name="取消 IngestAlert 刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnAlertCancelClick" />
+                        </StackPanel>
+                        <Border x:Name="AlertResultBadge" Grid.Column="2" Background="{StaticResource WatchErrorSoftBrush}" CornerRadius="8" Padding="11,7" VerticalAlignment="Bottom">
                             <TextBlock x:Name="AlertResultBadgeText" Text="0 条活动告警" Foreground="{StaticResource WatchErrorBrush}" FontWeight="SemiBold" />
                         </Border>
                         <TextBlock x:Name="AlertCountText" AutomationProperties.Name="IngestAlert 查询结果摘要" Visibility="Collapsed" />
@@ -660,7 +698,7 @@
                 </Grid>
             </DockPanel>
 
-            <Grid x:Name="SettingsPage" Grid.Row="0" Visibility="Collapsed" Margin="20,15,20,13">
+            <Grid x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed" Margin="20,15,20,13">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -720,7 +758,7 @@
                 </StackPanel>
             </Grid>
 
-            <DockPanel x:Name="DemandsPage" Grid.Row="0" Visibility="Collapsed" Margin="0">
+            <DockPanel x:Name="DemandsPage" Grid.Row="1" Visibility="Collapsed" Margin="0">
                 <ScrollViewer x:Name="DemandFiltersScrollViewer"
                               DockPanel.Dock="Left"
                               Width="260"
@@ -816,9 +854,15 @@
 
                 <DockPanel x:Name="DemandWorkspace" Margin="20,15,20,13">
                     <Grid DockPanel.Dock="Top" Margin="0,0,0,12">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <StackPanel><TextBlock Text="TransportDemand" Style="{StaticResource EyebrowText}" /><TextBlock Text="任务浏览" Style="{StaticResource PageTitleText}" Margin="0,2,0,0" /><TextBlock Text="选中任务后，查看与它有关的接入告警及关联依据。" Foreground="{StaticResource WatchMutedTextBrush}" Margin="0,4,0,0" /></StackPanel>
-                        <Border x:Name="DemandResultBadge" Grid.Column="1" Background="{StaticResource WatchSuccessSoftBrush}" CornerRadius="8" Padding="11,7" VerticalAlignment="Bottom"><TextBlock x:Name="DemandResultBadgeText" Text="0 条结果" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" /></Border>
+                        <StackPanel x:Name="DemandHeaderActions" Grid.Column="1" Margin="0,0,12,0" Orientation="Horizontal" VerticalAlignment="Bottom" Visibility="Collapsed">
+                            <ui:ToggleSwitch x:Name="DemandAutoRefreshCheckBox" Content="自动刷新" Margin="0,0,12,0" AutomationProperties.Name="当前 TransportDemand 视图自动刷新" Checked="OnAutoRefreshEnabledChanged" Unchecked="OnAutoRefreshEnabledChanged" />
+                            <ComboBox x:Name="DemandAutoRefreshInterval" Width="0" Visibility="Collapsed" AutomationProperties.Name="当前 TransportDemand 视图自动刷新间隔" SelectionChanged="OnAutoRefreshIntervalChanged" />
+                            <ui:Button x:Name="DemandRefreshButton" Style="{StaticResource PrimaryActionButton}" AutomationProperties.Name="刷新 TransportDemand 当前页" Content="刷新" Click="OnDemandRefreshClick" />
+                            <ui:Button x:Name="DemandCancelButton" AutomationProperties.Name="取消 TransportDemand 刷新" Content="取消" Margin="8,0,0,0" IsEnabled="False" Click="OnDemandCancelClick" />
+                        </StackPanel>
+                        <Border x:Name="DemandResultBadge" Grid.Column="2" Background="{StaticResource WatchSuccessSoftBrush}" CornerRadius="8" Padding="11,7" VerticalAlignment="Bottom"><TextBlock x:Name="DemandResultBadgeText" Text="0 条结果" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" /></Border>
                     </Grid>
                     <Grid x:Name="PanesGrid">
                         <Grid.RowDefinitions>
@@ -1036,6 +1080,28 @@
                            Text="F5 刷新 · Esc 取消 · 方向键切换方案"
                            Foreground="{StaticResource WatchMutedTextBrush}"
                            FontSize="11" />
+                <Border x:Name="ConnectionStatusChip"
+                        DockPanel.Dock="Right"
+                        Margin="0,0,16,0"
+                        Padding="8,1"
+                        VerticalAlignment="Center"
+                        Background="{StaticResource WatchSuccessSoftBrush}"
+                        CornerRadius="8">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse x:Name="ConnectionStatusDot"
+                                 Width="6"
+                                 Height="6"
+                                 Margin="0,0,5,0"
+                                 VerticalAlignment="Center"
+                                 Fill="{StaticResource WatchSuccessBrush}" />
+                        <TextBlock x:Name="ConnectionStatusText"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource WatchSuccessBrush}"
+                                   Text="连接正常" />
+                    </StackPanel>
+                </Border>
                 <TextBlock x:Name="StatusBarSummaryText"
                            Foreground="{StaticResource WatchSecondaryTextBrush}"
                            FontSize="11"

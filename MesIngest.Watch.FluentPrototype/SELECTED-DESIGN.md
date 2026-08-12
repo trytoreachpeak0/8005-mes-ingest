@@ -1,0 +1,88 @@
+# Selected Fluent direction: DemandSeries + readability audit
+
+> PROTOTYPE decision record. Do not treat this XAML as production code.
+
+## Composition
+
+- Shell: the reviewed A direction's `NavigationView` with `LeftMinimal` compact
+  rail and an expandable 224 epx pane.
+- DemandSeries: every series remains browsable across Tracking, GONE, Archived,
+  and visible-after-archive states. A selected series exposes its Demand
+  generations, lifecycle milestones, and immutable `DemandSeriesEvent` stream.
+- Readability audit: shows every current Demand, distinguishes current external
+  readability from invisibility, and explains exact reasons including data
+  blockers, GONE state, and archived Series.
+- AREA filtering extension: both data pages expose the same local
+  AreaFilterProfile selector. The selected AREA 筛选 page is **Variant A —
+  master-detail editor**: a profile list remains visible on the left while the
+  selected TXT file, validation state, file commands, and save/apply state fill
+  the right-hand workspace.
+- Variants B (status summary + edit drawer) and C (file workspace) remain only
+  as rejected prototype comparisons; they are not production directions.
+- Overview, read-only IngestAlert, compact Host state, and Settings remain.
+- Dispatch AREA scope, station mapping, route cost, nearest task, claiming,
+  suppression, and orders remain outside Watch.
+
+## Status placement
+
+- Application identity exists only in the integrated WPF UI `TitleBar`.
+- Host connection is a persistent `NavigationView` footer entry. Expanded mode
+  shows text; compact mode retains the named icon and tooltip.
+- Endpoint, last success, and effective auto-refresh policy are secondary text
+  under the current page title.
+- Actionable failures occupy an inline WPF UI `InfoBar` on the affected page.
+- Read-only scope is explained in Overview and Settings, not repeated in chrome.
+- Keyboard hints live in tooltips/help, not a persistent bottom strip.
+
+## Refresh placement
+
+- Automatic refresh is always on for Overview, VISIBLE, GONE, and IngestAlert;
+  Settings contains only their intervals.
+- A page header displays only the effective policy, such as `自动刷新 10 秒`.
+- No page exposes Refresh, Cancel-refresh, or an automatic-refresh
+  enable/disable switch.
+- Pagination offers Previous/Next, total pages, nearby page buttons where space
+  permits, and direct numeric page jump. The production Host contract therefore
+  needs stable page-index queries plus total item/page counts.
+
+## Review matrix
+
+| Page | Primary sample | Additional state |
+| --- | --- | --- |
+| 概览 | connected, alerts active | Host offline with retained successful window |
+| 任务浏览 | VISIBLE selected detail | GONE selected detail and direct page jump |
+| 接入告警 | 活动告警及关联任务 | 自动恢复的历史告警 (`IsActive=false`) |
+| 设置 | valid Host and refresh preferences | timeout validation error |
+
+## Production acceptance reminders
+
+The production implementation must be rewritten against real view state, retain
+semantic UI Automation names, use theme resources instead of prototype literal
+colors, reflow at minimum width and DPI scales, and follow the golden renderer's
+preview/approval/baseline order.
+
+## AREA prototype verdict
+
+User selection on 2026-08-12: **Variant A is approved as the design direction.**
+This approval selects the information hierarchy only. A production implementation
+must reproduce the confirmed behavior from the AREA design interview and then
+receive a fresh real-window golden-machine preview approval.
+
+## Error-search prototype verdict
+
+User selection on 2026-08-12: **Variant A — category navigation plus evidence
+detail — is approved as the design direction.** Its three columns must share a
+single top and bottom edge and stretch through the page's available content
+height. The floating A/B/C switcher is review-only chrome and is not part of the
+production page.
+
+## Overview prototype verdict
+
+User selection on 2026-08-12: **Variant A — page summary cards plus cross-page
+highlights — is approved as the overview design direction.** It summarizes
+需求系列, 资格审计, 错误检索, AREA 筛选, and 接入告警; Host state remains compact
+global status rather than the page's primary content. Variants B (attention
+items first) and C (page-status table) remain rejected prototype comparisons.
+
+This approval selects the information hierarchy only. Production UI must be
+rewritten and receive a fresh golden-machine preview approval.

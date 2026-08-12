@@ -1,0 +1,65 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.ReadabilityAuditPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel><TextBlock Text="资格审计" Style="{StaticResource PageTitle}" /><TextBlock Text="全部 TransportDemand 中，外部当前能看到哪些、哪些看不到，以及原因 · 自动刷新 10 秒" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" /></StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"><Border Style="{StaticResource StatusPill}" Background="{StaticResource WatchSuccessSoftBrush}"><TextBlock Text="Catalog Revision 184" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /></Border><TextBlock Text="东区范围 · 更新于 12:42:16" Style="{StaticResource Caption}" Margin="12,0,0,0" VerticalAlignment="Center" /></StackPanel>
+        </Grid>
+
+        <ui:Card Grid.Row="2" Padding="12" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="12" /><ColumnDefinition Width="165" /><ColumnDefinition Width="12" /><ColumnDefinition Width="155" /><ColumnDefinition Width="12" /><ColumnDefinition Width="170" /><ColumnDefinition Width="12" /><ColumnDefinition Width="180" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel><TextBlock Text="资格" Style="{StaticResource Caption}" Margin="0,0,0,5" /><StackPanel Orientation="Horizontal"><ui:Button Appearance="Primary" Content="全部 7" Padding="13,6" /><ui:Button Appearance="Transparent" Content="外部可见 3" Padding="13,6" Margin="4,0,0,0" /><ui:Button Appearance="Transparent" Content="外部不可见 4" Padding="13,6" Margin="4,0,0,0" /></StackPanel></StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="WORKTYPE" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="0"><ComboBoxItem Content="全部工序类型" /><ComboBoxItem Content="DIE_TO_OVEN" /><ComboBoxItem Content="WIRE_TO_GATE" /></ComboBox></StackPanel>
+                <StackPanel Grid.Column="4"><TextBlock Text="不可见原因" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="0"><ComboBoxItem Content="全部原因" /><ComboBoxItem Content="字段缺失" /><ComboBoxItem Content="GONE" /><ComboBoxItem Content="Series 已归档" /></ComboBox></StackPanel>
+                <StackPanel Grid.Column="6"><TextBlock Text="DemandId / SUBLOT / AREA" Style="{StaticResource Caption}" Margin="0,0,0,5" /><TextBox ToolTip="DemandId、SUBLOT 或 AREA" /></StackPanel>
+                <StackPanel Grid.Column="8"><TextBlock Text="AREA 筛选" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="1"><ComboBoxItem Content="全部 AREA" /><ComboBoxItem Content="东区 · 12" /><ComboBoxItem Content="西区 · 9" /><ComboBoxItem Content="焊线区域 · 24" /></ComboBox></StackPanel>
+                <ui:Button Grid.Column="10" Appearance="Secondary" Content="应用条件" Padding="14,6" VerticalAlignment="Bottom" />
+            </Grid>
+        </ui:Card>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="430" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="42" /></Grid.RowDefinitions>
+                    <Grid Margin="16,13"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="东区范围内的 TransportDemand" Style="{StaticResource Subtitle}" /><TextBlock Text="AREA 不可信的 Demand 只在“全部 AREA”中审计" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><Border Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchWarningSoftBrush}" VerticalAlignment="Center"><TextBlock Text="4 不可见" Foreground="{StaticResource WatchWarningBrush}" Style="{StaticResource BodyStrong}" /></Border></Grid>
+                    <ListBox Grid.Row="1" ItemsSource="{Binding AreaFilteredCatalog}" SelectedIndex="2" BorderThickness="0" Background="Transparent">
+                        <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /><Setter Property="Margin" Value="0" /></Style></ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate><DataTemplate><Grid Margin="14,10"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="{Binding DemandId}" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Text="{Binding Readability}" Style="{StaticResource BodyStrong}" /></Grid><TextBlock Grid.Row="1" Text="{Binding WorkType}" Style="{StaticResource CodeText}" Margin="0,5,0,0" /><Grid Grid.Row="2" Margin="0,5,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="190" /></Grid.ColumnDefinitions><TextBlock Text="{Binding Sublot}" Style="{StaticResource Caption}" /><TextBlock Grid.Column="1" Text="{Binding Blocker}" Style="{StaticResource CodeText}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Right" /></Grid></Grid></DataTemplate></ListBox.ItemTemplate>
+                    </ListBox>
+                    <Border Grid.Row="2" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="0,1,0,0" Padding="12,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="第 1 / 1 页 · 共 7 条 · 范围：东区" Style="{StaticResource Caption}" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Secondary" Content="上一页" IsEnabled="False" Padding="9,5" /><ui:Button Appearance="Secondary" Content="下一页" IsEnabled="False" Padding="9,5" Margin="4,0,0,0" /></StackPanel></Grid></Border>
+                </Grid>
+            </ui:Card>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <ui:InfoBar IsOpen="True" IsClosable="False" Severity="Warning" Title="D-001844 对外不可见" Message="Demand 当前为 GONE；AREA W1-12 可信且命中东区，但外部可读资格不成立。" />
+                <Grid Grid.Row="2">
+                    <Grid.RowDefinitions><RowDefinition Height="0.95*" /><RowDefinition Height="12" /><RowDefinition Height="1.05*" /></Grid.RowDefinitions>
+                    <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                            <Grid Margin="16,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="D-001844 · STAGING_TO_WIRE" Style="{StaticResource Subtitle}" /><TextBlock Text="B240811-07 · Series DS-000844 · Demand Revision 5 · 最后看见 10:04:48" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><ui:Button Grid.Column="1" Appearance="Secondary" Content="查看所属 Series" VerticalAlignment="Center" /></Grid>
+                            <Border Grid.Row="1" Background="{StaticResource WatchStrokeBrush}" />
+                            <Grid Grid.Row="2" Margin="16,12,16,14"><Grid.ColumnDefinitions><ColumnDefinition Width="1.35*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="1*" /></Grid.ColumnDefinitions>
+                                <StackPanel><TextBlock Text="最后可信 MES 观测" Style="{StaticResource BodyStrong}" Margin="0,0,0,10" /><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /><ColumnDefinition Width="1*" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="AREA" Style="{StaticResource Caption}" /><TextBlock Text="W1-12" Style="{StaticResource CodeText}" Margin="0,4,12,10" /><TextBlock Text="DATES" Style="{StaticResource Caption}" /><TextBlock Text="2026-08-11 09:58" Style="{StaticResource CodeText}" Margin="0,4,12,0" /></StackPanel><StackPanel Grid.Column="1"><TextBlock Text="EQP" Style="{StaticResource Caption}" /><TextBlock Text="WB-12" Style="{StaticResource CodeText}" Margin="0,4,12,10" /><TextBlock Text="PACKAGE" Style="{StaticResource Caption}" /><TextBlock Text="QFN64" Style="{StaticResource CodeText}" Margin="0,4,12,0" /></StackPanel><StackPanel Grid.Column="2"><TextBlock Text="STEP" Style="{StaticResource Caption}" /><TextBlock Text="焊线" Style="{StaticResource CodeText}" Margin="0,4,0,10" /></StackPanel></Grid></StackPanel>
+                                <Border Grid.Column="1" Background="{StaticResource WatchStrokeBrush}" />
+                                <StackPanel Grid.Column="2" Margin="18,0,0,0"><TextBlock Text="当前阻断条件" Style="{StaticResource BodyStrong}" Margin="0,0,0,10" /><Border Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="4" Padding="10"><StackPanel><TextBlock Text="DEMAND_GONE" Style="{StaticResource CodeText}" FontWeight="SemiBold" Foreground="{StaticResource WatchWarningBrush}" /><TextBlock Text="GONE 确认：10:10:55" Style="{StaticResource Caption}" Margin="0,4,0,0" /><TextBlock Text="完整成功轮次确认缺席；保留最后可信 AREA 用于范围查询。" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,5,0,0" /></StackPanel></Border></StackPanel>
+                            </Grid>
+                        </Grid>
+                    </ui:Card>
+
+                    <ui:Card Grid.Row="2" Padding="16" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.1*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="1.1*" /></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="外部可见资格" Style="{StaticResource Subtitle}" /><TextBlock Text="✕ 当前 VISIBLE" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchWarningBrush}" Margin="0,12,0,6" /><TextBlock Text="✓ 最后唯一原始观测" Style="{StaticResource BodySecondary}" Margin="0,0,0,6" /><TextBlock Text="✓ AREA 有效并命中东区" Style="{StaticResource BodySecondary}" Margin="0,0,0,6" /><TextBlock Text="✓ STEP / DATES / PACKAGE 有效" Style="{StaticResource BodySecondary}" /><Border Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="4" Padding="10" Margin="0,12,0,0"><TextBlock Text="结论：外部当前看不到" Foreground="{StaticResource WatchWarningBrush}" Style="{StaticResource BodyStrong}" /></Border></StackPanel>
+                            <Border Grid.Column="1" Background="{StaticResource WatchStrokeBrush}" />
+                            <StackPanel Grid.Column="2" Margin="18,0,0,0"><TextBlock Text="修订目录事实" Style="{StaticResource Subtitle}" /><TextBlock Text="当前完整 Catalog" Style="{StaticResource Caption}" Margin="0,12,0,4" /><TextBlock Text="1,842 条 · Revision 184" Style="{StaticResource BodyStrong}" /><TextBlock Text="条件读取" Style="{StaticResource Caption}" Margin="0,13,0,4" /><TextBlock Text="If-None-Match 未变化返回 304；变化时返回全部当前合格 Demand。" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" /><Border Background="{StaticResource WatchSubtleBrush}" CornerRadius="4" Padding="10" Margin="0,12,0,0"><TextBlock Text="WorkType + AREA 白名单、站点和最近任务属于 Dispatch，不在资格审计中判断。" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" /></Border></StackPanel>
+                        </Grid>
+                    </ui:Card>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

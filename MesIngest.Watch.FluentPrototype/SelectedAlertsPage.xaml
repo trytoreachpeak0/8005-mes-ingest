@@ -1,0 +1,74 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.SelectedAlertsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="接入告警" Style="{StaticResource PageTitle}" />
+                <TextBlock x:Name="PageContextText" Text="活动告警 · 最近成功 12:42:15 · 自动刷新 30 秒" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <ui:Card Grid.Row="2" Padding="10" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="12" /><ColumnDefinition Width="200" /><ColumnDefinition Width="12" /><ColumnDefinition Width="210" /><ColumnDefinition Width="12" /><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="8" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="生命周期" Style="{StaticResource Caption}" Margin="0,0,0,5" />
+                    <StackPanel Orientation="Horizontal">
+                    <ui:Button x:Name="ActiveButton" Appearance="Primary" Content="活动" Padding="16,6" ToolTip="IsActive = true" />
+                    <ui:Button x:Name="ResolvedButton" Appearance="Transparent" Content="已恢复" Padding="16,6" Margin="4,0,0,0" ToolTip="IsActive = false，已写入 ResolvedAt" />
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="2"><TextBlock Text="严重程度" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="0"><ComboBoxItem Content="全部严重程度" /><ComboBoxItem Content="ERROR" /><ComboBoxItem Content="WARNING" /></ComboBox></StackPanel>
+                <StackPanel Grid.Column="4"><TextBlock Text="告警代码" Style="{StaticResource Caption}" Margin="0,0,0,5" /><ComboBox SelectedIndex="0"><ComboBoxItem Content="全部告警代码" /><ComboBoxItem Content="FIELD_DRIFT" /><ComboBoxItem Content="PAUSED_ZERO_DROP" /></ComboBox></StackPanel>
+                <StackPanel Grid.Column="6"><TextBlock Text="DemandId" Style="{StaticResource Caption}" Margin="0,0,0,5" /><TextBox AutomationProperties.Name="DemandId 筛选" ToolTip="输入完整 DemandId" /></StackPanel>
+                <ui:Button x:Name="ClearConditionsButton" Grid.Column="8" Appearance="Secondary" Content="清空条件" IsEnabled="False" Opacity="0.45" Padding="14,6" VerticalAlignment="Bottom" />
+                <ui:Button Grid.Column="10" Appearance="Secondary" Content="应用条件" Padding="14,6" VerticalAlignment="Bottom" />
+            </Grid>
+        </ui:Card>
+
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="520" /><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="42" /></Grid.RowDefinitions>
+                    <Grid Margin="16,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock x:Name="QueueTitle" Text="活动告警" Style="{StaticResource Subtitle}" /><TextBlock Text="点击列标题可升序或降序排列" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><Border x:Name="QueueCountBorder" Grid.Column="1" Style="{StaticResource StatusPill}" Background="{StaticResource WatchCriticalSoftBrush}" VerticalAlignment="Center"><TextBlock x:Name="QueueCount" Text="3" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Border></Grid>
+                    <DataGrid x:Name="AlertsGrid" Grid.Row="1" ItemsSource="{Binding Alerts}" SelectedIndex="0" CanUserSortColumns="True" HorizontalScrollBarVisibility="Auto">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" SortMemberPath="DemandId" Width="185" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="CODE" Binding="{Binding Code}" SortMemberPath="Code" Width="190" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="SEVERITY" Binding="{Binding Severity}" SortMemberPath="Severity" Width="95" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="LAST SEEN" Binding="{Binding LastSeen}" SortMemberPath="LastSeen" Width="110" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="AlertId" Binding="{Binding AlertId}" SortMemberPath="AlertId" Width="180" ElementStyle="{StaticResource DataGridTextCell}" />
+                            <DataGridTextColumn Header="OCCURRENCES" Binding="{Binding Occurrences}" SortMemberPath="Occurrences" Width="120" ElementStyle="{StaticResource DataGridTextCell}" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <Border Grid.Row="2" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="0,1,0,0" Padding="10,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock x:Name="PaginationText" Text="第 1 / 8 页 · 共 76 条" Style="{StaticResource Caption}" VerticalAlignment="Center" /><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Secondary" Content="上一页" IsEnabled="False" Padding="6,5" /><ui:Button Appearance="Secondary" Content="下一页" Padding="6,5" /><TextBlock Text="到" Style="{StaticResource Caption}" Margin="6,0,4,0" VerticalAlignment="Center" /><TextBox Width="42" Padding="5,4" AutomationProperties.Name="目标页码" /><TextBlock Text="页" Style="{StaticResource Caption}" Margin="4,0" VerticalAlignment="Center" /><ui:Button Appearance="Secondary" Content="跳转" Padding="7,5" /></StackPanel></Grid></Border>
+                </Grid>
+            </ui:Card>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions><RowDefinition Height="1.1*" /><RowDefinition Height="12" /><RowDefinition Height="0.9*" /></Grid.RowDefinitions>
+                <ui:Card Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <Grid Margin="18,15"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="FIELD_DRIFT" Style="{StaticResource CodeText}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock x:Name="LifecycleText" Text="活动 · 最近出现 12:41:52 · 共 4 次" Style="{StaticResource Caption}" Margin="0,4,0,0" /></StackPanel><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Appearance="Transparent" ToolTip="复制告警摘要"><ui:Button.Icon><ui:SymbolIcon Symbol="Copy24" /></ui:Button.Icon></ui:Button><ui:Button Appearance="Secondary" Content="打开完整详情" Margin="6,0,0,0" /></StackPanel></Grid>
+                        <ui:InfoBar x:Name="AlertInfo" Grid.Row="1" IsOpen="True" IsClosable="False" Severity="Error" Title="投影保持不变" Message="检测到冻结 MES 字段 STEP 从“焊线”变化为“焊线2”。" Margin="16,0" />
+                        <Grid Grid.Row="2" Margin="18,14,18,16">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="1*" /><ColumnDefinition Width="1" /><ColumnDefinition Width="1.1*" /></Grid.ColumnDefinitions>
+                            <StackPanel><TextBlock Text="业务定位" Style="{StaticResource BodyStrong}" Margin="0,0,0,12" /><TextBlock Text="TASK_TYPE" Style="{StaticResource Caption}" /><TextBlock Text="WIRE_TO_GATE" Style="{StaticResource CodeText}" Margin="0,4,0,10" /><TextBlock Text="SUBLOT" Style="{StaticResource Caption}" /><TextBlock Text="SLOT-LOT-001" Style="{StaticResource CodeText}" Margin="0,4,0,10" /><TextBlock Text="关系范围" Style="{StaticResource Caption}" /><TextBlock Text="精确 DemandId" Style="{StaticResource BodyStrong}" Margin="0,4,0,0" /></StackPanel>
+                            <Border Grid.Column="1" Background="{StaticResource WatchStrokeBrush}" />
+                            <StackPanel Grid.Column="2" Margin="18,0,0,0"><TextBlock Text="字段比较" Style="{StaticResource BodyStrong}" Margin="0,0,0,12" /><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="字段" Style="{StaticResource Caption}" /><TextBlock Grid.Column="1" Text="冻结" Style="{StaticResource Caption}" /><TextBlock Grid.Column="2" Text="观测" Style="{StaticResource Caption}" /></Grid><Border Background="{StaticResource WatchCriticalSoftBrush}" CornerRadius="4" Padding="8" Margin="0,5,0,0"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="90" /><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><TextBlock Text="STEP" Style="{StaticResource CodeText}" /><TextBlock Grid.Column="1" Text="焊线" /><TextBlock Grid.Column="2" Text="焊线2" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Grid></Border><TextBlock Text="Alert 为只读事实，不提供确认、指派或关闭操作。" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,12,0,0" /></StackPanel>
+                        </Grid>
+                    </Grid>
+                </ui:Card>
+                <ui:Card Grid.Row="2" Padding="0" VerticalAlignment="Stretch" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions><Grid Margin="16,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="关联任务" Style="{StaticResource Subtitle}" /><TextBlock Text="精确目标；点击列标题可排序" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel><ui:Button Grid.Column="1" Appearance="Secondary" Content="进入任务浏览" /></Grid><DataGrid Grid.Row="1" ItemsSource="{Binding Tasks}" SelectedIndex="0" CanUserSortColumns="True" HorizontalScrollBarVisibility="Auto"><DataGrid.Columns><DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" SortMemberPath="DemandId" Width="180" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="TASK_TYPE" Binding="{Binding TaskType}" SortMemberPath="TaskType" Width="185" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" SortMemberPath="Sublot" Width="140" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="AREA" Binding="{Binding Area}" SortMemberPath="Area" Width="80" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" SortMemberPath="Eqp" Width="90" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="STEP" Binding="{Binding Step}" SortMemberPath="Step" Width="90" ElementStyle="{StaticResource DataGridTextCell}" /><DataGridTextColumn Header="STATUS" Binding="{Binding Status}" SortMemberPath="Status" Width="100" ElementStyle="{StaticResource DataGridTextCell}" /></DataGrid.Columns></DataGrid></Grid>
+                </ui:Card>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -211,7 +211,11 @@ public sealed class WatchXamlVisualTests
                 await scenario.PrepareAsync();
 
                 var root = Assert.IsType<Grid>(scenario.Window.FindName("RootLayout"));
-                var header = Assert.IsType<Border>(scenario.Window.FindName("GlobalHeader"));
+                var titleBar = Assert.IsType<Wpf.Ui.Controls.TitleBar>(
+                    scenario.Window.FindName("WindowTitleBar"));
+                Assert.Null(scenario.Window.FindName("GlobalHeader"));
+                var connectionStatus = Assert.IsType<Border>(
+                    scenario.Window.FindName("ConnectionStatusChip"));
                 var navigation = Assert.IsType<Border>(scenario.Window.FindName("NavigationRail"));
                 var filter = Assert.IsType<ScrollViewer>(scenario.Window.FindName(
                     state == WatchVisualState.DemandsVisibleSelected
@@ -226,11 +230,18 @@ public sealed class WatchXamlVisualTests
                         ? "DemandResultBadge"
                         : "AlertResultBadge"));
 
+                var headerActions = Assert.IsType<StackPanel>(scenario.Window.FindName(
+                    state == WatchVisualState.DemandsVisibleSelected
+                        ? "DemandHeaderActions"
+                        : "AlertHeaderActions"));
+
                 Assert.Equal(3, root.RowDefinitions.Count);
-                Assert.InRange(root.RowDefinitions[0].ActualHeight, 63.99, 64.01);
+                Assert.InRange(root.RowDefinitions[0].ActualHeight, 47.99, 48.01);
                 Assert.InRange(root.RowDefinitions[2].ActualHeight, 27.99, 28.01);
-                Assert.Equal(0, Grid.GetRow(header));
-                Assert.Equal(3, Grid.GetColumnSpan(header));
+                Assert.Equal(0, Grid.GetRow(titleBar));
+                Assert.Equal(3, Grid.GetColumnSpan(titleBar));
+                Assert.True(scenario.Window.ExtendsContentIntoTitleBar);
+                Assert.Null(titleBar.TrailingContent);
                 Assert.Equal(1, Grid.GetRow(navigation));
                 Assert.InRange(navigation.ActualWidth, 193.99, 194.01);
                 var filterWidth = state == WatchVisualState.DemandsVisibleSelected
@@ -239,7 +250,11 @@ public sealed class WatchXamlVisualTests
                 Assert.InRange(filterWidth, 259.99, 260.01);
                 var workspaceOrigin = workspace.TranslatePoint(new Point(0, 0), root);
                 Assert.InRange(workspaceOrigin.X, 473.99, 474.01);
+                Assert.True(headerActions.IsVisible);
                 Assert.True(resultBadge.IsVisible);
+                var statusBar = Assert.IsType<StatusBar>(scenario.Window.FindName("WatchStatusBar"));
+                var statusLayout = Assert.IsType<DockPanel>(Assert.Single(statusBar.Items));
+                Assert.Contains(connectionStatus, statusLayout.Children.Cast<UIElement>());
                 AssertVisible(scenario.Window, "StatusBarSummaryText");
                 AssertVisible(scenario.Window, "StatusBarShortcutText");
 
@@ -285,7 +300,7 @@ public sealed class WatchXamlVisualTests
                     : ((Grid)((Border)filters.Parent).Parent).ColumnDefinitions[0].ActualWidth;
 
                 Assert.InRange(root.ColumnDefinitions[0].ActualWidth, 193.99, 194.01);
-                Assert.InRange(root.RowDefinitions[0].ActualHeight, 63.99, 64.01);
+                Assert.InRange(root.RowDefinitions[0].ActualHeight, 47.99, 48.01);
                 Assert.InRange(filterWidth, 259.99, 260.01);
                 Assert.InRange(root.RowDefinitions[2].ActualHeight, 27.99, 28.01);
                 Assert.InRange(statusBar.ActualHeight, 27.99, 28.01);

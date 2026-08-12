@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows.Automation;
 using System.Windows.Input;
 using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
@@ -609,6 +610,45 @@ internal partial class MainWindow : Wpf.Ui.Controls.FluentWindow
         Width = Math.Max(MinWidth, Math.Min(layout.WindowWidth, workArea.Width));
         Height = Math.Max(MinHeight, Math.Min(layout.WindowHeight, workArea.Height));
         ApplyPaneRatio(layout.DemandShare);
+    }
+
+    private void OnWindowTitleBarLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Wpf.Ui.Controls.TitleBar titleBar)
+        {
+            return;
+        }
+
+        titleBar.ApplyTemplate();
+        ConfigureTitleBarButton(titleBar, "PART_MinimizeButton", "最小化窗口");
+        ConfigureTitleBarButton(titleBar, "PART_CloseButton", "关闭窗口");
+        UpdateMaximizeButtonAccessibility(titleBar);
+        StateChanged -= OnWindowStateChangedForTitleBar;
+        StateChanged += OnWindowStateChangedForTitleBar;
+    }
+
+    private void OnWindowStateChangedForTitleBar(object? sender, EventArgs e) =>
+        UpdateMaximizeButtonAccessibility(WindowTitleBar);
+
+    private void UpdateMaximizeButtonAccessibility(Wpf.Ui.Controls.TitleBar titleBar) =>
+        ConfigureTitleBarButton(
+            titleBar,
+            "PART_MaximizeButton",
+            WindowState == WindowState.Maximized ? "还原窗口" : "最大化窗口");
+
+    private static void ConfigureTitleBarButton(
+        Wpf.Ui.Controls.TitleBar titleBar,
+        string partName,
+        string automationName)
+    {
+        if (titleBar.Template.FindName(partName, titleBar) is not Wpf.Ui.Controls.TitleBarButton button)
+        {
+            throw new InvalidOperationException($"WPF-UI title bar template part '{partName}' is missing.");
+        }
+
+        button.Focusable = true;
+        KeyboardNavigation.SetIsTabStop(button, true);
+        AutomationProperties.SetName(button, automationName);
     }
 
     /// <summary>
