@@ -1,0 +1,683 @@
+using System.Data;
+using MesIngest.Core.SeriesProjection;
+using Microsoft.Data.SqlClient;
+
+namespace MesIngest.Infrastructure.SqlServer;
+
+internal static class SqlServerMesIngestSchema
+{
+    public static async Task EnsureAsync(
+        SqlConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = AcquireSchemaLockAndCountSql;
+            var userTableCount = Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken),
+                System.Globalization.CultureInfo.InvariantCulture);
+
+            command.CommandText = userTableCount == 0
+                ? BootstrapSchemaSql
+                : ValidateExistingSchemaSql;
+            command.Parameters.Add("@schemaVersion", SqlDbType.Int).Value =
+                NewMesIngestContract.SchemaVersion;
+            command.Parameters.Add("@contractVersion", SqlDbType.NVarChar, 128).Value =
+                NewMesIngestContract.Version;
+            command.Parameters.Add("@keyComparison", SqlDbType.NVarChar, 128).Value =
+                NewMesIngestContract.KeyComparison;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+
+            command.Parameters.Clear();
+            command.CommandText = """
+                SELECT SchemaVersion, ContractVersion, TransportDemandKeyComparison
+                FROM mesingest.SchemaInfo
+                WHERE Id = 1;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken)
+                || reader.GetInt32(0) != NewMesIngestContract.SchemaVersion
+                || !string.Equals(reader.GetString(1), NewMesIngestContract.Version, StringComparison.Ordinal)
+                || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "The configured database does not contain the expected new-MesIngest schema contract.");
+            }
+
+            await reader.DisposeAsync();
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception);
+            throw;
+        }
+    }
+
+    private const string AcquireSchemaLockAndCountSql = """
+        SET XACT_ABORT ON;
+
+        DECLARE @lockResult INT;
+        EXEC @lockResult = sys.sp_getapplock
+            @Resource = N'mesingest.schema.contract.v1',
+            @LockMode = N'Exclusive',
+            @LockOwner = N'Transaction',
+            @LockTimeout = 15000;
+        IF @lockResult < 0
+            THROW 51000, 'Could not acquire the new MesIngest schema contract lock.', 1;
+
+        SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0;
+        """;
+
+    private const string BootstrapSchemaSql = """
+        SET XACT_ABORT ON;
+
+        EXEC(N'CREATE SCHEMA mesingest AUTHORIZATION dbo;');
+
+        CREATE TABLE mesingest.SchemaInfo
+        (
+            Id INT NOT NULL CONSTRAINT PK_MesIngest_SchemaInfo PRIMARY KEY,
+            SchemaVersion INT NOT NULL,
+            ContractVersion NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            TransportDemandKeyComparison NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1)
+        );
+
+        CREATE TABLE mesingest.PollTraces
+        (
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_PollTraces PRIMARY KEY,
+            QueryVersion NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Outcome NVARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            StartedAt DATETIMEOFFSET(7) NOT NULL,
+            CompletedAt DATETIMEOFFSET(7) NOT NULL,
+            [RowCount] INT NOT NULL,
+            ContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CONSTRAINT CK_MesIngest_PollTraces_Outcome
+                CHECK (Outcome IN (N'SUCCESS', N'FAILURE', N'INCOMPLETE')),
+            CONSTRAINT CK_MesIngest_PollTraces_RowCount CHECK ([RowCount] >= 0)
+        );
+
+        CREATE TABLE mesingest.ProjectionCommits
+        (
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_ProjectionCommits PRIMARY KEY,
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CommittedAt DATETIMEOFFSET(7) NOT NULL,
+            CONSTRAINT UQ_MesIngest_ProjectionCommits_PollTrace UNIQUE (PollTraceId),
+            CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
+                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId)
+        );
+
+        CREATE TABLE mesingest.DemandSeries
+        (
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_DemandSeries PRIMARY KEY,
+            KeyToken CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Lifecycle NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CurrentPresence NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            StartedAt DATETIMEOFFSET(7) NOT NULL,
+            CreatedPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CurrentDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            LastSeriesSequence BIGINT NOT NULL,
+            CONSTRAINT UQ_MesIngest_DemandSeries_KeyToken UNIQUE (KeyToken),
+            CONSTRAINT FK_MesIngest_DemandSeries_CreatedPollTrace
+                FOREIGN KEY (CreatedPollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_DemandSeries_CreatedCommit
+                FOREIGN KEY (CreatedProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT FK_MesIngest_DemandSeries_LatestCommit
+                FOREIGN KEY (LatestProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_DemandSeries_LastSequence CHECK (LastSeriesSequence >= 0)
+        );
+
+        CREATE TABLE mesingest.TransportDemands
+        (
+            DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_TransportDemands PRIMARY KEY,
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Generation INT NOT NULL,
+            PredecessorDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            Status NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CreatedAt DATETIMEOFFSET(7) NOT NULL,
+            DemandLastSeenAt DATETIMEOFFSET(7) NOT NULL,
+            CreatedPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Area NVARCHAR(128) NULL,
+            Eqp NVARCHAR(256) NULL,
+            Step NVARCHAR(256) NULL,
+            MesSourceDate DATETIMEOFFSET(7) NULL,
+            Package NVARCHAR(256) NULL,
+            CONSTRAINT UQ_MesIngest_TransportDemands_SeriesGeneration
+                UNIQUE (SeriesId, Generation),
+            CONSTRAINT FK_MesIngest_TransportDemands_Series
+                FOREIGN KEY (SeriesId) REFERENCES mesingest.DemandSeries (SeriesId),
+            CONSTRAINT FK_MesIngest_TransportDemands_Predecessor
+                FOREIGN KEY (PredecessorDemandId) REFERENCES mesingest.TransportDemands (DemandId),
+            CONSTRAINT FK_MesIngest_TransportDemands_CreatedPollTrace
+                FOREIGN KEY (CreatedPollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_TransportDemands_CreatedCommit
+                FOREIGN KEY (CreatedProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT FK_MesIngest_TransportDemands_LatestCommit
+                FOREIGN KEY (LatestProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_TransportDemands_Generation CHECK (Generation >= 1)
+        );
+
+        ALTER TABLE mesingest.DemandSeries
+        ADD CONSTRAINT FK_MesIngest_DemandSeries_CurrentDemand
+            FOREIGN KEY (CurrentDemandId) REFERENCES mesingest.TransportDemands (DemandId);
+
+        CREATE TABLE mesingest.DemandRawObservations
+        (
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Ordinal INT NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
+            Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NULL,
+            Area NVARCHAR(128) NULL,
+            Eqp NVARCHAR(256) NULL,
+            Step NVARCHAR(256) NULL,
+            MesSourceDate DATETIMEOFFSET(7) NULL,
+            Package NVARCHAR(256) NULL,
+            CONSTRAINT PK_MesIngest_DemandRawObservations PRIMARY KEY (PollTraceId, Ordinal),
+            CONSTRAINT FK_MesIngest_DemandRawObservations_PollTrace
+                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_DemandRawObservations_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT FK_MesIngest_DemandRawObservations_Series
+                FOREIGN KEY (SeriesId) REFERENCES mesingest.DemandSeries (SeriesId),
+            CONSTRAINT FK_MesIngest_DemandRawObservations_Demand
+                FOREIGN KEY (DemandId) REFERENCES mesingest.TransportDemands (DemandId),
+            CONSTRAINT CK_MesIngest_DemandRawObservations_Ordinal CHECK (Ordinal >= 0)
+        );
+        CREATE INDEX IX_MesIngest_DemandRawObservations_Series
+            ON mesingest.DemandRawObservations (SeriesId, PollTraceId, Ordinal);
+
+        CREATE TABLE mesingest.DemandSeriesEvents
+        (
+            EventId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_DemandSeriesEvents PRIMARY KEY,
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            SeriesSequence BIGINT NOT NULL,
+            EventType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            OccurredAt DATETIMEOFFSET(7) NOT NULL,
+            SubjectKind NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            SubjectId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            PayloadVersion INT NOT NULL,
+            Payload NVARCHAR(MAX) NOT NULL,
+            CONSTRAINT UQ_MesIngest_DemandSeriesEvents_SeriesSequence
+                UNIQUE (SeriesId, SeriesSequence),
+            CONSTRAINT FK_MesIngest_DemandSeriesEvents_Series
+                FOREIGN KEY (SeriesId) REFERENCES mesingest.DemandSeries (SeriesId),
+            CONSTRAINT FK_MesIngest_DemandSeriesEvents_PollTrace
+                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_DemandSeriesEvents_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_DemandSeriesEvents_Sequence CHECK (SeriesSequence >= 1),
+            CONSTRAINT CK_MesIngest_DemandSeriesEvents_PayloadVersion CHECK (PayloadVersion >= 1),
+            CONSTRAINT CK_MesIngest_DemandSeriesEvents_PayloadJson CHECK (ISJSON(Payload) = 1)
+        );
+
+        INSERT INTO mesingest.SchemaInfo
+            (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison)
+        VALUES
+            (1, @schemaVersion, @contractVersion, @keyComparison);
+        """;
+
+    private const string ValidateExistingSchemaSql = """
+        SET XACT_ABORT ON;
+
+        IF
+        (
+            SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
+        ) <> 7
+        OR EXISTS
+        (
+            SELECT SCHEMA_NAME(t.schema_id), t.name
+            FROM sys.tables AS t
+            WHERE t.is_ms_shipped = 0
+            EXCEPT
+            SELECT N'mesingest', v.TableName
+            FROM (VALUES
+                (N'SchemaInfo'),
+                (N'PollTraces'),
+                (N'ProjectionCommits'),
+                (N'DemandSeries'),
+                (N'TransportDemands'),
+                (N'DemandRawObservations'),
+                (N'DemandSeriesEvents')
+            ) AS v(TableName)
+        )
+        OR EXISTS
+        (
+            SELECT N'mesingest', v.TableName
+            FROM (VALUES
+                (N'SchemaInfo'),
+                (N'PollTraces'),
+                (N'ProjectionCommits'),
+                (N'DemandSeries'),
+                (N'TransportDemands'),
+                (N'DemandRawObservations'),
+                (N'DemandSeriesEvents')
+            ) AS v(TableName)
+            EXCEPT
+            SELECT SCHEMA_NAME(t.schema_id), t.name
+            FROM sys.tables AS t
+            WHERE t.is_ms_shipped = 0
+        )
+            THROW 51001, 'The configured database contains an unexpected new-MesIngest table set.', 1;
+
+        DECLARE @ExpectedColumns TABLE
+        (
+            TableName SYSNAME NOT NULL,
+            ColumnId INT NOT NULL,
+            ColumnName SYSNAME NOT NULL,
+            TypeName SYSNAME NOT NULL,
+            MaxLength SMALLINT NOT NULL,
+            [Precision] TINYINT NOT NULL,
+            Scale TINYINT NOT NULL,
+            IsNullable BIT NOT NULL,
+            CollationName SYSNAME NULL
+        );
+
+        INSERT INTO @ExpectedColumns
+            (TableName, ColumnId, ColumnName, TypeName, MaxLength, [Precision], Scale, IsNullable, CollationName)
+        VALUES
+            (N'SchemaInfo', 1, N'Id', N'int', 4, 10, 0, 0, NULL),
+            (N'SchemaInfo', 2, N'SchemaVersion', N'int', 4, 10, 0, 0, NULL),
+            (N'SchemaInfo', 3, N'ContractVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'SchemaInfo', 4, N'TransportDemandKeyComparison', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 2, N'QueryVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 3, N'Outcome', N'nvarchar', 32, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 4, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'PollTraces', 5, N'CompletedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'PollTraces', 6, N'RowCount', N'int', 4, 10, 0, 0, NULL),
+            (N'PollTraces', 7, N'ContentDigest', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'ProjectionCommits', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 2, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 3, N'CommittedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+
+            (N'DemandSeries', 1, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 2, N'KeyToken', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 3, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 4, N'Sublot', N'nvarchar', 512, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 5, N'Lifecycle', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 6, N'CurrentPresence', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 7, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'DemandSeries', 8, N'CreatedPollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 9, N'CreatedProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 10, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 11, N'CurrentDemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandSeries', 12, N'LastSeriesSequence', N'bigint', 8, 19, 0, 0, NULL),
+
+            (N'TransportDemands', 1, N'DemandId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 3, N'Generation', N'int', 4, 10, 0, 0, NULL),
+            (N'TransportDemands', 4, N'PredecessorDemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 5, N'Status', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 6, N'CreatedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'TransportDemands', 7, N'DemandLastSeenAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'TransportDemands', 8, N'CreatedPollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 9, N'CreatedProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 10, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TransportDemands', 11, N'Area', N'nvarchar', 256, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 12, N'Eqp', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 13, N'Step', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 14, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'TransportDemands', 15, N'Package', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+
+            (N'DemandRawObservations', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 2, N'Ordinal', N'int', 4, 10, 0, 0, NULL),
+            (N'DemandRawObservations', 3, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 4, N'SeriesId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 5, N'DemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 6, N'WorkType', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 7, N'Sublot', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandRawObservations', 8, N'Area', N'nvarchar', 256, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 9, N'Eqp', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 10, N'Step', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 11, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'DemandRawObservations', 12, N'Package', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+
+            (N'DemandSeriesEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 3, N'SeriesSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'DemandSeriesEvents', 4, N'EventType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 5, N'OccurredAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'DemandSeriesEvents', 6, N'SubjectKind', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 7, N'SubjectId', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 8, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 9, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'DemandSeriesEvents', 10, N'PayloadVersion', N'int', 4, 10, 0, 0, NULL),
+            (N'DemandSeriesEvents', 11, N'Payload', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation')));
+
+        IF EXISTS
+        (
+            SELECT e.* FROM @ExpectedColumns AS e
+            EXCEPT
+            SELECT
+                t.name, c.column_id, c.name, ty.name, c.max_length,
+                c.[precision], c.scale, c.is_nullable, c.collation_name
+            FROM sys.tables AS t
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            INNER JOIN sys.columns AS c ON c.object_id = t.object_id
+            INNER JOIN sys.types AS ty
+                ON ty.user_type_id = c.user_type_id AND ty.is_user_defined = 0
+            WHERE s.name = N'mesingest'
+        )
+        OR EXISTS
+        (
+            SELECT
+                t.name, c.column_id, c.name, ty.name, c.max_length,
+                c.[precision], c.scale, c.is_nullable, c.collation_name
+            FROM sys.tables AS t
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            INNER JOIN sys.columns AS c ON c.object_id = t.object_id
+            INNER JOIN sys.types AS ty
+                ON ty.user_type_id = c.user_type_id AND ty.is_user_defined = 0
+            WHERE s.name = N'mesingest'
+            EXCEPT
+            SELECT e.* FROM @ExpectedColumns AS e
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.tables AS t
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            INNER JOIN sys.columns AS c ON c.object_id = t.object_id
+            WHERE s.name = N'mesingest'
+              AND (c.is_identity = 1 OR c.is_computed = 1 OR c.default_object_id <> 0)
+        )
+            THROW 51002, 'The configured database contains an incompatible new-MesIngest column contract.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM sys.tables AS t
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND t.temporal_type <> 0
+        )
+            THROW 51002, 'The configured database contains an incompatible temporal new-MesIngest table.', 1;
+
+        DECLARE @ExpectedKeys TABLE
+        (
+            ConstraintName SYSNAME NOT NULL,
+            TableName SYSNAME NOT NULL,
+            IsPrimaryKey BIT NOT NULL,
+            IsUnique BIT NOT NULL,
+            KeyOrdinal INT NOT NULL,
+            ColumnName SYSNAME NOT NULL,
+            IsDescending BIT NOT NULL
+        );
+        INSERT INTO @ExpectedKeys VALUES
+            (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
+            (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
+            (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
+            (N'UQ_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', 0, 1, 1, N'PollTraceId', 0),
+            (N'PK_MesIngest_DemandSeries', N'DemandSeries', 1, 1, 1, N'SeriesId', 0),
+            (N'UQ_MesIngest_DemandSeries_KeyToken', N'DemandSeries', 0, 1, 1, N'KeyToken', 0),
+            (N'PK_MesIngest_TransportDemands', N'TransportDemands', 1, 1, 1, N'DemandId', 0),
+            (N'UQ_MesIngest_TransportDemands_SeriesGeneration', N'TransportDemands', 0, 1, 1, N'SeriesId', 0),
+            (N'UQ_MesIngest_TransportDemands_SeriesGeneration', N'TransportDemands', 0, 1, 2, N'Generation', 0),
+            (N'PK_MesIngest_DemandRawObservations', N'DemandRawObservations', 1, 1, 1, N'PollTraceId', 0),
+            (N'PK_MesIngest_DemandRawObservations', N'DemandRawObservations', 1, 1, 2, N'Ordinal', 0),
+            (N'PK_MesIngest_DemandSeriesEvents', N'DemandSeriesEvents', 1, 1, 1, N'EventId', 0),
+            (N'UQ_MesIngest_DemandSeriesEvents_SeriesSequence', N'DemandSeriesEvents', 0, 1, 1, N'SeriesId', 0),
+            (N'UQ_MesIngest_DemandSeriesEvents_SeriesSequence', N'DemandSeriesEvents', 0, 1, 2, N'SeriesSequence', 0);
+
+        IF EXISTS
+        (
+            SELECT e.* FROM @ExpectedKeys AS e
+            EXCEPT
+            SELECT kc.name, t.name,
+                CONVERT(BIT, CASE WHEN kc.[type] = N'PK' THEN 1 ELSE 0 END),
+                i.is_unique,
+                ic.key_ordinal, c.name, ic.is_descending_key
+            FROM sys.key_constraints AS kc
+            INNER JOIN sys.tables AS t ON t.object_id = kc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            INNER JOIN sys.indexes AS i
+                ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+            INNER JOIN sys.index_columns AS ic
+                ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0
+            INNER JOIN sys.columns AS c
+                ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE s.name = N'mesingest'
+        )
+        OR EXISTS
+        (
+            SELECT kc.name, t.name,
+                CONVERT(BIT, CASE WHEN kc.[type] = N'PK' THEN 1 ELSE 0 END),
+                i.is_unique,
+                ic.key_ordinal, c.name, ic.is_descending_key
+            FROM sys.key_constraints AS kc
+            INNER JOIN sys.tables AS t ON t.object_id = kc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            INNER JOIN sys.indexes AS i
+                ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+            INNER JOIN sys.index_columns AS ic
+                ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0
+            INNER JOIN sys.columns AS c
+                ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE s.name = N'mesingest'
+            EXCEPT SELECT e.* FROM @ExpectedKeys AS e
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.key_constraints AS kc
+            INNER JOIN sys.indexes AS i
+                ON i.object_id = kc.parent_object_id AND i.index_id = kc.unique_index_id
+            INNER JOIN sys.tables AS t ON t.object_id = kc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND (i.is_disabled = 1 OR i.is_hypothetical = 1 OR i.has_filter = 1 OR i.[type] NOT IN (1, 2))
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND i.is_unique = 1
+              AND NOT EXISTS
+              (
+                  SELECT 1 FROM sys.key_constraints AS kc
+                  WHERE kc.parent_object_id = i.object_id AND kc.unique_index_id = i.index_id
+              )
+        )
+            THROW 51003, 'The configured database contains an incompatible new-MesIngest key contract.', 1;
+
+        DECLARE @ExpectedForeignKeys TABLE
+        (
+            ConstraintName SYSNAME NOT NULL,
+            ParentTable SYSNAME NOT NULL,
+            ParentColumn SYSNAME NOT NULL,
+            ReferencedTable SYSNAME NOT NULL,
+            ReferencedColumn SYSNAME NOT NULL
+        );
+        INSERT INTO @ExpectedForeignKeys VALUES
+            (N'FK_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', N'PollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_DemandSeries_CreatedPollTrace', N'DemandSeries', N'CreatedPollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_DemandSeries_CreatedCommit', N'DemandSeries', N'CreatedProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_DemandSeries_LatestCommit', N'DemandSeries', N'LatestProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_DemandSeries_CurrentDemand', N'DemandSeries', N'CurrentDemandId', N'TransportDemands', N'DemandId'),
+            (N'FK_MesIngest_TransportDemands_Series', N'TransportDemands', N'SeriesId', N'DemandSeries', N'SeriesId'),
+            (N'FK_MesIngest_TransportDemands_Predecessor', N'TransportDemands', N'PredecessorDemandId', N'TransportDemands', N'DemandId'),
+            (N'FK_MesIngest_TransportDemands_CreatedPollTrace', N'TransportDemands', N'CreatedPollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_TransportDemands_CreatedCommit', N'TransportDemands', N'CreatedProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_TransportDemands_LatestCommit', N'TransportDemands', N'LatestProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_DemandRawObservations_PollTrace', N'DemandRawObservations', N'PollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_DemandRawObservations_Commit', N'DemandRawObservations', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_DemandRawObservations_Series', N'DemandRawObservations', N'SeriesId', N'DemandSeries', N'SeriesId'),
+            (N'FK_MesIngest_DemandRawObservations_Demand', N'DemandRawObservations', N'DemandId', N'TransportDemands', N'DemandId'),
+            (N'FK_MesIngest_DemandSeriesEvents_Series', N'DemandSeriesEvents', N'SeriesId', N'DemandSeries', N'SeriesId'),
+            (N'FK_MesIngest_DemandSeriesEvents_PollTrace', N'DemandSeriesEvents', N'PollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_DemandSeriesEvents_Commit', N'DemandSeriesEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId');
+
+        IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
+            INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest') <> 17
+        OR EXISTS
+        (
+            SELECT e.* FROM @ExpectedForeignKeys AS e
+            EXCEPT
+            SELECT fk.name, pt.name, pc.name, rt.name, rc.name
+            FROM sys.foreign_keys AS fk
+            INNER JOIN sys.tables AS pt ON pt.object_id = fk.parent_object_id
+            INNER JOIN sys.schemas AS ps ON ps.schema_id = pt.schema_id
+            INNER JOIN sys.tables AS rt ON rt.object_id = fk.referenced_object_id
+            INNER JOIN sys.foreign_key_columns AS fkc ON fkc.constraint_object_id = fk.object_id
+            INNER JOIN sys.columns AS pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id
+            INNER JOIN sys.columns AS rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id
+            WHERE ps.name = N'mesingest'
+              AND fk.is_disabled = 0 AND fk.is_not_trusted = 0
+              AND fk.delete_referential_action = 0 AND fk.update_referential_action = 0
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.foreign_keys AS fk
+            INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND (fk.is_disabled = 1 OR fk.is_not_trusted = 1
+                   OR fk.delete_referential_action <> 0 OR fk.update_referential_action <> 0)
+        )
+        OR EXISTS
+        (
+            SELECT fk.name, pt.name, pc.name, rt.name, rc.name
+            FROM sys.foreign_keys AS fk
+            INNER JOIN sys.tables AS pt ON pt.object_id = fk.parent_object_id
+            INNER JOIN sys.schemas AS ps ON ps.schema_id = pt.schema_id
+            INNER JOIN sys.tables AS rt ON rt.object_id = fk.referenced_object_id
+            INNER JOIN sys.foreign_key_columns AS fkc ON fkc.constraint_object_id = fk.object_id
+            INNER JOIN sys.columns AS pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id
+            INNER JOIN sys.columns AS rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id
+            WHERE ps.name = N'mesingest'
+            EXCEPT SELECT e.* FROM @ExpectedForeignKeys AS e
+        )
+            THROW 51004, 'The configured database contains an incompatible new-MesIngest foreign-key contract.', 1;
+
+        DECLARE @ExpectedChecks TABLE
+        (
+            ConstraintName SYSNAME NOT NULL,
+            TableName SYSNAME NOT NULL,
+            Definition NVARCHAR(4000) NOT NULL
+        );
+        INSERT INTO @ExpectedChecks VALUES
+            (N'CK_MesIngest_SchemaInfo_SingleRow', N'SchemaInfo', N'([Id]=(1))'),
+            (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
+            (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
+            (N'CK_MesIngest_DemandSeries_LastSequence', N'DemandSeries', N'([LastSeriesSequence]>=(0))'),
+            (N'CK_MesIngest_TransportDemands_Generation', N'TransportDemands', N'([Generation]>=(1))'),
+            (N'CK_MesIngest_DemandRawObservations_Ordinal', N'DemandRawObservations', N'([Ordinal]>=(0))'),
+            (N'CK_MesIngest_DemandSeriesEvents_Sequence', N'DemandSeriesEvents', N'([SeriesSequence]>=(1))'),
+            (N'CK_MesIngest_DemandSeriesEvents_PayloadVersion', N'DemandSeriesEvents', N'([PayloadVersion]>=(1))'),
+            (N'CK_MesIngest_DemandSeriesEvents_PayloadJson', N'DemandSeriesEvents', N'(isjson([Payload])=(1))');
+
+        IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
+            INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest') <> 9
+        OR EXISTS
+        (
+            SELECT e.* FROM @ExpectedChecks AS e
+            EXCEPT
+            SELECT cc.name, t.name, cc.definition
+            FROM sys.check_constraints AS cc
+            INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND cc.is_disabled = 0 AND cc.is_not_trusted = 0
+        )
+        OR EXISTS
+        (
+            SELECT 1
+            FROM sys.check_constraints AS cc
+            INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND (cc.is_disabled = 1 OR cc.is_not_trusted = 1)
+        )
+        OR EXISTS
+        (
+            SELECT cc.name, t.name, cc.definition
+            FROM sys.check_constraints AS cc
+            INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+            EXCEPT SELECT e.* FROM @ExpectedChecks AS e
+        )
+            THROW 51005, 'The configured database contains an incompatible new-MesIngest check-constraint contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'DemandRawObservations'
+              AND i.name = N'IX_MesIngest_DemandRawObservations_Series'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND 3 = (SELECT COUNT(*) FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND 0 = (SELECT COUNT(*) FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1)
+              AND N'SeriesId,PollTraceId,Ordinal' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND 0 = (SELECT SUM(CONVERT(INT, ic.is_descending_key))
+                       FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+        )
+            THROW 51006, 'The configured database is missing the new-MesIngest raw-observation index contract.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM sys.triggers AS tr
+            INNER JOIN sys.tables AS t ON t.object_id = tr.parent_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+        )
+            THROW 51007, 'The configured database contains unexpected new-MesIngest triggers.', 1;
+
+        IF (SELECT COUNT(*) FROM mesingest.SchemaInfo) <> 1
+        OR NOT EXISTS
+        (
+            SELECT 1 FROM mesingest.SchemaInfo
+            WHERE Id = 1
+              AND SchemaVersion = @schemaVersion
+              AND ContractVersion = @contractVersion COLLATE Latin1_General_100_BIN2
+              AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2
+        )
+            THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
+        """;
+}

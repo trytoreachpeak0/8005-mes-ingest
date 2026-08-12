@@ -1,6 +1,8 @@
 using System.Text.Json.Serialization;
 using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using MesIngest.Infrastructure.SqlServer;
 using Microsoft.Extensions.Hosting.WindowsServices;
 
 var probeOracle = args.Any(a => string.Equals(a, "--probe-oracle", StringComparison.OrdinalIgnoreCase));
@@ -25,54 +27,75 @@ if (!string.IsNullOrWhiteSpace(configured.Urls))
     builder.WebHost.UseUrls(configured.Urls);
 }
 
+var newV2Enabled = !string.IsNullOrWhiteSpace(configured.NewSqlServerConnectionString);
+if (!probeOracle && !builder.Environment.IsDevelopment() && !newV2Enabled)
+{
+    throw new InvalidOperationException(
+        "MesIngest:NewSqlServerConnectionString is required outside the Development environment.");
+}
+var legacyAlongsideV2Enabled = newV2Enabled
+    && builder.Environment.IsDevelopment()
+    && configured.EnableLegacyDevelopmentEndpoints;
+var legacySurfaceEnabled = !newV2Enabled || legacyAlongsideV2Enabled;
+var legacyRuntimeEnabled = probeOracle || legacySurfaceEnabled;
+
 builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(TimeProvider.System);
+if (newV2Enabled)
+{
+    builder.Services.AddSingleton<IMesIngestProjection>(
+        new SqlServerMesIngestProjection(configured.NewSqlServerConnectionString));
+    builder.Services.AddSingleton<SuccessRoundIngestor>();
+}
 builder.Services.AddSingleton<ILatencyTelemetry>(sp =>
     new LoggingLatencyTelemetry(sp.GetRequiredService<ILoggerFactory>().CreateLogger("MesIngest.Latency")));
 
-builder.Services.AddSingleton<IDemandIdAllocator, GuidDemandIdAllocator>();
-builder.Services.AddSingleton<TransportDemandReconciler>();
-builder.Services.AddSingleton<ITransportDemandStore>(sp =>
+if (legacyRuntimeEnabled)
 {
-    var options = sp.GetRequiredService<MesIngestHostOptions>();
-    var telemetry = sp.GetRequiredService<ILatencyTelemetry>();
-    var timeProvider = sp.GetRequiredService<TimeProvider>();
-    ITransportDemandStore inner = !string.IsNullOrWhiteSpace(options.SqlServerConnectionString)
-        ? new SqlServerTransportDemandStore(
-            options.SqlServerConnectionString,
-            telemetry,
-            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
-            clock: timeProvider.GetUtcNow,
-            alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)))
-        : new InMemoryTransportDemandStore(
-            TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
-            clock: timeProvider.GetUtcNow,
-            alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)));
-    return new ObservingTransportDemandStore(inner, telemetry);
-});
-builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
-{
-    var options = sp.GetRequiredService<MesIngestHostOptions>();
-    var contentRoot = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
-    return CreateSnapshotSource(options, contentRoot);
-});
-builder.Services.AddSingleton(sp =>
-{
-    var options = sp.GetRequiredService<MesIngestHostOptions>();
-    return new IngestRoundRunner(
-        sp.GetRequiredService<IMesSnapshotSource>(),
-        sp.GetRequiredService<TransportDemandReconciler>(),
-        sp.GetRequiredService<ITransportDemandStore>(),
-        options.GoLiveBaseline,
-        disappearThreshold: options.DisappearThreshold,
-        zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
-        zeroDropClearStreak: options.ZeroDropClearStreak,
-        queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)),
-        clock: sp.GetRequiredService<TimeProvider>().GetUtcNow,
-        telemetry: sp.GetRequiredService<ILatencyTelemetry>());
-});
+    builder.Services.AddSingleton<IDemandIdAllocator, GuidDemandIdAllocator>();
+    builder.Services.AddSingleton<TransportDemandReconciler>();
+    builder.Services.AddSingleton<ITransportDemandStore>(sp =>
+    {
+        var options = sp.GetRequiredService<MesIngestHostOptions>();
+        var telemetry = sp.GetRequiredService<ILatencyTelemetry>();
+        var timeProvider = sp.GetRequiredService<TimeProvider>();
+        ITransportDemandStore inner = !string.IsNullOrWhiteSpace(options.SqlServerConnectionString)
+            ? new SqlServerTransportDemandStore(
+                options.SqlServerConnectionString,
+                telemetry,
+                TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+                clock: timeProvider.GetUtcNow,
+                alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)))
+            : new InMemoryTransportDemandStore(
+                TimeSpan.FromHours(Math.Max(0, options.ChangeFeedRetentionHours)),
+                clock: timeProvider.GetUtcNow,
+                alertRetention: TimeSpan.FromDays(Math.Max(0, options.AlertRetentionDays)));
+        return new ObservingTransportDemandStore(inner, telemetry);
+    });
+    builder.Services.AddSingleton<IMesSnapshotSource>(sp =>
+    {
+        var options = sp.GetRequiredService<MesIngestHostOptions>();
+        var contentRoot = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
+        return CreateSnapshotSource(options, contentRoot);
+    });
+    builder.Services.AddSingleton(sp =>
+    {
+        var options = sp.GetRequiredService<MesIngestHostOptions>();
+        return new IngestRoundRunner(
+            sp.GetRequiredService<IMesSnapshotSource>(),
+            sp.GetRequiredService<TransportDemandReconciler>(),
+            sp.GetRequiredService<ITransportDemandStore>(),
+            options.GoLiveBaseline,
+            disappearThreshold: options.DisappearThreshold,
+            zeroDropEnterThreshold: options.ZeroDropEnterThreshold,
+            zeroDropClearStreak: options.ZeroDropClearStreak,
+            queryTimeout: TimeSpan.FromSeconds(Math.Max(1, options.QueryTimeoutSeconds)),
+            clock: sp.GetRequiredService<TimeProvider>().GetUtcNow,
+            telemetry: sp.GetRequiredService<ILatencyTelemetry>());
+    });
+}
 
-if (!probeOracle)
+if (!probeOracle && legacySurfaceEnabled)
 {
     builder.Services.AddHostedService<PollHostedService>();
 }
@@ -83,7 +106,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
-if (!probeOracle)
+if (!probeOracle && legacySurfaceEnabled)
 {
     builder.Services.AddMesIngestOpenApi();
 }
@@ -138,14 +161,24 @@ if (probeOracle)
     return exitCode;
 }
 
-if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
+if (legacySurfaceEnabled
+    && app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
 {
     var runner = app.Services.GetRequiredService<IngestRoundRunner>();
     await runner.RunOnceAsync();
 }
 
-app.UseMesIngestOpenApi();
+if (legacySurfaceEnabled)
+{
+    app.UseMesIngestOpenApi();
+}
+if (newV2Enabled)
+{
+    app.MapNewMesIngestEndpoints();
+}
 
+if (legacySurfaceEnabled)
+{
 app.MapGet("/api/contract", () =>
     Results.Ok(new MesIngestContractInfo(
         MesIngestApiContract.Version,
@@ -391,6 +424,7 @@ app.MapGet("/api/demand-changes", (
     }
 })
 .WithName("ListDemandChanges");
+}
 
 app.Run();
 return 0;

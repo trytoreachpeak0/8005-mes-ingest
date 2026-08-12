@@ -93,6 +93,20 @@ public sealed class MesIngestHostOptions
     public string SqlServerConnectionString { get; set; } = "";
 
     /// <summary>
+    /// Allows the legacy schema/API alongside v2 only while running in the ASP.NET Core
+    /// Development environment. Production ignores this flag whenever v2 is configured.
+    /// </summary>
+    public bool EnableLegacyDevelopmentEndpoints { get; set; }
+
+    /// <summary>
+    /// Dedicated SQL Server connection string for the isolated new-MesIngest schema.
+    /// Required by the production Host. Development may omit it only to run the explicitly
+    /// enabled legacy surface. Put real credentials in local configuration or environment
+    /// variables only.
+    /// </summary>
+    public string NewSqlServerConnectionString { get; set; } = "";
+
+    /// <summary>
     /// DemandChangeFeed retention in hours. Default 48. 0 keeps the ledger permanently.
     /// </summary>
     public int ChangeFeedRetentionHours { get; set; } = 48;

@@ -4,6 +4,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
     <ProjectReference Include="..\MesIngest.Core\MesIngest.Core.csproj" />
+    <ProjectReference Include="..\MesIngest.Infrastructure\MesIngest.Infrastructure.csproj" />
   </ItemGroup>
 
   <!-- Official MES query manuscript from repo; no divergent SQL fork in csharp tree. -->
