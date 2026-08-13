@@ -10,6 +10,9 @@ internal static class NewMesIngestEndpoints
         endpoints.MapGet("/api/v2/contract", GetContract)
             .ExcludeFromDescription();
 
+        endpoints.MapGet("/api/v2/demand-series", ListDemandSeriesAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/demand-series/by-key", GetDemandSeriesByKeyAsync)
             .ExcludeFromDescription();
 
@@ -47,46 +50,244 @@ internal static class NewMesIngestEndpoints
             NewMesIngestContract.KeyComparison,
             SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray()));
 
-    private static async Task<Results<Ok<DemandSeriesDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetDemandSeriesByKeyAsync(
+    private static async Task<IResult> GetDemandSeriesByKeyAsync(
         string workType,
         string sublot,
+        HttpRequest request,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
         if (!TryValidateRequiredText(workType, 128, nameof(workType), out var workTypeError))
         {
-            return TypedResults.BadRequest(workTypeError);
+            return Results.BadRequest(workTypeError);
         }
         if (!TryValidateRequiredText(sublot, 256, nameof(sublot), out var sublotError))
         {
-            return TypedResults.BadRequest(sublotError);
+            return Results.BadRequest(sublotError);
         }
 
-        var snapshot = await projection.GetDemandSeriesByKeyAsync(
-            workType,
-            sublot,
-            cancellationToken);
-        return snapshot is null
-            ? TypedResults.NotFound()
-            : TypedResults.Ok(DemandSeriesDto.From(snapshot));
+        try
+        {
+            var requestedSnapshot = ReadSingle(request.Query, "snapshot");
+            if (requestedSnapshot is not null)
+            {
+                // Validate and resolve the snapshot before the mutable permanent-key
+                // lookup. An invalid credential must never be masked as a key 404.
+                await projection.ListDemandSeriesAsync(
+                    new DemandSeriesBrowseQuery(
+                        new DemandSeriesBrowseFilter(),
+                        PageSize: 1,
+                        SnapshotReference: requestedSnapshot),
+                    cancellationToken);
+            }
+
+            var current = await projection.GetDemandSeriesByKeyAsync(
+                workType,
+                sublot,
+                cancellationToken);
+            if (current is null)
+            {
+                return Results.NotFound();
+            }
+
+            var list = await projection.ListDemandSeriesAsync(
+                new DemandSeriesBrowseQuery(
+                    new DemandSeriesBrowseFilter { SeriesId = current.SeriesId },
+                    PageSize: 1,
+                    SnapshotReference: requestedSnapshot),
+                cancellationToken);
+            if (list.Items.Count == 0)
+            {
+                return Results.NotFound();
+            }
+
+            var detail = await projection.GetDemandSeriesAtSnapshotAsync(
+                current.SeriesId,
+                list.SnapshotReference,
+                cancellationToken);
+            return detail is null
+                ? Results.NotFound()
+                : Results.Ok(FrozenDemandSeriesDto.From(detail));
+        }
+        catch (DemandSeriesBrowseException exception)
+        {
+            return ToBrowseError(exception);
+        }
     }
 
-    private static async Task<Results<Ok<DemandSeriesDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetDemandSeriesAsync(
+    private static async Task<IResult> GetDemandSeriesAsync(
         string seriesId,
+        HttpRequest request,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
         if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var error))
         {
-            return TypedResults.BadRequest(error);
+            return Results.BadRequest(error);
         }
 
-        var snapshot = await projection.GetDemandSeriesAsync(
-            seriesId,
-            cancellationToken);
-        return snapshot is null
-            ? TypedResults.NotFound()
-            : TypedResults.Ok(DemandSeriesDto.From(snapshot));
+        try
+        {
+            var snapshotReference = ReadSingle(request.Query, "snapshot");
+            if (snapshotReference is null)
+            {
+                var frozen = await projection.ListDemandSeriesAsync(
+                    new DemandSeriesBrowseQuery(
+                        new DemandSeriesBrowseFilter { SeriesId = seriesId },
+                        PageSize: 1),
+                    cancellationToken);
+                if (frozen.Items.Count == 0)
+                {
+                    return Results.NotFound();
+                }
+
+                snapshotReference = frozen.SnapshotReference;
+            }
+
+            var detail = await projection.GetDemandSeriesAtSnapshotAsync(
+                seriesId,
+                snapshotReference,
+                cancellationToken);
+            return detail is null
+                ? Results.NotFound()
+                : Results.Ok(FrozenDemandSeriesDto.From(detail));
+        }
+        catch (DemandSeriesBrowseException exception)
+        {
+            return ToBrowseError(exception);
+        }
+    }
+
+    private static async Task<IResult> ListDemandSeriesAsync(
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var query = ParseBrowseQuery(request.Query);
+            var snapshot = await projection.ListDemandSeriesAsync(query, cancellationToken);
+            return Results.Ok(DemandSeriesListDto.From(snapshot));
+        }
+        catch (DemandSeriesBrowseException exception)
+        {
+            return ToBrowseError(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                exception.Message));
+        }
+    }
+
+    private static DemandSeriesBrowseQuery ParseBrowseQuery(IQueryCollection query)
+    {
+        var pageSize = ParseBoundedInt(query, "pageSize", DemandSeriesBrowseQuery.DefaultPageSize);
+        var pageNumber = ParseBoundedInt(query, "page", 1);
+        var filter = new DemandSeriesBrowseFilter
+        {
+            Lifecycles = ReadSet(query, "lifecycle"),
+            CurrentPresences = ReadSet(query, "presence"),
+            WorkTypes = ReadSet(query, "workType"),
+            MesAreas = ReadSet(query, "area"),
+            SublotContains = ReadSingle(query, "sublot"),
+            SeriesId = ReadSingle(query, "seriesId"),
+            DemandId = ReadSingle(query, "demandId"),
+        };
+        ValidateFilterVocabulary(filter);
+        return new DemandSeriesBrowseQuery(
+            filter,
+            pageSize,
+            pageNumber,
+            ReadSingle(query, "snapshot"),
+            ReadSingle(query, "cursor"),
+            ReadSingle(query, "order") ?? DemandSeriesBrowseOrder.Default)
+            .NormalizeAndValidate();
+    }
+
+    private static int ParseBoundedInt(IQueryCollection query, string name, int defaultValue)
+    {
+        var raw = ReadSingle(query, name);
+        if (raw is null)
+        {
+            return defaultValue;
+        }
+
+        if (!int.TryParse(raw, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var value))
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} must be an integer.");
+        }
+
+        return value;
+    }
+
+    private static string? ReadSingle(IQueryCollection query, string name)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+        if (values.Count != 1)
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+        }
+        return values[0];
+    }
+
+    private static IReadOnlyList<string> ReadSet(IQueryCollection query, string name)
+    {
+        if (!query.TryGetValue(name, out var values))
+        {
+            return Array.Empty<string>();
+        }
+
+        return values
+            .SelectMany(value => (value ?? string.Empty).Split(',', StringSplitOptions.None))
+            .Where(value => value.Length > 0)
+            .ToArray();
+    }
+
+    private static void ValidateFilterVocabulary(DemandSeriesBrowseFilter filter)
+    {
+        var allowedLifecycle = new HashSet<string>(
+            [DemandSeriesLifecycleContract.Tracking, DemandSeriesLifecycleContract.Archived],
+            StringComparer.Ordinal);
+        var allowedPresence = new HashSet<string>(
+            [
+                DemandSeriesLifecycleContract.Visible,
+                DemandSeriesLifecycleContract.Gone,
+                DemandSeriesLifecycleContract.LongGoneButVisible,
+            ],
+            StringComparer.Ordinal);
+        if (filter.Lifecycles.Any(value => !allowedLifecycle.Contains(value)))
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                "lifecycle contains an unsupported exact value.");
+        }
+        if (filter.CurrentPresences.Any(value => !allowedPresence.Contains(value)))
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                "presence contains an unsupported exact value.");
+        }
+    }
+
+    private static IResult ToBrowseError(DemandSeriesBrowseException exception)
+    {
+        var error = new NewMesIngestErrorDto(exception.Code, exception.Message);
+        return exception.Code switch
+        {
+            DemandSeriesBrowseErrorCodes.ProjectionNotAvailable => Results.Conflict(error),
+            DemandSeriesBrowseErrorCodes.SnapshotNotFound => Results.Json(error, statusCode: StatusCodes.Status410Gone),
+            _ => Results.BadRequest(error),
+        };
     }
 
     private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
@@ -210,6 +411,7 @@ internal sealed record SeriesErrorDefinitionDto(
 
 internal sealed record ProjectionCommitDto(
     string ProjectionCommitId,
+    long ProjectionSequence,
     string PollTraceId,
     DateTimeOffset CommittedAt,
     string HostSessionId,
@@ -221,6 +423,7 @@ internal sealed record ProjectionCommitDto(
     public static ProjectionCommitDto From(ProjectionCommitSnapshot snapshot) =>
         new(
             snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
             snapshot.PollTraceId,
             snapshot.CommittedAt,
             snapshot.HostSessionId,
@@ -403,7 +606,10 @@ internal sealed record TransportDemandV2Dto(
     string LatestProjectionCommitId,
     LiveMesFieldSetDto? LiveMesFields,
     string ExternalReadabilityState,
-    IReadOnlyList<string> ReadabilityBlockers)
+    IReadOnlyList<string> ReadabilityBlockers,
+    string? LatestObservationPollTraceId,
+    string? LatestObservationProjectionCommitId,
+    DateTimeOffset? LatestObservationAt)
 {
     public static TransportDemandV2Dto From(TransportDemandSnapshot snapshot) =>
         new(
@@ -422,13 +628,17 @@ internal sealed record TransportDemandV2Dto(
                 ? null
                 : LiveMesFieldSetDto.From(snapshot.LiveMesFields),
             snapshot.ExternalReadabilityState,
-            snapshot.ReadabilityBlockers);
+            snapshot.ReadabilityBlockers,
+            snapshot.LatestObservationPollTraceId,
+            snapshot.LatestObservationProjectionCommitId,
+            snapshot.LatestObservationAt);
 }
 
 internal sealed record DemandRawObservationDto(
     int Ordinal,
     string PollTraceId,
     string ProjectionCommitId,
+    DateTimeOffset ObservedAt,
     string Assignment,
     string? SeriesId,
     string? DemandId,
@@ -445,6 +655,7 @@ internal sealed record DemandRawObservationDto(
             snapshot.Ordinal,
             snapshot.PollTraceId,
             snapshot.ProjectionCommitId,
+            snapshot.ObservedAt,
             snapshot.Assignment switch
             {
                 MesObservationAssignment.Assigned => "ASSIGNED",
@@ -586,6 +797,7 @@ internal sealed record DemandSeriesDto(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
+    long LastSeriesSequence,
     TransportDemandV2Dto CurrentDemand,
     IReadOnlyList<TransportDemandV2Dto> Demands,
     IReadOnlyList<DemandRawObservationDto> RawObservations,
@@ -605,12 +817,163 @@ internal sealed record DemandSeriesDto(
             snapshot.CreatedPollTraceId,
             snapshot.CreatedProjectionCommitId,
             snapshot.LatestProjectionCommitId,
+            snapshot.LastSeriesSequence,
             TransportDemandV2Dto.From(snapshot.CurrentDemand),
             snapshot.Demands.Select(TransportDemandV2Dto.From).ToList(),
             snapshot.RawObservations.Select(DemandRawObservationDto.From).ToList(),
             snapshot.Events.Select(DemandSeriesEventDto.From).ToList(),
             snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToList(),
             snapshot.ErrorPeriods.Select(DemandSeriesErrorPeriodDto.From).ToList());
+}
+
+internal sealed record DemandSeriesSnapshotIdentityDto(
+    string ProjectionCommitId,
+    long ProjectionSequence,
+    DateTimeOffset ProjectionCommittedAt,
+    string PollTraceId,
+    string ContractVersion)
+{
+    public static DemandSeriesSnapshotIdentityDto From(
+        DemandSeriesSnapshotIdentity snapshot) =>
+        new(
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.PollTraceId,
+            snapshot.ContractVersion);
+}
+
+internal sealed record DemandSeriesFacetsDto(
+    long TrackingCount,
+    long ArchivedCount,
+    long VisibleCount,
+    long GoneCount,
+    long LongGoneButVisibleCount)
+{
+    public static DemandSeriesFacetsDto From(DemandSeriesFacets snapshot) =>
+        new(
+            snapshot.TrackingCount,
+            snapshot.ArchivedCount,
+            snapshot.VisibleCount,
+            snapshot.GoneCount,
+            snapshot.LongGoneButVisibleCount);
+}
+
+internal sealed record DemandSeriesListItemDto(
+    string SeriesId,
+    string WorkType,
+    string Sublot,
+    string Lifecycle,
+    string CurrentPresence,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? ArchivedAt,
+    string CurrentDemandId,
+    int CurrentGeneration,
+    string CurrentDemandStatus,
+    DateTimeOffset DemandLastSeenAt,
+    DateTimeOffset? GoneConfirmedAt,
+    LiveMesFieldSetDto? LiveMesFields,
+    string ExternalReadabilityState,
+    IReadOnlyList<string> ReadabilityBlockers,
+    long LastSeriesSequence,
+    string LatestPollTraceId,
+    string LatestProjectionCommitId)
+{
+    public static DemandSeriesListItemDto From(DemandSeriesListItemSnapshot snapshot) =>
+        new(
+            snapshot.SeriesId,
+            snapshot.WorkType,
+            snapshot.Sublot,
+            snapshot.Lifecycle,
+            snapshot.CurrentPresence,
+            snapshot.StartedAt,
+            snapshot.ArchivedAt,
+            snapshot.CurrentDemandId,
+            snapshot.CurrentGeneration,
+            snapshot.CurrentDemandStatus,
+            snapshot.DemandLastSeenAt,
+            snapshot.GoneConfirmedAt,
+            snapshot.LiveMesFields is null ? null : LiveMesFieldSetDto.From(snapshot.LiveMesFields),
+            snapshot.ExternalReadabilityState,
+            snapshot.ReadabilityBlockers,
+            snapshot.LastSeriesSequence,
+            snapshot.LatestPollTraceId,
+            snapshot.LatestProjectionCommitId);
+}
+
+internal sealed record DemandSeriesListDto(
+    string SnapshotReference,
+    DemandSeriesSnapshotIdentityDto Snapshot,
+    long ExactTotalCount,
+    DemandSeriesFacetsDto Facets,
+    string Order,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<DemandSeriesListItemDto> Items,
+    string? NextCursor,
+    bool HasMore)
+{
+    public static DemandSeriesListDto From(DemandSeriesListSnapshot snapshot) =>
+        new(
+            snapshot.SnapshotReference,
+            DemandSeriesSnapshotIdentityDto.From(snapshot.Snapshot),
+            snapshot.ExactTotalCount,
+            DemandSeriesFacetsDto.From(snapshot.Facets),
+            snapshot.Order,
+            snapshot.PageSize,
+            snapshot.PageNumber,
+            snapshot.TotalPages,
+            snapshot.Items.Select(DemandSeriesListItemDto.From).ToArray(),
+            snapshot.NextCursor,
+            snapshot.HasMore);
+}
+
+internal sealed record FrozenDemandSeriesDto(
+    string SnapshotReference,
+    DemandSeriesSnapshotIdentityDto Snapshot,
+    string SeriesId,
+    string WorkType,
+    string Sublot,
+    string Lifecycle,
+    string CurrentPresence,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? ArchivedAt,
+    string CreatedPollTraceId,
+    string CreatedProjectionCommitId,
+    string LatestProjectionCommitId,
+    long LastSeriesSequence,
+    TransportDemandV2Dto CurrentDemand,
+    IReadOnlyList<TransportDemandV2Dto> Demands,
+    IReadOnlyList<DemandRawObservationDto> RawObservations,
+    IReadOnlyList<DemandSeriesEventDto> Events,
+    IReadOnlyList<DemandSeriesCurrentConditionDto> CurrentConditions,
+    IReadOnlyList<DemandSeriesErrorPeriodDto> ErrorPeriods)
+{
+    public static FrozenDemandSeriesDto From(DemandSeriesDetailSnapshot detail)
+    {
+        var snapshot = detail.Series;
+        return new(
+            detail.SnapshotReference,
+            DemandSeriesSnapshotIdentityDto.From(detail.Snapshot),
+            snapshot.SeriesId,
+            snapshot.WorkType,
+            snapshot.Sublot,
+            snapshot.Lifecycle,
+            snapshot.CurrentPresence,
+            snapshot.StartedAt,
+            snapshot.ArchivedAt,
+            snapshot.CreatedPollTraceId,
+            snapshot.CreatedProjectionCommitId,
+            snapshot.LatestProjectionCommitId,
+            snapshot.LastSeriesSequence,
+            TransportDemandV2Dto.From(snapshot.CurrentDemand),
+            snapshot.Demands.Select(TransportDemandV2Dto.From).ToArray(),
+            snapshot.RawObservations.Select(DemandRawObservationDto.From).ToArray(),
+            snapshot.Events.Select(DemandSeriesEventDto.From).ToArray(),
+            snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToArray(),
+            snapshot.ErrorPeriods.Select(DemandSeriesErrorPeriodDto.From).ToArray());
+    }
 }
 
 internal sealed record PollTraceDto(

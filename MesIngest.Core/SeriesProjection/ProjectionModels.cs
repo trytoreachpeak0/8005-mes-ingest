@@ -6,7 +6,8 @@ public sealed record RoundCommitReceipt(
     string? ProjectionCommitId,
     IReadOnlyList<string> SeriesIds,
     IReadOnlyList<string> DemandIds,
-    bool IsReplay);
+    bool IsReplay,
+    long? ProjectionSequence = null);
 
 public sealed record ProjectionCommitSnapshot(
     string ProjectionCommitId,
@@ -16,7 +17,8 @@ public sealed record ProjectionCommitSnapshot(
     string RestartPhaseBefore,
     string RestartPhaseAfter,
     bool AbsenceAuthority,
-    IReadOnlyList<TaskTypeProtectionDecisionSnapshot> TaskTypeProtectionDecisions);
+    IReadOnlyList<TaskTypeProtectionDecisionSnapshot> TaskTypeProtectionDecisions,
+    long ProjectionSequence = 0);
 
 public sealed record TaskTypeProtectionDecisionSnapshot(
     string WorkType,
@@ -141,7 +143,10 @@ public sealed record TransportDemandSnapshot(
     string LatestProjectionCommitId,
     LiveMesFieldSetSnapshot? LiveMesFields,
     string ExternalReadabilityState,
-    IReadOnlyList<string> ReadabilityBlockers);
+    IReadOnlyList<string> ReadabilityBlockers,
+    string? LatestObservationPollTraceId = null,
+    string? LatestObservationProjectionCommitId = null,
+    DateTimeOffset? LatestObservationAt = null);
 
 public enum MesObservationAssignment
 {
@@ -162,7 +167,8 @@ public sealed record DemandRawObservationSnapshot(
     string? Eqp,
     string? Step,
     DateTimeOffset? MesSourceDate,
-    string? Package);
+    string? Package,
+    DateTimeOffset ObservedAt = default);
 
 public sealed record DemandSeriesEventSnapshot(
     string EventId,
@@ -193,7 +199,8 @@ public sealed record DemandSeriesSnapshot(
     IReadOnlyList<DemandSeriesEventSnapshot> Events,
     IReadOnlyList<DemandSeriesCurrentConditionSnapshot> CurrentConditions,
     IReadOnlyList<DemandSeriesErrorPeriodSnapshot> ErrorPeriods,
-    DateTimeOffset? ArchivedAt = null);
+    DateTimeOffset? ArchivedAt = null,
+    long LastSeriesSequence = 0);
 
 public sealed record PollTraceSnapshot(
     string PollTraceId,

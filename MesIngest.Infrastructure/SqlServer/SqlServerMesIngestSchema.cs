@@ -35,7 +35,11 @@ internal static class SqlServerMesIngestSchema
 
             command.Parameters.Clear();
             command.CommandText = """
-                SELECT SchemaVersion, ContractVersion, TransportDemandKeyComparison
+                SELECT
+                    SchemaVersion,
+                    ContractVersion,
+                    TransportDemandKeyComparison,
+                    DATALENGTH(SnapshotTokenSigningKey)
                 FROM mesingest.SchemaInfo
                 WHERE Id = 1;
                 """;
@@ -43,7 +47,8 @@ internal static class SqlServerMesIngestSchema
             if (!await reader.ReadAsync(cancellationToken)
                 || reader.GetInt32(0) != NewMesIngestContract.SchemaVersion
                 || !string.Equals(reader.GetString(1), NewMesIngestContract.Version, StringComparison.Ordinal)
-                || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal))
+                || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal)
+                || reader.GetInt32(3) != 32)
             {
                 throw new InvalidOperationException(
                     "The configured database does not contain the expected new-MesIngest schema contract.");
@@ -87,7 +92,10 @@ internal static class SqlServerMesIngestSchema
             SchemaVersion INT NOT NULL,
             ContractVersion NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             TransportDemandKeyComparison NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
-            CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1)
+            SnapshotTokenSigningKey VARBINARY(32) NOT NULL,
+            CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
+            CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
+                CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
         );
 
         CREATE TABLE mesingest.PollTraces
@@ -109,12 +117,14 @@ internal static class SqlServerMesIngestSchema
         (
             ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
                 CONSTRAINT PK_MesIngest_ProjectionCommits PRIMARY KEY,
+            ProjectionSequence BIGINT IDENTITY(1,1) NOT NULL,
             PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             CommittedAt DATETIMEOFFSET(7) NOT NULL,
             HostSessionId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             RestartPhaseBefore NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             RestartPhaseAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             AbsenceAuthority BIT NOT NULL,
+            CONSTRAINT UQ_MesIngest_ProjectionCommits_Sequence UNIQUE (ProjectionSequence),
             CONSTRAINT UQ_MesIngest_ProjectionCommits_PollTrace UNIQUE (PollTraceId),
             CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
                 FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId)
@@ -472,9 +482,9 @@ internal static class SqlServerMesIngestSchema
         );
 
         INSERT INTO mesingest.SchemaInfo
-            (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison)
+            (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison, SnapshotTokenSigningKey)
         VALUES
-            (1, @schemaVersion, @contractVersion, @keyComparison);
+            (1, @schemaVersion, @contractVersion, @keyComparison, CRYPT_GEN_RANDOM(32));
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -556,6 +566,7 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 2, N'SchemaVersion', N'int', 4, 10, 0, 0, NULL),
             (N'SchemaInfo', 3, N'ContractVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'SchemaInfo', 4, N'TransportDemandKeyComparison', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'QueryVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -566,12 +577,13 @@ internal static class SqlServerMesIngestSchema
             (N'PollTraces', 7, N'ContentDigest', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
 
             (N'ProjectionCommits', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'ProjectionCommits', 2, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'ProjectionCommits', 3, N'CommittedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'ProjectionCommits', 4, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'ProjectionCommits', 5, N'RestartPhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'ProjectionCommits', 6, N'RestartPhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'ProjectionCommits', 7, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
+            (N'ProjectionCommits', 2, N'ProjectionSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'ProjectionCommits', 3, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 4, N'CommittedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'ProjectionCommits', 5, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 6, N'RestartPhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 7, N'RestartPhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommits', 8, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
 
             (N'HostSessions', 1, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'HostSessions', 2, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
@@ -752,7 +764,28 @@ internal static class SqlServerMesIngestSchema
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
             INNER JOIN sys.columns AS c ON c.object_id = t.object_id
             WHERE s.name = N'mesingest'
-              AND (c.is_identity = 1 OR c.is_computed = 1 OR c.default_object_id <> 0)
+              AND (c.is_computed = 1 OR c.default_object_id <> 0)
+        )
+        OR
+        (
+            SELECT COUNT(*)
+            FROM sys.identity_columns AS ic
+            INNER JOIN sys.tables AS t ON t.object_id = ic.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+        ) <> 1
+        OR NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.identity_columns AS ic
+            INNER JOIN sys.tables AS t ON t.object_id = ic.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'ProjectionCommits'
+              AND ic.name = N'ProjectionSequence'
+              AND CONVERT(BIGINT, ic.seed_value) = 1
+              AND CONVERT(BIGINT, ic.increment_value) = 1
+              AND ic.is_not_for_replication = 0
         )
             THROW 51002, 'The configured database contains an incompatible new-MesIngest column contract.', 1;
 
@@ -779,6 +812,7 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
             (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
             (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
+            (N'UQ_MesIngest_ProjectionCommits_Sequence', N'ProjectionCommits', 0, 1, 1, N'ProjectionSequence', 0),
             (N'UQ_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', 0, 1, 1, N'PollTraceId', 0),
             (N'PK_MesIngest_HostSessions', N'HostSessions', 1, 1, 1, N'HostSessionId', 0),
             (N'PK_MesIngest_AbsenceAuthorityEvents', N'AbsenceAuthorityEvents', 1, 1, 1, N'EventId', 0),
@@ -972,6 +1006,7 @@ internal static class SqlServerMesIngestSchema
         );
         INSERT INTO @ExpectedChecks VALUES
             (N'CK_MesIngest_SchemaInfo_SingleRow', N'SchemaInfo', N'([Id]=(1))'),
+            (N'CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength', N'SchemaInfo', N'(datalength([SnapshotTokenSigningKey])=(32))'),
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
             (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
             (N'CK_MesIngest_HostSessions_RestartPhase', N'HostSessions', N'([RestartPhase]=N''NORMAL'' OR [RestartPhase]=N''POST_BARRIER'' OR [RestartPhase]=N''BARRIER'')'),
@@ -1005,7 +1040,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 30
+            WHERE s.name = N'mesingest') <> 31
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
@@ -1134,6 +1169,7 @@ internal static class SqlServerMesIngestSchema
               AND SchemaVersion = @schemaVersion
               AND ContractVersion = @contractVersion COLLATE Latin1_General_100_BIN2
               AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2
+              AND DATALENGTH(SnapshotTokenSigningKey) = 32
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
         """;

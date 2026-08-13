@@ -21,6 +21,24 @@ public interface IMesIngestProjection
         string seriesId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Returns one server-filtered, exactly counted page from a frozen
+    /// ProjectionCommit. When the query omits a snapshot reference, the
+    /// implementation freezes the latest successful commit atomically.
+    /// </summary>
+    Task<DemandSeriesListSnapshot> ListDemandSeriesAsync(
+        DemandSeriesBrowseQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reconstructs every detail fact as it was at the referenced frozen
+    /// ProjectionCommit. A later successful round must not affect this result.
+    /// </summary>
+    Task<DemandSeriesDetailSnapshot?> GetDemandSeriesAtSnapshotAsync(
+        string seriesId,
+        string snapshotReference,
+        CancellationToken cancellationToken = default);
+
     Task<PollTraceSnapshot?> GetPollTraceAsync(
         string pollTraceId,
         CancellationToken cancellationToken = default);

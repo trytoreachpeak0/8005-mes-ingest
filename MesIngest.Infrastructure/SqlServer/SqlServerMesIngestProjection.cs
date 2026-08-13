@@ -11,7 +11,7 @@ namespace MesIngest.Infrastructure.SqlServer;
 /// result is recorded transactionally; only SUCCESS receives a projection commit
 /// and can change business state.
 /// </summary>
-public sealed class SqlServerMesIngestProjection : IMesIngestProjection
+public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 {
     private const string SuccessOutcome = "SUCCESS";
     private const string TrackingLifecycle = DemandSeriesLifecycleContract.Tracking;
@@ -431,6 +431,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 projectionCommitId,
                 cancellationToken).ConfigureAwait(false);
 
+            var projectionSequence = await ReadProjectionSequenceAsync(
+                connection,
+                transaction,
+                projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new RoundCommitReceipt(
                 round.PollTraceId,
@@ -438,7 +443,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 projectionCommitId,
                 StableDistinct(seriesIds),
                 StableDistinct(demandIds),
-                IsReplay: false);
+                IsReplay: false,
+                projectionSequence);
         }
         catch (Exception exception)
         {
@@ -505,6 +511,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         p.[RowCount],
                         p.ContentDigest,
                         c.ProjectionCommitId,
+                        c.ProjectionSequence,
                         c.CommittedAt,
                         c.HostSessionId,
                         c.RestartPhaseBefore,
@@ -562,7 +569,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         trace.RestartPhaseBefore!,
                         trace.RestartPhaseAfter!,
                         trace.AbsenceAuthority!.Value,
-                        protectionDecisions),
+                        protectionDecisions,
+                        trace.ProjectionSequence!.Value),
                 observations);
         }
         catch (Exception exception)
@@ -1471,6 +1479,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 p.[RowCount],
                 p.ContentDigest,
                 c.ProjectionCommitId,
+                c.ProjectionSequence,
                 c.CommittedAt,
                 c.HostSessionId,
                 c.RestartPhaseBefore,
@@ -1572,7 +1581,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             existing.ProjectionCommitId,
             StableDistinct(seriesIds),
             StableDistinct(demandIds),
-            IsReplay: true);
+            IsReplay: true,
+            existing.ProjectionSequence);
     }
 
     private static IReadOnlyList<string> StableDistinct(IReadOnlyList<string> values)
@@ -1601,6 +1611,26 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         return Convert.ToInt64(
             await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
             System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
+
+    private static async Task<long> ReadProjectionSequenceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT ProjectionSequence
+            FROM mesingest.ProjectionCommits
+            WHERE ProjectionCommitId = @projectionCommitId;
+            """;
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return value is long sequence
+            ? sequence
+            : throw new InvalidOperationException("The accepted projection commit has no sequence.");
     }
 
     private static async Task InsertPollTraceAndCommitAsync(
@@ -3755,11 +3785,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetInt32(5),
             reader.GetString(6),
             GetNullableString(reader, 7),
-            GetNullableDateTimeOffset(reader, 8),
-            GetNullableString(reader, 9),
+            reader.IsDBNull(8) ? null : reader.GetInt64(8),
+            GetNullableDateTimeOffset(reader, 9),
             GetNullableString(reader, 10),
             GetNullableString(reader, 11),
-            reader.IsDBNull(12) ? null : reader.GetBoolean(12));
+            GetNullableString(reader, 12),
+            reader.IsDBNull(13) ? null : reader.GetBoolean(13));
 
     private static string? GetNullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -3930,6 +3961,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         int RowCount,
         string ContentDigest,
         string? ProjectionCommitId,
+        long? ProjectionSequence,
         DateTimeOffset? CommittedAt,
         string? HostSessionId,
         string? RestartPhaseBefore,
