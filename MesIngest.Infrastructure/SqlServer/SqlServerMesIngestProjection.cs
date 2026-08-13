@@ -1,5 +1,6 @@
 using System.Data;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using MesIngest.Core.SeriesProjection;
 using Microsoft.Data.SqlClient;
 
@@ -78,8 +79,6 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 return replay;
             }
 
-            EnsureSupportedNewRound(prepared);
-
             if (round.Outcome is not MesTaskUnionRoundOutcome.Success)
             {
                 await InsertPollTraceAsync(
@@ -111,28 +110,36 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 transaction,
                 cancellationToken).ConfigureAwait(false);
 
-            var seriesIds = new List<string>(prepared.Observations.Count);
-            var demandIds = new List<string>(prepared.Observations.Count);
-            foreach (var item in prepared.Observations)
+            foreach (var item in prepared.Observations.Where(item => item.KeyToken is null))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (item.KeyToken is null)
-                {
-                    await InsertRawObservationAsync(
-                        connection,
-                        transaction,
-                        round.PollTraceId,
-                        projectionCommitId,
-                        identity: null,
-                        item,
-                        cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
+                await InsertRawObservationAsync(
+                    connection,
+                    transaction,
+                    round.PollTraceId,
+                    projectionCommitId,
+                    identity: null,
+                    item,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            var groups = PrepareAssignedGroups(prepared);
+            var workTypesBySublot = PrepareWorkTypeMemberships(groups);
+            var seriesIds = new List<string>(groups.Count);
+            var demandIds = new List<string>(groups.Count);
+            foreach (var group in groups)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var identityObservation = group.Observations[0].Observation;
+                var workTypeMembership = workTypesBySublot[identityObservation.Sublot!];
+                var uniqueObservation = group.Observations.Count == 1
+                    ? identityObservation
+                    : null;
 
                 var current = await LoadCurrentProjectionForUpdateAsync(
                     connection,
                     transaction,
-                    item.KeyToken,
+                    group.KeyToken,
                     cancellationToken).ConfigureAwait(false);
 
                 ProjectedIdentity identity;
@@ -143,49 +150,61 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         transaction,
                         round,
                         projectionCommitId,
-                        item,
-                        cancellationToken).ConfigureAwait(false);
-                    await SynchronizeFieldConditionsAsync(
-                        connection,
-                        transaction,
-                        identity,
-                        item.Observation,
-                        round,
-                        projectionCommitId,
-                        bootstrapRound,
+                        group.Observations[0],
+                        uniqueObservation,
                         cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
-                    EnsureCurrentObservationCanAdvance(current, item.Observation, round.CompletedAt);
-                    await AdvanceLiveObservationAsync(
-                        connection,
-                        transaction,
-                        current,
-                        item.Observation,
-                        round,
-                        projectionCommitId,
-                        cancellationToken).ConfigureAwait(false);
+                    EnsureCurrentObservationCanAdvance(current, identityObservation, round.CompletedAt);
+                    if (uniqueObservation is null)
+                    {
+                        await AdvanceConflictingObservationAsync(
+                            connection,
+                            transaction,
+                            current,
+                            round,
+                            projectionCommitId,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await AdvanceLiveObservationAsync(
+                            connection,
+                            transaction,
+                            current,
+                            uniqueObservation,
+                            round,
+                            projectionCommitId,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                     identity = new ProjectedIdentity(current.SeriesId, current.DemandId);
-                    await SynchronizeFieldConditionsAsync(
+                }
+
+                await SynchronizeDemandConditionsAsync(
+                    connection,
+                    transaction,
+                    identity,
+                    EvaluateDemandConditions(group, workTypeMembership),
+                    subjectKind => GetObservedValue(group, workTypeMembership, subjectKind),
+                    hasTrustworthyLiveFieldSet: uniqueObservation is not null,
+                    round,
+                    projectionCommitId,
+                    bootstrapRound,
+                    cancellationToken).ConfigureAwait(false);
+
+                foreach (var item in group.Observations)
+                {
+                    await InsertRawObservationAsync(
                         connection,
                         transaction,
-                        identity,
-                        item.Observation,
-                        round,
+                        round.PollTraceId,
                         projectionCommitId,
-                        bootstrapRound: false,
+                        identity,
+                        item,
                         cancellationToken).ConfigureAwait(false);
                 }
 
-                await InsertRawObservationAsync(
-                    connection,
-                    transaction,
-                    round.PollTraceId,
-                    projectionCommitId,
-                    identity,
-                    item,
-                    cancellationToken).ConfigureAwait(false);
                 seriesIds.Add(identity.SeriesId);
                 demandIds.Add(identity.DemandId);
             }
@@ -359,7 +378,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         d.Eqp,
                         d.Step,
                         d.MesSourceDate,
-                        d.Package
+                        d.Package,
+                        (SELECT COUNT_BIG(*)
+                         FROM mesingest.DemandRawObservations AS currentObservation
+                         WHERE currentObservation.DemandId = d.DemandId
+                           AND currentObservation.ProjectionCommitId = d.LatestProjectionCommitId)
                     FROM mesingest.DemandSeries AS s
                     INNER JOIN mesingest.TransportDemands AS d
                         ON d.DemandId = s.CurrentDemandId
@@ -433,12 +456,14 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     series.DemandCreatedPollTraceId,
                     series.DemandCreatedProjectionCommitId,
                     series.DemandLatestProjectionCommitId,
-                    new LiveMesFieldSetSnapshot(
-                        series.Area,
-                        series.Eqp,
-                        series.Step,
-                        series.MesSourceDate,
-                        series.Package),
+                    series.LatestObservationCount == 1
+                        ? new LiveMesFieldSetSnapshot(
+                            series.Area,
+                            series.Eqp,
+                            series.Step,
+                            series.MesSourceDate,
+                            series.Package)
+                        : null,
                     ExternalReadabilityState: errorState.CurrentConditions.Count == 0
                         ? "READABLE"
                         : "NOT_READABLE",
@@ -531,17 +556,50 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         return new PreparedRound(prepared, MesTaskUnionRoundDigest.Compute(round.Observations));
     }
 
-    private static void EnsureSupportedNewRound(PreparedRound prepared)
+    private static IReadOnlyList<PreparedObservationGroup> PrepareAssignedGroups(PreparedRound prepared)
     {
-        var keyTokens = new HashSet<string>(StringComparer.Ordinal);
+        var byKey = new Dictionary<string, List<PreparedObservation>>(StringComparer.Ordinal);
         foreach (var item in prepared.Observations)
         {
-            if (item.KeyToken is not null && !keyTokens.Add(item.KeyToken))
+            if (item.KeyToken is null)
             {
-                throw new NotSupportedException(
-                    "A new SUCCESS round with duplicate TransportDemandKey observations is owned by ticket 04.");
+                continue;
             }
+
+            if (!byKey.TryGetValue(item.KeyToken, out var observations))
+            {
+                observations = [];
+                byKey.Add(item.KeyToken, observations);
+            }
+            observations.Add(item);
         }
+
+        return byKey
+            .Select(pair => new PreparedObservationGroup(pair.Key, pair.Value))
+            .OrderBy(group => group.Observations[0].Ordinal)
+            .ToArray();
+    }
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> PrepareWorkTypeMemberships(
+        IReadOnlyList<PreparedObservationGroup> groups)
+    {
+        var bySublot = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var group in groups)
+        {
+            var observation = group.Observations[0].Observation;
+            if (!bySublot.TryGetValue(observation.Sublot!, out var workTypes))
+            {
+                workTypes = new HashSet<string>(StringComparer.Ordinal);
+                bySublot.Add(observation.Sublot!, workTypes);
+            }
+
+            workTypes.Add(observation.WorkType!);
+        }
+
+        return bySublot.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<string>)pair.Value.Order(StringComparer.Ordinal).ToArray(),
+            StringComparer.Ordinal);
     }
 
     private static async Task<PollTraceRow?> LoadExistingPollTraceForUpdateAsync(
@@ -798,6 +856,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionRound round,
         string projectionCommitId,
         PreparedObservation item,
+        MesTaskUnionObservation? liveObservation,
         CancellationToken cancellationToken)
     {
         var seriesId = NewId();
@@ -841,11 +900,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
             AddNVarChar(command, "@demandId", 64, demandId);
-            AddNullableNVarChar(command, "@area", -1, observation.Area);
-            AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
-            AddNullableNVarChar(command, "@step", -1, observation.Step);
-            AddNullableDateTimeOffset(command, "@mesSourceDate", observation.MesSourceDate);
-            AddNullableNVarChar(command, "@package", -1, observation.Package);
+            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
+            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -1056,6 +1115,37 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
+    private static async Task AdvanceConflictingObservationAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CurrentProjectionRow current,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE mesingest.DemandSeries
+            SET LatestProjectionCommitId = @projectionCommitId
+            WHERE SeriesId = @seriesId;
+
+            UPDATE mesingest.TransportDemands
+            SET LatestProjectionCommitId = @projectionCommitId,
+                DemandLastSeenAt = @completedAt
+            WHERE DemandId = @demandId;
+            """;
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@seriesId", 64, current.SeriesId);
+        AddNVarChar(command, "@demandId", 64, current.DemandId);
+        AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+        {
+            throw new InvalidOperationException(
+                "The current DemandSeries projection changed while applying conflicting observations.");
+        }
+    }
+
     private static IReadOnlyList<LiveFieldChange> GetLiveFieldChanges(
         CurrentProjectionRow current,
         MesTaskUnionObservation observation)
@@ -1087,17 +1177,19 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
-    private static async Task SynchronizeFieldConditionsAsync(
+    private static async Task SynchronizeDemandConditionsAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         ProjectedIdentity identity,
-        MesTaskUnionObservation observation,
+        IReadOnlyList<MesFieldValidationIssue> expectedIssues,
+        Func<string, string?> observedValueForSubject,
+        bool hasTrustworthyLiveFieldSet,
         MesTaskUnionRound round,
         string projectionCommitId,
         bool bootstrapRound,
         CancellationToken cancellationToken)
     {
-        var expected = MesFieldValidation.Evaluate(observation).Issues
+        var expected = expectedIssues
             .ToDictionary(
                 issue => new ConditionKey(issue.Code, issue.SubjectKind),
                 issue => issue);
@@ -1116,6 +1208,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         var changed = false;
         foreach (var (key, existing) in current.OrderBy(pair => pair.Key, ConditionKeyComparer.Instance))
         {
+            if (!hasTrustworthyLiveFieldSet && IsLiveFieldSubject(key.SubjectKind))
+            {
+                continue;
+            }
+
             if (expected.TryGetValue(key, out var issue))
             {
                 if (!string.Equals(existing.ObservedValue, issue.ObservedValue, StringComparison.Ordinal))
@@ -1145,7 +1242,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 identity,
                 key.SubjectKind,
                 existing,
-                observation,
+                observedValueForSubject(key.SubjectKind),
                 round,
                 projectionCommitId,
                 nextSequence++,
@@ -1181,6 +1278,80 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
+    private static IReadOnlyList<MesFieldValidationIssue> EvaluateDemandConditions(
+        PreparedObservationGroup group,
+        IReadOnlyList<string> workTypeMembership)
+    {
+        var issues = new List<MesFieldValidationIssue>();
+        if (group.Observations.Count == 1)
+        {
+            issues.AddRange(MesFieldValidation.Evaluate(group.Observations[0].Observation).Issues);
+        }
+        else
+        {
+            issues.Add(new MesFieldValidationIssue(
+                "DUPLICATE_TRANSPORT_DEMAND_KEY",
+                "OBSERVATION_CONFLICT",
+                "RAW_OBSERVATION_SET",
+                CanonicalizeObservationMultiset(group.Observations.Select(item => item.Observation)),
+                "EXACTLY_ONE_RAW_OBSERVATION_PER_TRANSPORT_DEMAND_KEY"));
+        }
+
+        if (workTypeMembership.Count > 1)
+        {
+            issues.Add(new MesFieldValidationIssue(
+                "SUBLOT_MULTIPLE_WORK_TYPES",
+                "OBSERVATION_CONFLICT",
+                "WORK_TYPE_MEMBERSHIP",
+                CanonicalizeWorkTypeMembership(workTypeMembership),
+                "EXACTLY_ONE_WORK_TYPE_PER_SUBLOT"));
+        }
+
+        return issues;
+    }
+
+    private static string? GetObservedValue(
+        PreparedObservationGroup group,
+        IReadOnlyList<string> workTypeMembership,
+        string subjectKind)
+    {
+        if (string.Equals(subjectKind, "RAW_OBSERVATION_SET", StringComparison.Ordinal))
+        {
+            return CanonicalizeObservationMultiset(group.Observations.Select(item => item.Observation));
+        }
+
+        if (string.Equals(subjectKind, "WORK_TYPE_MEMBERSHIP", StringComparison.Ordinal))
+        {
+            return CanonicalizeWorkTypeMembership(workTypeMembership);
+        }
+
+        return group.Observations.Count == 1
+            ? GetObservedValue(group.Observations[0].Observation, subjectKind)
+            : null;
+    }
+
+    private static string CanonicalizeObservationMultiset(
+        IEnumerable<MesTaskUnionObservation> observations)
+    {
+        var canonicalRows = observations
+            .Select(observation => new ConflictObservationEvidence(
+                observation.WorkType,
+                observation.Sublot,
+                observation.Area,
+                observation.Eqp,
+                observation.Step,
+                MesTaskUnionValueSemantics.NormalizeSourceDate(observation.MesSourceDate),
+                observation.Package))
+            .Select(row => new CanonicalEvidenceRow(JsonSerializer.Serialize(row), row))
+            .OrderBy(row => row.SortKey, StringComparer.Ordinal)
+            .Select(row => row.Value)
+            .ToArray();
+        return JsonSerializer.Serialize(canonicalRows);
+    }
+
+    private static string CanonicalizeWorkTypeMembership(IEnumerable<string> workTypes) =>
+        JsonSerializer.Serialize(workTypes.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+
     private static int GetFieldOrder(string subjectKind) => subjectKind switch
     {
         "AREA" => 0,
@@ -1190,6 +1361,9 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         "PACKAGE" => 4,
         _ => int.MaxValue,
     };
+
+    private static bool IsLiveFieldSubject(string subjectKind) =>
+        GetFieldOrder(subjectKind) != int.MaxValue;
 
     private static async Task<long> GetNextSeriesSequenceAsync(
         SqlConnection connection,
@@ -1403,13 +1577,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         ProjectedIdentity identity,
         string subjectKind,
         CurrentConditionRow existing,
-        MesTaskUnionObservation observation,
+        string? observedValue,
         MesTaskUnionRound round,
         string projectionCommitId,
         long sequence,
         CancellationToken cancellationToken)
     {
-        var observedValue = GetObservedValue(observation, subjectKind);
         var evidenceId = NewId();
         var eventId = await InsertEventAsync(
             connection,
@@ -1761,7 +1934,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             GetNullableString(reader, 19),
             GetNullableString(reader, 20),
             GetNullableDateTimeOffset(reader, 21),
-            GetNullableString(reader, 22));
+            GetNullableString(reader, 22),
+            reader.GetInt64(23));
 
     private static PollTraceRow ReadPollTraceRow(SqlDataReader reader) =>
         new(
@@ -1848,6 +2022,23 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string? KeyToken,
         MesTaskUnionObservation Observation);
 
+    private sealed record PreparedObservationGroup(
+        string KeyToken,
+        IReadOnlyList<PreparedObservation> Observations);
+
+    private sealed record ConflictObservationEvidence(
+        [property: JsonPropertyName("workType")] string? WorkType,
+        [property: JsonPropertyName("sublot")] string? Sublot,
+        [property: JsonPropertyName("area")] string? Area,
+        [property: JsonPropertyName("eqp")] string? Eqp,
+        [property: JsonPropertyName("step")] string? Step,
+        [property: JsonPropertyName("mesSourceDate")] DateTimeOffset? MesSourceDate,
+        [property: JsonPropertyName("package")] string? Package);
+
+    private sealed record CanonicalEvidenceRow(
+        string SortKey,
+        ConflictObservationEvidence Value);
+
     private sealed record ProjectedIdentity(string SeriesId, string DemandId);
 
     private sealed record LiveFieldChange(string SubjectKind, object? Before, object? After);
@@ -1927,7 +2118,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string? Eqp,
         string? Step,
         DateTimeOffset? MesSourceDate,
-        string? Package);
+        string? Package,
+        long LatestObservationCount);
 
     private sealed record PollTraceRow(
         string PollTraceId,

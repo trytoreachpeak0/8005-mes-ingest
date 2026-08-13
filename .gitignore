@@ -6,3 +6,4 @@ obj/
 appsettings.Local.json
 appsettings.*.Local.json
 dist/
+.artifacts/ticket04-tests/

@@ -166,7 +166,7 @@ internal sealed record TransportDemandV2Dto(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
-    LiveMesFieldSetDto LiveMesFields,
+    LiveMesFieldSetDto? LiveMesFields,
     string ExternalReadabilityState,
     IReadOnlyList<string> ReadabilityBlockers)
 {
@@ -182,7 +182,9 @@ internal sealed record TransportDemandV2Dto(
             snapshot.CreatedPollTraceId,
             snapshot.CreatedProjectionCommitId,
             snapshot.LatestProjectionCommitId,
-            LiveMesFieldSetDto.From(snapshot.LiveMesFields),
+            snapshot.LiveMesFields is null
+                ? null
+                : LiveMesFieldSetDto.From(snapshot.LiveMesFields),
             snapshot.ExternalReadabilityState,
             snapshot.ReadabilityBlockers);
 }

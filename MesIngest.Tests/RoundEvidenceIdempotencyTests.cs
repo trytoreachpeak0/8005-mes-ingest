@@ -417,6 +417,10 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         var series = await ReadSeriesAsync(client, "WIRE_TO_NITROGEN", "SL-TICKET02-ASSIGNED");
         Assert.Contains(series.GetProperty("seriesId").GetString(), receipt.SeriesIds);
         Assert.Equal(1, series.GetProperty("rawObservations").GetArrayLength());
+        AssertWorkTypeMembershipCondition(
+            series,
+            "LOADPORT_TO_OVEN",
+            "WIRE_TO_NITROGEN");
 
         var conflictingSeries = await ReadSeriesAsync(client, "LOADPORT_TO_OVEN", "SL-TICKET02-ASSIGNED");
         Assert.Contains(conflictingSeries.GetProperty("seriesId").GetString(), receipt.SeriesIds);
@@ -426,7 +430,7 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
             "NOT_READABLE",
             conflictingSeries.GetProperty("currentDemand").GetProperty("externalReadabilityState").GetString());
         var fieldConditions = conflictingSeries.GetProperty("currentConditions").EnumerateArray().ToArray();
-        Assert.Equal(2, fieldConditions.Length);
+        Assert.Equal(3, fieldConditions.Length);
         Assert.Contains(fieldConditions, condition =>
             condition.GetProperty("code").GetString() == "INVALID_MES_FIELD_FORMAT"
             && condition.GetProperty("category").GetString() == "DATA_FORMAT"
@@ -435,6 +439,10 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
             condition.GetProperty("code").GetString() == "REQUIRED_MES_FIELD_MISSING"
             && condition.GetProperty("category").GetString() == "DATA_COMPLETENESS"
             && condition.GetProperty("subjectKind").GetString() == "EQP");
+        AssertWorkTypeMembershipCondition(
+            conflictingSeries,
+            "LOADPORT_TO_OVEN",
+            "WIRE_TO_NITROGEN");
 
         using var guessedFromSublot = await client.GetAsync(
             "/api/v2/demand-series/by-key?workType=LOADPORT_TO_OVEN&sublot=SL-GUESSED-FROM-MISSING-SUBLOT");
@@ -442,7 +450,7 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         using var guessedFromWorkType = await client.GetAsync(
             "/api/v2/demand-series/by-key?workType=WIRE_TO_NITROGEN&sublot=SL-BLANK-TASK-TYPE");
         Assert.Equal(HttpStatusCode.NotFound, guessedFromWorkType.StatusCode);
-        Assert.Equal(new DatabaseCounts(1, 1, 2, 2, 4, 6), await ReadDatabaseCountsAsync(database.ConnectionString));
+        Assert.Equal(new DatabaseCounts(1, 1, 2, 2, 4, 8), await ReadDatabaseCountsAsync(database.ConnectionString));
     }
 
     [Ticket01SqlServerFact]
@@ -596,6 +604,25 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
         Assert.Equal(NewMesIngestContract.Version, conflict.ContractVersion);
         Assert.Equal(pollTraceId, conflict.PollTraceId);
         Assert.Contains(pollTraceId, conflict.Message, StringComparison.Ordinal);
+    }
+
+    private static void AssertWorkTypeMembershipCondition(
+        JsonElement series,
+        params string[] expectedWorkTypes)
+    {
+        var demandId = series.GetProperty("currentDemand").GetProperty("demandId").GetString();
+        var condition = Assert.Single(series.GetProperty("currentConditions").EnumerateArray()
+            .Where(value => value.GetProperty("code").GetString() == "SUBLOT_MULTIPLE_WORK_TYPES"));
+        Assert.Equal("OBSERVATION_CONFLICT", condition.GetProperty("category").GetString());
+        Assert.Equal("WORK_TYPE_MEMBERSHIP", condition.GetProperty("subjectKind").GetString());
+        Assert.Equal($"DEMAND:{demandId}", condition.GetProperty("target").GetString());
+        Assert.Equal("EXACTLY_ONE_WORK_TYPE_PER_SUBLOT", condition.GetProperty("expectedRule").GetString());
+        using var observedValue = JsonDocument.Parse(condition.GetProperty("observedValue").GetString()!);
+        Assert.Equal(
+            expectedWorkTypes.Order(StringComparer.Ordinal),
+            observedValue.RootElement.EnumerateArray()
+                .Select(value => value.GetString())
+                .Order(StringComparer.Ordinal));
     }
 
     private static async Task<DatabaseCounts> ReadDatabaseCountsAsync(string connectionString)

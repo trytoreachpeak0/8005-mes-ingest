@@ -69,7 +69,7 @@ public sealed record TransportDemandSnapshot(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
-    LiveMesFieldSetSnapshot LiveMesFields,
+    LiveMesFieldSetSnapshot? LiveMesFields,
     string ExternalReadabilityState,
     IReadOnlyList<string> ReadabilityBlockers);
 
