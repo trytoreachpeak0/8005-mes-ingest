@@ -465,6 +465,14 @@ internal static class SqlServerMesIngestSchema
         );
         CREATE INDEX IX_MesIngest_SeriesErrorPeriodEvidence_Period
             ON mesingest.SeriesErrorPeriodEvidence (PeriodId, ObservedAt, EvidenceId);
+        CREATE INDEX IX_MesIngest_DemandSeriesErrorPeriods_Search
+            ON mesingest.DemandSeriesErrorPeriods
+                (Category, ErrorCode, StartedAt, SeriesId)
+            INCLUDE (PeriodId, EndedAt, OpenedEventId, ClosedEventId, Severity);
+        CREATE INDEX IX_MesIngest_SeriesErrorPeriodEvidence_Demand
+            ON mesingest.SeriesErrorPeriodEvidence
+                (DemandId, PeriodId, ObservedAt, EvidenceId)
+            INCLUDE (ProjectionCommitId);
 
         CREATE TABLE mesingest.DemandSeriesCurrentConditions
         (
@@ -1214,6 +1222,62 @@ internal static class SqlServerMesIngestSchema
                        WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
         )
             THROW 51006, 'The configured database is missing the new-MesIngest error-evidence index contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'DemandSeriesErrorPeriods'
+              AND i.name = N'IX_MesIngest_DemandSeriesErrorPeriods_Search'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND N'Category,ErrorCode,StartedAt,SeriesId' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.key_ordinal > 0)
+              AND N'PeriodId,EndedAt,OpenedEventId,ClosedEventId,Severity' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.index_column_id)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.is_included_column = 1)
+        )
+            THROW 51006, 'The configured database is missing the new-MesIngest Error Search period index contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'SeriesErrorPeriodEvidence'
+              AND i.name = N'IX_MesIngest_SeriesErrorPeriodEvidence_Demand'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND N'DemandId,PeriodId,ObservedAt,EvidenceId' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.key_ordinal > 0)
+              AND N'ProjectionCommitId' =
+                  (SELECT STRING_AGG(c.name, N',')
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.is_included_column = 1)
+        )
+            THROW 51006, 'The configured database is missing the new-MesIngest Error Search Demand evidence index contract.', 1;
 
         IF NOT EXISTS
         (

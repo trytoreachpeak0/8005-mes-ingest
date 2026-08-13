@@ -55,10 +55,11 @@ builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(TimeProvider.System);
 if (newV2Enabled)
 {
-    builder.Services.AddSingleton<IMesIngestProjection>(
+    builder.Services.AddSingleton<IMesIngestProjection>(sp =>
         new SqlServerMesIngestProjection(
             configured.NewSqlServerConnectionString,
-            configured.ZeroDropEnterThreshold));
+            configured.ZeroDropEnterThreshold,
+            sp.GetRequiredService<TimeProvider>()));
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
 }

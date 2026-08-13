@@ -58,6 +58,15 @@ public interface IMesIngestProjection
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Searches permanent Series error periods through one Host-frozen UTC
+    /// ErrorSearchAsOf and ProjectionCommit high-water. Exact totals, facets,
+    /// activity state, fixed ordering, and subsequent pages share that fence.
+    /// </summary>
+    Task<ErrorSearchListSnapshot> ListErrorSearchAsync(
+        ErrorSearchQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the complete, full-scope externally readable catalog at one
     /// committed CatalogRevision. A matching known revision transfers no body.
     /// </summary>

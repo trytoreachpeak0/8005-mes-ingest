@@ -32,6 +32,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
     private readonly string _connectionString;
     private readonly int _zeroDropEnterThreshold;
+    private readonly TimeProvider _timeProvider;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
@@ -40,7 +41,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
     public SqlServerMesIngestProjection(
         string connectionString,
-        int zeroDropEnterThreshold = 10)
+        int zeroDropEnterThreshold = 10,
+        TimeProvider? timeProvider = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -59,6 +61,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
         _connectionString = connectionString;
         _zeroDropEnterThreshold = zeroDropEnterThreshold;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)

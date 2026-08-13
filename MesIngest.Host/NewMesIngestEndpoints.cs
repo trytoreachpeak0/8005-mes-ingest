@@ -32,6 +32,9 @@ internal static class NewMesIngestEndpoints
                 GetReadabilityAuditDetailAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet("/api/v2/error-search", ListErrorSearchAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
@@ -593,6 +596,174 @@ internal static class NewMesIngestEndpoints
         };
     }
 
+    private static async Task<IResult> ListErrorSearchAsync(
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var query = ParseErrorSearchQuery(request.Query);
+            var snapshot = await projection.ListErrorSearchAsync(query, cancellationToken);
+            return Results.Ok(ErrorSearchListDto.From(snapshot));
+        }
+        catch (ErrorSearchException exception)
+        {
+            return ToErrorSearchError(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                ErrorSearchErrorCodes.InvalidQuery,
+                exception.Message));
+        }
+    }
+
+    private static ErrorSearchQuery ParseErrorSearchQuery(IQueryCollection query)
+    {
+        var allowedKeys = new HashSet<string>(
+        [
+            "category", "code", "state", "seriesId", "demandId", "sublot",
+            "window", "from", "to", "pageSize", "snapshot", "cursor",
+        ],
+            StringComparer.Ordinal);
+        var unsupported = query.Keys.FirstOrDefault(key => !allowedKeys.Contains(key));
+        if (unsupported is not null)
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                $"Unsupported error search query parameter '{unsupported}'.");
+        }
+
+        var window = ReadErrorSearchSingle(query, "window");
+        var from = ReadErrorSearchSingle(query, "from");
+        var to = ReadErrorSearchSingle(query, "to");
+        if (window is not null && (from is not null || to is not null))
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                "window cannot be combined with from or to.");
+        }
+
+        var windowSelection = window is not null
+            ? ParseErrorSearchWindow(window)
+            : from is not null || to is not null
+                ? ErrorSearchWindowSelection.Custom(
+                    ParseErrorSearchTimestamp(from, "from"),
+                    ParseErrorSearchTimestamp(to, "to"))
+                : ErrorSearchWindowSelection.Last7Days;
+        var filter = new ErrorSearchFilter
+        {
+            Categories = ReadSet(query, "category"),
+            ErrorCodes = ReadSet(query, "code"),
+            ActivityStates = ReadSet(query, "state"),
+            SeriesId = ReadErrorSearchSingle(query, "seriesId"),
+            DemandId = ReadErrorSearchSingle(query, "demandId"),
+            SublotContains = ReadErrorSearchSingle(query, "sublot"),
+        };
+        return new ErrorSearchQuery(
+            filter,
+            windowSelection,
+            ParseErrorSearchInt(query, "pageSize", ErrorSearchQuery.DefaultPageSize),
+            ReadErrorSearchSingle(query, "snapshot"),
+            ReadErrorSearchSingle(query, "cursor"))
+            .NormalizeAndValidate();
+    }
+
+    private static ErrorSearchWindowSelection ParseErrorSearchWindow(string value) =>
+        value.Trim().ToUpperInvariant() switch
+        {
+            ErrorSearchWindowKinds.Last24Hours => ErrorSearchWindowSelection.Last24Hours,
+            ErrorSearchWindowKinds.Last7Days => ErrorSearchWindowSelection.Last7Days,
+            ErrorSearchWindowKinds.Last30Days => ErrorSearchWindowSelection.Last30Days,
+            ErrorSearchWindowKinds.AllHistory => ErrorSearchWindowSelection.AllHistory,
+            _ => throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                "window contains an unsupported exact value."),
+        };
+
+    private static DateTimeOffset? ParseErrorSearchTimestamp(string? value, string name)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var hasExplicitOffset = System.Text.RegularExpressions.Regex.IsMatch(
+            value,
+            @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})$",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        string[] formats =
+        [
+            "yyyy-MM-dd'T'HH:mm:ssK",
+            "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+        ];
+        if (!hasExplicitOffset
+            || !DateTimeOffset.TryParseExact(
+                value,
+                formats,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out var timestamp))
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                $"{name} must be an ISO-8601 timestamp with an explicit UTC offset.");
+        }
+
+        return timestamp.ToUniversalTime();
+    }
+
+    private static int ParseErrorSearchInt(
+        IQueryCollection query,
+        string name,
+        int defaultValue)
+    {
+        var raw = ReadErrorSearchSingle(query, name);
+        if (raw is null)
+        {
+            return defaultValue;
+        }
+        if (!int.TryParse(
+                raw,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value))
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                $"{name} must be an integer.");
+        }
+        return value;
+    }
+
+    private static string? ReadErrorSearchSingle(IQueryCollection query, string name)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+        if (values.Count != 1)
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+        }
+        return values[0];
+    }
+
+    private static IResult ToErrorSearchError(ErrorSearchException exception)
+    {
+        var error = new NewMesIngestErrorDto(exception.Code, exception.Message);
+        return exception.Code switch
+        {
+            ErrorSearchErrorCodes.ProjectionNotAvailable => Results.Conflict(error),
+            ErrorSearchErrorCodes.SnapshotNotFound =>
+                Results.Json(error, statusCode: StatusCodes.Status410Gone),
+            _ => Results.BadRequest(error),
+        };
+    }
+
     private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
         string pollTraceId,
         IMesIngestProjection projection,
@@ -1010,6 +1181,132 @@ internal sealed record ReadabilityAuditDetailDto(
             snapshot.Blockers.Select(ReadabilityBlockerEvidenceDto.From).ToArray(),
             snapshot.LatestRawObservations.Select(DemandRawObservationDto.From).ToArray(),
             ReadabilityAuditPollTraceDto.From(snapshot.LatestObservationPollTrace));
+}
+
+internal sealed record ErrorSearchSnapshotIdentityDto(
+    DateTimeOffset ErrorSearchAsOf,
+    string ProjectionCommitId,
+    long ProjectionSequence,
+    DateTimeOffset ProjectionCommittedAt,
+    string PollTraceId,
+    string ContractVersion)
+{
+    public static ErrorSearchSnapshotIdentityDto From(ErrorSearchSnapshotIdentity snapshot) =>
+        new(
+            snapshot.ErrorSearchAsOf,
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.PollTraceId,
+            snapshot.ContractVersion);
+}
+
+internal sealed record ErrorSearchFilterDto(
+    IReadOnlyList<string> Categories,
+    IReadOnlyList<string> ErrorCodes,
+    IReadOnlyList<string> ActivityStates,
+    string? SeriesId,
+    string? DemandId,
+    string? SublotContains)
+{
+    public static ErrorSearchFilterDto From(ErrorSearchFilter filter) =>
+        new(
+            filter.Categories,
+            filter.ErrorCodes,
+            filter.ActivityStates,
+            filter.SeriesId,
+            filter.DemandId,
+            filter.SublotContains);
+}
+
+internal sealed record ErrorSearchWindowDto(
+    string Kind,
+    DateTimeOffset? FromUtc,
+    DateTimeOffset ToUtc)
+{
+    public static ErrorSearchWindowDto From(ErrorSearchResolvedWindow window) =>
+        new(window.Kind, window.FromUtc, window.ToUtc);
+}
+
+internal sealed record ErrorSearchCategoryFacetDto(string Category, long SeriesCount);
+
+internal sealed record ErrorSearchActivityStateFacetDto(string State, long SeriesCount);
+
+internal sealed record ErrorSearchFacetsDto(
+    IReadOnlyList<ErrorSearchCategoryFacetDto> Categories,
+    IReadOnlyList<ErrorSearchActivityStateFacetDto> ActivityStates)
+{
+    public static ErrorSearchFacetsDto From(ErrorSearchFacets facets) =>
+        new(
+            facets.Categories.Select(facet =>
+                new ErrorSearchCategoryFacetDto(facet.Category, facet.SeriesCount)).ToArray(),
+            facets.ActivityStates.Select(facet =>
+                new ErrorSearchActivityStateFacetDto(facet.State, facet.SeriesCount)).ToArray());
+}
+
+internal sealed record ErrorSearchMatchedErrorDto(
+    string Code,
+    string Category,
+    string Severity)
+{
+    public static ErrorSearchMatchedErrorDto From(ErrorSearchMatchedErrorSnapshot error) =>
+        new(error.Code, error.Category, error.Severity);
+}
+
+internal sealed record ErrorSearchListItemDto(
+    string SeriesId,
+    TransportDemandKeyDto TransportDemandKey,
+    string ActivityState,
+    IReadOnlyList<ErrorSearchMatchedErrorDto> MatchedErrors,
+    DateTimeOffset LatestMatchedEvidenceAt,
+    int MatchedPeriodCount,
+    int MatchedDemandGenerationCount,
+    string? MesArea,
+    string MesAreaAvailability)
+{
+    public static ErrorSearchListItemDto From(ErrorSearchListItemSnapshot item) =>
+        new(
+            item.SeriesId,
+            new TransportDemandKeyDto(item.WorkType, item.Sublot),
+            item.ActivityState,
+            item.MatchedErrors.Select(ErrorSearchMatchedErrorDto.From).ToArray(),
+            item.LatestMatchedEvidenceAt,
+            item.MatchedPeriodCount,
+            item.MatchedDemandGenerationCount,
+            item.MesArea,
+            item.MesAreaAvailability);
+}
+
+internal sealed record ErrorSearchListDto(
+    string SnapshotReference,
+    ErrorSearchSnapshotIdentityDto Snapshot,
+    ErrorSearchFilterDto Filter,
+    ErrorSearchWindowDto Window,
+    string Order,
+    long TotalSeriesCount,
+    ErrorSearchFacetsDto Facets,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<ErrorSearchListItemDto> Items,
+    string? NextCursor,
+    bool HasMore)
+{
+    public static ErrorSearchListDto From(ErrorSearchListSnapshot snapshot) =>
+        new(
+            snapshot.SnapshotReference,
+            ErrorSearchSnapshotIdentityDto.From(snapshot.Snapshot),
+            ErrorSearchFilterDto.From(snapshot.Filter),
+            ErrorSearchWindowDto.From(snapshot.Window),
+            snapshot.Order,
+            snapshot.TotalSeriesCount,
+            ErrorSearchFacetsDto.From(snapshot.Facets),
+            snapshot.PageSize,
+            snapshot.PageNumber,
+            snapshot.TotalPages,
+            snapshot.Items.Select(ErrorSearchListItemDto.From).ToArray(),
+            snapshot.NextCursor,
+            snapshot.HasMore);
 }
 
 internal sealed record ProjectionCommitDto(
