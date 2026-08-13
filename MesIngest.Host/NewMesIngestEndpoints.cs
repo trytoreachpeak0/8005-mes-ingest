@@ -43,6 +43,14 @@ internal static class NewMesIngestEndpoints
                 GetErrorSearchRawEvidenceAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet(
+                "/api/v2/current-ingest-attention",
+                ListCurrentIngestAttentionAsync)
+            .ExcludeFromDescription();
+
+        endpoints.MapGet("/api/v2/watch-overview", GetWatchOverviewAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
@@ -938,6 +946,153 @@ internal static class NewMesIngestEndpoints
             new ErrorSearchRawEvidenceQuery(fields, maxItems).NormalizeAndValidate());
     }
 
+    private static async Task<IResult> ListCurrentIngestAttentionAsync(
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var query = ParseCurrentIngestAttentionQuery(request.Query);
+            var snapshot = await projection.ReadCurrentIngestAttentionAsync(
+                query,
+                cancellationToken);
+            return Results.Ok(CurrentIngestAttentionDto.From(snapshot));
+        }
+        catch (CurrentIngestAttentionException exception)
+        {
+            return ToCurrentIngestAttentionError(exception);
+        }
+    }
+
+    private static CurrentIngestAttentionQuery ParseCurrentIngestAttentionQuery(
+        IQueryCollection query)
+    {
+        var allowedKeys = new HashSet<string>(
+            ["pageSize", "pageNumber", "kind", "severity"],
+            StringComparer.Ordinal);
+        var unsupported = query.Keys.FirstOrDefault(key => !allowedKeys.Contains(key));
+        if (unsupported is not null)
+        {
+            throw new CurrentIngestAttentionException(
+                CurrentIngestAttentionErrorCodes.InvalidQuery,
+                $"Unsupported current-ingest-attention query parameter '{unsupported}'.");
+        }
+
+        return new CurrentIngestAttentionQuery(
+                ParseCurrentIngestAttentionInt(
+                    query,
+                    "pageSize",
+                    CurrentIngestAttentionQuery.DefaultPageSize),
+                ParseCurrentIngestAttentionInt(query, "pageNumber", 1),
+                Kinds: ReadSet(query, "kind"),
+                Severities: ReadSet(query, "severity"))
+            .NormalizeAndValidate();
+    }
+
+    private static int ParseCurrentIngestAttentionInt(
+        IQueryCollection query,
+        string name,
+        int defaultValue)
+    {
+        var raw = ReadCurrentIngestAttentionSingle(query, name);
+        if (raw is null)
+        {
+            return defaultValue;
+        }
+
+        if (!int.TryParse(
+                raw,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value))
+        {
+            throw new CurrentIngestAttentionException(
+                CurrentIngestAttentionErrorCodes.InvalidQuery,
+                $"{name} must be an integer.");
+        }
+
+        return value;
+    }
+
+    private static string? ReadCurrentIngestAttentionSingle(
+        IQueryCollection query,
+        string name)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+
+        if (values.Count != 1)
+        {
+            throw new CurrentIngestAttentionException(
+                CurrentIngestAttentionErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+        }
+
+        return values[0];
+    }
+
+    private static IResult ToCurrentIngestAttentionError(
+        CurrentIngestAttentionException exception)
+    {
+        var error = new NewMesIngestErrorDto(exception.Code, exception.Message);
+        return exception.Code == CurrentIngestAttentionErrorCodes.ProjectionNotAvailable
+            ? Results.Conflict(error)
+            : Results.BadRequest(error);
+    }
+
+    private static async Task<IResult> GetWatchOverviewAsync(
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var query = ParseWatchOverviewQuery(request.Query);
+            var snapshot = await projection.ReadWatchOverviewAsync(query, cancellationToken);
+            return Results.Ok(WatchOverviewDto.From(snapshot));
+        }
+        catch (WatchOverviewException exception)
+        {
+            return ToWatchOverviewError(exception);
+        }
+    }
+
+    private static WatchOverviewQuery ParseWatchOverviewQuery(IQueryCollection query)
+    {
+        var unsupported = query.Keys.FirstOrDefault(
+            key => !string.Equals(key, "area", StringComparison.Ordinal));
+        if (unsupported is not null)
+        {
+            throw new WatchOverviewException(
+                WatchOverviewErrorCodes.InvalidQuery,
+                $"Unsupported watch-overview query parameter '{unsupported}'.");
+        }
+
+        if (query.TryGetValue("area", out var rawAreas)
+            && (rawAreas.Count == 0
+                || rawAreas.Any(raw => string.IsNullOrWhiteSpace(raw)
+                    || raw!.Split(',', StringSplitOptions.None)
+                        .Any(value => string.IsNullOrWhiteSpace(value)))))
+        {
+            throw new WatchOverviewException(
+                WatchOverviewErrorCodes.InvalidQuery,
+                "AREA values cannot be empty.");
+        }
+
+        return new WatchOverviewQuery(ReadSet(query, "area")).NormalizeAndValidate();
+    }
+
+    private static IResult ToWatchOverviewError(WatchOverviewException exception)
+    {
+        var error = new NewMesIngestErrorDto(exception.Code, exception.Message);
+        return exception.Code == WatchOverviewErrorCodes.ProjectionNotAvailable
+            ? Results.Conflict(error)
+            : Results.BadRequest(error);
+    }
+
     private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
         string pollTraceId,
         IMesIngestProjection projection,
@@ -1043,6 +1198,301 @@ internal sealed record ParsedErrorSearchRawEvidenceRequest(
     ErrorSearchRawEvidenceQuery Query);
 
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
+
+internal sealed record OperationalSnapshotIdentityDto(
+    string ProjectionCommitId,
+    long ProjectionSequence,
+    DateTimeOffset ProjectionCommittedAt,
+    string PollTraceId,
+    long PollTraceHighWater,
+    long CatalogRevision,
+    DateTimeOffset SnapshotAsOf,
+    string ContractVersion)
+{
+    public static OperationalSnapshotIdentityDto From(OperationalSnapshotIdentity snapshot) =>
+        new(
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.PollTraceId,
+            snapshot.PollTraceHighWater,
+            snapshot.CatalogRevision,
+            snapshot.SnapshotAsOf,
+            snapshot.ContractVersion);
+}
+
+internal sealed record OverviewNavigationIntentDto(
+    string Target,
+    int PageNumber,
+    IReadOnlyList<string>? MesAreas,
+    IReadOnlyList<string>? Lifecycles,
+    IReadOnlyList<string>? CurrentPresences,
+    IReadOnlyList<string>? ReadabilityStates,
+    IReadOnlyList<string>? ErrorActivityStates,
+    string? ErrorWindow,
+    IReadOnlyList<string>? AttentionKinds,
+    IReadOnlyList<string>? AttentionSeverities,
+    string? SeriesId,
+    string? WorkType,
+    string? PollTraceId,
+    string? Cursor)
+{
+    public static OverviewNavigationIntentDto From(OverviewNavigationIntent intent) =>
+        new(
+            intent.Target,
+            intent.PageNumber,
+            intent.MesAreas,
+            intent.Lifecycles,
+            intent.CurrentPresences,
+            intent.ReadabilityStates,
+            intent.ErrorActivityStates,
+            intent.ErrorWindow,
+            intent.AttentionKinds,
+            intent.AttentionSeverities,
+            intent.SeriesId,
+            intent.WorkType,
+            intent.PollTraceId,
+            intent.Cursor);
+}
+
+internal sealed record CurrentIngestAttentionFacetDto(
+    string Value,
+    long ItemCount)
+{
+    public static CurrentIngestAttentionFacetDto From(
+        CurrentIngestAttentionFacetSnapshot facet) =>
+        new(facet.Value, facet.ItemCount);
+}
+
+internal sealed record CurrentIngestAttentionFacetsDto(
+    IReadOnlyList<CurrentIngestAttentionFacetDto> Types,
+    IReadOnlyList<CurrentIngestAttentionFacetDto> Severities)
+{
+    public static CurrentIngestAttentionFacetsDto From(CurrentIngestAttentionFacets facets) =>
+        new(
+            facets.Types.Select(CurrentIngestAttentionFacetDto.From).ToArray(),
+            facets.Severities.Select(CurrentIngestAttentionFacetDto.From).ToArray());
+}
+
+internal sealed record CurrentIngestAttentionEvidenceDto(
+    string? ProjectionCommitId,
+    long? ProjectionSequence,
+    string? PollTraceId,
+    long? PollTraceSequence,
+    string? SeriesId,
+    string? DemandId,
+    string? WorkType,
+    int? ObservationOrdinal,
+    string? EvidenceId,
+    string? ContentDigest,
+    string? Phase,
+    string? Outcome)
+{
+    public static CurrentIngestAttentionEvidenceDto From(
+        CurrentIngestAttentionEvidenceSnapshot evidence) =>
+        new(
+            evidence.ProjectionCommitId,
+            evidence.ProjectionSequence,
+            evidence.PollTraceId,
+            evidence.PollTraceSequence,
+            evidence.SeriesId,
+            evidence.DemandId,
+            evidence.WorkType,
+            evidence.ObservationOrdinal,
+            evidence.EvidenceId,
+            evidence.ContentDigest,
+            evidence.Phase,
+            evidence.Outcome);
+}
+
+internal sealed record CurrentIngestAttentionItemDto(
+    string Kind,
+    string Severity,
+    DateTimeOffset OccurredAt,
+    string StableIdentity,
+    string? SeriesId,
+    string? WorkType,
+    string? ErrorCode,
+    string? Target,
+    string? SubjectKind,
+    CurrentIngestAttentionEvidenceDto Evidence,
+    OverviewNavigationIntentDto Navigation)
+{
+    public static CurrentIngestAttentionItemDto From(CurrentIngestAttentionItemSnapshot item) =>
+        new(
+            item.Kind,
+            item.Severity,
+            item.OccurredAt,
+            item.StableIdentity,
+            item.SeriesId,
+            item.WorkType,
+            item.ErrorCode,
+            item.Target,
+            item.SubjectKind,
+            CurrentIngestAttentionEvidenceDto.From(item.Evidence),
+            OverviewNavigationIntentDto.From(item.Navigation));
+}
+
+internal sealed record CurrentIngestAttentionDto(
+    OperationalSnapshotIdentityDto Snapshot,
+    long ExactTotalItemCount,
+    CurrentIngestAttentionFacetsDto Facets,
+    string Order,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<string> Kinds,
+    IReadOnlyList<string> Severities,
+    IReadOnlyList<CurrentIngestAttentionItemDto> Items)
+{
+    public static CurrentIngestAttentionDto From(CurrentIngestAttentionSnapshot snapshot) =>
+        new(
+            OperationalSnapshotIdentityDto.From(snapshot.Snapshot),
+            snapshot.ExactTotalItemCount,
+            CurrentIngestAttentionFacetsDto.From(snapshot.Facets),
+            snapshot.Order,
+            snapshot.PageSize,
+            snapshot.PageNumber,
+            snapshot.TotalPages,
+            snapshot.Kinds,
+            snapshot.Severities,
+            snapshot.Items.Select(CurrentIngestAttentionItemDto.From).ToArray());
+}
+
+internal sealed record WatchOverviewFacetDto(
+    string Value,
+    long Count,
+    OverviewNavigationIntentDto Navigation)
+{
+    public static WatchOverviewFacetDto From(OverviewFacetSnapshot facet) =>
+        new(facet.Value, facet.Count, OverviewNavigationIntentDto.From(facet.Navigation));
+}
+
+internal sealed record WatchOverviewSeriesSummaryDto(
+    long ExactTotalSeriesCount,
+    long TrackingCount,
+    long ArchivedCount,
+    long GoneCount,
+    long LongGoneButVisibleCount,
+    OverviewNavigationIntentDto Navigation,
+    OverviewNavigationIntentDto TrackingNavigation,
+    OverviewNavigationIntentDto ArchivedNavigation,
+    OverviewNavigationIntentDto GoneNavigation,
+    OverviewNavigationIntentDto LongGoneButVisibleNavigation)
+{
+    public static WatchOverviewSeriesSummaryDto From(WatchOverviewSeriesSummary summary) =>
+        new(
+            summary.ExactTotalSeriesCount,
+            summary.TrackingCount,
+            summary.ArchivedCount,
+            summary.GoneCount,
+            summary.LongGoneButVisibleCount,
+            OverviewNavigationIntentDto.From(summary.Navigation),
+            OverviewNavigationIntentDto.From(summary.TrackingNavigation),
+            OverviewNavigationIntentDto.From(summary.ArchivedNavigation),
+            OverviewNavigationIntentDto.From(summary.GoneNavigation),
+            OverviewNavigationIntentDto.From(summary.LongGoneButVisibleNavigation));
+}
+
+internal sealed record WatchOverviewReadabilitySummaryDto(
+    long ExactTotalDemandGenerationCount,
+    long ReadableCount,
+    long NotReadableCount,
+    OverviewNavigationIntentDto Navigation,
+    OverviewNavigationIntentDto ReadableNavigation,
+    OverviewNavigationIntentDto NotReadableNavigation)
+{
+    public static WatchOverviewReadabilitySummaryDto From(
+        WatchOverviewReadabilitySummary summary) =>
+        new(
+            summary.ExactTotalDemandGenerationCount,
+            summary.ReadableCount,
+            summary.NotReadableCount,
+            OverviewNavigationIntentDto.From(summary.Navigation),
+            OverviewNavigationIntentDto.From(summary.ReadableNavigation),
+            OverviewNavigationIntentDto.From(summary.NotReadableNavigation));
+}
+
+internal sealed record WatchOverviewErrorSummaryDto(
+    long ActiveSeriesCount,
+    long Prior7DaysSeriesCount,
+    OverviewNavigationIntentDto Navigation,
+    OverviewNavigationIntentDto ActiveNavigation,
+    OverviewNavigationIntentDto Prior7DaysNavigation)
+{
+    public static WatchOverviewErrorSummaryDto From(WatchOverviewErrorSummary summary) =>
+        new(
+            summary.ActiveSeriesCount,
+            summary.Prior7DaysSeriesCount,
+            OverviewNavigationIntentDto.From(summary.Navigation),
+            OverviewNavigationIntentDto.From(summary.ActiveNavigation),
+            OverviewNavigationIntentDto.From(summary.Prior7DaysNavigation));
+}
+
+internal sealed record WatchOverviewAttentionSummaryDto(
+    long ExactTotalItemCount,
+    IReadOnlyList<WatchOverviewFacetDto> Types,
+    IReadOnlyList<WatchOverviewFacetDto> Severities,
+    OverviewNavigationIntentDto Navigation)
+{
+    public static WatchOverviewAttentionSummaryDto From(
+        WatchOverviewAttentionSummary summary) =>
+        new(
+            summary.ExactTotalItemCount,
+            summary.Types.Select(WatchOverviewFacetDto.From).ToArray(),
+            summary.Severities.Select(WatchOverviewFacetDto.From).ToArray(),
+            OverviewNavigationIntentDto.From(summary.Navigation));
+}
+
+internal sealed record WatchOverviewActivityDto(
+    string EventId,
+    string Kind,
+    string EventType,
+    string Severity,
+    DateTimeOffset OccurredAt,
+    string? SeriesId,
+    string? WorkType,
+    string? PollTraceId,
+    string? ProjectionCommitId,
+    OverviewNavigationIntentDto Navigation)
+{
+    public static WatchOverviewActivityDto From(WatchOverviewActivitySnapshot activity) =>
+        new(
+            activity.EventId,
+            activity.Kind,
+            activity.EventType,
+            activity.Severity,
+            activity.OccurredAt,
+            activity.SeriesId,
+            activity.WorkType,
+            activity.PollTraceId,
+            activity.ProjectionCommitId,
+            OverviewNavigationIntentDto.From(activity.Navigation));
+}
+
+internal sealed record WatchOverviewDto(
+    OperationalSnapshotIdentityDto Snapshot,
+    IReadOnlyList<string> MesAreas,
+    WatchOverviewSeriesSummaryDto Series,
+    WatchOverviewReadabilitySummaryDto Readability,
+    WatchOverviewErrorSummaryDto Errors,
+    WatchOverviewAttentionSummaryDto Attention,
+    IReadOnlyList<WatchOverviewActivityDto> RecentActivity,
+    string RecentActivityState,
+    string? EmptyStateMessage)
+{
+    public static WatchOverviewDto From(WatchOverviewSnapshot snapshot) =>
+        new(
+            OperationalSnapshotIdentityDto.From(snapshot.Snapshot),
+            snapshot.MesAreas,
+            WatchOverviewSeriesSummaryDto.From(snapshot.Series),
+            WatchOverviewReadabilitySummaryDto.From(snapshot.Readability),
+            WatchOverviewErrorSummaryDto.From(snapshot.Errors),
+            WatchOverviewAttentionSummaryDto.From(snapshot.Attention),
+            snapshot.RecentActivity.Select(WatchOverviewActivityDto.From).ToArray(),
+            snapshot.RecentActivityState,
+            snapshot.EmptyStateMessage);
+}
 
 internal sealed record NewMesIngestContractDto(
     string ContractVersion,

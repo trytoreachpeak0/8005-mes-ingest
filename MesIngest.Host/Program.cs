@@ -55,11 +55,14 @@ builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(TimeProvider.System);
 if (newV2Enabled)
 {
+    builder.Services.AddSingleton<IWatchOverviewReadBoundaryObserver>(
+        NoopWatchOverviewReadBoundaryObserver.Instance);
     builder.Services.AddSingleton<IMesIngestProjection>(sp =>
         new SqlServerMesIngestProjection(
             configured.NewSqlServerConnectionString,
             configured.ZeroDropEnterThreshold,
-            sp.GetRequiredService<TimeProvider>()));
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>()));
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
 }

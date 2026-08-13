@@ -1,0 +1,17 @@
+@MesIngestHost = http://localhost:5089
+
+### Read the bounded current operational attention page
+GET {{MesIngestHost}}/api/v2/current-ingest-attention?pageSize=100&pageNumber=1
+Accept: application/json
+
+### Read one atomic Watch overview for selected MES areas
+GET {{MesIngestHost}}/api/v2/watch-overview?area=A1-1&area=N3-3
+Accept: application/json
+
+### Current attention rejects an out-of-range page size with a stable V2 error
+GET {{MesIngestHost}}/api/v2/current-ingest-attention?pageSize=201&pageNumber=1
+Accept: application/json
+
+### Watch overview rejects malformed MES areas with a stable V2 error
+GET {{MesIngestHost}}/api/v2/watch-overview?area=not-an-area
+Accept: application/json

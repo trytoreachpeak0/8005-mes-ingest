@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using MesIngest.Core.SeriesProjection;
@@ -33,6 +34,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     private readonly string _connectionString;
     private readonly int _zeroDropEnterThreshold;
     private readonly TimeProvider _timeProvider;
+    private readonly IWatchOverviewReadBoundaryObserver _overviewReadBoundaryObserver;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
@@ -42,7 +44,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     public SqlServerMesIngestProjection(
         string connectionString,
         int zeroDropEnterThreshold = 10,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -62,6 +65,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         _connectionString = connectionString;
         _zeroDropEnterThreshold = zeroDropEnterThreshold;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _overviewReadBoundaryObserver = overviewReadBoundaryObserver
+            ?? NoopWatchOverviewReadBoundaryObserver.Instance;
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)
@@ -177,6 +182,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
         try
         {
+            await AcquireCommitRoundOrderLockAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
             var existing = await LoadExistingPollTraceForUpdateAsync(
                 connection,
                 transaction,
@@ -266,6 +275,14 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     item,
                     cancellationToken).ConfigureAwait(false);
             }
+
+            await ReconcileUnassignedObservationAttentionAsync(
+                connection,
+                transaction,
+                round,
+                projectionCommitId,
+                prepared.UnassignedObservations,
+                cancellationToken).ConfigureAwait(false);
 
             var workTypesBySublot = PrepareWorkTypeMemberships(groups);
             var seriesIds = new List<string>(groups.Count);
@@ -462,6 +479,32 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         {
             await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private static async Task AcquireCommitRoundOrderLockAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DECLARE @result INT;
+            EXEC @result = sys.sp_getapplock
+                @Resource = N'mesingest.CommitRoundOrder.v14',
+                @LockMode = N'Exclusive',
+                @LockOwner = N'Transaction',
+                @LockTimeout = 30000;
+            SELECT @result;
+            """;
+        var result = Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+            CultureInfo.InvariantCulture);
+        if (result < 0)
+        {
+            throw new TimeoutException(
+                $"Unable to acquire the MES ingest commit-order lock (sp_getapplock={result}).");
         }
     }
 
@@ -1111,7 +1154,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             cancellationToken.ThrowIfCancellationRequested();
             return new PreparedRound(
                 Observations: [],
-                MesTaskUnionRoundDigest.Compute(round.Observations));
+                MesTaskUnionRoundDigest.Compute(round.Observations),
+                UnassignedObservations: UnassignedObservationFact.Empty);
         }
 
         var prepared = new List<PreparedObservation>(round.Observations.Count);
@@ -1134,7 +1178,18 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return new PreparedRound(prepared, MesTaskUnionRoundDigest.Compute(round.Observations));
+        var unassigned = prepared
+            .Where(item => item.KeyToken is null)
+            .Select(item => item.Observation)
+            .ToArray();
+        return new PreparedRound(
+            prepared,
+            MesTaskUnionRoundDigest.Compute(round.Observations),
+            unassigned.Length == 0
+                ? UnassignedObservationFact.Empty
+                : new UnassignedObservationFact(
+                    unassigned.Length,
+                    MesTaskUnionRoundDigest.Compute(unassigned)));
     }
 
     private static IReadOnlyList<PreparedObservationGroup> PrepareAssignedGroups(PreparedRound prepared)
@@ -1710,6 +1765,105 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.Parameters.Add("@rowCount", SqlDbType.Int).Value = round.Observations.Count;
         AddChar(command, "@contentDigest", 64, contentDigest);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ReconcileUnassignedObservationAttentionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        UnassignedObservationFact after,
+        CancellationToken cancellationToken)
+    {
+        UnassignedObservationFact before;
+        await using (var load = connection.CreateCommand())
+        {
+            load.Transaction = transaction;
+            load.CommandText = """
+                SELECT TOP (1)
+                    fact.ObservationCount,
+                    fact.ContentDigest
+                FROM mesingest.ProjectionCommitUnassignedObservationFacts AS fact
+                INNER JOIN mesingest.ProjectionCommits AS commitRow
+                    ON commitRow.ProjectionCommitId = fact.ProjectionCommitId
+                WHERE commitRow.ProjectionSequence <
+                    (SELECT currentCommit.ProjectionSequence
+                     FROM mesingest.ProjectionCommits AS currentCommit
+                     WHERE currentCommit.ProjectionCommitId = @projectionCommitId)
+                ORDER BY commitRow.ProjectionSequence DESC;
+                """;
+            AddNVarChar(load, "@projectionCommitId", 64, projectionCommitId);
+            await using var reader = await load.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            before = await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+                ? new UnassignedObservationFact(
+                    reader.GetInt32(0),
+                    GetNullableString(reader, 1))
+                : UnassignedObservationFact.Empty;
+        }
+
+        await using (var insertFact = connection.CreateCommand())
+        {
+            insertFact.Transaction = transaction;
+            insertFact.CommandText = """
+                INSERT INTO mesingest.ProjectionCommitUnassignedObservationFacts
+                    (ProjectionCommitId, ObservationCount, ContentDigest)
+                VALUES
+                    (@projectionCommitId, @observationCount, @contentDigest);
+                """;
+            AddNVarChar(insertFact, "@projectionCommitId", 64, projectionCommitId);
+            insertFact.Parameters.Add("@observationCount", SqlDbType.Int).Value = after.ObservationCount;
+            AddNullableChar(insertFact, "@contentDigest", 64, after.ContentDigest);
+            await insertFact.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var eventType = GetUnassignedObservationEventType(before, after);
+        if (eventType is null)
+        {
+            return;
+        }
+
+        await using var insertEvent = connection.CreateCommand();
+        insertEvent.Transaction = transaction;
+        insertEvent.CommandText = """
+            INSERT INTO mesingest.UnassignedMesObservationEvents
+                (EventId, EventType, OccurredAt, ProjectionCommitId,
+                 BeforeObservationCount, AfterObservationCount,
+                 BeforeContentDigest, AfterContentDigest)
+            VALUES
+                (@eventId, @eventType, @occurredAt, @projectionCommitId,
+                 @beforeObservationCount, @afterObservationCount,
+                 @beforeContentDigest, @afterContentDigest);
+            """;
+        AddNVarChar(insertEvent, "@eventId", 64, NewId());
+        AddNVarChar(insertEvent, "@eventType", 128, eventType);
+        AddDateTimeOffset(insertEvent, "@occurredAt", round.CompletedAt);
+        AddNVarChar(insertEvent, "@projectionCommitId", 64, projectionCommitId);
+        insertEvent.Parameters.Add("@beforeObservationCount", SqlDbType.Int).Value = before.ObservationCount;
+        insertEvent.Parameters.Add("@afterObservationCount", SqlDbType.Int).Value = after.ObservationCount;
+        AddNullableChar(insertEvent, "@beforeContentDigest", 64, before.ContentDigest);
+        AddNullableChar(insertEvent, "@afterContentDigest", 64, after.ContentDigest);
+        await insertEvent.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static string? GetUnassignedObservationEventType(
+        UnassignedObservationFact before,
+        UnassignedObservationFact after)
+    {
+        if (before.ObservationCount == 0 && after.ObservationCount > 0)
+        {
+            return "UNASSIGNED_MES_OBSERVATION_APPEARED";
+        }
+
+        if (before.ObservationCount > 0 && after.ObservationCount == 0)
+        {
+            return "UNASSIGNED_MES_OBSERVATION_CLEARED";
+        }
+
+        return before.ObservationCount > 0
+            && after.ObservationCount > 0
+            && !string.Equals(before.ContentDigest, after.ContentDigest, StringComparison.Ordinal)
+                ? "UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED"
+                : null;
     }
 
     private static string GetOutcome(MesTaskUnionRoundOutcome outcome) => outcome switch
@@ -3888,6 +4042,14 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string value) =>
         command.Parameters.Add(name, SqlDbType.Char, size).Value = value;
 
+    private static void AddNullableChar(
+        SqlCommand command,
+        string name,
+        int size,
+        string? value) =>
+        command.Parameters.Add(name, SqlDbType.Char, size).Value =
+            value is null ? DBNull.Value : value;
+
     private static void AddDateTimeOffset(
         SqlCommand command,
         string name,
@@ -3926,7 +4088,15 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
     private sealed record PreparedRound(
         IReadOnlyList<PreparedObservation> Observations,
-        string ContentDigest);
+        string ContentDigest,
+        UnassignedObservationFact UnassignedObservations);
+
+    private sealed record UnassignedObservationFact(
+        int ObservationCount,
+        string? ContentDigest)
+    {
+        public static UnassignedObservationFact Empty { get; } = new(0, null);
+    }
 
     private sealed record PreparedObservation(
         int Ordinal,

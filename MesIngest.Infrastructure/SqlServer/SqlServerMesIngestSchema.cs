@@ -102,12 +102,14 @@ internal static class SqlServerMesIngestSchema
         (
             PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL
                 CONSTRAINT PK_MesIngest_PollTraces PRIMARY KEY,
+            PollTraceSequence BIGINT IDENTITY(1,1) NOT NULL,
             QueryVersion NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             Outcome NVARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
             StartedAt DATETIMEOFFSET(7) NOT NULL,
             CompletedAt DATETIMEOFFSET(7) NOT NULL,
             [RowCount] INT NOT NULL,
             ContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CONSTRAINT UQ_MesIngest_PollTraces_Sequence UNIQUE (PollTraceSequence),
             CONSTRAINT CK_MesIngest_PollTraces_Outcome
                 CHECK (Outcome IN (N'SUCCESS', N'FAILURE', N'INCOMPLETE')),
             CONSTRAINT CK_MesIngest_PollTraces_RowCount CHECK ([RowCount] >= 0)
@@ -130,6 +132,61 @@ internal static class SqlServerMesIngestSchema
             CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
                 FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId)
         );
+
+        CREATE TABLE mesingest.ProjectionCommitUnassignedObservationFacts
+        (
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_ProjectionCommitUnassignedObservationFacts PRIMARY KEY,
+            ObservationCount INT NOT NULL,
+            ContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            CONSTRAINT FK_MesIngest_ProjectionCommitUnassignedObservationFacts_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_ProjectionCommitUnassignedObservationFacts_State
+                CHECK ((ObservationCount = 0 AND ContentDigest IS NULL)
+                    OR (ObservationCount > 0 AND ContentDigest IS NOT NULL))
+        );
+
+        CREATE TABLE mesingest.UnassignedMesObservationEvents
+        (
+            EventId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_UnassignedMesObservationEvents PRIMARY KEY,
+            EventType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            OccurredAt DATETIMEOFFSET(7) NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            BeforeObservationCount INT NOT NULL,
+            AfterObservationCount INT NOT NULL,
+            BeforeContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            AfterContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            CONSTRAINT UQ_MesIngest_UnassignedMesObservationEvents_Commit
+                UNIQUE (ProjectionCommitId),
+            CONSTRAINT FK_MesIngest_UnassignedMesObservationEvents_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_UnassignedMesObservationEvents_EventType
+                CHECK (EventType IN
+                    (N'UNASSIGNED_MES_OBSERVATION_APPEARED',
+                     N'UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED',
+                     N'UNASSIGNED_MES_OBSERVATION_CLEARED')),
+            CONSTRAINT CK_MesIngest_UnassignedMesObservationEvents_BeforeState
+                CHECK ((BeforeObservationCount = 0 AND BeforeContentDigest IS NULL)
+                    OR (BeforeObservationCount > 0 AND BeforeContentDigest IS NOT NULL)),
+            CONSTRAINT CK_MesIngest_UnassignedMesObservationEvents_AfterState
+                CHECK ((AfterObservationCount = 0 AND AfterContentDigest IS NULL)
+                    OR (AfterObservationCount > 0 AND AfterContentDigest IS NOT NULL)),
+            CONSTRAINT CK_MesIngest_UnassignedMesObservationEvents_Transition
+                CHECK ((EventType = N'UNASSIGNED_MES_OBSERVATION_APPEARED'
+                            AND BeforeObservationCount = 0 AND AfterObservationCount > 0)
+                    OR (EventType = N'UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'
+                            AND BeforeObservationCount > 0 AND AfterObservationCount > 0
+                            AND BeforeContentDigest <> AfterContentDigest)
+                    OR (EventType = N'UNASSIGNED_MES_OBSERVATION_CLEARED'
+                            AND BeforeObservationCount > 0 AND AfterObservationCount = 0))
+        );
+        CREATE INDEX IX_MesIngest_UnassignedMesObservationEvents_Overview
+            ON mesingest.UnassignedMesObservationEvents (OccurredAt DESC, EventId)
+            INCLUDE (EventType, ProjectionCommitId, BeforeObservationCount,
+                     AfterObservationCount, BeforeContentDigest, AfterContentDigest);
 
         CREATE TABLE mesingest.HostSessions
         (
@@ -553,7 +610,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 17
+        ) <> 19
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -565,6 +622,8 @@ internal static class SqlServerMesIngestSchema
                 (N'SchemaInfo'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
+                (N'ProjectionCommitUnassignedObservationFacts'),
+                (N'UnassignedMesObservationEvents'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
                 (N'TaskTypeProtectionStates'),
@@ -588,6 +647,8 @@ internal static class SqlServerMesIngestSchema
                 (N'SchemaInfo'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
+                (N'ProjectionCommitUnassignedObservationFacts'),
+                (N'UnassignedMesObservationEvents'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
                 (N'TaskTypeProtectionStates'),
@@ -633,12 +694,13 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'PollTraces', 2, N'QueryVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'PollTraces', 3, N'Outcome', N'nvarchar', 32, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'PollTraces', 4, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'PollTraces', 5, N'CompletedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'PollTraces', 6, N'RowCount', N'int', 4, 10, 0, 0, NULL),
-            (N'PollTraces', 7, N'ContentDigest', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'PollTraces', 3, N'QueryVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 4, N'Outcome', N'nvarchar', 32, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 5, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'PollTraces', 6, N'CompletedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'PollTraces', 7, N'RowCount', N'int', 4, 10, 0, 0, NULL),
+            (N'PollTraces', 8, N'ContentDigest', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
 
             (N'ProjectionCommits', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 2, N'ProjectionSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -649,6 +711,19 @@ internal static class SqlServerMesIngestSchema
             (N'ProjectionCommits', 7, N'RestartPhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 8, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
             (N'ProjectionCommits', 9, N'CatalogRevision', N'bigint', 8, 19, 0, 0, NULL),
+
+            (N'ProjectionCommitUnassignedObservationFacts', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitUnassignedObservationFacts', 2, N'ObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'ProjectionCommitUnassignedObservationFacts', 3, N'ContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
+
+            (N'UnassignedMesObservationEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'UnassignedMesObservationEvents', 2, N'EventType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'UnassignedMesObservationEvents', 3, N'OccurredAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'UnassignedMesObservationEvents', 4, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'UnassignedMesObservationEvents', 5, N'BeforeObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'UnassignedMesObservationEvents', 6, N'AfterObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'UnassignedMesObservationEvents', 7, N'BeforeContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'UnassignedMesObservationEvents', 8, N'AfterContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
 
             (N'HostSessions', 1, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'HostSessions', 2, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
@@ -860,7 +935,20 @@ internal static class SqlServerMesIngestSchema
             INNER JOIN sys.tables AS t ON t.object_id = ic.object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
             WHERE s.name = N'mesingest'
-        ) <> 1
+        ) <> 2
+        OR NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.identity_columns AS ic
+            INNER JOIN sys.tables AS t ON t.object_id = ic.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'PollTraces'
+              AND ic.name = N'PollTraceSequence'
+              AND CONVERT(BIGINT, ic.seed_value) = 1
+              AND CONVERT(BIGINT, ic.increment_value) = 1
+              AND ic.is_not_for_replication = 0
+        )
         OR NOT EXISTS
         (
             SELECT 1
@@ -898,9 +986,13 @@ internal static class SqlServerMesIngestSchema
         INSERT INTO @ExpectedKeys VALUES
             (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
             (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
+            (N'UQ_MesIngest_PollTraces_Sequence', N'PollTraces', 0, 1, 1, N'PollTraceSequence', 0),
             (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
             (N'UQ_MesIngest_ProjectionCommits_Sequence', N'ProjectionCommits', 0, 1, 1, N'ProjectionSequence', 0),
             (N'UQ_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', 0, 1, 1, N'PollTraceId', 0),
+            (N'PK_MesIngest_ProjectionCommitUnassignedObservationFacts', N'ProjectionCommitUnassignedObservationFacts', 1, 1, 1, N'ProjectionCommitId', 0),
+            (N'PK_MesIngest_UnassignedMesObservationEvents', N'UnassignedMesObservationEvents', 1, 1, 1, N'EventId', 0),
+            (N'UQ_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', 0, 1, 1, N'ProjectionCommitId', 0),
             (N'PK_MesIngest_HostSessions', N'HostSessions', 1, 1, 1, N'HostSessionId', 0),
             (N'PK_MesIngest_AbsenceAuthorityEvents', N'AbsenceAuthorityEvents', 1, 1, 1, N'EventId', 0),
             (N'PK_MesIngest_TaskTypeProtectionStates', N'TaskTypeProtectionStates', 1, 1, 1, N'WorkType', 0),
@@ -1003,6 +1095,8 @@ internal static class SqlServerMesIngestSchema
         INSERT INTO @ExpectedForeignKeys VALUES
             (N'FK_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', N'PollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_ProjectionCommits_HostSession', N'ProjectionCommits', N'HostSessionId', N'HostSessions', N'HostSessionId'),
+            (N'FK_MesIngest_ProjectionCommitUnassignedObservationFacts_Commit', N'ProjectionCommitUnassignedObservationFacts', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_HostSession', N'AbsenceAuthorityEvents', N'HostSessionId', N'HostSessions', N'HostSessionId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_PollTrace', N'AbsenceAuthorityEvents', N'PollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_Commit', N'AbsenceAuthorityEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
@@ -1050,7 +1144,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 45
+            WHERE s.name = N'mesingest') <> 47
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1103,6 +1197,11 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength', N'SchemaInfo', N'(datalength([SnapshotTokenSigningKey])=(32))'),
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
             (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
+            (N'CK_MesIngest_ProjectionCommitUnassignedObservationFacts_State', N'ProjectionCommitUnassignedObservationFacts', N'([ObservationCount]=(0) AND [ContentDigest] IS NULL OR [ObservationCount]>(0) AND [ContentDigest] IS NOT NULL)'),
+            (N'CK_MesIngest_UnassignedMesObservationEvents_EventType', N'UnassignedMesObservationEvents', N'([EventType]=N''UNASSIGNED_MES_OBSERVATION_CLEARED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_APPEARED'')'),
+            (N'CK_MesIngest_UnassignedMesObservationEvents_BeforeState', N'UnassignedMesObservationEvents', N'([BeforeObservationCount]=(0) AND [BeforeContentDigest] IS NULL OR [BeforeObservationCount]>(0) AND [BeforeContentDigest] IS NOT NULL)'),
+            (N'CK_MesIngest_UnassignedMesObservationEvents_AfterState', N'UnassignedMesObservationEvents', N'([AfterObservationCount]=(0) AND [AfterContentDigest] IS NULL OR [AfterObservationCount]>(0) AND [AfterContentDigest] IS NOT NULL)'),
+            (N'CK_MesIngest_UnassignedMesObservationEvents_Transition', N'UnassignedMesObservationEvents', N'([EventType]=N''UNASSIGNED_MES_OBSERVATION_APPEARED'' AND [BeforeObservationCount]=(0) AND [AfterObservationCount]>(0) OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'' AND [BeforeObservationCount]>(0) AND [AfterObservationCount]>(0) AND [BeforeContentDigest]<>[AfterContentDigest] OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CLEARED'' AND [BeforeObservationCount]>(0) AND [AfterObservationCount]=(0))'),
             (N'CK_MesIngest_HostSessions_RestartPhase', N'HostSessions', N'([RestartPhase]=N''NORMAL'' OR [RestartPhase]=N''POST_BARRIER'' OR [RestartPhase]=N''BARRIER'')'),
             (N'CK_MesIngest_TaskTypeProtectionStates_Phase', N'TaskTypeProtectionStates', N'([Phase]=N''AUTHORITY_PENDING'' OR [Phase]=N''RECOVERING'' OR [Phase]=N''PAUSED_ZERO_DROP'' OR [Phase]=N''MONITORING'')'),
             (N'CK_MesIngest_TaskTypeProtectionStates_LastHealthyCount', N'TaskTypeProtectionStates', N'([LastHealthyNonZeroCount]>=(0))'),
@@ -1139,7 +1238,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 36
+            WHERE s.name = N'mesingest') <> 41
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
@@ -1305,6 +1404,40 @@ internal static class SqlServerMesIngestSchema
                        WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
         )
             THROW 51006, 'The configured database is missing the task-type protection event commit index contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'UnassignedMesObservationEvents'
+              AND i.name = N'IX_MesIngest_UnassignedMesObservationEvents_Overview'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND N'OccurredAt,EventId' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.key_ordinal > 0)
+              AND N'1,0' =
+                  (SELECT STRING_AGG(CONVERT(NVARCHAR(1), CONVERT(INT, ic.is_descending_key)), N',')
+                          WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.key_ordinal > 0)
+              AND N'EventType,ProjectionCommitId,BeforeObservationCount,AfterObservationCount,BeforeContentDigest,AfterContentDigest' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.index_column_id)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.is_included_column = 1)
+        )
+            THROW 51006, 'The configured database is missing the unassigned-observation overview event index contract.', 1;
 
         IF EXISTS
         (

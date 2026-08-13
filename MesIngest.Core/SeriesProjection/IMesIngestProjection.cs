@@ -87,6 +87,22 @@ public interface IMesIngestProjection
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Returns the bounded current union of every operational attention source
+    /// through one composite projection/poll fence.
+    /// </summary>
+    Task<CurrentIngestAttentionSnapshot> ReadCurrentIngestAttentionAsync(
+        CurrentIngestAttentionQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Atomically returns all Watch overview summaries and recent transitions
+    /// from one identifiable operational fence.
+    /// </summary>
+    Task<WatchOverviewSnapshot> ReadWatchOverviewAsync(
+        WatchOverviewQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the complete, full-scope externally readable catalog at one
     /// committed CatalogRevision. A matching known revision transfers no body.
     /// </summary>
