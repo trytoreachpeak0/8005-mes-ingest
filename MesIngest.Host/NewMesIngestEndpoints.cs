@@ -19,6 +19,11 @@ internal static class NewMesIngestEndpoints
         endpoints.MapGet("/api/v2/demand-series/{seriesId}", GetDemandSeriesAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet(
+                "/api/v2/externally-readable-demand-catalog",
+                GetExternallyReadableDemandCatalogAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
@@ -49,6 +54,101 @@ internal static class NewMesIngestEndpoints
             NewMesIngestContract.SchemaVersion,
             NewMesIngestContract.KeyComparison,
             SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray()));
+
+    private static async Task<IResult> GetExternallyReadableDemandCatalogAsync(
+        HttpRequest request,
+        HttpResponse response,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        // This is a full-range fact resource. Silently accepting query filters
+        // would let Dispatch scope leak into MesIngest's catalog contract.
+        if (request.Query.Count != 0)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                "CATALOG_QUERY_NOT_SUPPORTED",
+                "The externally readable Demand catalog is complete and accepts no query parameters."));
+        }
+
+        if (!TryParseCatalogCondition(
+                request.Headers.IfNoneMatch,
+                out var knownRevision,
+                out var conditionError))
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                "INVALID_CATALOG_CONDITION",
+                conditionError!));
+        }
+
+        var read = await projection.ReadExternallyReadableDemandCatalogAsync(
+            knownRevision,
+            cancellationToken);
+        var etag = CreateCatalogEtag(read.CatalogRevision);
+        response.Headers.ETag = etag;
+        response.Headers.CacheControl = "private, no-cache";
+        if (read.NotModified)
+        {
+            return Results.StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        return Results.Ok(ExternallyReadableDemandCatalogDto.From(read.Snapshot!));
+    }
+
+    private static bool TryParseCatalogCondition(
+        Microsoft.Extensions.Primitives.StringValues values,
+        out long? knownRevision,
+        out string? error)
+    {
+        knownRevision = null;
+        error = null;
+        if (values.Count == 0)
+        {
+            return true;
+        }
+
+        // A catalog condition must identify exactly one semantic revision.
+        // Multiple HTTP header lines and comma lists are normalized here.
+        var tags = values
+            .SelectMany(value => (value ?? string.Empty).Split(',', StringSplitOptions.TrimEntries))
+            .Where(value => value.Length > 0)
+            .ToArray();
+        if (tags.Length != 1 || tags[0] == "*")
+        {
+            error = "If-None-Match must contain one catalog ETag.";
+            return false;
+        }
+
+        var tag = tags[0];
+        if (tag.StartsWith("W/", StringComparison.Ordinal))
+        {
+            tag = tag[2..];
+        }
+        if (tag.Length < 12 || tag[0] != '"' || tag[^1] != '"')
+        {
+            error = "If-None-Match is not a catalog ETag.";
+            return false;
+        }
+
+        var opaque = tag[1..^1];
+        const string prefix = "catalog-r";
+        if (!opaque.StartsWith(prefix, StringComparison.Ordinal)
+            || !long.TryParse(
+                opaque.AsSpan(prefix.Length),
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var parsed)
+            || parsed < 0)
+        {
+            error = "If-None-Match is not a catalog ETag.";
+            return false;
+        }
+
+        knownRevision = parsed;
+        return true;
+    }
+
+    private static string CreateCatalogEtag(long catalogRevision) =>
+        $"W/\"catalog-r{catalogRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"";
 
     private static async Task<IResult> GetDemandSeriesByKeyAsync(
         string workType,
@@ -397,6 +497,55 @@ internal sealed record NewMesIngestContractDto(
     int SchemaVersion,
     string TransportDemandKeyComparison,
     IReadOnlyList<SeriesErrorDefinitionDto> SeriesErrorCatalog);
+
+internal sealed record TransportDemandKeyDto(string WorkType, string Sublot);
+
+internal sealed record ExternallyReadableDemandDto(
+    string DemandId,
+    string SeriesId,
+    TransportDemandKeyDto TransportDemandKey,
+    int Generation,
+    long DemandRevision,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset ValueObservedAt,
+    string ValuePollTraceId,
+    string ValueProjectionCommitId,
+    LiveMesFieldSetDto LiveMesFields)
+{
+    public static ExternallyReadableDemandDto From(ExternallyReadableDemandSnapshot snapshot) =>
+        new(
+            snapshot.DemandId,
+            snapshot.SeriesId,
+            new TransportDemandKeyDto(snapshot.WorkType, snapshot.Sublot),
+            snapshot.Generation,
+            snapshot.DemandRevision,
+            snapshot.CreatedAt,
+            snapshot.ValueObservedAt,
+            snapshot.ValuePollTraceId,
+            snapshot.ValueProjectionCommitId,
+            LiveMesFieldSetDto.From(snapshot.LiveMesFields));
+}
+
+internal sealed record ExternallyReadableDemandCatalogDto(
+    string ContractVersion,
+    long CatalogRevision,
+    string? ProjectionCommitId,
+    long? ProjectionSequence,
+    DateTimeOffset? ProjectionCommittedAt,
+    int Count,
+    IReadOnlyList<ExternallyReadableDemandDto> Items)
+{
+    public static ExternallyReadableDemandCatalogDto From(
+        ExternallyReadableDemandCatalogSnapshot snapshot) =>
+        new(
+            NewMesIngestContract.Version,
+            snapshot.CatalogRevision,
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.Items.Count,
+            snapshot.Items.Select(ExternallyReadableDemandDto.From).ToArray());
+}
 
 internal sealed record SeriesErrorDefinitionDto(
     string Code,

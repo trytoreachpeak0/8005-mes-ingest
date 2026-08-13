@@ -284,6 +284,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
                 ProjectedIdentity identity;
                 var longGoneButVisible = false;
+                var demandRevisionAdvancedThisRound = true;
                 if (current is null)
                 {
                     identity = await InsertFirstGenerationAsync(
@@ -336,7 +337,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                         StringComparison.Ordinal);
                     if (uniqueObservation is null)
                     {
-                        await AdvanceConflictingObservationAsync(
+                        demandRevisionAdvancedThisRound = await AdvanceConflictingObservationAsync(
                             connection,
                             transaction,
                             current,
@@ -346,7 +347,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     }
                     else
                     {
-                        await AdvanceLiveObservationAsync(
+                        demandRevisionAdvancedThisRound = await AdvanceLiveObservationAsync(
                             connection,
                             transaction,
                             current,
@@ -368,6 +369,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     round,
                     projectionCommitId,
                     bootstrapRound,
+                    demandRevisionAdvancedThisRound,
                     cancellationToken).ConfigureAwait(false);
 
                 if (longGoneButVisible)
@@ -419,6 +421,13 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 effectiveAuthorityByWorkType,
                 seriesIds,
                 demandIds,
+                cancellationToken).ConfigureAwait(false);
+
+            await ReconcileExternallyReadableDemandCatalogAsync(
+                connection,
+                transaction,
+                round,
+                projectionCommitId,
                 cancellationToken).ConfigureAwait(false);
 
             await AdvanceRestartBarrierAsync(
@@ -1655,10 +1664,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
             INSERT INTO mesingest.ProjectionCommits
                 (ProjectionCommitId, PollTraceId, CommittedAt, HostSessionId,
-                 RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority)
+                 RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision)
             VALUES
                 (@projectionCommitId, @pollTraceId, @completedAt, @hostSessionId,
-                 @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority);
+                 @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority,
+                 (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1));
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -1850,7 +1860,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 d.Eqp,
                 d.Step,
                 d.MesSourceDate,
-                d.Package
+                d.Package,
+                (SELECT COUNT_BIG(*)
+                 FROM mesingest.DemandRawObservations AS latestObservation
+                 WHERE latestObservation.DemandId = d.DemandId
+                   AND latestObservation.ProjectionCommitId =
+                       d.LatestObservationProjectionCommitId)
             FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
             LEFT JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
                 ON d.DemandId = s.CurrentDemandId
@@ -1885,7 +1900,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             GetNullableString(reader, 11),
             GetNullableString(reader, 12),
             GetNullableDateTimeOffset(reader, 13),
-            GetNullableString(reader, 14));
+            GetNullableString(reader, 14),
+            reader.GetInt64(15));
     }
 
     private static async Task<ProjectedIdentity> InsertFirstGenerationAsync(
@@ -1918,12 +1934,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId,
+                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, 1, NULL, N'VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2004,12 +2020,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId,
+                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, @generation, @predecessorDemandId, N'VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2089,12 +2105,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId,
+                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, @generation, @predecessorDemandId, N'LONG_GONE_BUT_VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2307,7 +2323,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
     }
 
-    private static async Task AdvanceLiveObservationAsync(
+    private static async Task<bool> AdvanceLiveObservationAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         CurrentProjectionRow current,
@@ -2317,6 +2333,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         CancellationToken cancellationToken)
     {
         var changes = GetLiveFieldChanges(current, observation);
+        var businessValueChanged = changes.Count != 0 || current.LatestObservationCount != 1;
         var nextSequence = await GetNextSeriesSequenceAsync(
             connection,
             transaction,
@@ -2355,6 +2372,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             SET LatestProjectionCommitId = @projectionCommitId,
                 LatestObservationProjectionCommitId = @projectionCommitId,
                 DemandLastSeenAt = @completedAt,
+                DemandRevision = DemandRevision +
+                    CASE WHEN @businessValueChanged = 1 THEN 1 ELSE 0 END,
+                ValueObservedAt = CASE WHEN @businessValueChanged = 1
+                    THEN @completedAt ELSE ValueObservedAt END,
                 Area = @area,
                 Eqp = @eqp,
                 Step = @step,
@@ -2366,6 +2387,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNVarChar(command, "@seriesId", 64, current.SeriesId);
         AddNVarChar(command, "@demandId", 64, current.DemandId);
         command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = nextSequence - 1;
+        command.Parameters.Add("@businessValueChanged", SqlDbType.Bit).Value = businessValueChanged;
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
         AddNullableNVarChar(command, "@area", -1, observation.Area);
         AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
@@ -2383,9 +2405,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             throw new InvalidOperationException(
                 "The current DemandSeries projection changed while applying an equivalent observation.");
         }
+        return businessValueChanged;
     }
 
-    private static async Task AdvanceConflictingObservationAsync(
+    private static async Task<bool> AdvanceConflictingObservationAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         CurrentProjectionRow current,
@@ -2393,6 +2416,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string projectionCommitId,
         CancellationToken cancellationToken)
     {
+        var businessValueChanged = current.LatestObservationCount == 1;
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -2403,18 +2427,24 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
                 LatestObservationProjectionCommitId = @projectionCommitId,
-                DemandLastSeenAt = @completedAt
+                DemandLastSeenAt = @completedAt,
+                DemandRevision = DemandRevision +
+                    CASE WHEN @businessValueChanged = 1 THEN 1 ELSE 0 END,
+                ValueObservedAt = CASE WHEN @businessValueChanged = 1
+                    THEN @completedAt ELSE ValueObservedAt END
             WHERE DemandId = @demandId;
             """;
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddNVarChar(command, "@seriesId", 64, current.SeriesId);
         AddNVarChar(command, "@demandId", 64, current.DemandId);
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
+        command.Parameters.Add("@businessValueChanged", SqlDbType.Bit).Value = businessValueChanged;
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
         {
             throw new InvalidOperationException(
                 "The current DemandSeries projection changed while applying conflicting observations.");
         }
+        return businessValueChanged;
     }
 
     private static IReadOnlyList<LiveFieldChange> GetLiveFieldChanges(
@@ -2458,6 +2488,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionRound round,
         string projectionCommitId,
         bool bootstrapRound,
+        bool demandRevisionAdvancedThisRound,
         CancellationToken cancellationToken)
     {
         var expected = expectedIssues
@@ -2546,6 +2577,40 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 identity.SeriesId,
                 nextSequence - 1,
                 cancellationToken).ConfigureAwait(false);
+
+            if (!demandRevisionAdvancedThisRound)
+            {
+                await AdvanceDemandRevisionForConditionChangeAsync(
+                    connection,
+                    transaction,
+                    identity.DemandId,
+                    round.CompletedAt,
+                    cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static async Task AdvanceDemandRevisionForConditionChangeAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string demandId,
+        DateTimeOffset observedAt,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE mesingest.TransportDemands
+            SET DemandRevision = DemandRevision + 1,
+                ValueObservedAt = @observedAt
+            WHERE DemandId = @demandId;
+            """;
+        AddNVarChar(command, "@demandId", 64, demandId);
+        AddDateTimeOffset(command, "@observedAt", observedAt);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException(
+                "The current TransportDemand disappeared while advancing its condition revision.");
         }
     }
 
@@ -3937,7 +4002,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string? Eqp,
         string? Step,
         DateTimeOffset? MesSourceDate,
-        string? Package);
+        string? Package,
+        long LatestObservationCount);
 
     private sealed record DemandSeriesRow(
         string SeriesId,

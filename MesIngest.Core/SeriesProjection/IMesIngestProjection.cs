@@ -39,6 +39,14 @@ public interface IMesIngestProjection
         string snapshotReference,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads the complete, full-scope externally readable catalog at one
+    /// committed CatalogRevision. A matching known revision transfers no body.
+    /// </summary>
+    Task<ExternallyReadableDemandCatalogRead> ReadExternallyReadableDemandCatalogAsync(
+        long? knownRevision = null,
+        CancellationToken cancellationToken = default);
+
     Task<PollTraceSnapshot?> GetPollTraceAsync(
         string pollTraceId,
         CancellationToken cancellationToken = default);

@@ -124,6 +124,7 @@ internal static class SqlServerMesIngestSchema
             RestartPhaseBefore NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             RestartPhaseAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             AbsenceAuthority BIT NOT NULL,
+            CatalogRevision BIGINT NOT NULL,
             CONSTRAINT UQ_MesIngest_ProjectionCommits_Sequence UNIQUE (ProjectionSequence),
             CONSTRAINT UQ_MesIngest_ProjectionCommits_PollTrace UNIQUE (PollTraceId),
             CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
@@ -322,6 +323,8 @@ internal static class SqlServerMesIngestSchema
             CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             LatestObservationProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            DemandRevision BIGINT NOT NULL,
+            ValueObservedAt DATETIMEOFFSET(7) NOT NULL,
             Area NVARCHAR(MAX) NULL,
             Eqp NVARCHAR(MAX) NULL,
             Step NVARCHAR(MAX) NULL,
@@ -345,6 +348,7 @@ internal static class SqlServerMesIngestSchema
                 FOREIGN KEY (LatestObservationProjectionCommitId)
                 REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
             CONSTRAINT CK_MesIngest_TransportDemands_Generation CHECK (Generation >= 1)
+            ,CONSTRAINT CK_MesIngest_TransportDemands_DemandRevision CHECK (DemandRevision >= 1)
         );
 
         ALTER TABLE mesingest.DemandSeries
@@ -481,6 +485,54 @@ internal static class SqlServerMesIngestSchema
                 FOREIGN KEY (LatestEvidenceId) REFERENCES mesingest.SeriesErrorPeriodEvidence (EvidenceId)
         );
 
+        CREATE TABLE mesingest.CatalogState
+        (
+            Id INT NOT NULL CONSTRAINT PK_MesIngest_CatalogState PRIMARY KEY,
+            CatalogRevision BIGINT NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            CONSTRAINT CK_MesIngest_CatalogState_SingleRow CHECK (Id = 1),
+            CONSTRAINT CK_MesIngest_CatalogState_Revision CHECK (CatalogRevision >= 0),
+            CONSTRAINT FK_MesIngest_CatalogState_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId)
+        );
+
+        CREATE TABLE mesingest.CatalogItems
+        (
+            DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_CatalogItems PRIMARY KEY,
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Generation INT NOT NULL,
+            DemandRevision BIGINT NOT NULL,
+            CreatedAt DATETIMEOFFSET(7) NOT NULL,
+            ValueObservedAt DATETIMEOFFSET(7) NOT NULL,
+            ValuePollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ValueProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Area NVARCHAR(MAX) NOT NULL,
+            Eqp NVARCHAR(MAX) NOT NULL,
+            Step NVARCHAR(MAX) NOT NULL,
+            MesSourceDate DATETIMEOFFSET(7) NOT NULL,
+            Package NVARCHAR(MAX) NOT NULL,
+            CONSTRAINT FK_MesIngest_CatalogItems_Demand
+                FOREIGN KEY (DemandId) REFERENCES mesingest.TransportDemands (DemandId),
+            CONSTRAINT FK_MesIngest_CatalogItems_Series
+                FOREIGN KEY (SeriesId) REFERENCES mesingest.DemandSeries (SeriesId),
+            CONSTRAINT FK_MesIngest_CatalogItems_ValuePollTrace
+                FOREIGN KEY (ValuePollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_CatalogItems_ValueCommit
+                FOREIGN KEY (ValueProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_CatalogItems_Generation CHECK (Generation >= 1),
+            CONSTRAINT CK_MesIngest_CatalogItems_DemandRevision CHECK (DemandRevision >= 1)
+        );
+
+        INSERT INTO mesingest.CatalogState
+            (Id, CatalogRevision, ProjectionCommitId)
+        VALUES
+            (1, 0, NULL);
+
         INSERT INTO mesingest.SchemaInfo
             (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison, SnapshotTokenSigningKey)
         VALUES
@@ -493,7 +545,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 15
+        ) <> 17
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -516,7 +568,9 @@ internal static class SqlServerMesIngestSchema
                 (N'DemandSeriesEvents'),
                 (N'DemandSeriesErrorPeriods'),
                 (N'SeriesErrorPeriodEvidence'),
-                (N'DemandSeriesCurrentConditions')
+                (N'DemandSeriesCurrentConditions'),
+                (N'CatalogState'),
+                (N'CatalogItems')
             ) AS v(TableName)
         )
         OR EXISTS
@@ -537,7 +591,9 @@ internal static class SqlServerMesIngestSchema
                 (N'DemandSeriesEvents'),
                 (N'DemandSeriesErrorPeriods'),
                 (N'SeriesErrorPeriodEvidence'),
-                (N'DemandSeriesCurrentConditions')
+                (N'DemandSeriesCurrentConditions'),
+                (N'CatalogState'),
+                (N'CatalogItems')
             ) AS v(TableName)
             EXCEPT
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -584,6 +640,7 @@ internal static class SqlServerMesIngestSchema
             (N'ProjectionCommits', 6, N'RestartPhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 7, N'RestartPhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 8, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
+            (N'ProjectionCommits', 9, N'CatalogRevision', N'bigint', 8, 19, 0, 0, NULL),
 
             (N'HostSessions', 1, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'HostSessions', 2, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
@@ -666,11 +723,13 @@ internal static class SqlServerMesIngestSchema
             (N'TransportDemands', 10, N'CreatedProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 11, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 12, N'LatestObservationProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'TransportDemands', 13, N'Area', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 14, N'Eqp', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 15, N'Step', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 16, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'TransportDemands', 17, N'Package', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 13, N'DemandRevision', N'bigint', 8, 19, 0, 0, NULL),
+            (N'TransportDemands', 14, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'TransportDemands', 15, N'Area', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 16, N'Eqp', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 17, N'Step', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 18, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'TransportDemands', 19, N'Package', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'DemandRawObservations', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandRawObservations', 2, N'Ordinal', N'int', 4, 10, 0, 0, NULL),
@@ -727,7 +786,27 @@ internal static class SqlServerMesIngestSchema
             (N'DemandSeriesCurrentConditions', 3, N'Target', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeriesCurrentConditions', 4, N'SubjectKind', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeriesCurrentConditions', 5, N'PeriodId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'DemandSeriesCurrentConditions', 6, N'LatestEvidenceId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2');
+            (N'DemandSeriesCurrentConditions', 6, N'LatestEvidenceId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'CatalogState', 1, N'Id', N'int', 4, 10, 0, 0, NULL),
+            (N'CatalogState', 2, N'CatalogRevision', N'bigint', 8, 19, 0, 0, NULL),
+            (N'CatalogState', 3, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+
+            (N'CatalogItems', 1, N'DemandId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 3, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 4, N'Sublot', N'nvarchar', 512, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 5, N'Generation', N'int', 4, 10, 0, 0, NULL),
+            (N'CatalogItems', 6, N'DemandRevision', N'bigint', 8, 19, 0, 0, NULL),
+            (N'CatalogItems', 7, N'CreatedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'CatalogItems', 8, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'CatalogItems', 9, N'ValuePollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 10, N'ValueProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CatalogItems', 11, N'Area', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 12, N'Eqp', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 13, N'Step', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 14, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'CatalogItems', 15, N'Package', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation')));
 
         IF EXISTS
         (
@@ -838,7 +917,9 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_DemandSeriesCurrentConditions', N'DemandSeriesCurrentConditions', 1, 1, 2, N'ErrorCode', 0),
             (N'PK_MesIngest_DemandSeriesCurrentConditions', N'DemandSeriesCurrentConditions', 1, 1, 3, N'Target', 0),
             (N'PK_MesIngest_DemandSeriesCurrentConditions', N'DemandSeriesCurrentConditions', 1, 1, 4, N'SubjectKind', 0),
-            (N'UQ_MesIngest_DemandSeriesCurrentConditions_Period', N'DemandSeriesCurrentConditions', 0, 1, 1, N'PeriodId', 0);
+            (N'UQ_MesIngest_DemandSeriesCurrentConditions_Period', N'DemandSeriesCurrentConditions', 0, 1, 1, N'PeriodId', 0),
+            (N'PK_MesIngest_CatalogState', N'CatalogState', 1, 1, 1, N'Id', 0),
+            (N'PK_MesIngest_CatalogItems', N'CatalogItems', 1, 1, 1, N'DemandId', 0);
 
         IF EXISTS
         (
@@ -951,12 +1032,17 @@ internal static class SqlServerMesIngestSchema
             (N'FK_MesIngest_SeriesErrorPeriodEvidence_Demand', N'SeriesErrorPeriodEvidence', N'DemandId', N'TransportDemands', N'DemandId'),
             (N'FK_MesIngest_DemandSeriesCurrentConditions_Series', N'DemandSeriesCurrentConditions', N'SeriesId', N'DemandSeries', N'SeriesId'),
             (N'FK_MesIngest_DemandSeriesCurrentConditions_Period', N'DemandSeriesCurrentConditions', N'PeriodId', N'DemandSeriesErrorPeriods', N'PeriodId'),
-            (N'FK_MesIngest_DemandSeriesCurrentConditions_Evidence', N'DemandSeriesCurrentConditions', N'LatestEvidenceId', N'SeriesErrorPeriodEvidence', N'EvidenceId');
+            (N'FK_MesIngest_DemandSeriesCurrentConditions_Evidence', N'DemandSeriesCurrentConditions', N'LatestEvidenceId', N'SeriesErrorPeriodEvidence', N'EvidenceId'),
+            (N'FK_MesIngest_CatalogState_Commit', N'CatalogState', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_CatalogItems_Demand', N'CatalogItems', N'DemandId', N'TransportDemands', N'DemandId'),
+            (N'FK_MesIngest_CatalogItems_Series', N'CatalogItems', N'SeriesId', N'DemandSeries', N'SeriesId'),
+            (N'FK_MesIngest_CatalogItems_ValuePollTrace', N'CatalogItems', N'ValuePollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_CatalogItems_ValueCommit', N'CatalogItems', N'ValueProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId');
 
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 40
+            WHERE s.name = N'mesingest') <> 45
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1031,16 +1117,21 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_EffectiveAuthority', N'ProjectionCommitTaskTypeProtectionDecisions', N'([EffectiveAbsenceAuthorityAvailable]<=[ProtectionAllowsAbsenceAuthority])'),
             (N'CK_MesIngest_DemandSeries_LastSequence', N'DemandSeries', N'([LastSeriesSequence]>=(0))'),
             (N'CK_MesIngest_TransportDemands_Generation', N'TransportDemands', N'([Generation]>=(1))'),
+            (N'CK_MesIngest_TransportDemands_DemandRevision', N'TransportDemands', N'([DemandRevision]>=(1))'),
             (N'CK_MesIngest_DemandRawObservations_Ordinal', N'DemandRawObservations', N'([Ordinal]>=(0))'),
             (N'CK_MesIngest_DemandSeriesEvents_Sequence', N'DemandSeriesEvents', N'([SeriesSequence]>=(1))'),
             (N'CK_MesIngest_DemandSeriesEvents_PayloadVersion', N'DemandSeriesEvents', N'([PayloadVersion]>=(1))'),
             (N'CK_MesIngest_DemandSeriesEvents_PayloadJson', N'DemandSeriesEvents', N'(isjson([Payload])=(1))'),
-            (N'CK_MesIngest_DemandSeriesErrorPeriods_EndPair', N'DemandSeriesErrorPeriods', N'([EndedAt] IS NULL AND [EndReason] IS NULL AND [ClosedEventId] IS NULL OR [EndedAt] IS NOT NULL AND [EndReason] IS NOT NULL AND [ClosedEventId] IS NOT NULL)');
+            (N'CK_MesIngest_DemandSeriesErrorPeriods_EndPair', N'DemandSeriesErrorPeriods', N'([EndedAt] IS NULL AND [EndReason] IS NULL AND [ClosedEventId] IS NULL OR [EndedAt] IS NOT NULL AND [EndReason] IS NOT NULL AND [ClosedEventId] IS NOT NULL)'),
+            (N'CK_MesIngest_CatalogState_SingleRow', N'CatalogState', N'([Id]=(1))'),
+            (N'CK_MesIngest_CatalogState_Revision', N'CatalogState', N'([CatalogRevision]>=(0))'),
+            (N'CK_MesIngest_CatalogItems_Generation', N'CatalogItems', N'([Generation]>=(1))'),
+            (N'CK_MesIngest_CatalogItems_DemandRevision', N'CatalogItems', N'([DemandRevision]>=(1))');
 
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 31
+            WHERE s.name = N'mesingest') <> 36
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e

@@ -53,24 +53,36 @@ public static class MesFieldValidation
     {
         ArgumentNullException.ThrowIfNull(observation);
 
+        return Evaluate(new LiveMesFieldSetSnapshot(
+            observation.Area,
+            observation.Eqp,
+            observation.Step,
+            observation.MesSourceDate,
+            observation.Package));
+    }
+
+    public static MesFieldValidationResult Evaluate(LiveMesFieldSetSnapshot fields)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+
         var issues = new List<MesFieldValidationIssue>();
-        AddMissingTextIssue(issues, "AREA", observation.Area);
-        if (!string.IsNullOrWhiteSpace(observation.Area))
+        AddMissingTextIssue(issues, "AREA", fields.Area);
+        if (!string.IsNullOrWhiteSpace(fields.Area))
         {
-            var match = AreaFormat.Match(observation.Area);
-            if (!match.Success || match.Length != observation.Area.Length)
+            var match = AreaFormat.Match(fields.Area);
+            if (!match.Success || match.Length != fields.Area.Length)
             {
                 issues.Add(new MesFieldValidationIssue(
                     InvalidMesFieldFormat,
                     DataFormat,
                     "AREA",
-                    observation.Area,
+                    fields.Area,
                     AreaRule));
             }
         }
-        AddMissingTextIssue(issues, "EQP", observation.Eqp);
-        AddMissingTextIssue(issues, "STEP", observation.Step);
-        if (observation.MesSourceDate is null)
+        AddMissingTextIssue(issues, "EQP", fields.Eqp);
+        AddMissingTextIssue(issues, "STEP", fields.Step);
+        if (fields.MesSourceDate is null)
         {
             issues.Add(new MesFieldValidationIssue(
                 RequiredFieldMissing,
@@ -79,16 +91,9 @@ public static class MesFieldValidation
                 ObservedValue: null,
                 RequiredRule));
         }
-        AddMissingTextIssue(issues, "PACKAGE", observation.Package);
+        AddMissingTextIssue(issues, "PACKAGE", fields.Package);
 
-        return new MesFieldValidationResult(
-            new LiveMesFieldSetSnapshot(
-                observation.Area,
-                observation.Eqp,
-                observation.Step,
-                observation.MesSourceDate,
-                observation.Package),
-            issues);
+        return new MesFieldValidationResult(fields, issues);
     }
 
     private static void AddMissingTextIssue(

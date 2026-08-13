@@ -10,3 +10,5 @@ dist/
 .artifacts/ticket05-tests/
 .artifacts/ticket06-tests/
 .artifacts/ticket07-tests/
+.artifacts/ticket08-tests/
+.artifacts/ticket09-tests/
