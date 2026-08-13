@@ -154,6 +154,121 @@ internal static class SqlServerMesIngestSchema
                 REFERENCES mesingest.ProjectionCommits (ProjectionCommitId)
         );
 
+        CREATE TABLE mesingest.TaskTypeProtectionStates
+        (
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_TaskTypeProtectionStates PRIMARY KEY,
+            Phase NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            LastHealthyNonZeroCount INT NOT NULL,
+            LatestObservedCount INT NOT NULL,
+            RecoveryStreak INT NOT NULL,
+            EpisodeId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            EnteredAt DATETIMEOFFSET(7) NULL,
+            LastSequence BIGINT NOT NULL,
+            EnterThreshold INT NOT NULL,
+            ProtectionAllowsAbsenceAuthority BIT NOT NULL,
+            EffectiveAbsenceAuthorityAvailable BIT NOT NULL,
+            LatestPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CONSTRAINT FK_MesIngest_TaskTypeProtectionStates_PollTrace
+                FOREIGN KEY (LatestPollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_TaskTypeProtectionStates_Commit
+                FOREIGN KEY (LatestProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_Phase
+                CHECK (Phase IN (N'MONITORING', N'PAUSED_ZERO_DROP', N'RECOVERING', N'AUTHORITY_PENDING')),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_LastHealthyCount
+                CHECK (LastHealthyNonZeroCount >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_LatestCount
+                CHECK (LatestObservedCount >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_RecoveryStreak
+                CHECK (RecoveryStreak >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_LastSequence
+                CHECK (LastSequence >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_EnterThreshold
+                CHECK (EnterThreshold >= 1),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_EffectiveAuthority
+                CHECK (EffectiveAbsenceAuthorityAvailable <= ProtectionAllowsAbsenceAuthority),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionStates_Episode
+                CHECK ((EpisodeId IS NULL AND EnteredAt IS NULL)
+                    OR (EpisodeId IS NOT NULL AND EnteredAt IS NOT NULL))
+        );
+
+        CREATE TABLE mesingest.TaskTypeProtectionEvents
+        (
+            EventId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_TaskTypeProtectionEvents PRIMARY KEY,
+            EpisodeId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            WorkTypeSequence BIGINT NOT NULL,
+            EventType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            OccurredAt DATETIMEOFFSET(7) NOT NULL,
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            PhaseBefore NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            PhaseAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ObservedCount INT NOT NULL,
+            LastHealthyNonZeroCount INT NOT NULL,
+            RecoveryStreak INT NOT NULL,
+            RequiredRecoveryStreak INT NOT NULL,
+            EnterThreshold INT NOT NULL,
+            CONSTRAINT UQ_MesIngest_TaskTypeProtectionEvents_WorkTypeSequence
+                UNIQUE (WorkType, WorkTypeSequence),
+            CONSTRAINT FK_MesIngest_TaskTypeProtectionEvents_State
+                FOREIGN KEY (WorkType) REFERENCES mesingest.TaskTypeProtectionStates (WorkType),
+            CONSTRAINT FK_MesIngest_TaskTypeProtectionEvents_PollTrace
+                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_TaskTypeProtectionEvents_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_Sequence
+                CHECK (WorkTypeSequence >= 1),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_ObservedCount
+                CHECK (ObservedCount >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_LastHealthyCount
+                CHECK (LastHealthyNonZeroCount >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_RecoveryStreak
+                CHECK (RecoveryStreak >= 0),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_RequiredRecoveryStreak
+                CHECK (RequiredRecoveryStreak >= 1),
+            CONSTRAINT CK_MesIngest_TaskTypeProtectionEvents_EnterThreshold
+                CHECK (EnterThreshold >= 1)
+        );
+        CREATE INDEX IX_MesIngest_TaskTypeProtectionEvents_Commit
+            ON mesingest.TaskTypeProtectionEvents
+                (ProjectionCommitId, WorkType, WorkTypeSequence);
+
+        CREATE TABLE mesingest.ProjectionCommitTaskTypeProtectionDecisions
+        (
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            PhaseBefore NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            PhaseAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ObservedCount INT NOT NULL,
+            LastHealthyNonZeroCount INT NOT NULL,
+            RecoveryStreakBefore INT NOT NULL,
+            RecoveryStreakAfter INT NOT NULL,
+            ProtectionAllowsAbsenceAuthority BIT NOT NULL,
+            EffectiveAbsenceAuthorityAvailable BIT NOT NULL,
+            CONSTRAINT PK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions
+                PRIMARY KEY (ProjectionCommitId, WorkType),
+            CONSTRAINT FK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT FK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_State
+                FOREIGN KEY (WorkType) REFERENCES mesingest.TaskTypeProtectionStates (WorkType),
+            CONSTRAINT CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_ObservedCount
+                CHECK (ObservedCount >= 0),
+            CONSTRAINT CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_LastHealthyCount
+                CHECK (LastHealthyNonZeroCount >= 0),
+            CONSTRAINT CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_StreakBefore
+                CHECK (RecoveryStreakBefore >= 0),
+            CONSTRAINT CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_StreakAfter
+                CHECK (RecoveryStreakAfter >= 0),
+            CONSTRAINT CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_EffectiveAuthority
+                CHECK (EffectiveAbsenceAuthorityAvailable <= ProtectionAllowsAbsenceAuthority)
+        );
+
         CREATE TABLE mesingest.DemandSeries
         (
             SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
@@ -368,7 +483,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 12
+        ) <> 15
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -382,6 +497,9 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommits'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
+                (N'TaskTypeProtectionStates'),
+                (N'TaskTypeProtectionEvents'),
+                (N'ProjectionCommitTaskTypeProtectionDecisions'),
                 (N'DemandSeries'),
                 (N'TransportDemands'),
                 (N'DemandRawObservations'),
@@ -400,6 +518,9 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommits'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
+                (N'TaskTypeProtectionStates'),
+                (N'TaskTypeProtectionEvents'),
+                (N'ProjectionCommitTaskTypeProtectionDecisions'),
                 (N'DemandSeries'),
                 (N'TransportDemands'),
                 (N'DemandRawObservations'),
@@ -465,6 +586,47 @@ internal static class SqlServerMesIngestSchema
             (N'AbsenceAuthorityEvents', 6, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'AbsenceAuthorityEvents', 7, N'PhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'AbsenceAuthorityEvents', 8, N'PhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'TaskTypeProtectionStates', 1, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionStates', 2, N'Phase', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionStates', 3, N'LastHealthyNonZeroCount', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 4, N'LatestObservedCount', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 5, N'RecoveryStreak', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 6, N'EpisodeId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionStates', 7, N'EnteredAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'TaskTypeProtectionStates', 8, N'LastSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 9, N'EnterThreshold', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 10, N'ProtectionAllowsAbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 11, N'EffectiveAbsenceAuthorityAvailable', N'bit', 1, 1, 0, 0, NULL),
+            (N'TaskTypeProtectionStates', 12, N'LatestPollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionStates', 13, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'TaskTypeProtectionEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 2, N'EpisodeId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 3, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 4, N'WorkTypeSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'TaskTypeProtectionEvents', 5, N'EventType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 6, N'OccurredAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'TaskTypeProtectionEvents', 7, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 8, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 9, N'PhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 10, N'PhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'TaskTypeProtectionEvents', 11, N'ObservedCount', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionEvents', 12, N'LastHealthyNonZeroCount', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionEvents', 13, N'RecoveryStreak', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionEvents', 14, N'RequiredRecoveryStreak', N'int', 4, 10, 0, 0, NULL),
+            (N'TaskTypeProtectionEvents', 15, N'EnterThreshold', N'int', 4, 10, 0, 0, NULL),
+
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 2, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 3, N'PhaseBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 4, N'PhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 5, N'ObservedCount', N'int', 4, 10, 0, 0, NULL),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 6, N'LastHealthyNonZeroCount', N'int', 4, 10, 0, 0, NULL),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 7, N'RecoveryStreakBefore', N'int', 4, 10, 0, 0, NULL),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 8, N'RecoveryStreakAfter', N'int', 4, 10, 0, 0, NULL),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 9, N'ProtectionAllowsAbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
+            (N'ProjectionCommitTaskTypeProtectionDecisions', 10, N'EffectiveAbsenceAuthorityAvailable', N'bit', 1, 1, 0, 0, NULL),
 
             (N'DemandSeries', 1, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeries', 2, N'KeyToken', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -620,6 +782,12 @@ internal static class SqlServerMesIngestSchema
             (N'UQ_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', 0, 1, 1, N'PollTraceId', 0),
             (N'PK_MesIngest_HostSessions', N'HostSessions', 1, 1, 1, N'HostSessionId', 0),
             (N'PK_MesIngest_AbsenceAuthorityEvents', N'AbsenceAuthorityEvents', 1, 1, 1, N'EventId', 0),
+            (N'PK_MesIngest_TaskTypeProtectionStates', N'TaskTypeProtectionStates', 1, 1, 1, N'WorkType', 0),
+            (N'PK_MesIngest_TaskTypeProtectionEvents', N'TaskTypeProtectionEvents', 1, 1, 1, N'EventId', 0),
+            (N'UQ_MesIngest_TaskTypeProtectionEvents_WorkTypeSequence', N'TaskTypeProtectionEvents', 0, 1, 1, N'WorkType', 0),
+            (N'UQ_MesIngest_TaskTypeProtectionEvents_WorkTypeSequence', N'TaskTypeProtectionEvents', 0, 1, 2, N'WorkTypeSequence', 0),
+            (N'PK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions', N'ProjectionCommitTaskTypeProtectionDecisions', 1, 1, 1, N'ProjectionCommitId', 0),
+            (N'PK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions', N'ProjectionCommitTaskTypeProtectionDecisions', 1, 1, 2, N'WorkType', 0),
             (N'PK_MesIngest_DemandSeries', N'DemandSeries', 1, 1, 1, N'SeriesId', 0),
             (N'UQ_MesIngest_DemandSeries_KeyToken', N'DemandSeries', 0, 1, 1, N'KeyToken', 0),
             (N'PK_MesIngest_TransportDemands', N'TransportDemands', 1, 1, 1, N'DemandId', 0),
@@ -715,6 +883,13 @@ internal static class SqlServerMesIngestSchema
             (N'FK_MesIngest_AbsenceAuthorityEvents_HostSession', N'AbsenceAuthorityEvents', N'HostSessionId', N'HostSessions', N'HostSessionId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_PollTrace', N'AbsenceAuthorityEvents', N'PollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_Commit', N'AbsenceAuthorityEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_TaskTypeProtectionStates_PollTrace', N'TaskTypeProtectionStates', N'LatestPollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_TaskTypeProtectionStates_Commit', N'TaskTypeProtectionStates', N'LatestProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_TaskTypeProtectionEvents_State', N'TaskTypeProtectionEvents', N'WorkType', N'TaskTypeProtectionStates', N'WorkType'),
+            (N'FK_MesIngest_TaskTypeProtectionEvents_PollTrace', N'TaskTypeProtectionEvents', N'PollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_TaskTypeProtectionEvents_Commit', N'TaskTypeProtectionEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_Commit', N'ProjectionCommitTaskTypeProtectionDecisions', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_State', N'ProjectionCommitTaskTypeProtectionDecisions', N'WorkType', N'TaskTypeProtectionStates', N'WorkType'),
             (N'FK_MesIngest_DemandSeries_CreatedPollTrace', N'DemandSeries', N'CreatedPollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_DemandSeries_CreatedCommit', N'DemandSeries', N'CreatedProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
             (N'FK_MesIngest_DemandSeries_LatestCommit', N'DemandSeries', N'LatestProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
@@ -747,7 +922,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 33
+            WHERE s.name = N'mesingest') <> 40
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -800,6 +975,25 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
             (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
             (N'CK_MesIngest_HostSessions_RestartPhase', N'HostSessions', N'([RestartPhase]=N''NORMAL'' OR [RestartPhase]=N''POST_BARRIER'' OR [RestartPhase]=N''BARRIER'')'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_Phase', N'TaskTypeProtectionStates', N'([Phase]=N''AUTHORITY_PENDING'' OR [Phase]=N''RECOVERING'' OR [Phase]=N''PAUSED_ZERO_DROP'' OR [Phase]=N''MONITORING'')'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_LastHealthyCount', N'TaskTypeProtectionStates', N'([LastHealthyNonZeroCount]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_LatestCount', N'TaskTypeProtectionStates', N'([LatestObservedCount]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_RecoveryStreak', N'TaskTypeProtectionStates', N'([RecoveryStreak]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_LastSequence', N'TaskTypeProtectionStates', N'([LastSequence]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_EnterThreshold', N'TaskTypeProtectionStates', N'([EnterThreshold]>=(1))'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_EffectiveAuthority', N'TaskTypeProtectionStates', N'([EffectiveAbsenceAuthorityAvailable]<=[ProtectionAllowsAbsenceAuthority])'),
+            (N'CK_MesIngest_TaskTypeProtectionStates_Episode', N'TaskTypeProtectionStates', N'([EpisodeId] IS NULL AND [EnteredAt] IS NULL OR [EpisodeId] IS NOT NULL AND [EnteredAt] IS NOT NULL)'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_Sequence', N'TaskTypeProtectionEvents', N'([WorkTypeSequence]>=(1))'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_ObservedCount', N'TaskTypeProtectionEvents', N'([ObservedCount]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_LastHealthyCount', N'TaskTypeProtectionEvents', N'([LastHealthyNonZeroCount]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_RecoveryStreak', N'TaskTypeProtectionEvents', N'([RecoveryStreak]>=(0))'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_RequiredRecoveryStreak', N'TaskTypeProtectionEvents', N'([RequiredRecoveryStreak]>=(1))'),
+            (N'CK_MesIngest_TaskTypeProtectionEvents_EnterThreshold', N'TaskTypeProtectionEvents', N'([EnterThreshold]>=(1))'),
+            (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_ObservedCount', N'ProjectionCommitTaskTypeProtectionDecisions', N'([ObservedCount]>=(0))'),
+            (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_LastHealthyCount', N'ProjectionCommitTaskTypeProtectionDecisions', N'([LastHealthyNonZeroCount]>=(0))'),
+            (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_StreakBefore', N'ProjectionCommitTaskTypeProtectionDecisions', N'([RecoveryStreakBefore]>=(0))'),
+            (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_StreakAfter', N'ProjectionCommitTaskTypeProtectionDecisions', N'([RecoveryStreakAfter]>=(0))'),
+            (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_EffectiveAuthority', N'ProjectionCommitTaskTypeProtectionDecisions', N'([EffectiveAbsenceAuthorityAvailable]<=[ProtectionAllowsAbsenceAuthority])'),
             (N'CK_MesIngest_DemandSeries_LastSequence', N'DemandSeries', N'([LastSeriesSequence]>=(0))'),
             (N'CK_MesIngest_TransportDemands_Generation', N'TransportDemands', N'([Generation]>=(1))'),
             (N'CK_MesIngest_DemandRawObservations_Ordinal', N'DemandRawObservations', N'([Ordinal]>=(0))'),
@@ -811,7 +1005,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 11
+            WHERE s.name = N'mesingest') <> 30
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
@@ -894,6 +1088,33 @@ internal static class SqlServerMesIngestSchema
                        WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
         )
             THROW 51006, 'The configured database is missing the new-MesIngest error-evidence index contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'TaskTypeProtectionEvents'
+              AND i.name = N'IX_MesIngest_TaskTypeProtectionEvents_Commit'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND 3 = (SELECT COUNT(*) FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND 0 = (SELECT COUNT(*) FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1)
+              AND N'ProjectionCommitId,WorkType,WorkTypeSequence' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND 0 = (SELECT SUM(CONVERT(INT, ic.is_descending_key))
+                       FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+        )
+            THROW 51006, 'The configured database is missing the task-type protection event commit index contract.', 1;
 
         IF EXISTS
         (

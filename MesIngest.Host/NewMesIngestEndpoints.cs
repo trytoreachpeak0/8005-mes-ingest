@@ -27,6 +27,16 @@ internal static class NewMesIngestEndpoints
                 GetAbsenceAuthorityByHostSessionIdAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet(
+                "/api/v2/task-type-protections",
+                ListTaskTypeProtectionsAsync)
+            .ExcludeFromDescription();
+
+        endpoints.MapGet(
+                "/api/v2/task-type-protections/{workType}",
+                GetTaskTypeProtectionAsync)
+            .ExcludeFromDescription();
+
         return endpoints;
     }
 
@@ -122,6 +132,36 @@ internal static class NewMesIngestEndpoints
             : TypedResults.Ok(AbsenceAuthorityDto.From(snapshot));
     }
 
+    private static async Task<Ok<TaskTypeProtectionListDto>> ListTaskTypeProtectionsAsync(
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        var snapshots = await projection.ListTaskTypeProtectionsAsync(cancellationToken);
+        var items = snapshots
+            .OrderBy(snapshot => snapshot.WorkType, StringComparer.Ordinal)
+            .Select(TaskTypeProtectionDto.From)
+            .ToArray();
+
+        return TypedResults.Ok(new TaskTypeProtectionListDto(items.Length, items));
+    }
+
+    private static async Task<Results<Ok<TaskTypeProtectionDto>, BadRequest<NewMesIngestErrorDto>, NotFound>>
+        GetTaskTypeProtectionAsync(
+            string workType,
+            IMesIngestProjection projection,
+            CancellationToken cancellationToken)
+    {
+        if (!TryValidateRequiredText(workType, 128, nameof(workType), out var error))
+        {
+            return TypedResults.BadRequest(error);
+        }
+
+        var snapshot = await projection.GetTaskTypeProtectionAsync(workType, cancellationToken);
+        return snapshot is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(TaskTypeProtectionDto.From(snapshot));
+    }
+
     private static bool TryValidateRequiredText(
         string value,
         int maximumLength,
@@ -175,7 +215,8 @@ internal sealed record ProjectionCommitDto(
     string HostSessionId,
     string RestartPhaseBefore,
     string RestartPhaseAfter,
-    bool AbsenceAuthority)
+    bool AbsenceAuthority,
+    IReadOnlyList<TaskTypeProtectionDecisionDto> TaskTypeProtectionDecisions)
 {
     public static ProjectionCommitDto From(ProjectionCommitSnapshot snapshot) =>
         new(
@@ -185,8 +226,117 @@ internal sealed record ProjectionCommitDto(
             snapshot.HostSessionId,
             snapshot.RestartPhaseBefore,
             snapshot.RestartPhaseAfter,
-            snapshot.AbsenceAuthority);
+            snapshot.AbsenceAuthority,
+            snapshot.TaskTypeProtectionDecisions
+                .OrderBy(decision => decision.WorkType, StringComparer.Ordinal)
+                .Select(TaskTypeProtectionDecisionDto.From)
+                .ToArray());
 }
+
+internal sealed record TaskTypeProtectionDecisionDto(
+    string WorkType,
+    string PhaseBefore,
+    string PhaseAfter,
+    int ObservedCount,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreakBefore,
+    int RecoveryStreakAfter,
+    bool ProtectionAllowsAbsenceAuthority,
+    bool EffectiveAbsenceAuthorityAvailable,
+    IReadOnlyList<string> EventIds)
+{
+    public static TaskTypeProtectionDecisionDto From(TaskTypeProtectionDecisionSnapshot snapshot) =>
+        new(
+            snapshot.WorkType,
+            snapshot.PhaseBefore,
+            snapshot.PhaseAfter,
+            snapshot.ObservedCount,
+            snapshot.LastHealthyNonZeroCount,
+            snapshot.RecoveryStreakBefore,
+            snapshot.RecoveryStreakAfter,
+            snapshot.ProtectionAllowsAbsenceAuthority,
+            snapshot.EffectiveAbsenceAuthorityAvailable,
+            snapshot.EventIds);
+}
+
+internal sealed record TaskTypeProtectionEventDto(
+    string EventId,
+    string EpisodeId,
+    string WorkType,
+    long WorkTypeSequence,
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string PhaseBefore,
+    string PhaseAfter,
+    int ObservedCount,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreak,
+    int RequiredRecoveryStreak,
+    int EnterThreshold)
+{
+    public static TaskTypeProtectionEventDto From(TaskTypeProtectionEventSnapshot snapshot) =>
+        new(
+            snapshot.EventId,
+            snapshot.EpisodeId,
+            snapshot.WorkType,
+            snapshot.WorkTypeSequence,
+            snapshot.EventType,
+            snapshot.OccurredAt,
+            snapshot.PollTraceId,
+            snapshot.ProjectionCommitId,
+            snapshot.PhaseBefore,
+            snapshot.PhaseAfter,
+            snapshot.ObservedCount,
+            snapshot.LastHealthyNonZeroCount,
+            snapshot.RecoveryStreak,
+            snapshot.RequiredRecoveryStreak,
+            snapshot.EnterThreshold);
+}
+
+internal sealed record TaskTypeProtectionDto(
+    string WorkType,
+    string Phase,
+    bool IsCurrentAttention,
+    int LastHealthyNonZeroCount,
+    int LatestObservedCount,
+    int RecoveryStreak,
+    int RequiredRecoveryStreak,
+    int EnterThreshold,
+    string? EpisodeId,
+    DateTimeOffset? EnteredAt,
+    bool ProtectionAllowsAbsenceAuthority,
+    bool EffectiveAbsenceAuthorityAvailable,
+    string LatestPollTraceId,
+    string LatestProjectionCommitId,
+    IReadOnlyList<TaskTypeProtectionEventDto> Events)
+{
+    public static TaskTypeProtectionDto From(TaskTypeProtectionSnapshot snapshot) =>
+        new(
+            snapshot.WorkType,
+            snapshot.Phase,
+            snapshot.IsCurrentAttention,
+            snapshot.LastHealthyNonZeroCount,
+            snapshot.LatestObservedCount,
+            snapshot.RecoveryStreak,
+            snapshot.RequiredRecoveryStreak,
+            snapshot.EnterThreshold,
+            snapshot.EpisodeId,
+            snapshot.EnteredAt,
+            snapshot.ProtectionAllowsAbsenceAuthority,
+            snapshot.EffectiveAbsenceAuthorityAvailable,
+            snapshot.LatestPollTraceId,
+            snapshot.LatestProjectionCommitId,
+            snapshot.Events
+                .OrderBy(item => item.WorkTypeSequence)
+                .Select(TaskTypeProtectionEventDto.From)
+                .ToArray());
+}
+
+internal sealed record TaskTypeProtectionListDto(
+    int Total,
+    IReadOnlyList<TaskTypeProtectionDto> Items);
 
 internal sealed record AbsenceAuthorityEventDto(
     string EventId,

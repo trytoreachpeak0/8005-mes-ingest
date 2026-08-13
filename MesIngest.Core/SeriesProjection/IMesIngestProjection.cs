@@ -31,4 +31,11 @@ public interface IMesIngestProjection
     Task<AbsenceAuthoritySnapshot?> GetAbsenceAuthorityAsync(
         string hostSessionId,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<TaskTypeProtectionSnapshot>> ListTaskTypeProtectionsAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<TaskTypeProtectionSnapshot?> GetTaskTypeProtectionAsync(
+        string workType,
+        CancellationToken cancellationToken = default);
 }

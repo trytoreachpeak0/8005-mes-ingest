@@ -28,6 +28,18 @@ if (!string.IsNullOrWhiteSpace(configured.Urls))
 }
 
 var newV2Enabled = !string.IsNullOrWhiteSpace(configured.NewSqlServerConnectionString);
+if (newV2Enabled && configured.ZeroDropEnterThreshold <= 0)
+{
+    throw new InvalidOperationException(
+        "MesIngest:ZeroDropEnterThreshold must be greater than zero when the V2 projection is enabled.");
+}
+if (newV2Enabled
+    && configured.ZeroDropClearStreak != TaskTypeProtectionPolicy.RequiredRecoveryStreak)
+{
+    throw new InvalidOperationException(
+        $"MesIngest:ZeroDropClearStreak must be {TaskTypeProtectionPolicy.RequiredRecoveryStreak} "
+        + "when the V2 projection is enabled.");
+}
 if (!probeOracle && !builder.Environment.IsDevelopment() && !newV2Enabled)
 {
     throw new InvalidOperationException(
@@ -44,7 +56,9 @@ builder.Services.AddSingleton(TimeProvider.System);
 if (newV2Enabled)
 {
     builder.Services.AddSingleton<IMesIngestProjection>(
-        new SqlServerMesIngestProjection(configured.NewSqlServerConnectionString));
+        new SqlServerMesIngestProjection(
+            configured.NewSqlServerConnectionString,
+            configured.ZeroDropEnterThreshold));
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
 }

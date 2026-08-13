@@ -15,7 +15,54 @@ public sealed record ProjectionCommitSnapshot(
     string HostSessionId,
     string RestartPhaseBefore,
     string RestartPhaseAfter,
-    bool AbsenceAuthority);
+    bool AbsenceAuthority,
+    IReadOnlyList<TaskTypeProtectionDecisionSnapshot> TaskTypeProtectionDecisions);
+
+public sealed record TaskTypeProtectionDecisionSnapshot(
+    string WorkType,
+    string PhaseBefore,
+    string PhaseAfter,
+    int ObservedCount,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreakBefore,
+    int RecoveryStreakAfter,
+    bool ProtectionAllowsAbsenceAuthority,
+    bool EffectiveAbsenceAuthorityAvailable,
+    IReadOnlyList<string> EventIds);
+
+public sealed record TaskTypeProtectionEventSnapshot(
+    string EventId,
+    string EpisodeId,
+    string WorkType,
+    long WorkTypeSequence,
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string PhaseBefore,
+    string PhaseAfter,
+    int ObservedCount,
+    int LastHealthyNonZeroCount,
+    int RecoveryStreak,
+    int RequiredRecoveryStreak,
+    int EnterThreshold);
+
+public sealed record TaskTypeProtectionSnapshot(
+    string WorkType,
+    string Phase,
+    bool IsCurrentAttention,
+    int LastHealthyNonZeroCount,
+    int LatestObservedCount,
+    int RecoveryStreak,
+    int RequiredRecoveryStreak,
+    int EnterThreshold,
+    string? EpisodeId,
+    DateTimeOffset? EnteredAt,
+    bool ProtectionAllowsAbsenceAuthority,
+    bool EffectiveAbsenceAuthorityAvailable,
+    string LatestPollTraceId,
+    string LatestProjectionCommitId,
+    IReadOnlyList<TaskTypeProtectionEventSnapshot> Events);
 
 public sealed record AbsenceAuthorityEventSnapshot(
     string EventId,

@@ -499,6 +499,38 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
 [CollectionDefinition("Ticket01SqlServer", DisableParallelization = true)]
 public sealed class Ticket01SqlServerCollectionDefinition;
 
+internal sealed class Ticket01ProcessEnvironmentScope : IDisposable
+{
+    private readonly IReadOnlyDictionary<string, string?> _originalValues;
+    private bool _disposed;
+
+    public Ticket01ProcessEnvironmentScope(IReadOnlyDictionary<string, string?> values)
+    {
+        _originalValues = values.Keys.ToDictionary(
+            key => key,
+            Environment.GetEnvironmentVariable,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in values)
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        foreach (var (key, value) in _originalValues)
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+}
+
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 internal sealed class Ticket01SqlServerFactAttribute : FactAttribute
 {

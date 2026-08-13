@@ -6,9 +6,9 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.tracer.6";
+    public const string Version = "2026.08.new-mes-ingest.tracer.7";
 
-    public const int SchemaVersion = 6;
+    public const int SchemaVersion = 7;
 
     /// <summary>
     /// WorkType and SUBLOT are compared ordinally and case-sensitively. Their

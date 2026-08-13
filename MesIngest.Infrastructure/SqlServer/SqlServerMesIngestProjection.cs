@@ -31,13 +31,16 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
     private const string SeriesArchivedBlocker = DemandSeriesLifecycleContract.SeriesArchivedBlocker;
 
     private readonly string _connectionString;
+    private readonly int _zeroDropEnterThreshold;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
     private volatile bool _schemaEnsured;
     private volatile bool _hostSessionInitialized;
 
-    public SqlServerMesIngestProjection(string connectionString)
+    public SqlServerMesIngestProjection(
+        string connectionString,
+        int zeroDropEnterThreshold = 10)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -46,7 +49,16 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 nameof(connectionString));
         }
 
+        if (zeroDropEnterThreshold <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(zeroDropEnterThreshold),
+                zeroDropEnterThreshold,
+                "The TaskTypeProtection zero-drop threshold must be positive.");
+        }
+
         _connectionString = connectionString;
+        _zeroDropEnterThreshold = zeroDropEnterThreshold;
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)
@@ -102,6 +114,17 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 AddDateTimeOffset(command, "@startedAt", startedAt);
                 AddNVarChar(command, "@restartPhase", 32, phase);
                 await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                await using (var protectionCommand = connection.CreateCommand())
+                {
+                    protectionCommand.Transaction = transaction;
+                    protectionCommand.CommandText = """
+                        UPDATE mesingest.TaskTypeProtectionStates
+                        SET EffectiveAbsenceAuthorityAvailable = 0
+                        WHERE EffectiveAbsenceAuthorityAvailable = 1;
+                        """;
+                    await protectionCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
 
                 await InsertAbsenceAuthorityEventAsync(
                     connection,
@@ -213,6 +236,20 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
+            var groups = PrepareAssignedGroups(prepared);
+            var protectionDecisions = await ApplyTaskTypeProtectionAsync(
+                connection,
+                transaction,
+                groups,
+                round,
+                projectionCommitId,
+                restartTransition.AbsenceAuthority,
+                _zeroDropEnterThreshold,
+                cancellationToken).ConfigureAwait(false);
+            var effectiveAuthorityByWorkType = protectionDecisions.ToDictionary(
+                decision => decision.WorkType,
+                decision => decision.EffectiveAbsenceAuthorityAvailable,
+                StringComparer.Ordinal);
 
             foreach (var item in prepared.Observations.Where(item => item.KeyToken is null))
             {
@@ -227,7 +264,6 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     cancellationToken).ConfigureAwait(false);
             }
 
-            var groups = PrepareAssignedGroups(prepared);
             var workTypesBySublot = PrepareWorkTypeMemberships(groups);
             var seriesIds = new List<string>(groups.Count);
             var demandIds = new List<string>(groups.Count);
@@ -361,12 +397,13 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 demandIds.Add(identity.DemandId);
             }
 
-            if (restartTransition.AbsenceAuthority)
+            if (effectiveAuthorityByWorkType.Values.Any(value => value))
             {
                 await MarkAbsentVisibleDemandsGoneAsync(
                     connection,
                     transaction,
                     groups.Select(group => group.KeyToken).ToHashSet(StringComparer.Ordinal),
+                    effectiveAuthorityByWorkType,
                     round,
                     projectionCommitId,
                     seriesIds,
@@ -379,7 +416,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 transaction,
                 round,
                 projectionCommitId,
-                restartTransition.AbsenceAuthority,
+                effectiveAuthorityByWorkType,
                 seriesIds,
                 demandIds,
                 cancellationToken).ConfigureAwait(false);
@@ -498,6 +535,13 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 "o.PollTraceId = @identity",
                 pollTraceId,
                 cancellationToken).ConfigureAwait(false);
+            var protectionDecisions = trace.ProjectionCommitId is null
+                ? []
+                : await ReadTaskTypeProtectionDecisionsAsync(
+                    connection,
+                    transaction,
+                    trace.ProjectionCommitId,
+                    cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
             return new PollTraceSnapshot(
@@ -517,7 +561,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         trace.HostSessionId!,
                         trace.RestartPhaseBefore!,
                         trace.RestartPhaseAfter!,
-                        trace.AbsenceAuthority!.Value),
+                        trace.AbsenceAuthority!.Value,
+                        protectionDecisions),
                 observations);
         }
         catch (Exception exception)
@@ -557,6 +602,60 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 requireCurrent: false,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<TaskTypeProtectionSnapshot>> ListTaskTypeProtectionsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await BeginHostSessionAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var snapshots = await ReadTaskTypeProtectionsAsync(
+                connection,
+                transaction,
+                workType: null,
+                cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return snapshots;
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<TaskTypeProtectionSnapshot?> GetTaskTypeProtectionAsync(
+        string workType,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(workType, nameof(workType), 128);
+        await BeginHostSessionAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var snapshots = await ReadTaskTypeProtectionsAsync(
+                connection,
+                transaction,
+                workType,
+                cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return snapshots.SingleOrDefault();
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task<AbsenceAuthoritySnapshot?> ReadAbsenceAuthorityAsync(
@@ -659,6 +758,171 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             throw;
         }
     }
+
+    private static async Task<IReadOnlyList<TaskTypeProtectionSnapshot>> ReadTaskTypeProtectionsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string? workType,
+        CancellationToken cancellationToken)
+    {
+        var states = new List<TaskTypeProtectionSnapshot>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT WorkType, Phase, LastHealthyNonZeroCount, LatestObservedCount,
+                       RecoveryStreak, EnterThreshold, EpisodeId, EnteredAt,
+                       ProtectionAllowsAbsenceAuthority,
+                       EffectiveAbsenceAuthorityAvailable,
+                       LatestPollTraceId, LatestProjectionCommitId
+                FROM mesingest.TaskTypeProtectionStates
+                WHERE @workType IS NULL OR WorkType = @workType
+                ORDER BY WorkType;
+                """;
+            AddNullableNVarChar(command, "@workType", 128, workType);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                states.Add(new TaskTypeProtectionSnapshot(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    !string.Equals(
+                        reader.GetString(1),
+                        TaskTypeProtectionPhaseContract.Monitoring,
+                        StringComparison.Ordinal),
+                    reader.GetInt32(2),
+                    reader.GetInt32(3),
+                    reader.GetInt32(4),
+                    TaskTypeProtectionPolicy.RequiredRecoveryStreak,
+                    reader.GetInt32(5),
+                    GetNullableString(reader, 6),
+                    GetNullableDateTimeOffset(reader, 7),
+                    reader.GetBoolean(8),
+                    reader.GetBoolean(9),
+                    reader.GetString(10),
+                    reader.GetString(11),
+                    Events: []));
+            }
+        }
+
+        if (states.Count == 0)
+        {
+            return states;
+        }
+
+        var eventsByWorkType = states.ToDictionary(
+            state => state.WorkType,
+            _ => new List<TaskTypeProtectionEventSnapshot>(),
+            StringComparer.Ordinal);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT EventId, EpisodeId, WorkType, WorkTypeSequence, EventType,
+                       OccurredAt, PollTraceId, ProjectionCommitId, PhaseBefore,
+                       PhaseAfter, ObservedCount, LastHealthyNonZeroCount,
+                       RecoveryStreak, RequiredRecoveryStreak, EnterThreshold
+                FROM mesingest.TaskTypeProtectionEvents
+                WHERE @workType IS NULL OR WorkType = @workType
+                ORDER BY WorkType, WorkTypeSequence, EventId;
+                """;
+            AddNullableNVarChar(command, "@workType", 128, workType);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var snapshot = ReadTaskTypeProtectionEvent(reader);
+                eventsByWorkType[snapshot.WorkType].Add(snapshot);
+            }
+        }
+
+        return states.Select(state => state with
+        {
+            Events = eventsByWorkType[state.WorkType],
+        }).ToArray();
+    }
+
+    private static async Task<IReadOnlyList<TaskTypeProtectionDecisionSnapshot>> ReadTaskTypeProtectionDecisionsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        var eventIdsByWorkType = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT WorkType, EventId
+                FROM mesingest.TaskTypeProtectionEvents
+                WHERE ProjectionCommitId = @projectionCommitId
+                ORDER BY WorkType, WorkTypeSequence, EventId;
+                """;
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var eventWorkType = reader.GetString(0);
+                if (!eventIdsByWorkType.TryGetValue(eventWorkType, out var eventIds))
+                {
+                    eventIds = [];
+                    eventIdsByWorkType.Add(eventWorkType, eventIds);
+                }
+                eventIds.Add(reader.GetString(1));
+            }
+        }
+
+        var decisions = new List<TaskTypeProtectionDecisionSnapshot>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT WorkType, PhaseBefore, PhaseAfter, ObservedCount,
+                       LastHealthyNonZeroCount, RecoveryStreakBefore,
+                       RecoveryStreakAfter, ProtectionAllowsAbsenceAuthority,
+                       EffectiveAbsenceAuthorityAvailable
+                FROM mesingest.ProjectionCommitTaskTypeProtectionDecisions
+                WHERE ProjectionCommitId = @projectionCommitId
+                ORDER BY WorkType;
+                """;
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var decisionWorkType = reader.GetString(0);
+                decisions.Add(new TaskTypeProtectionDecisionSnapshot(
+                    decisionWorkType,
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetInt32(4),
+                    reader.GetInt32(5),
+                    reader.GetInt32(6),
+                    reader.GetBoolean(7),
+                    reader.GetBoolean(8),
+                    eventIdsByWorkType.GetValueOrDefault(decisionWorkType) ?? []));
+            }
+        }
+
+        return decisions;
+    }
+
+    private static TaskTypeProtectionEventSnapshot ReadTaskTypeProtectionEvent(SqlDataReader reader) =>
+        new(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetInt64(3),
+            reader.GetString(4),
+            reader.GetFieldValue<DateTimeOffset>(5),
+            reader.GetString(6),
+            reader.GetString(7),
+            reader.GetString(8),
+            reader.GetString(9),
+            reader.GetInt32(10),
+            reader.GetInt32(11),
+            reader.GetInt32(12),
+            reader.GetInt32(13),
+            reader.GetInt32(14));
 
     private async Task<DemandSeriesSnapshot?> ReadDemandSeriesAsync(
         string predicate,
@@ -897,6 +1161,296 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             pair => pair.Key,
             pair => (IReadOnlyList<string>)pair.Value.Order(StringComparer.Ordinal).ToArray(),
             StringComparer.Ordinal);
+    }
+
+    private static async Task<IReadOnlyList<TaskTypeProtectionDecisionSnapshot>> ApplyTaskTypeProtectionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        IReadOnlyList<PreparedObservationGroup> groups,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        bool restartAbsenceAuthority,
+        int enterThreshold,
+        CancellationToken cancellationToken)
+    {
+        var observedCounts = groups
+            .GroupBy(
+                group => group.Observations[0].Observation.WorkType!,
+                StringComparer.Ordinal)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Count(),
+                StringComparer.Ordinal);
+        var stored = await LoadTaskTypeProtectionStatesForUpdateAsync(
+            connection,
+            transaction,
+            cancellationToken).ConfigureAwait(false);
+        var workTypes = stored.Keys
+            .Concat(observedCounts.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        var decisions = new List<TaskTypeProtectionDecisionSnapshot>(workTypes.Length);
+
+        foreach (var workType in workTypes)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var existing = stored.GetValueOrDefault(workType);
+            var before = existing is null
+                ? TaskTypeProtectionState.Initial
+                : new TaskTypeProtectionState(
+                    TaskTypeProtectionPhaseContract.Parse(existing.Phase),
+                    existing.LastHealthyNonZeroCount,
+                    existing.LatestObservedCount,
+                    existing.RecoveryStreak);
+            var observedCount = observedCounts.GetValueOrDefault(workType);
+            var transition = TaskTypeProtectionPolicy.AcceptSuccess(
+                before,
+                observedCount,
+                enterThreshold,
+                restartAbsenceAuthority);
+            var episodeId = existing?.EpisodeId;
+            var enteredAt = existing?.EnteredAt;
+            if (transition.EventCodes.Contains(TaskTypeProtectionEventCode.Entered, StringComparer.Ordinal))
+            {
+                episodeId = NewId();
+                enteredAt = round.CompletedAt;
+            }
+            var eventEpisodeId = episodeId;
+            if (transition.After.Phase is TaskTypeProtectionPhase.Monitoring)
+            {
+                episodeId = null;
+                enteredAt = null;
+            }
+
+            var nextSequence = existing?.LastSequence ?? 0;
+            var eventIds = new List<string>(transition.EventCodes.Count);
+            await UpsertTaskTypeProtectionStateAsync(
+                connection,
+                transaction,
+                workType,
+                transition,
+                episodeId,
+                enteredAt,
+                nextSequence + transition.EventCodes.Count,
+                enterThreshold,
+                round.PollTraceId,
+                projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
+            foreach (var eventCode in transition.EventCodes)
+            {
+                if (eventEpisodeId is null)
+                {
+                    throw new InvalidOperationException(
+                        "TaskTypeProtection lifecycle event is missing its episode identity.");
+                }
+
+                var eventId = NewId();
+                nextSequence++;
+                await InsertTaskTypeProtectionEventAsync(
+                    connection,
+                    transaction,
+                    eventId,
+                    eventEpisodeId,
+                    workType,
+                    nextSequence,
+                    eventCode,
+                    round,
+                    projectionCommitId,
+                    transition,
+                    enterThreshold,
+                    cancellationToken).ConfigureAwait(false);
+                eventIds.Add(eventId);
+            }
+
+            await InsertTaskTypeProtectionDecisionAsync(
+                connection,
+                transaction,
+                workType,
+                projectionCommitId,
+                transition,
+                cancellationToken).ConfigureAwait(false);
+            decisions.Add(new TaskTypeProtectionDecisionSnapshot(
+                workType,
+                transition.Before.Phase.ToContractValue(),
+                transition.After.Phase.ToContractValue(),
+                transition.After.LatestObservedCount,
+                transition.After.LastHealthyNonZeroCount,
+                transition.Before.RecoveryStreak,
+                transition.After.RecoveryStreak,
+                transition.ProtectionAllowsAbsenceAuthority,
+                transition.EffectiveAbsenceAuthorityAvailable,
+                eventIds));
+        }
+
+        return decisions;
+    }
+
+    private static async Task<Dictionary<string, TaskTypeProtectionStateRow>> LoadTaskTypeProtectionStatesForUpdateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        var states = new Dictionary<string, TaskTypeProtectionStateRow>(StringComparer.Ordinal);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT WorkType, Phase, LastHealthyNonZeroCount, LatestObservedCount,
+                   RecoveryStreak, EpisodeId, EnteredAt, LastSequence
+            FROM mesingest.TaskTypeProtectionStates WITH (UPDLOCK, HOLDLOCK)
+            ORDER BY WorkType;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var row = new TaskTypeProtectionStateRow(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetInt32(2),
+                reader.GetInt32(3),
+                reader.GetInt32(4),
+                GetNullableString(reader, 5),
+                GetNullableDateTimeOffset(reader, 6),
+                reader.GetInt64(7));
+            states.Add(row.WorkType, row);
+        }
+
+        return states;
+    }
+
+    private static async Task UpsertTaskTypeProtectionStateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string workType,
+        TaskTypeProtectionTransition transition,
+        string? episodeId,
+        DateTimeOffset? enteredAt,
+        long lastSequence,
+        int enterThreshold,
+        string pollTraceId,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE mesingest.TaskTypeProtectionStates
+            SET Phase = @phase,
+                LastHealthyNonZeroCount = @lastHealthyNonZeroCount,
+                LatestObservedCount = @latestObservedCount,
+                RecoveryStreak = @recoveryStreak,
+                EpisodeId = @episodeId,
+                EnteredAt = @enteredAt,
+                LastSequence = @lastSequence,
+                EnterThreshold = @enterThreshold,
+                ProtectionAllowsAbsenceAuthority = @protectionAllows,
+                EffectiveAbsenceAuthorityAvailable = @effectiveAuthority,
+                LatestPollTraceId = @pollTraceId,
+                LatestProjectionCommitId = @projectionCommitId
+            WHERE WorkType = @workType;
+
+            IF @@ROWCOUNT = 0
+                INSERT INTO mesingest.TaskTypeProtectionStates
+                    (WorkType, Phase, LastHealthyNonZeroCount, LatestObservedCount,
+                     RecoveryStreak, EpisodeId, EnteredAt, LastSequence, EnterThreshold,
+                     ProtectionAllowsAbsenceAuthority, EffectiveAbsenceAuthorityAvailable,
+                     LatestPollTraceId, LatestProjectionCommitId)
+                VALUES
+                    (@workType, @phase, @lastHealthyNonZeroCount, @latestObservedCount,
+                     @recoveryStreak, @episodeId, @enteredAt, @lastSequence, @enterThreshold,
+                     @protectionAllows, @effectiveAuthority, @pollTraceId, @projectionCommitId);
+            """;
+        AddNVarChar(command, "@workType", 128, workType);
+        AddNVarChar(command, "@phase", 32, transition.After.Phase.ToContractValue());
+        command.Parameters.Add("@lastHealthyNonZeroCount", SqlDbType.Int).Value = transition.After.LastHealthyNonZeroCount;
+        command.Parameters.Add("@latestObservedCount", SqlDbType.Int).Value = transition.After.LatestObservedCount;
+        command.Parameters.Add("@recoveryStreak", SqlDbType.Int).Value = transition.After.RecoveryStreak;
+        AddNullableNVarChar(command, "@episodeId", 64, episodeId);
+        AddNullableDateTimeOffset(command, "@enteredAt", enteredAt);
+        command.Parameters.Add("@lastSequence", SqlDbType.BigInt).Value = lastSequence;
+        command.Parameters.Add("@enterThreshold", SqlDbType.Int).Value = enterThreshold;
+        command.Parameters.Add("@protectionAllows", SqlDbType.Bit).Value = transition.ProtectionAllowsAbsenceAuthority;
+        command.Parameters.Add("@effectiveAuthority", SqlDbType.Bit).Value = transition.EffectiveAbsenceAuthorityAvailable;
+        AddNVarChar(command, "@pollTraceId", 128, pollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task InsertTaskTypeProtectionEventAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string eventId,
+        string episodeId,
+        string workType,
+        long workTypeSequence,
+        string eventType,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        TaskTypeProtectionTransition transition,
+        int enterThreshold,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.TaskTypeProtectionEvents
+                (EventId, EpisodeId, WorkType, WorkTypeSequence, EventType, OccurredAt,
+                 PollTraceId, ProjectionCommitId, PhaseBefore, PhaseAfter, ObservedCount,
+                 LastHealthyNonZeroCount, RecoveryStreak, RequiredRecoveryStreak, EnterThreshold)
+            VALUES
+                (@eventId, @episodeId, @workType, @workTypeSequence, @eventType, @occurredAt,
+                 @pollTraceId, @projectionCommitId, @phaseBefore, @phaseAfter, @observedCount,
+                 @lastHealthyNonZeroCount, @recoveryStreak, @requiredRecoveryStreak, @enterThreshold);
+            """;
+        AddNVarChar(command, "@eventId", 64, eventId);
+        AddNVarChar(command, "@episodeId", 64, episodeId);
+        AddNVarChar(command, "@workType", 128, workType);
+        command.Parameters.Add("@workTypeSequence", SqlDbType.BigInt).Value = workTypeSequence;
+        AddNVarChar(command, "@eventType", 128, eventType);
+        AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@phaseBefore", 32, transition.Before.Phase.ToContractValue());
+        AddNVarChar(command, "@phaseAfter", 32, transition.After.Phase.ToContractValue());
+        command.Parameters.Add("@observedCount", SqlDbType.Int).Value = transition.After.LatestObservedCount;
+        command.Parameters.Add("@lastHealthyNonZeroCount", SqlDbType.Int).Value = transition.After.LastHealthyNonZeroCount;
+        command.Parameters.Add("@recoveryStreak", SqlDbType.Int).Value = transition.After.RecoveryStreak;
+        command.Parameters.Add("@requiredRecoveryStreak", SqlDbType.Int).Value = TaskTypeProtectionPolicy.RequiredRecoveryStreak;
+        command.Parameters.Add("@enterThreshold", SqlDbType.Int).Value = enterThreshold;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task InsertTaskTypeProtectionDecisionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string workType,
+        string projectionCommitId,
+        TaskTypeProtectionTransition transition,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.ProjectionCommitTaskTypeProtectionDecisions
+                (ProjectionCommitId, WorkType, PhaseBefore, PhaseAfter, ObservedCount,
+                 LastHealthyNonZeroCount, RecoveryStreakBefore, RecoveryStreakAfter,
+                 ProtectionAllowsAbsenceAuthority, EffectiveAbsenceAuthorityAvailable)
+            VALUES
+                (@projectionCommitId, @workType, @phaseBefore, @phaseAfter, @observedCount,
+                 @lastHealthyNonZeroCount, @recoveryStreakBefore, @recoveryStreakAfter,
+                 @protectionAllows, @effectiveAuthority);
+            """;
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@workType", 128, workType);
+        AddNVarChar(command, "@phaseBefore", 32, transition.Before.Phase.ToContractValue());
+        AddNVarChar(command, "@phaseAfter", 32, transition.After.Phase.ToContractValue());
+        command.Parameters.Add("@observedCount", SqlDbType.Int).Value = transition.After.LatestObservedCount;
+        command.Parameters.Add("@lastHealthyNonZeroCount", SqlDbType.Int).Value = transition.After.LastHealthyNonZeroCount;
+        command.Parameters.Add("@recoveryStreakBefore", SqlDbType.Int).Value = transition.Before.RecoveryStreak;
+        command.Parameters.Add("@recoveryStreakAfter", SqlDbType.Int).Value = transition.After.RecoveryStreak;
+        command.Parameters.Add("@protectionAllows", SqlDbType.Bit).Value = transition.ProtectionAllowsAbsenceAuthority;
+        command.Parameters.Add("@effectiveAuthority", SqlDbType.Bit).Value = transition.EffectiveAbsenceAuthorityAvailable;
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<PollTraceRow?> LoadExistingPollTraceForUpdateAsync(
@@ -2071,6 +2625,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         SqlConnection connection,
         SqlTransaction transaction,
         IReadOnlySet<string> presentKeyTokens,
+        IReadOnlyDictionary<string, bool> effectiveAuthorityByWorkType,
         MesTaskUnionRound round,
         string projectionCommitId,
         ICollection<string> affectedSeriesIds,
@@ -2082,7 +2637,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         {
             command.Transaction = transaction;
             command.CommandText = """
-                SELECT s.KeyToken, s.SeriesId, d.DemandId, d.Generation, d.DemandLastSeenAt
+                SELECT s.KeyToken, s.WorkType, s.SeriesId, d.DemandId, d.Generation, d.DemandLastSeenAt
                 FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
                 INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
                     ON d.DemandId = s.CurrentDemandId
@@ -2101,9 +2656,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     reader.GetString(0),
                     reader.GetString(1),
                     reader.GetString(2),
-                    reader.GetInt32(3),
-                    reader.GetFieldValue<DateTimeOffset>(4));
-                if (!presentKeyTokens.Contains(row.KeyToken))
+                    reader.GetString(3),
+                    reader.GetInt32(4),
+                    reader.GetFieldValue<DateTimeOffset>(5));
+                if (!presentKeyTokens.Contains(row.KeyToken)
+                    && effectiveAuthorityByWorkType.GetValueOrDefault(row.WorkType))
                 {
                     visible.Add(row);
                 }
@@ -2197,12 +2754,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         SqlTransaction transaction,
         MesTaskUnionRound round,
         string projectionCommitId,
-        bool absenceAuthority,
+        IReadOnlyDictionary<string, bool> effectiveAuthorityByWorkType,
         ICollection<string> affectedSeriesIds,
         ICollection<string> affectedDemandIds,
         CancellationToken cancellationToken)
     {
-        if (!absenceAuthority)
+        if (!effectiveAuthorityByWorkType.Values.Any(value => value))
         {
             return;
         }
@@ -2212,7 +2769,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         {
             command.Transaction = transaction;
             command.CommandText = """
-                SELECT s.SeriesId, d.DemandId, d.Generation, d.GoneConfirmedAt
+                SELECT s.WorkType, s.SeriesId, d.DemandId, d.Generation, d.GoneConfirmedAt
                 FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
                 INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
                     ON d.DemandId = s.CurrentDemandId
@@ -2228,13 +2785,15 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 candidates.Add(new ArchiveCandidateRow(
                     reader.GetString(0),
                     reader.GetString(1),
-                    reader.GetInt32(2),
-                    reader.GetFieldValue<DateTimeOffset>(3)));
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetFieldValue<DateTimeOffset>(4)));
             }
         }
 
         foreach (var candidate in candidates)
         {
+            var absenceAuthority = effectiveAuthorityByWorkType.GetValueOrDefault(candidate.WorkType);
             if (!DemandSeriesArchivePolicy.IsDue(
                     candidate.GoneConfirmedAt,
                     round.CompletedAt,
@@ -3383,14 +3942,26 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string RestartPhase,
         bool IsCurrent);
 
+    private sealed record TaskTypeProtectionStateRow(
+        string WorkType,
+        string Phase,
+        int LastHealthyNonZeroCount,
+        int LatestObservedCount,
+        int RecoveryStreak,
+        string? EpisodeId,
+        DateTimeOffset? EnteredAt,
+        long LastSequence);
+
     private sealed record AbsentDemandRow(
         string KeyToken,
+        string WorkType,
         string SeriesId,
         string DemandId,
         int Generation,
         DateTimeOffset DemandLastSeenAt);
 
     private sealed record ArchiveCandidateRow(
+        string WorkType,
         string SeriesId,
         string DemandId,
         int Generation,
