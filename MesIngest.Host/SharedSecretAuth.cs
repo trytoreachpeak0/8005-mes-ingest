@@ -4,7 +4,8 @@ using System.Text;
 namespace MesIngest.Host;
 
 /// <summary>
-/// Shared-secret gate for read-only HTTP when the host binds beyond localhost.
+/// Shared-secret gate for remote read-only HTTP and explicitly restricted raw
+/// evidence reads, including when the host binds only to localhost.
 /// Scheme: <c>Authorization: Bearer &lt;MesIngest:SharedSecret&gt;</c>.
 /// </summary>
 public static class SharedSecretAuth
@@ -59,7 +60,19 @@ public static class SharedSecretAuth
             return true;
         }
 
-        if (string.IsNullOrEmpty(options.SharedSecret))
+        return IsExplicitlyAuthorized(request, options);
+    }
+
+    /// <summary>
+    /// Requires the configured shared secret even when the host is bound only to
+    /// localhost. Restricted raw evidence must never inherit the normal local-read
+    /// bypass from <see cref="IsAuthorized"/>.
+    /// </summary>
+    public static bool IsExplicitlyAuthorized(
+        HttpRequest request,
+        MesIngestHostOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.SharedSecret))
         {
             return false;
         }

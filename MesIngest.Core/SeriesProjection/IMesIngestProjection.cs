@@ -67,6 +67,26 @@ public interface IMesIngestProjection
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Explains only the periods and evidence that belonged to one Series match
+    /// in the referenced signed Error Search snapshot.
+    /// </summary>
+    Task<ErrorSearchDetailSnapshot?> GetErrorSearchDetailAsync(
+        string seriesId,
+        string snapshotReference,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads a bounded, whitelisted raw observation set only after the evidence
+    /// is proven to belong to the referenced Error Search match.
+    /// </summary>
+    Task<ErrorSearchRawEvidenceSnapshot?> GetErrorSearchRawEvidenceAsync(
+        string seriesId,
+        string evidenceId,
+        string snapshotReference,
+        ErrorSearchRawEvidenceQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the complete, full-scope externally readable catalog at one
     /// committed CatalogRevision. A matching known revision transfers no body.
     /// </summary>

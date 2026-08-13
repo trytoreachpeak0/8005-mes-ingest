@@ -81,7 +81,8 @@ public sealed class MesIngestHostOptions
     public string Urls { get; set; } = "http://127.0.0.1:5088";
 
     /// <summary>
-    /// Shared secret for read-only HTTP when Urls binds beyond localhost.
+    /// Shared secret for read-only HTTP when Urls binds beyond localhost and for
+    /// restricted raw-evidence reads on every binding, including localhost.
     /// Callers send <c>Authorization: Bearer &lt;SharedSecret&gt;</c>. Local/env only — never commit a real value.
     /// </summary>
     public string SharedSecret { get; set; } = "";

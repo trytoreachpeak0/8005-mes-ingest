@@ -35,6 +35,14 @@ internal static class NewMesIngestEndpoints
         endpoints.MapGet("/api/v2/error-search", ListErrorSearchAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet("/api/v2/error-search/{seriesId}", GetErrorSearchDetailAsync)
+            .ExcludeFromDescription();
+
+        endpoints.MapGet(
+                "/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
+                GetErrorSearchRawEvidenceAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
@@ -760,8 +768,174 @@ internal static class NewMesIngestEndpoints
             ErrorSearchErrorCodes.ProjectionNotAvailable => Results.Conflict(error),
             ErrorSearchErrorCodes.SnapshotNotFound =>
                 Results.Json(error, statusCode: StatusCodes.Status410Gone),
+            ErrorSearchErrorCodes.ObjectNotInSnapshot =>
+                Results.Json(error, statusCode: StatusCodes.Status404NotFound),
+            ErrorSearchErrorCodes.RawLimitExceeded =>
+                Results.Json(error, statusCode: StatusCodes.Status413PayloadTooLarge),
             _ => Results.BadRequest(error),
         };
+    }
+
+    private static async Task<IResult> GetErrorSearchDetailAsync(
+        string seriesId,
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var requestError))
+        {
+            return Results.BadRequest(requestError);
+        }
+
+        string snapshotReference;
+        try
+        {
+            snapshotReference = ParseRequiredErrorSearchSnapshot(
+                request.Query,
+                new HashSet<string>(["snapshot"], StringComparer.Ordinal));
+        }
+        catch (ErrorSearchException exception)
+        {
+            return ToErrorSearchError(exception);
+        }
+
+        try
+        {
+            var detail = await projection.GetErrorSearchDetailAsync(
+                seriesId,
+                snapshotReference,
+                cancellationToken);
+            return detail is null
+                ? Results.NotFound(new NewMesIngestErrorDto(
+                    ErrorSearchErrorCodes.ObjectNotInSnapshot,
+                    "The requested object is not available in this error-search snapshot."))
+                : Results.Ok(ErrorSearchDetailDto.From(detail));
+        }
+        catch (ErrorSearchException exception)
+        {
+            return ToErrorSearchError(exception);
+        }
+    }
+
+    private static async Task<IResult> GetErrorSearchRawEvidenceAsync(
+        string seriesId,
+        string evidenceId,
+        HttpRequest request,
+        MesIngestHostOptions options,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        // Authorization intentionally precedes route validation, token parsing,
+        // and every projection call so this restricted endpoint cannot become an
+        // object-existence oracle (including on localhost).
+        if (!SharedSecretAuth.IsExplicitlyAuthorized(request, options))
+        {
+            return Results.Json(
+                new NewMesIngestErrorDto(
+                    ErrorSearchErrorCodes.RawAccessDenied,
+                    "Raw evidence access is denied."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var seriesError))
+        {
+            return Results.BadRequest(seriesError);
+        }
+        if (!TryValidateRequiredText(evidenceId, 128, nameof(evidenceId), out var evidenceError))
+        {
+            return Results.BadRequest(evidenceError);
+        }
+
+        ParsedErrorSearchRawEvidenceRequest requestContract;
+        try
+        {
+            requestContract = ParseErrorSearchRawEvidenceRequest(request.Query);
+        }
+        catch (ErrorSearchException exception)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(exception.Code, exception.Message));
+        }
+
+        try
+        {
+            var result = await projection.GetErrorSearchRawEvidenceAsync(
+                seriesId,
+                evidenceId,
+                requestContract.SnapshotReference,
+                requestContract.Query,
+                cancellationToken);
+            return result is null
+                ? Results.NotFound(new NewMesIngestErrorDto(
+                    ErrorSearchErrorCodes.ObjectNotInSnapshot,
+                    "The requested object is not available in this error-search snapshot."))
+                : Results.Ok(ErrorSearchRawEvidenceDto.From(result));
+        }
+        catch (ErrorSearchException exception)
+        {
+            return ToErrorSearchError(exception);
+        }
+    }
+
+    private static string ParseRequiredErrorSearchSnapshot(
+        IQueryCollection query,
+        IReadOnlySet<string> allowedKeys)
+    {
+        var unsupported = query.Keys.FirstOrDefault(key => !allowedKeys.Contains(key));
+        if (unsupported is not null)
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                $"Unsupported error detail query parameter '{unsupported}'.");
+        }
+
+        var snapshot = ReadErrorSearchSingle(query, "snapshot");
+        if (string.IsNullOrWhiteSpace(snapshot))
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.InvalidQuery,
+                "snapshot is required.");
+        }
+
+        return snapshot;
+    }
+
+    private static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
+        IQueryCollection query)
+    {
+        var allowedKeys = new HashSet<string>(["snapshot", "fields", "maxItems"], StringComparer.Ordinal);
+        var snapshot = ParseRequiredErrorSearchSnapshot(query, allowedKeys);
+
+        var fieldsValue = ReadErrorSearchSingle(query, "fields");
+        IReadOnlyList<string> fields = fieldsValue is null
+            ? ErrorSearchRawEvidenceFields.All
+            : fieldsValue
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+        var unsupportedField = fields.FirstOrDefault(field => !ErrorSearchRawEvidenceFields.All.Contains(
+            field,
+            StringComparer.Ordinal));
+        if (fields.Count == 0 || unsupportedField is not null)
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.RawFieldNotAllowed,
+                "fields contains a field that is not allowed for raw evidence.");
+        }
+
+        var maxItems = ParseErrorSearchInt(
+            query,
+            "maxItems",
+            ErrorSearchRawEvidenceLimits.MaximumItems);
+        if (maxItems is < 1 or > ErrorSearchRawEvidenceLimits.MaximumItems)
+        {
+            throw new ErrorSearchException(
+                ErrorSearchErrorCodes.RawLimitExceeded,
+                $"maxItems must be between 1 and {ErrorSearchRawEvidenceLimits.MaximumItems}.");
+        }
+
+        return new ParsedErrorSearchRawEvidenceRequest(
+            snapshot,
+            new ErrorSearchRawEvidenceQuery(fields, maxItems).NormalizeAndValidate());
     }
 
     private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
@@ -863,6 +1037,10 @@ internal static class NewMesIngestEndpoints
     }
 
 }
+
+internal sealed record ParsedErrorSearchRawEvidenceRequest(
+    string SnapshotReference,
+    ErrorSearchRawEvidenceQuery Query);
 
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
 
@@ -1307,6 +1485,157 @@ internal sealed record ErrorSearchListDto(
             snapshot.Items.Select(ErrorSearchListItemDto.From).ToArray(),
             snapshot.NextCursor,
             snapshot.HasMore);
+}
+
+internal sealed record ErrorSearchDiagnosticValueDto(
+    string Kind,
+    string? ScalarValue,
+    int? ObservationCount,
+    string? Sha256Digest)
+{
+    public static ErrorSearchDiagnosticValueDto From(ErrorSearchDiagnosticValueSnapshot value) =>
+        new(value.Kind, value.ScalarValue, value.ObservationCount, value.Sha256Digest);
+}
+
+internal sealed record ErrorSearchDetailEvidenceDto(
+    string EvidenceId,
+    string EvidenceKind,
+    string SubjectKind,
+    DateTimeOffset ObservedAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string DemandId,
+    IReadOnlyList<string> RelatedWorkTypes,
+    ErrorSearchDiagnosticValueDto DiagnosticValue,
+    string ExpectedRule,
+    bool RawEvidenceAvailable)
+{
+    public static ErrorSearchDetailEvidenceDto From(ErrorSearchDetailEvidenceSnapshot evidence) =>
+        new(
+            evidence.EvidenceId,
+            evidence.EvidenceKind,
+            evidence.SubjectKind,
+            evidence.ObservedAt,
+            evidence.PollTraceId,
+            evidence.ProjectionCommitId,
+            evidence.DemandId,
+            evidence.RelatedWorkTypes,
+            ErrorSearchDiagnosticValueDto.From(evidence.DiagnosticValue),
+            evidence.ExpectedRule,
+            evidence.RawEvidenceAvailable);
+}
+
+internal sealed record ErrorSearchDetailPeriodDto(
+    string PeriodId,
+    string Code,
+    string Category,
+    string Severity,
+    string Target,
+    string SubjectKind,
+    string StartReason,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? EndedAt,
+    string? EndReason,
+    bool StartsBeforeWindow,
+    bool EndsAfterWindow,
+    bool ActiveAtAsOf,
+    IReadOnlyList<ErrorSearchDetailEvidenceDto> Evidence)
+{
+    public static ErrorSearchDetailPeriodDto From(ErrorSearchDetailPeriodSnapshot period) =>
+        new(
+            period.PeriodId,
+            period.Code,
+            period.Category,
+            period.Severity,
+            period.Target,
+            period.SubjectKind,
+            period.StartReason,
+            period.StartedAt,
+            period.EndedAt,
+            period.EndReason,
+            period.StartsBeforeWindow,
+            period.EndsAfterWindow,
+            period.ActiveAtAsOf,
+            period.Evidence.Select(ErrorSearchDetailEvidenceDto.From).ToArray());
+}
+
+internal sealed record ErrorSearchDetailDto(
+    string SnapshotReference,
+    ErrorSearchSnapshotIdentityDto Snapshot,
+    ErrorSearchFilterDto Filter,
+    ErrorSearchWindowDto Window,
+    string Order,
+    ErrorSearchListItemDto Series,
+    IReadOnlyList<ErrorSearchDetailPeriodDto> Periods)
+{
+    public static ErrorSearchDetailDto From(ErrorSearchDetailSnapshot detail) =>
+        new(
+            detail.SnapshotReference,
+            ErrorSearchSnapshotIdentityDto.From(detail.Snapshot),
+            ErrorSearchFilterDto.From(detail.Filter),
+            ErrorSearchWindowDto.From(detail.Window),
+            detail.Order,
+            ErrorSearchListItemDto.From(detail.Series),
+            detail.Periods.Select(ErrorSearchDetailPeriodDto.From).ToArray());
+}
+
+internal sealed record ErrorSearchRawEvidenceLimitsDto(
+    int MaxItems,
+    int MaxItemBytes,
+    int MaxTotalBytes)
+{
+    public static ErrorSearchRawEvidenceLimitsDto From(ErrorSearchRawEvidenceLimitsSnapshot limits) =>
+        new(limits.MaxItems, limits.MaxItemBytes, limits.MaxTotalBytes);
+}
+
+internal sealed record ErrorSearchRawEvidenceItemDto(
+    int Ordinal,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string DemandId,
+    DateTimeOffset ObservedAt,
+    IReadOnlyDictionary<string, string?> Fields)
+{
+    public static ErrorSearchRawEvidenceItemDto From(ErrorSearchRawEvidenceItemSnapshot item) =>
+        new(
+            item.Ordinal,
+            item.PollTraceId,
+            item.ProjectionCommitId,
+            item.DemandId,
+            item.ObservedAt,
+            item.Fields);
+}
+
+internal sealed record ErrorSearchRawEvidenceDto(
+    string SnapshotReference,
+    ErrorSearchSnapshotIdentityDto Snapshot,
+    string SeriesId,
+    string PeriodId,
+    string EvidenceId,
+    string PollTraceId,
+    string ProjectionCommitId,
+    string DemandId,
+    IReadOnlyList<string> IncludedFields,
+    int ItemCount,
+    ErrorSearchRawEvidenceLimitsDto Limits,
+    int PayloadBytes,
+    IReadOnlyList<ErrorSearchRawEvidenceItemDto> Items)
+{
+    public static ErrorSearchRawEvidenceDto From(ErrorSearchRawEvidenceSnapshot evidence) =>
+        new(
+            evidence.SnapshotReference,
+            ErrorSearchSnapshotIdentityDto.From(evidence.Snapshot),
+            evidence.SeriesId,
+            evidence.PeriodId,
+            evidence.EvidenceId,
+            evidence.PollTraceId,
+            evidence.ProjectionCommitId,
+            evidence.DemandId,
+            evidence.IncludedFields,
+            evidence.ItemCount,
+            ErrorSearchRawEvidenceLimitsDto.From(evidence.Limits),
+            evidence.PayloadBytes,
+            evidence.Items.Select(ErrorSearchRawEvidenceItemDto.From).ToArray());
 }
 
 internal sealed record ProjectionCommitDto(

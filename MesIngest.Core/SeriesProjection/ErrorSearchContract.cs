@@ -350,6 +350,10 @@ public static class ErrorSearchErrorCodes
     public const string SnapshotNotFound = "ERROR_SEARCH_SNAPSHOT_NOT_FOUND";
     public const string SnapshotMismatch = "ERROR_SEARCH_SNAPSHOT_MISMATCH";
     public const string InvalidCursor = "INVALID_ERROR_SEARCH_CURSOR";
+    public const string ObjectNotInSnapshot = "ERROR_SEARCH_OBJECT_NOT_IN_SNAPSHOT";
+    public const string RawAccessDenied = "RAW_EVIDENCE_ACCESS_DENIED";
+    public const string RawFieldNotAllowed = "RAW_EVIDENCE_FIELD_NOT_ALLOWED";
+    public const string RawLimitExceeded = "RAW_EVIDENCE_LIMIT_EXCEEDED";
 }
 
 public sealed class ErrorSearchException : Exception
