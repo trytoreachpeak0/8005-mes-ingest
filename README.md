@@ -1,8 +1,17 @@
 # MesIngest (C#)
 
-Phase-1 MES task ingest host: snapshot → `TransportDemandReconciler` → projection store → read-only HTTP.
+MES task ingest Host. The repository currently contains two deliberately different surfaces:
 
-## Ticket 01 quick start (CSV + in-memory)
+- **Production V2 (Ticket 15):** Oracle `MES_TASK_UNION` → causal round / PollTrace → the dedicated new SQL Server projection → read-only `/api/v2/*`.
+- **Legacy Development V1:** CSV or the old snapshot source → `TransportDemandReconciler` → `/api/*`. This remains useful for historical tests and local demos only.
+
+Outside `Development`, Host requires `MesIngest:NewSqlServerConnectionString`. With that key set and `MesIngest:SnapshotSource=Oracle`, only the V2 production poller and V2 HTTP surface run; the legacy `/api/demands`, `/api/alerts`, `/api/poll-health`, `/api/demand-changes`, Swagger, and `/openapi/v1.json` are not production endpoints.
+
+## Tickets 01–07 — legacy Development V1
+
+The following CSV, in-memory, old SQL projection, poll-health, and change-feed examples are retained as historical Development workflows. They do not describe the Ticket 15 production configuration or its V2 evidence contract.
+
+### Ticket 01 quick start (CSV + in-memory)
 
 ```powershell
 cd mes/ingest/csharp
@@ -24,7 +33,7 @@ Then:
 - `GET http://127.0.0.1:5088/api/demand-changes`
 - Swagger UI: `http://127.0.0.1:5088/swagger` · OpenAPI JSON: `/openapi/v1.json` (pack ships `openapi/v1.json`)
 
-## Ticket 05 — SQL Server projection
+### Ticket 05 — legacy SQL Server projection
 
 Set `MesIngest:SqlServerConnectionString` (env or local config). When set, Host persists TransportDemands, task-type pauses, alerts, and latest poll health; a process restart still serves them via the same read-only HTTP. When empty, Host keeps the in-memory store (unit/contract tests and CSV demos).
 
@@ -45,11 +54,11 @@ $env:MesIngest__SqlServerConnectionString = "Server=(localdb)\MSSQLLocalDB;Datab
 
 SQL Server round-trip smokes run when LocalDB is available, or when `MES_INGEST_SQLSERVER` is set. Credentials never belong in the repo.
 
-## Ticket 06 — restart recovery barrier
+### Ticket 06 — legacy restart recovery barrier
 
 After process start, the first *successful* full poll may create/refresh VISIBLE demands but does not increment disappear counts or mark GONE, and does not enter `PAUSED_ZERO_DROP` on a zero count (persisted last-healthy is kept when count is 0). From the second successful poll, normal disappear/GONE and zero-drop rules resume. Barrier-round per-type counts may *raise* (or seed) the persisted last-healthy baseline, but never demote it — so zero-drop protection survives service recycle. Failed/incomplete rounds do not consume the barrier.
 
-## Ticket 07 — Windows Service continuous single-flight poll
+### Ticket 07 — legacy continuous single-flight poll
 
 Host runs as a Windows Service-capable process (`UseWindowsService`) with Kestrel read-only API. Continuous poll is single-flight: one round at a time, then wait `PostPollDelaySeconds` (default 10) before the next. `QueryTimeoutSeconds` (default 30) bounds each snapshot read. File CSV mode uses the same poll host — edit the CSV between rounds and `GET /api/demands` reflects the new projection. Failed/incomplete rounds append `POLL_FAILURE` / `POLL_INCOMPLETE` alerts without mutating presence. Closing WPF (or never opening it) does not stop the service or API.
 
@@ -60,33 +69,52 @@ $env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
 dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 ```
 
-One-shot startup remains available via `MesIngest__RunOneShotOnStartup=true` (and/or `ContinuousPollEnabled=false`) for short demos and tests. Service install packaging is ticket 10.
+One-shot startup remains available via `MesIngest__RunOneShotOnStartup=true` (and/or `ContinuousPollEnabled=false`) for short legacy demos and tests. Service install packaging is ticket 10.
 
-## Ticket 08 — Oracle production source + probe
+## Ticket 15 — Production V2 Oracle round source
 
-Production snapshot mode runs the official `MES_TASK_UNION` SQL from the published `queries/` folder (copied from `mes/queries/mes-task-union` at build/publish — no divergent SQL fork in the csharp tree). Driver is `Oracle.ManagedDataAccess.Core` (managed). Default mode is **Thin**; `OracleMode=Thick` prepends Instant Client (`OracleInstantClientDir` or `ORACLE_CLIENT_LIB_DIR`) onto `PATH` for plant 11g / TNS practice without changing business code — it does not switch to an unmanaged OCI driver. Credentials stay in `appsettings.Local.json` / env — never commit them. `QueryTimeoutSeconds` bounds both the poll CancelAfter and ODP.NET `CommandTimeout`.
+Production V2 runs the one approved `MES_TASK_UNION` statement from `service/queries/mes-task-union/query.sql`. Its raw-byte SHA-256 is compiled into Host and repeated in the adjacent query manifest and release manifest. A missing, empty, moved, duplicated, or modified SQL artifact is rejected before Oracle is called. Each successful read is one command / one result set covering all six branches and becomes one `MesTaskUnionRound` with PollTraceId, canonical query version, normalized content digest, row count, and outcome. The Oracle operation is read-only and bounded by `QueryTimeoutSeconds`; timeout, cancellation, execution, or result-shape failures produce safe failure evidence and never project partial rows.
+
+Default **Thin** uses managed `Oracle.ManagedDataAccess.Core`. **Thick** is a separate Oracle ODBC/OCI adapter and requires both `OracleInstantClientDir` and the registered `OracleThickOdbcDriver`. Selecting Thick never falls back to Thin, and a bad mode or incomplete Thick configuration fails closed. Credentials stay in `appsettings.Local.json` / environment variables—never commit them.
 
 ```powershell
 Copy-Item MesIngest.Host\appsettings.Local.json.example MesIngest.Host\appsettings.Local.json
-# edit OracleUser / OraclePassword / OracleDataSource; use Thick + Instant Client on plant 11g if Thin fails
+# edit NewSqlServerConnectionString, OracleUser, OraclePassword, and OracleDataSource
+# keep SnapshotSource=Oracle; Thin is the default production attempt
+# for Thick also set OracleInstantClientDir and OracleThickOdbcDriver
 
 dotnet run --project MesIngest.Host -- --probe-oracle
-# exit 0 = query success; non-zero = failure. Output has no password.
+# exit 0 = attested live query success; 2 = live round failure; 3 = NOT_EXECUTED
+# Output records requested/actual mode, driver, query version/hash, row count, duration,
+# and stable diagnostic code without SQL, credentials, datasource, or raw MES values.
 ```
 
-Continuous Oracle poll (after probe succeeds):
+`PASSED` is valid only when the concrete runtime attempted a live Oracle connection, requested mode equals actual mode, the canonical query identity matches, and the round outcome is `Success`. Offline artifact checks and fake/CI sources are `NOT_EXECUTED`; they cannot certify factory connectivity. Try Thin first. Switch explicitly to Thick only when Thin fails and the plant's Instant Client plus registered Oracle ODBC driver are available.
+
+Continuous production V2 (after the live probe succeeds):
 
 ```powershell
+$env:MesIngest__NewSqlServerConnectionString = "Server=<SQL_HOST>;Database=MesIngestV2;..."
 $env:MesIngest__SnapshotSource = "Oracle"
-# Local.json supplies credentials; ContinuousPollEnabled=true from appsettings.json
+# appsettings.Local.json supplies Oracle credentials; ContinuousPollEnabled=true by default
 dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 ```
 
-This ticket ships factory-ready connectivity capability; it does **not** claim the plant link has already been verified (that is ticket 11).
+The SQL connection must target a dedicated empty database (which V2 bootstraps) or a database already matching the exact V2 schema contract. It is not an in-place migration target for the legacy V1 tables, and Production has no in-memory fallback.
 
-## Ticket 09 — WPF watch thin client
+Representative read-only endpoints are:
 
-WPF is an optional read-only HTTP client. It never hosts the poll loop and never reads SQL Server. Start the Host first, then open Watch against the same base URL (default `http://127.0.0.1:5088`). Closing Watch leaves the Windows Service / Host process polling and serving the API; start Watch again later to reconnect and show the current projection.
+- `GET /api/v2/contract`
+- `GET /api/v2/demand-series?presence=VISIBLE&page=1&pageSize=100`
+- `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`
+- `GET /api/v2/externally-readable-demand-catalog`
+- `GET /api/v2/poll-traces/{pollTraceId}`
+
+The V2 routes are intentionally excluded from the legacy OpenAPI document. Ticket 17 owns the complete V2 contract/OpenAPI freeze; do not use Swagger or `openapi/v1.json` as Ticket 15 production evidence.
+
+## Ticket 09 — legacy Development Watch
+
+The current WPF client is an optional read-only client for the legacy Development V1 surface. It never hosts the poll loop and never reads SQL Server. The commands and behavior below are retained for historical V1 testing; they are not a Production V2 acceptance path.
 
 ```powershell
 # Terminal A — Host (CSV demo)
@@ -106,6 +134,8 @@ Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, De
 
 Watch persists only approved local preferences: Host base URL, the external credential reference, request timeout, four auto-refresh settings, window size, and the Demand/detail split. “恢复默认布局” resets only window geometry. Credentials remain in `MesIngestWatch__SharedSecret` or `appsettings.Local.json`; business lists, queries, cursors, pages, selection, details, last-success business time, and Host errors are never written to preference files. Corrupt, out-of-range, or incompatible preference files fall back to safe defaults.
 
+Ticket 24 owns migration of release smoke and Watch to the frozen V2 contract. Until then, closing the legacy Watch can demonstrate only process independence: Production Service polling must be verified from advancing V2 PollTrace evidence, not from the legacy Watch screens.
+
 ## Ticket 10 — factory install package + secure config
 
 Self-contained install directory for plant copy-deploy:
@@ -116,7 +146,7 @@ cd mes/ingest/csharp
 # optional: -SkipWatch
 ```
 
-Output: `service/` (Host), optional `watch/` (WPF), `queries/`, `templates/` (blank Local.json), `scripts/` (install/uninstall), `INSTALL.md`, `VERSION.txt`. Copy the folder to the plant PC; fill `templates/appsettings.Local.json.example` into `service/appsettings.Local.json` (never commit filled credentials).
+Output: `service/` (Host plus the only formal query under `service/queries/`), optional legacy `watch/`, `templates/` (blank Local.json), `scripts/`, validation material, and release metadata. Copy the folder to the plant PC; copy `templates/appsettings.Local.json.example` to `service/appsettings.Local.json`, fill `NewSqlServerConnectionString`, keep `SnapshotSource=Oracle`, and add Oracle secrets locally (never commit or return the filled file).
 
 Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond localhost, set `MesIngest:SharedSecret` and call with `Authorization: Bearer <secret>` (Watch: `MesIngestWatch__SharedSecret`). See `pack/INSTALL.md` for Windows Service install/start/stop/uninstall, logs, version, and troubleshooting.
 
@@ -124,9 +154,11 @@ Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond l
 
 Install package also ships `FACTORY-VALIDATION.md` and `validation/` (manifest / execution-log / return checklist / signoff templates).
 
-`validation/Invoke-FactoryValidation.ps1` automates the ticket-15 read-only evidence capture per logical site A/B/C: paged demands/alerts, DemandId exact/prefix, poll-health, ChangeFeed/Bootstrap, Swagger/OpenAPI, request timing/correlation ids, DATES samples, Host/SQL/Oracle Event Log extraction, Watch latency extraction, redaction, and SHA-256 inventory. It accepts SharedSecret only through a named environment variable, never a command-line value.
+`validation/Invoke-FactoryValidation.ps1` automates Ticket 15 read-only evidence capture per logical site A/B/C. It samples `/api/v2/contract`, frozen DemandSeries pages, DemandId/readability evidence, CurrentIngestAttention, ExternallyReadableDemandCatalog, and multiple distinct PollTraces; records request duration and correlation ids; exports DATES samples; redacts output; and creates a SHA-256 inventory. It accepts SharedSecret only through a named environment variable, never a command-line value.
 
-Plant flow: fill Local config → Thin `--probe-oracle` → on failure switch Thick and retry → start Service → sample multi-round `/api/poll-health` → manually check VISIBLE vs snapshot feel, alerts, WPF banners → close WPF and confirm Service/HTTP still work → return redacted bundle only.
+Plant flow: fill V2 SQL Server and Oracle configuration → Thin `--probe-oracle` → on failure explicitly configure Thick and retry → start Service → sample multiple distinct `/api/v2/poll-traces/{pollTraceId}` rounds → compare row counts and VISIBLE projection → confirm PollTrace high-water continues without any Watch process → return only the redacted bundle.
+
+A technically complete capture requires at least one imported real `LIVE_ORACLE` probe with `connection_attempted=true`, matching requested/actual mode, canonical query identity, `outcome=Success`, and `result=PASSED`; it also requires PollTrace query version/hash-derived identity, normalized content digest, row count, and outcome. Legacy `/api/poll-health`, ChangeFeed/Bootstrap, Swagger/OpenAPI, and legacy `ORACLE_QUERY` / `SQL_QUERY` / `SQL_WRITE` latency labels are not V2 formal-source evidence. Human DATES/STEP interpretation and plant signoff remain separate from “validation pack ready”.
 
 Repo import: copy to `mes/evidence/runs/<run_id>/` per `mes/experiments/definitions/mes-ingest-factory-validation/plan.md`. Do **not** use `meslab import-run` or promote to `samples/`. “验证包已就绪” ≠ “工厂已签字通过”.
 
@@ -137,4 +169,4 @@ Repo import: copy to `mes/evidence/runs/<run_id>/` per `mes/experiments/definiti
 dotnet test
 ```
 
-Formal seams: `TransportDemandReconciler`, read-only HTTP. Supporting: `SingleFlightPollLoop`, SQL Server store persistence smoke (env available), Oracle source/probe (fake executor; no CI plant Oracle).
+Formal V2 seams include `IMesTaskUnionRoundSource`, `MesTaskUnionPollRunner`, `RoundIngestor`, and the read-only HTTP API. Real SQL Server Ticket 15 evidence runs with `Invoke-Ticket15SqlServerGate.ps1`; Oracle executor/probe CI tests use controlled fakes and never claim a plant Oracle pass.

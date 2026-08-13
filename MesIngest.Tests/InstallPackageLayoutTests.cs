@@ -48,8 +48,9 @@ public class InstallPackageLayoutTests
         var upgrade = File.ReadAllText(Path.Combine(pack, "UPGRADE.md"));
         Assert.Contains("BACKUP DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("RESTORE DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("CONTRACT_VERSION_MISMATCH", upgrade, StringComparison.Ordinal);
-        Assert.Contains("IngestAlerts_LegacyArchive", upgrade, StringComparison.Ordinal);
+        Assert.Contains("NewSqlServerConnectionString", upgrade, StringComparison.Ordinal);
+        Assert.Contains("service/queries/mes-task-union/query.sql", upgrade, StringComparison.Ordinal);
+        Assert.Contains("/api/v2/contract", upgrade, StringComparison.Ordinal);
         Assert.Contains("openapi/v1.json", upgrade, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -85,7 +86,7 @@ public class InstallPackageLayoutTests
 
         var oracleUser = mes.GetProperty("OracleUser").GetString()!;
         var oraclePassword = mes.GetProperty("OraclePassword").GetString()!;
-        var sql = mes.GetProperty("SqlServerConnectionString").GetString()!;
+        var sql = mes.GetProperty("NewSqlServerConnectionString").GetString()!;
 
         Assert.StartsWith("<", oracleUser);
         Assert.Contains("PASSWORD", oraclePassword, StringComparison.OrdinalIgnoreCase);
@@ -93,6 +94,24 @@ public class InstallPackageLayoutTests
 
         Assert.DoesNotMatch(new Regex(@"Password\s*=\s*[^;<\s][^;]*", RegexOptions.IgnoreCase), sql);
         Assert.DoesNotContain("meslab", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Install_doc_describes_production_v2_release_smoke_without_claiming_v1_openapi_or_watch()
+    {
+        var install = File.ReadAllText(Path.Combine(CSharpRoot, "pack", "INSTALL.md"));
+
+        Assert.Contains("MES_INGEST_RELEASE_SMOKE_SQLSERVER", install, StringComparison.Ordinal);
+        Assert.Contains("MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED", install, StringComparison.Ordinal);
+        Assert.Contains("专用、可丢弃", install, StringComparison.Ordinal);
+        Assert.Contains("不会为你删库或清表", install, StringComparison.Ordinal);
+        Assert.Contains("NewSqlServerConnectionString", install, StringComparison.Ordinal);
+        Assert.Contains("/api/v2/contract", install, StringComparison.Ordinal);
+        Assert.Contains("canonical", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("不启动 Watch", install, StringComparison.Ordinal);
+        Assert.DoesNotContain("openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("临时 CSV", install, StringComparison.Ordinal);
+        Assert.DoesNotContain("内存投影", install, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -170,10 +189,14 @@ public class InstallPackageLayoutTests
         Assert.Contains("SqlServerCredentialPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDataSource", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDatabase", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlServerDatabaseIsDedicatedEmpty", wrapper, StringComparison.Ordinal);
         Assert.Contains("$sqlInputCount = @($sqlInputs | Where-Object", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$sqlInputCount -ne 3", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlPasswordFromDpapiCredential", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Data Source']", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Initial Catalog']", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$env:MES_INGEST_RELEASE_SMOKE_SQLSERVER", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED", wrapper, StringComparison.Ordinal);
         Assert.Contains("$env:MES_INGEST_SQLSERVER", wrapper, StringComparison.Ordinal);
         Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);

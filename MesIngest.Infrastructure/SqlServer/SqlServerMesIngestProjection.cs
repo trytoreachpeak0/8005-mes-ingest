@@ -492,7 +492,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.CommandText = """
             DECLARE @result INT;
             EXEC @result = sys.sp_getapplock
-                @Resource = N'mesingest.CommitRoundOrder.v14',
+                @Resource = N'mesingest.CommitRoundOrder.v15',
                 @LockMode = N'Exclusive',
                 @LockOwner = N'Transaction',
                 @LockTimeout = 30000;
@@ -565,6 +565,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                         p.CompletedAt,
                         p.[RowCount],
                         p.ContentDigest,
+                        p.DiagnosticStage,
+                        p.DiagnosticCode,
+                        p.DiagnosticSafeDetail,
                         c.ProjectionCommitId,
                         c.ProjectionSequence,
                         c.CommittedAt,
@@ -626,7 +629,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                         trace.AbsenceAuthority!.Value,
                         protectionDecisions,
                         trace.ProjectionSequence!.Value),
-                observations);
+                observations,
+                trace.Diagnostic);
         }
         catch (Exception exception)
         {
@@ -1149,6 +1153,19 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 nameof(round));
         }
 
+        if (round.Outcome is MesTaskUnionRoundOutcome.Success && round.Diagnostic is not null)
+        {
+            throw new ArgumentException(
+                "A successful round cannot carry a failure diagnostic.",
+                nameof(round));
+        }
+        if (round.Diagnostic is not null)
+        {
+            ValidateRequiredText(round.Diagnostic.Stage, nameof(round.Diagnostic.Stage), 64);
+            ValidateRequiredText(round.Diagnostic.Code, nameof(round.Diagnostic.Code), 128);
+            ValidateRequiredText(round.Diagnostic.SafeDetail, nameof(round.Diagnostic.SafeDetail), 512);
+        }
+
         if (round.Outcome is not MesTaskUnionRoundOutcome.Success)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1545,6 +1562,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 p.CompletedAt,
                 p.[RowCount],
                 p.ContentDigest,
+                p.DiagnosticStage,
+                p.DiagnosticCode,
+                p.DiagnosticSafeDetail,
                 c.ProjectionCommitId,
                 c.ProjectionSequence,
                 c.CommittedAt,
@@ -1572,7 +1592,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string.Equals(existing.QueryVersion, round.QueryVersion, StringComparison.Ordinal)
         && string.Equals(existing.Outcome, GetOutcome(round.Outcome), StringComparison.Ordinal)
         && existing.RowCount == round.Observations.Count
-        && string.Equals(existing.ContentDigest, contentDigest, StringComparison.Ordinal);
+        && string.Equals(existing.ContentDigest, contentDigest, StringComparison.Ordinal)
+        && Equals(existing.Diagnostic, round.Diagnostic);
 
     private static async Task<RoundCommitReceipt> ReadAcceptedReceiptAsync(
         SqlConnection connection,
@@ -1716,9 +1737,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO mesingest.PollTraces
-                (PollTraceId, QueryVersion, Outcome, StartedAt, CompletedAt, [RowCount], ContentDigest)
+                (PollTraceId, QueryVersion, Outcome, StartedAt, CompletedAt, [RowCount], ContentDigest,
+                 DiagnosticStage, DiagnosticCode, DiagnosticSafeDetail)
             VALUES
-                (@pollTraceId, @queryVersion, N'SUCCESS', @startedAt, @completedAt, @rowCount, @contentDigest);
+                (@pollTraceId, @queryVersion, N'SUCCESS', @startedAt, @completedAt, @rowCount, @contentDigest,
+                 NULL, NULL, NULL);
 
             INSERT INTO mesingest.ProjectionCommits
                 (ProjectionCommitId, PollTraceId, CommittedAt, HostSessionId,
@@ -1753,9 +1776,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.Transaction = transaction;
         command.CommandText = """
             INSERT INTO mesingest.PollTraces
-                (PollTraceId, QueryVersion, Outcome, StartedAt, CompletedAt, [RowCount], ContentDigest)
+                (PollTraceId, QueryVersion, Outcome, StartedAt, CompletedAt, [RowCount], ContentDigest,
+                 DiagnosticStage, DiagnosticCode, DiagnosticSafeDetail)
             VALUES
-                (@pollTraceId, @queryVersion, @outcome, @startedAt, @completedAt, @rowCount, @contentDigest);
+                (@pollTraceId, @queryVersion, @outcome, @startedAt, @completedAt, @rowCount, @contentDigest,
+                 @diagnosticStage, @diagnosticCode, @diagnosticSafeDetail);
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -1764,6 +1789,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt.ToUniversalTime());
         command.Parameters.Add("@rowCount", SqlDbType.Int).Value = round.Observations.Count;
         AddChar(command, "@contentDigest", 64, contentDigest);
+        AddNullableNVarChar(command, "@diagnosticStage", 64, round.Diagnostic?.Stage);
+        AddNullableNVarChar(command, "@diagnosticCode", 128, round.Diagnostic?.Code);
+        AddNullableNVarChar(command, "@diagnosticSafeDetail", 512, round.Diagnostic?.SafeDetail);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -3301,6 +3329,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 observation.Eqp,
                 observation.Step,
                 MesTaskUnionValueSemantics.NormalizeSourceDate(observation.MesSourceDate),
+                observation.MesSourceDateRaw,
                 observation.Package))
             .Select(row => new CanonicalEvidenceRow(JsonSerializer.Serialize(row), row))
             .OrderBy(row => row.SortKey, StringComparer.Ordinal)
@@ -3617,7 +3646,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             "AREA" => observation.Area,
             "EQP" => observation.Eqp,
             "STEP" => observation.Step,
-            "DATES" => observation.MesSourceDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
+            "DATES" => observation.MesSourceDateRaw
+                ?? observation.MesSourceDate?.ToString("O", System.Globalization.CultureInfo.InvariantCulture),
             "PACKAGE" => observation.Package,
             _ => null,
         };
@@ -3637,10 +3667,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.CommandText = """
             INSERT INTO mesingest.DemandRawObservations
                 (PollTraceId, Ordinal, ProjectionCommitId, SeriesId, DemandId,
-                 WorkType, Sublot, Area, Eqp, Step, MesSourceDate, Package)
+                 WorkType, Sublot, Area, Eqp, Step, MesSourceDate, Package, MesSourceDateRaw)
             VALUES
                 (@pollTraceId, @ordinal, @projectionCommitId, @seriesId, @demandId,
-                 @workType, @sublot, @area, @eqp, @step, @mesSourceDate, @package);
+                 @workType, @sublot, @area, @eqp, @step, @mesSourceDate, @package, @mesSourceDateRaw);
             """;
         AddNVarChar(command, "@pollTraceId", 128, pollTraceId);
         command.Parameters.Add("@ordinal", SqlDbType.Int).Value = item.Ordinal;
@@ -3654,6 +3684,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNullableNVarChar(command, "@step", -1, observation.Step);
         AddNullableDateTimeOffset(command, "@mesSourceDate", observation.MesSourceDate);
         AddNullableNVarChar(command, "@package", -1, observation.Package);
+        AddNullableNVarChar(command, "@mesSourceDateRaw", -1, observation.MesSourceDateRaw);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -3778,7 +3809,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 o.Eqp,
                 o.Step,
                 o.MesSourceDate,
-                o.Package
+                o.Package,
+                o.MesSourceDateRaw
             FROM mesingest.DemandRawObservations AS o
             INNER JOIN mesingest.PollTraces AS p
                 ON p.PollTraceId = o.PollTraceId
@@ -3806,7 +3838,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 GetNullableString(reader, 8),
                 GetNullableString(reader, 9),
                 GetNullableDateTimeOffset(reader, 10),
-                GetNullableString(reader, 11)));
+                GetNullableString(reader, 11),
+                ObservedAt: default,
+                GetNullableString(reader, 12)));
         }
 
         return observations;
@@ -4006,13 +4040,19 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetFieldValue<DateTimeOffset>(4),
             reader.GetInt32(5),
             reader.GetString(6),
-            GetNullableString(reader, 7),
-            reader.IsDBNull(8) ? null : reader.GetInt64(8),
-            GetNullableDateTimeOffset(reader, 9),
+            reader.IsDBNull(7)
+                ? null
+                : new MesTaskUnionRoundDiagnostic(
+                    reader.GetString(7),
+                    reader.GetString(8),
+                    reader.GetString(9)),
             GetNullableString(reader, 10),
-            GetNullableString(reader, 11),
-            GetNullableString(reader, 12),
-            reader.IsDBNull(13) ? null : reader.GetBoolean(13));
+            reader.IsDBNull(11) ? null : reader.GetInt64(11),
+            GetNullableDateTimeOffset(reader, 12),
+            GetNullableString(reader, 13),
+            GetNullableString(reader, 14),
+            GetNullableString(reader, 15),
+            reader.IsDBNull(16) ? null : reader.GetBoolean(16));
 
     private static string? GetNullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -4114,6 +4154,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         [property: JsonPropertyName("eqp")] string? Eqp,
         [property: JsonPropertyName("step")] string? Step,
         [property: JsonPropertyName("mesSourceDate")] DateTimeOffset? MesSourceDate,
+        [property: JsonPropertyName("mesSourceDateRaw")] string? MesSourceDateRaw,
         [property: JsonPropertyName("package")] string? Package);
 
     private sealed record CanonicalEvidenceRow(
@@ -4199,6 +4240,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         DateTimeOffset CompletedAt,
         int RowCount,
         string ContentDigest,
+        MesTaskUnionRoundDiagnostic? Diagnostic,
         string? ProjectionCommitId,
         long? ProjectionSequence,
         DateTimeOffset? CommittedAt,

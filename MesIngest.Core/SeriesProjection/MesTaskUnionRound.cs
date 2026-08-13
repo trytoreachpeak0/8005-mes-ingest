@@ -20,7 +20,17 @@ public sealed record MesTaskUnionObservation(
     string? Eqp,
     string? Step,
     DateTimeOffset? MesSourceDate,
-    string? Package);
+    string? Package,
+    string? MesSourceDateRaw = null);
+
+/// <summary>
+/// Stable, operator-safe evidence explaining why a round could not be projected.
+/// SafeDetail must never contain SQL, credentials, connection data, or raw MES values.
+/// </summary>
+public sealed record MesTaskUnionRoundDiagnostic(
+    string Stage,
+    string Code,
+    string SafeDetail);
 
 /// <summary>Canonical value semantics shared by evidence and projection logic.</summary>
 public static class MesTaskUnionValueSemantics
@@ -39,7 +49,8 @@ public sealed record MesTaskUnionRound(
     MesTaskUnionRoundOutcome Outcome,
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
-    IReadOnlyList<MesTaskUnionObservation> Observations);
+    IReadOnlyList<MesTaskUnionObservation> Observations,
+    MesTaskUnionRoundDiagnostic? Diagnostic = null);
 
 /// <summary>One authoritative implementation of TransportDemandKey identity.</summary>
 public static class TransportDemandKeyIdentity
@@ -89,6 +100,7 @@ public static class MesTaskUnionRoundDigest
             builder,
             MesTaskUnionValueSemantics.NormalizeSourceDate(observation.MesSourceDate)?
                 .ToString("O", CultureInfo.InvariantCulture));
+        AppendValue(builder, observation.MesSourceDateRaw);
         AppendValue(builder, observation.Package);
         return builder.ToString();
     }

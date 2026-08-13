@@ -33,6 +33,9 @@ public sealed class MesIngestHostOptions
     /// <summary>Instant Client directory for Thick mode (or set ORACLE_CLIENT_LIB_DIR).</summary>
     public string OracleInstantClientDir { get; set; } = "";
 
+    /// <summary>Registered Oracle ODBC driver name for the Thick/OCI adapter.</summary>
+    public string OracleThickOdbcDriver { get; set; } = "";
+
     public int OracleConnectTimeoutSeconds { get; set; } = 30;
 
     public int OracleMinPoolSize { get; set; }
@@ -141,13 +144,17 @@ public sealed class MesIngestHostOptions
     public OracleSnapshotOptions ToOracleSnapshotOptions(string? contentRoot = null)
     {
         var queriesRoot = ResolveQueriesDirectory(contentRoot);
+        var instantClientDir = string.IsNullOrWhiteSpace(OracleInstantClientDir)
+            ? Environment.GetEnvironmentVariable("ORACLE_CLIENT_LIB_DIR")?.Trim() ?? string.Empty
+            : OracleInstantClientDir.Trim();
         return new OracleSnapshotOptions
         {
             User = OracleUser,
             Password = OraclePassword,
             DataSource = OracleDataSource,
             Mode = ParseOracleMode(),
-            InstantClientDir = OracleInstantClientDir,
+            InstantClientDir = instantClientDir,
+            ThickOdbcDriver = OracleThickOdbcDriver,
             ConnectTimeoutSeconds = OracleConnectTimeoutSeconds,
             CommandTimeoutSeconds = Math.Max(1, QueryTimeoutSeconds),
             MinPoolSize = OracleMinPoolSize,

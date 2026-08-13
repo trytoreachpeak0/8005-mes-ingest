@@ -1,57 +1,109 @@
 # MesIngest 升级与回滚说明
 
-将增量投影、Alert incident、DemandChangeFeed 与新 Watch 配置作为**可重复**的现有安装升级交付。目标：不丢失永久 GONE / DemandId 历史，失败后可恢复到升级前状态。
-
 本说明随 `pack/Publish-MesIngest.ps1` 输出到安装根目录 `UPGRADE.md`。首次安装仍以 `INSTALL.md` 为准。
 
-## 升级前强制备份（前置条件）
+## 先确认运行面
 
-1. **停止写入面**
+Ticket 15 生产路径与历史 Development V1 不是同一套契约：
+
+| 运行面 | 用途 | SQL Server | HTTP |
+|---|---|---|---|
+| **Production V2 / Ticket 15** | 正式 Oracle 单语句轮询、PollTrace 和新投影 | `MesIngest:NewSqlServerConnectionString` 指向专用空库或已精确匹配 V2 schema v15 的库 | 只认 `/api/v2/*` |
+| **Legacy Development V1** | CSV/内存示例、旧投影和历史 Watch 测试 | `MesIngest:SqlServerConnectionString` 或内存 | `/api/*`、旧 Swagger / `openapi/v1.json` |
+
+生产环境必须配置 `NewSqlServerConnectionString` 和 `SnapshotSource=Oracle`。旧 V1 库不是 V2 就地升级目标：V2 只会在**完全空库**中建立完整 schema，或对既有 V2 库做严格契约校验；遇到旧表、缺列、额外表或版本不匹配时会拒绝启动，不会自动改造或回退到内存。
+
+## 升级前必做
+
+1. **停止当前写入面**
+
    ```powershell
    Stop-Service MesIngest
-   # 如有正在运行的 Watch，先全部退出
+   # 如有正在运行的旧 Watch，先全部退出
    ```
-2. **备份 SQL Server 投影库**（完整库备份，不是只导几张表）
+
+2. **备份当前数据库**
+
+   无论当前是 V1 还是 V2，都先做 SQL Server 完整库备份，不要只备份若干表。
+
    ```sql
    BACKUP DATABASE [MesIngest]
    TO DISK = N'D:\backup\MesIngest_pre_upgrade.bak'
    WITH INIT, CHECKSUM;
    ```
-3. **备份运行目录**
-   - 整包复制当前安装根（含 `service/appsettings.Local.json`、`watch/` 本地配置）
-   - 勿把填好的 `appsettings.Local.json` 回传到仓库或新发布包
-4. **记录版本**
-   - 保存当前 `VERSION.txt`
-   - 可选：`GET /api/contract`（升级后会返回 `contractVersion` / `schemaVersion`）
 
-未完成备份不得覆盖 `service/` / `watch/`。
+3. **备份当前安装根目录**
 
-## 升级步骤
+   保留完整旧包、`VERSION.txt`、`service/appsettings.Local.json` 以及 Watch 本机配置。已填密钥的 Local.json 不得回传仓库或复制进新发布包。
 
-1. 用新发布包覆盖安装目录中的 `service/`、`watch/`、`queries/`、`openapi/`、文档与脚本（保留现场 `service/appsettings.Local.json` 与 Watch 本机配置）。
-2. 对照 `templates/appsettings.Local.json.example` 与 `templates/watch.appsettings.Local.json.example`，确认新增键已写入现场配置：
-   - Host：`ChangeFeedRetentionHours`（默认 48）、`AlertRetentionDays`（默认 365）
-   - Watch：`RequestTimeoutSeconds`（默认 30）、`ConnectionLogRetentionDays` / `ConnectionLogMaxSizeMb`、`RenderingMode`（默认 `SoftwareOnly`）
-   - 分页 `limit` 硬上限 1–200（默认 100）写在 OpenAPI / 代码中，不是 appsettings 键
-3. 启动 Host：
+4. **准备专用 V2 库**
+
+   - 从 V1 切换时：新建一个空数据库（例如 `MesIngestV2`）；保留旧 V1 库用于回滚。
+   - 已运行同契约 V2 时：仍先备份原 V2 库，再由新 Host 执行严格契约验证。
+   - 不得通过 DROP TABLE、人工补列或复制旧 V1 表来“伪造” V2 schema。
+
+## Production V2 升级步骤
+
+1. 使用新发布包替换安装内容。`service/queries/mes-task-union/query.sql` 是唯一正式 Oracle SQL，必须与相邻 `query.manifest.json` 及根目录 `RELEASE-MANIFEST.json` 一致。删除旧安装根目录遗留的 `queries/`，不得保留第二份 SQL。
+
+2. 从 `templates/appsettings.Local.json.example` 重新创建 `service/appsettings.Local.json`，不要盲目覆盖旧文件。至少核对：
+
+   - `NewSqlServerConnectionString`：指向上一节准备的专用 V2 库；
+   - `SnapshotSource=Oracle`；
+   - `OracleUser`、`OraclePassword`、`OracleDataSource`；
+   - `OracleMode=Thin` 作为默认尝试；
+   - 如需 Thick，还必须同时填 `OracleInstantClientDir` 和已注册的 `OracleThickOdbcDriver`；
+   - 跨机绑定时的 `Urls` 和 `SharedSecret`。
+
+3. 在安装根目录先执行包校验：
+
    ```powershell
+   .\scripts\Test-ReleasePackage.ps1 -PackageRoot .
+   ```
+
+   校验必须确认 canonical SQL 的路径、长度和 SHA-256；缺失、空文件、被篡改或多份都必须拒绝。
+
+4. 在 `service/` 目录执行 Thin 真实探针：
+
+   ```powershell
+   .\MesIngest.Host.exe --probe-oracle
+   ```
+
+   只有 `execution_scope=LIVE_ORACLE`、`connection_attempted=true`、requested/actual mode 一致、canonical query identity 一致、`outcome=Success` 且 `result=PASSED` 才可以进入下一步。离线或 fake/CI 结果只能是 `NOT_EXECUTED`。
+
+   Thin 失败时，只有在已安装 Instant Client 且有注册 Oracle ODBC 驱动时才改为 Thick 重试。Thick 不会静默回退 Thin；错误配置必须修正，不得带病启动服务。
+
+5. 安装/启动服务：
+
+   ```powershell
+   .\scripts\install-service.ps1
    Start-Service MesIngest
    ```
-4. Host 启动时 `EnsureSchema` **幂等、仅增量、单事务**：
-   - 不为 TransportDemands 做 DROP/重建
-   - 修改 Phase-1 `IngestAlerts` 前先写入 `IngestAlerts_LegacyArchive`，再补 incident 列并就地迁移
-   - 创建 ChangeFeed / 索引 / `MesIngestSchemaVersion`；全部 DDL 在同一显式事务中提交，中途失败回滚到升级前一致点（无半迁移），修复条件后可再次启动完成升级
-5. 冒烟：
-   - `GET /api/contract` 的 `contractVersion` 与同包 Watch 一致
-   - `GET /api/poll-health`、`GET /api/demands`、`GET /api/alerts`
-   - 启动同包 `watch\MesIngest.Watch.exe`；版本不匹配时横幅显示 `CONTRACT_VERSION_MISMATCH`，**不会静默空板**
-6. 离线契约：安装根 `openapi/v1.json`（与运行中 `/openapi/v1.json` 同契约）
 
-## 失败时恢复（回滚）
+   Host 启动时会在空库中一次建立完整 V2 schema；对非空库则只接受完全一致的 schema v15 / contract identity。验证失败时服务不会回退到旧 V1 或内存库。
 
-1. 停止服务与 Watch。
-2. 用升级前备份还原安装目录（至少 `service/`、`watch/`）。
-3. 还原 SQL Server：
+6. 用 V2 只读证据冒烟：
+
+   - `GET /api/v2/contract`；
+   - `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`；
+   - 从采集结果取得 PollTraceId，然后 `GET /api/v2/poll-traces/{pollTraceId}`；
+   - 核对至少多个不同 PollTrace 的 canonical query version、规范化 content digest、row count 和 outcome；
+   - 确认关闭/不启动 Watch 时 PollTrace high-water 仍继续前进。
+
+   首个成功投影完成前，部分运维视图可能暂无快照；等待正式轮询成功，不得改用 V1 poll-health 冒充 V2 证据。建议按 `FACTORY-VALIDATION.md` 和 `validation/Invoke-FactoryValidation.ps1` 采集。
+
+## 不属于 Ticket 15 的验收声明
+
+- V2 路由当前故意不进入旧 Swagger/OpenAPI；安装包不应把 `openapi/v1.json` 当作 V2 契约证据。Ticket 17 负责完整 V2 OpenAPI/契约冻结。
+- 当前打包的 Watch 与其历史冒烟流程仍属于 V1。Ticket 24 负责把发布冒烟和 Watch 迁移到冻结后的 V2 契约。
+- 因此，不得用旧 `/api/contract`、`/api/poll-health`、`/api/demand-changes`、Swagger/OpenAPI 或旧 Watch 画面宣称 Production V2 升级通过。
+
+## 失败时回滚
+
+1. 停止 MesIngest Service，退出所有 Watch。
+2. 恢复升级前备份的安装目录和原 `service/appsettings.Local.json`。
+3. 恢复对应旧版二进制的 SQL Server 库：
+
    ```sql
    ALTER DATABASE [MesIngest] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
    RESTORE DATABASE [MesIngest]
@@ -59,22 +111,18 @@
    WITH REPLACE;
    ALTER DATABASE [MesIngest] SET MULTI_USER;
    ```
-4. 启动旧版 Host，确认 DemandId / VISIBLE / GONE / pause / alerts / poll-health 仍在。
-5. 调查失败原因后再重试升级；**禁止**用 DROP TABLE / 重建库“清掉半迁移”。
 
-## 数据保留承诺
+   如果此次是从 V1 切换到新建 `MesIngestV2` 库，旧 V1 库本就应保持不变；将旧服务配置重新指向它即可。不要为了回滚破坏或复用新 V2 库。
 
-| 对象 | 升级行为 |
-|------|----------|
-| TransportDemand（含永久 GONE） | 保留；禁止 DROP/全表重建 |
-| TaskTypePauses | 保留 |
-| Phase-1 IngestAlerts 消息行 | 先归档到 `IngestAlerts_LegacyArchive`，再就地补 incident 列；迁移后标记为 **inactive / ResolvedAt=CreatedAt**（历史保留可查，不作为当前活动横幅） |
-| PollHealth | 保留；按需补列 |
-| DemandChangeFeed | 新建或幂等补齐；保留期默认 48h |
-| 客户 Oracle / 批准 MES SQL | **只读**；本升级不部署任何 Oracle DDL |
+4. 启动旧版 Host，只按它自身的契约做冒烟。
+5. 保留失败的脱敏探针、Host 日志和 V2 PollTrace 证据供调查；不得回传 SQL、连接串、凭据、datasource 或原始 MES 值。
 
-DDL 在单事务中执行且各步幂等：中途失败整批回滚，不留下半套列/半套对象；修复条件后再启 Host 可安全重入完成升级，**不会** DROP/重建 `TransportDemands`。业务级回滚（回到旧版二进制）仍依赖升级前库备份（见上）。
+## 数据与只读承诺
 
-## 版本不匹配
-
-Watch 与 Host 必须来自**同一安装包**。若 `GET /api/contract` 缺失或 `contractVersion` 不一致，Watch 显示明确的 `CONTRACT_VERSION_MISMATCH` 并拒绝用错契约刷空板。
+| 对象 | Ticket 15 行为 |
+|---|---|
+| 客户 Oracle / 批准 `MES_TASK_UNION` SQL | 仅执行一条已校验的只读查询；不部署 Oracle DDL、索引、视图或改写 SQL |
+| 旧 V1 SQL Server 库 | 作为独立回滚资产保留；不就地升级到 V2 |
+| V2 SQL Server 库 | 空库可一次 bootstrap；非空库必须精确匹配 schema v15，否则拒绝启动 |
+| PollTrace / projection evidence | 成功和失败轮次按 V2 因果契约持久化；执行/结构失败不写入部分投影 |
+| Local.json / SharedSecret | 只留在现场，不进发布包、回传包或仓库 |

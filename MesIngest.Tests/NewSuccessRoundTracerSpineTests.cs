@@ -28,6 +28,30 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
         _output = output;
     }
 
+    [Fact]
+    public void Production_V2_rejects_a_non_Oracle_snapshot_source_before_starting_an_idle_host()
+    {
+        using var environment = new ProcessEnvironmentScope(new Dictionary<string, string?>
+        {
+            ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
+            ["DOTNET_ENVIRONMENT"] = Environments.Production,
+            [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] =
+                "Server=invalid.example;Database=invalid;User Id=invalid;Password=invalid;Encrypt=false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
+            [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
+        });
+        using var factory = CreateFactory();
+
+        var exception = Assert.Throws<InvalidOperationException>(factory.CreateClient);
+
+        Assert.Contains(
+            "SnapshotSource must be Oracle",
+            exception.ToString(),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("invalid.example", exception.ToString(), StringComparison.Ordinal);
+    }
+
     [Ticket01SqlServerFact]
     public async Task First_success_round_is_read_back_with_atomic_series_demand_and_round_evidence()
     {
@@ -442,6 +466,9 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "true",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
     private static IDisposable ConfigureProductionWithoutV2Environment() =>

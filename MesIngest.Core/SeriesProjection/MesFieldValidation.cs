@@ -44,6 +44,7 @@ public static class MesFieldValidation
     private const string InvalidMesFieldFormat = "INVALID_MES_FIELD_FORMAT";
     private const string DataFormat = "DATA_FORMAT";
     private const string AreaRule = "^[A-Z][1-9][0-9]?-[1-9][0-9]?$";
+    private const string OracleDateRule = "ORACLE_DATE_OR_TIMESTAMP";
 
     private static readonly Regex AreaFormat = new(
         AreaRule,
@@ -53,17 +54,26 @@ public static class MesFieldValidation
     {
         ArgumentNullException.ThrowIfNull(observation);
 
-        return Evaluate(new LiveMesFieldSetSnapshot(
+        return EvaluateCore(new LiveMesFieldSetSnapshot(
             observation.Area,
             observation.Eqp,
             observation.Step,
             observation.MesSourceDate,
-            observation.Package));
+            observation.Package),
+            observation.MesSourceDateRaw);
     }
 
     public static MesFieldValidationResult Evaluate(LiveMesFieldSetSnapshot fields)
     {
         ArgumentNullException.ThrowIfNull(fields);
+
+        return EvaluateCore(fields, mesSourceDateRaw: null);
+    }
+
+    private static MesFieldValidationResult EvaluateCore(
+        LiveMesFieldSetSnapshot fields,
+        string? mesSourceDateRaw)
+    {
 
         var issues = new List<MesFieldValidationIssue>();
         AddMissingTextIssue(issues, "AREA", fields.Area);
@@ -82,14 +92,23 @@ public static class MesFieldValidation
         }
         AddMissingTextIssue(issues, "EQP", fields.Eqp);
         AddMissingTextIssue(issues, "STEP", fields.Step);
-        if (fields.MesSourceDate is null)
+        if (fields.MesSourceDate is null && string.IsNullOrWhiteSpace(mesSourceDateRaw))
         {
             issues.Add(new MesFieldValidationIssue(
                 RequiredFieldMissing,
                 DataCompleteness,
                 "DATES",
-                ObservedValue: null,
+                mesSourceDateRaw,
                 RequiredRule));
+        }
+        else if (fields.MesSourceDate is null)
+        {
+            issues.Add(new MesFieldValidationIssue(
+                InvalidMesFieldFormat,
+                DataFormat,
+                "DATES",
+                mesSourceDateRaw,
+                OracleDateRule));
         }
         AddMissingTextIssue(issues, "PACKAGE", fields.Package);
 

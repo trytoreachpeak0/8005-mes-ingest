@@ -168,7 +168,8 @@ public sealed record DemandRawObservationSnapshot(
     string? Step,
     DateTimeOffset? MesSourceDate,
     string? Package,
-    DateTimeOffset ObservedAt = default);
+    DateTimeOffset ObservedAt = default,
+    string? MesSourceDateRaw = null);
 
 public sealed record DemandSeriesEventSnapshot(
     string EventId,
@@ -211,4 +212,5 @@ public sealed record PollTraceSnapshot(
     int RowCount,
     string ContentDigest,
     ProjectionCommitSnapshot? ProjectionCommit,
-    IReadOnlyList<DemandRawObservationSnapshot> Observations);
+    IReadOnlyList<DemandRawObservationSnapshot> Observations,
+    MesTaskUnionRoundDiagnostic? Diagnostic = null);

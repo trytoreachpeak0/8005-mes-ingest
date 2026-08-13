@@ -21,6 +21,8 @@ public sealed class OracleSnapshotOptions
     public string DataSource { get; set; } = "";
     public OracleClientMode Mode { get; set; } = OracleClientMode.Thin;
     public string InstantClientDir { get; set; } = "";
+    /// <summary>Registered Oracle ODBC driver used by the OCI/Instant Client adapter.</summary>
+    public string ThickOdbcDriver { get; set; } = "";
     public int ConnectTimeoutSeconds { get; set; } = 30;
 
     /// <summary>ODP.NET command timeout in seconds (statement-level).</summary>

@@ -916,7 +916,7 @@ public sealed partial class SqlServerMesIngestProjection
         command.CommandText = """
             SELECT o.Ordinal, o.PollTraceId, o.ProjectionCommitId,
                 o.SeriesId, o.DemandId, o.WorkType, o.Sublot, o.Area, o.Eqp,
-                o.Step, o.MesSourceDate, o.Package, p.CompletedAt
+                o.Step, o.MesSourceDate, o.Package, p.CompletedAt, o.MesSourceDateRaw
             FROM mesingest.DemandRawObservations AS o
             INNER JOIN mesingest.PollTraces AS p ON p.PollTraceId = o.PollTraceId
             INNER JOIN mesingest.ProjectionCommits AS c ON c.ProjectionCommitId = o.ProjectionCommitId
@@ -938,7 +938,8 @@ public sealed partial class SqlServerMesIngestProjection
                 GetNullableString(reader, 5), GetNullableString(reader, 6),
                 GetNullableString(reader, 7), GetNullableString(reader, 8),
                 GetNullableString(reader, 9), GetNullableDateTimeOffset(reader, 10),
-                GetNullableString(reader, 11), reader.GetFieldValue<DateTimeOffset>(12)));
+                GetNullableString(reader, 11), reader.GetFieldValue<DateTimeOffset>(12),
+                GetNullableString(reader, 13)));
         }
         return items;
     }

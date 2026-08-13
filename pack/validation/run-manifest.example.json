@@ -15,26 +15,55 @@
   "probe": {
     "thin": {
       "attempted": false,
-      "result": "PENDING",
+      "connection_attempted": false,
+      "execution_scope": "NOT_EXECUTED",
+      "requested_mode": "Thin",
+      "actual_mode": "NOT_AVAILABLE",
+      "driver": "NOT_AVAILABLE",
+      "query_id": "MES_TASK_UNION",
+      "query_version": "NOT_AVAILABLE",
+      "query_sha256": "NOT_AVAILABLE",
+      "outcome": "NOT_EXECUTED",
+      "row_count": 0,
+      "duration_ms": 0,
+      "result": "NOT_EXECUTED",
       "log": "probe-thin.txt"
     },
     "thick": {
       "attempted": false,
-      "result": "PENDING",
+      "connection_attempted": false,
+      "execution_scope": "NOT_EXECUTED",
+      "requested_mode": "Thick",
+      "actual_mode": "NOT_AVAILABLE",
+      "driver": "NOT_AVAILABLE",
+      "query_id": "MES_TASK_UNION",
+      "query_version": "NOT_AVAILABLE",
+      "query_sha256": "NOT_AVAILABLE",
+      "outcome": "NOT_EXECUTED",
+      "row_count": 0,
+      "duration_ms": 0,
+      "result": "NOT_EXECUTED",
       "log": "probe-thick.txt"
     }
+  },
+  "formal_source_evidence": {
+    "canonical_poll_trace_identity_complete": false,
+    "live_oracle_probe_passed": false
   },
   "poll_rounds": [
     {
       "round": 1,
       "captured_at": "<ISO8601_TIMESTAMP>",
+      "poll_trace_id": "<POLL_TRACE_ID>",
+      "poll_trace_high_water": 0,
+      "query_version": "MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae",
+      "content_digest": "<64_LOWERCASE_HEX_DIGEST>",
       "duration_ms": 0,
-      "oracle_duration_ms": 0,
       "row_count": 0,
       "success": true,
       "outcome": "SUCCESS",
       "failure_stage": "",
-      "poll_health_file": "api/poll-health-round-001.json"
+      "poll_trace_file": "api/poll-trace-round-001.json"
     }
   ],
   "request_metrics": {
@@ -47,9 +76,9 @@
     "subsequent_demand_page_sampled": false,
     "response_correlation_complete": false,
     "visible_rows": 0,
-    "gone_last_24h_rows": 0,
-    "alert_rows": 0,
-    "bootstrap_high_watermark": 0
+    "gone_rows": 0,
+    "attention_rows": 0,
+    "poll_trace_high_watermark": 0
   },
   "dates_semantics": {
     "samples_file": "dates-samples.tsv",
@@ -63,24 +92,20 @@
     "host_line_count": 0,
     "watch_line_count": 0,
     "host_endpoint_seen": false,
-    "oracle_query_seen": false,
-    "sql_query_seen": false,
-    "sql_write_seen": false,
     "watch_total_seen": false,
     "missing_required_evidence": [
       "HOST_ENDPOINT_LATENCY",
-      "ORACLE_QUERY",
-      "SQL_QUERY",
-      "SQL_WRITE",
       "WATCH_TOTAL_LATENCY",
-      "DISTINCT_POLL_ROUNDS"
+      "DISTINCT_POLL_ROUNDS",
+      "CANONICAL_POLL_TRACE_IDENTITY",
+      "LIVE_ORACLE_PROBE_PASSED"
     ]
   },
   "manual_checks": {
     "dates_semantics_confirmed": false,
     "watch_timezone_display_confirmed": false,
-    "swagger_authorized_get_confirmed": false,
-    "endpoint_stage_timeout_reviewed": false
+    "authenticated_v2_get_confirmed": false,
+    "v2_endpoint_timeout_reviewed": false
   },
   "safety": {
     "http_methods": [

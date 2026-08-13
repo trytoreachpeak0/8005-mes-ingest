@@ -18,6 +18,9 @@ WebApplicationBuilder builder = WindowsServiceHelpers.IsWindowsService()
     : WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+// Local files are convenient defaults, but deployment environment variables are
+// the explicit operator override and must retain higher precedence.
+builder.Configuration.AddEnvironmentVariables();
 
 var configured = new MesIngestHostOptions();
 builder.Configuration.GetSection(MesIngestHostOptions.SectionName).Bind(configured);
@@ -45,11 +48,21 @@ if (!probeOracle && !builder.Environment.IsDevelopment() && !newV2Enabled)
     throw new InvalidOperationException(
         "MesIngest:NewSqlServerConnectionString is required outside the Development environment.");
 }
+if (!probeOracle
+    && !builder.Environment.IsDevelopment()
+    && newV2Enabled
+    && (configured.ContinuousPollEnabled || configured.RunOneShotOnStartup)
+    && !configured.IsOracleSnapshotSource())
+{
+    throw new InvalidOperationException(
+        "MesIngest:SnapshotSource must be Oracle when Production V2 is enabled.");
+}
 var legacyAlongsideV2Enabled = newV2Enabled
     && builder.Environment.IsDevelopment()
     && configured.EnableLegacyDevelopmentEndpoints;
 var legacySurfaceEnabled = !newV2Enabled || legacyAlongsideV2Enabled;
 var legacyRuntimeEnabled = probeOracle || legacySurfaceEnabled;
+var v2OracleRuntimeEnabled = newV2Enabled && configured.IsOracleSnapshotSource();
 
 builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(TimeProvider.System);
@@ -65,6 +78,25 @@ if (newV2Enabled)
             sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>()));
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
+    if (v2OracleRuntimeEnabled)
+    {
+        builder.Services.AddSingleton<IMesTaskUnionRoundSource>(sp =>
+        {
+            var options = sp.GetRequiredService<MesIngestHostOptions>();
+            var contentRoot = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
+            return new OracleMesTaskUnionRoundSource(
+                options.ToOracleSnapshotOptions(contentRoot),
+                sp.GetService<IOracleStatementExecutor>(),
+                timeProvider: sp.GetRequiredService<TimeProvider>(),
+                executorFactory: sp.GetRequiredService<IOracleStatementExecutorFactory>());
+        });
+        builder.Services.AddSingleton<IOracleStatementExecutorFactory, OracleStatementExecutorFactory>();
+        builder.Services.AddSingleton<MesTaskUnionPollRunner>();
+        if (!probeOracle)
+        {
+            builder.Services.AddHostedService<MesTaskUnionPollHostedService>();
+        }
+    }
 }
 builder.Services.AddSingleton<ILatencyTelemetry>(sp =>
     new LoggingLatencyTelemetry(sp.GetRequiredService<ILoggerFactory>().CreateLogger("MesIngest.Latency")));
@@ -164,27 +196,24 @@ if (probeOracle)
         return 2;
     }
 
-    var source = app.Services.GetRequiredService<IMesSnapshotSource>();
-    bool? instantClientOnPath = null;
-    if (source is OracleMesSnapshotSource oracle)
-    {
-        oracle.EnsureInitialized();
-        instantClientOnPath = oracle.InstantClientOnPath;
-    }
-
-    var exitCode = await OracleProbe.RunAsync(
-        source,
-        Console.Out,
-        options.ParseOracleMode(),
-        instantClientOnPath);
+    var contentRoot = app.Services.GetRequiredService<IHostEnvironment>().ContentRootPath;
+    var source = new OracleMesTaskUnionRoundSource(
+        options.ToOracleSnapshotOptions(contentRoot),
+        timeProvider: app.Services.GetRequiredService<TimeProvider>());
+    var exitCode = await OracleProbe.RunAsync(source, Console.Out);
     return exitCode;
 }
 
-if (legacySurfaceEnabled
-    && app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
+if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
 {
-    var runner = app.Services.GetRequiredService<IngestRoundRunner>();
-    await runner.RunOnceAsync();
+    if (v2OracleRuntimeEnabled)
+    {
+        await app.Services.GetRequiredService<MesTaskUnionPollRunner>().RunOnceAsync();
+    }
+    else if (legacySurfaceEnabled)
+    {
+        await app.Services.GetRequiredService<IngestRoundRunner>().RunOnceAsync();
+    }
 }
 
 if (legacySurfaceEnabled)

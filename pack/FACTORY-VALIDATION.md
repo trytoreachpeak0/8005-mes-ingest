@@ -30,6 +30,7 @@
 
 - [ ] 复制 `templates/appsettings.Local.json.example` → `service/appsettings.Local.json`
 - [ ] 填写 SQL Server、Oracle 占位符；`SnapshotSource=Oracle`；默认 `OracleMode=Thin`
+- [ ] `RELEASE-MANIFEST.json.canonicalQuery` 与 `service/queries/mes-task-union/query.manifest.json` 都指向唯一的 `service/queries/mes-task-union/query.sql`，版本/hash 为 `MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae`
 - [ ] 确认 `Urls` 仍为 `http://127.0.0.1:5088`（或已按 `INSTALL.md` 配置 `SharedSecret`）
 - [ ] **不要**把已填配置拷回仓库或放进回传包
 - [ ] 远程调用需鉴权时，把 SharedSecret 放入执行进程环境变量 `MES_INGEST_SHARED_SECRET`；不要作为脚本参数或命令历史明文传入
@@ -44,15 +45,25 @@
 
 （将 `mes-ingest-runs\<run_id>` 换成你的回传目录；也可先在控制台看输出再手工保存。）
 
-- [ ] 输出含 `probe_result=ok` → 进入「四、启动 Service」
-- [ ] 若 `probe_result=failed` → 进入「三、Thick 重试」
+- [ ] 输出含 `execution_scope=LIVE_ORACLE`、`connection_attempted=true`、`result=PASSED` → 进入「四、启动 Service」
+- [ ] 若 `result=FAILED` → 进入「三、Thick 重试」；若为 `NOT_EXECUTED`，须在真实 Oracle 现场重跑，不能进入工厂签字
+
+Ticket 15 新探针输出以 `result=PASSED|FAILED|NOT_EXECUTED` 为正式判定，并同时记录
+`execution_scope`、`connection_attempted`、requested/actual mode、driver、正式 query
+id/version/hash、outcome、row count 与 duration。只有
+`execution_scope=LIVE_ORACLE` 且 `connection_attempted=true` 的 SUCCESS 轮次可以是
+`PASSED`；离线 artifact 校验、fake/CI 结果必须是 `NOT_EXECUTED`，不得冒充现场通过。
 
 ## 三、失败则切 Thick 重试
 
 - [ ] 将 `service/appsettings.Local.json` 中 `OracleMode` 改为 `Thick`
-- [ ] 配置 Instant Client 路径（`OracleInstantClientDir` 或环境变量 `ORACLE_CLIENT_LIB_DIR`）
+- [ ] 配置 Instant Client 路径 `OracleInstantClientDir` 和已注册的 Oracle ODBC 驱动名 `OracleThickOdbcDriver`；Thick 使用 ODBC→OCI，禁止回退 Thin
 - [ ] 再次执行 `--probe-oracle`，保存为 `probe-thick.txt`
 - [ ] Thick 仍失败：记录脱敏错误到 `execution-log.md`，**停止**装服务，回传失败证据即可
+
+运行采集器时可用 `-ThinProbeLog <probe-thin.txt>` 与
+`-ThickProbeLog <probe-thick.txt>` 导入两份独立状态；未提供某态日志时，该态明确写为
+`NOT_EXECUTED`。采集器会再次拒绝把非 LIVE_ORACLE 日志记作 `PASSED`。
 
 ## 四、启动 Service 并运行 A/B/C 采集器
 
@@ -73,31 +84,32 @@ cd <安装根>
 ```
 
 - [ ] 每个 run 都有 `run-manifest.json`、`request-metrics.jsonl`、`dates-samples.tsv`、`host-latency.log`、`watch-latency.log`、`sha256.txt` 和 `api/`
-- [ ] 采集器默认按 `endedAt` 去重并有界等待 3 轮不同的 `poll-health`；只在排障复跑时显式调整 `-PollSampleCount` / `-PollSampleIntervalSeconds` / `-PollSampleWaitTimeoutSeconds`
-- [ ] `request-metrics.jsonl` 含 `/api/demands` 首/后续页、DemandId exact/prefix、alerts、poll-health、ChangeFeed/Bootstrap 的路径、耗时、行数、状态码和 correlation id
-- [ ] `host-latency.log` 含 `ORACLE_QUERY` 及 `SQL_QUERY`/`SQL_WRITE`；远程事件日志无权限时，在 `execution-log.md` 记录并由 Host 机补采
+- [ ] 采集器默认按 `snapshot.pollTraceHighWater` 去重并有界等待 3 个不同的正式 PollTrace；每轮从 `/api/v2/poll-traces/{pollTraceId}` 记录 PollTraceId、正式 query version、规范化 content digest、row count 和 outcome。只在排障复跑时显式调整 `-PollSampleCount` / `-PollSampleIntervalSeconds` / `-PollSampleWaitTimeoutSeconds`
+- [ ] `request-metrics.jsonl` 含 `/api/v2/contract`、DemandSeries 冻结快照首/后续页、DemandId exact、CurrentIngestAttention、ExternallyReadableDemandCatalog 与 PollTrace 的路径、耗时、行数、状态码和 correlation id；DemandSeries 第 2 页起必须携带第一页的 `snapshotReference`，CurrentIngestAttention 使用 `pageNumber`
+- [ ] `run-manifest.json.formal_source_evidence.canonical_poll_trace_identity_complete=true`，且 `live_oracle_probe_passed=true`；后者必须来自 Thin/Thick 至少一个真实 `LIVE_ORACLE`、连接已尝试、模式一致、正式 query identity 一致且 `outcome=Success` 的 `PASSED` 探针
+- [ ] `host-latency.log` 含带 correlation id 的 V2 Host endpoint 延迟；`watch-latency.log` 含 Watch total latency。旧运行时的 `ORACLE_QUERY` / `SQL_QUERY` / `SQL_WRITE` 日志标记不是 V2 正式 source 的必需证据
 - [ ] `run-manifest.json.status=technical-capture-completed`；若为 `technical-capture-incomplete`，按 `latency_evidence.missing_required_evidence` 补采，不得签字放行
 - [ ] A/B/C 三个 run 均完成；不得用同一地点重复执行冒充三个链路
 - [ ] 复制安装根 `VERSION.txt` 到回传目录
 
 ## 五、人工核验（原始快照行 vs 投影 vs WPF）
 
-探针成功时，stdout 会打印本轮查询行数（及 `probe_result=ok`）。将该**原始快照行数/抽样键**与投影对照：
+探针成功时，stdout 会打印本轮查询行数和 `result=PASSED`。将该**原始快照行数/抽样键**与投影对照：
 
 - [ ] **每个 TASK_TYPE 的 DATES/STEP**：打开自动生成的 `dates-samples.tsv`，每类至少一条与 MES 页面/客户 IT 对照；确认 `DATES=进入当前工序时间`、`STEP=下一工序`，填写四个 `PENDING` 列和证据引用
 - [ ] **UTC+08:00 与 Watch 本机显示**：确认无 offset Oracle DATES 按 UTC+08:00 解释，Watch 按运行电脑实际系统时区显示 `yyyy-MM-dd HH:mm:ss zzz`
-- [ ] **原始快照行 vs VISIBLE**：记录探针（或首轮成功 `poll-health`）的 `row_count`；与采集器遍历的 VISIBLE 总数对照（允许因上线基线过滤等略少，差异须写入 execution-log）
-- [ ] **告警**：打开 `GET /api/alerts`（或落盘 JSON）；有查询失败 / 字段漂移 / 重复键 / `PAUSED_ZERO_DROP` / 重现时记录到 `execution-log.md`
+- [ ] **原始快照行 vs VISIBLE**：记录探针或成功 PollTrace 的 `row_count`；与采集器遍历的 VISIBLE 总数对照（允许因未归属/重复等规则而不同，差异须写入 execution-log）
+- [ ] **当前接入关注项**：打开 `GET /api/v2/current-ingest-attention`（或落盘 JSON）；有查询失败、不完整轮次、字段异常、重复键、TaskTypeProtection 或归档后重现时记录到 `execution-log.md`
 - [ ] **WPF**：启动 `watch\MesIngest.Watch.exe`；确认列表展示 VISIBLE（及 GONE 若有）、告警与最近轮询健康
-- [ ] **横幅**：若故意断 Oracle 或存在 `PAUSED_ZERO_DROP`，确认失败 / `PAUSED_ZERO_DROP` 横幅醒目，空板不会被误认为“无任务”
+- [ ] **横幅**：若故意断 Oracle 或存在 TaskTypeProtection，确认轮询失败 / 保护状态横幅醒目，空板不会被误认为“无任务”
 - [ ] **timeout 归因**：确认 Watch 配置为 30 秒（或明确记录现场值），错误显示真实 endpoint/stage；不得通过无限增大 timeout 判定通过
-- [ ] **Swagger + SharedSecret**：浏览器打开 `/swagger`，Authorize 后至少实际执行一个 GET；不得增加或调用写接口
+- [ ] **SharedSecret + V2 GET**：携带 `Authorization: Bearer <SharedSecret>` 至少实际执行一个 `/api/v2/*` GET，并核对返回的 `X-Correlation-Id`；不得增加或调用写接口
 
 ## 六、关闭 WPF 后 Service 仍工作
 
 - [ ] 关闭 WPF 窗口
 - [ ] `Get-Service MesIngest` 仍为 Running
-- [ ] 再次 `Invoke-RestMethod http://127.0.0.1:5088/api/poll-health` 成功
+- [ ] 再次 `Invoke-RestMethod http://127.0.0.1:5088/api/v2/current-ingest-attention` 成功，且稍后观察到更高的 `snapshot.pollTraceHighWater`
 - [ ] （可选）稍后重开 WPF，确认能重连并显示当前投影
 
 ## 七、回传前自检
@@ -106,9 +118,10 @@ cd <安装根>
 
 ## 只读 API 速查
 
-- `GET /api/demands`（可 `?status=VISIBLE|GONE`）
-- `GET /api/alerts`
-- `GET /api/poll-health`
-- `GET /api/demand-changes`
+- `GET /api/v2/contract`
+- `GET /api/v2/demand-series?presence=VISIBLE&page=1&pageSize=100`
+- `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`
+- `GET /api/v2/externally-readable-demand-catalog`
+- `GET /api/v2/poll-traces/{pollTraceId}`
 
-本验证禁止 Oracle DDL、索引、视图、SQL 重写和任何 HTTP 写方法。若证据显示 `stage=ORACLE_QUERY` 慢，只把脱敏证据交客户 IT。
+本验证禁止 Oracle DDL、索引、视图、SQL 重写和任何 HTTP 写方法。Oracle 慢或失败时，只回传探针与 PollTrace 中的脱敏 stage/code 证据。

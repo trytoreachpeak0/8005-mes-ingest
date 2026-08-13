@@ -61,10 +61,11 @@ public class FactoryValidationPackTests
         Assert.Contains("--probe-oracle", text, StringComparison.Ordinal);
         Assert.Contains("Thin", text, StringComparison.Ordinal);
         Assert.Contains("Thick", text, StringComparison.Ordinal);
-        Assert.Contains("poll-health", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/poll-traces", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("VISIBLE", text, StringComparison.Ordinal);
-        Assert.Contains("/api/alerts", text, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("PAUSED_ZERO_DROP", text, StringComparison.Ordinal);
+        Assert.Contains("/api/v2/current-ingest-attention", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("canonical_poll_trace_identity_complete", text, StringComparison.Ordinal);
+        Assert.Contains("live_oracle_probe_passed", text, StringComparison.Ordinal);
         Assert.Contains("WPF", text, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("关闭", text, StringComparison.Ordinal);
         Assert.Contains("验证包已就绪", text, StringComparison.Ordinal);
@@ -94,35 +95,60 @@ public class FactoryValidationPackTests
         Assert.Contains("RequestTimeoutSeconds", script, StringComparison.Ordinal);
         Assert.Contains("PollSampleCount", script, StringComparison.Ordinal);
         Assert.Contains("PollSampleWaitTimeoutSeconds", script, StringComparison.Ordinal);
-        Assert.Contains("lastPollEndedAt", script, StringComparison.Ordinal);
+        Assert.Contains("pollTraceHighWater", script, StringComparison.Ordinal);
         Assert.Contains("DISTINCT_POLL_ROUNDS", script, StringComparison.Ordinal);
         Assert.Contains("X-Correlation-Id", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Authorization", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("SharedSecretEnvironmentVariable", script, StringComparison.Ordinal);
-        Assert.Contains("/swagger", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/openapi/v1.json", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/api/poll-health", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/api/demands", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/api/alerts", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/api/demand-changes", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("nextCursor", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("limit=1", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("highWatermark", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/contract", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/poll-traces/", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/demand-series", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/current-ingest-attention", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/externally-readable-demand-catalog", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CarrySnapshotReference", script, StringComparison.Ordinal);
+        Assert.Contains("&snapshot=", script, StringComparison.Ordinal);
+        Assert.Contains("PageParameter \"pageNumber\"", script, StringComparison.Ordinal);
         Assert.Contains("dates-samples.tsv", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("watch-latency", script, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Get-WinEvent", script, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ORACLE_QUERY", script, StringComparison.Ordinal);
-        Assert.Contains("SQL_QUERY", script, StringComparison.Ordinal);
-        Assert.Contains("SQL_WRITE", script, StringComparison.Ordinal);
+        Assert.Contains("CANONICAL_POLL_TRACE_IDENTITY", script, StringComparison.Ordinal);
+        Assert.Contains("LIVE_ORACLE_PROBE_PASSED", script, StringComparison.Ordinal);
+        Assert.Contains("@($thinProbeEvidence, $thickProbeEvidence) | Where-Object", script, StringComparison.Ordinal);
+        Assert.Contains("canonical_poll_trace_identity_complete", script, StringComparison.Ordinal);
+        Assert.Contains("live_oracle_probe_passed", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("missingRequiredEvidence.Add(\"ORACLE_QUERY\")", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("missingRequiredEvidence.Add(\"SQL_QUERY\")", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("missingRequiredEvidence.Add(\"SQL_WRITE\")", script, StringComparison.Ordinal);
         Assert.Contains("technical-capture-incomplete", script, StringComparison.Ordinal);
         Assert.Contains("missing_required_evidence", script, StringComparison.Ordinal);
-        Assert.Contains("swagger_authorized_get_confirmed = $false", script, StringComparison.Ordinal);
+        Assert.Contains("authenticated_v2_get_confirmed = $false", script, StringComparison.Ordinal);
         Assert.Contains("GET", script, StringComparison.Ordinal);
         Assert.DoesNotContain("Invoke-Sqlcmd", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("OracleCommand", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("-Method Post", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("-Method Put", script, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("-Method Delete", script, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Factory_validation_collector_imports_thin_and_thick_probe_evidence_without_promoting_offline_runs()
+    {
+        var script = File.ReadAllText(Path.Combine(ValidationRoot, "Invoke-FactoryValidation.ps1"));
+
+        Assert.Contains("ThinProbeLog", script, StringComparison.Ordinal);
+        Assert.Contains("ThickProbeLog", script, StringComparison.Ordinal);
+        Assert.Contains("Import-OracleProbeEvidence", script, StringComparison.Ordinal);
+        Assert.Contains("execution_scope", script, StringComparison.Ordinal);
+        Assert.Contains("connection_attempted", script, StringComparison.Ordinal);
+        Assert.Contains("requested_mode", script, StringComparison.Ordinal);
+        Assert.Contains("actual_mode", script, StringComparison.Ordinal);
+        Assert.Contains("query_version", script, StringComparison.Ordinal);
+        Assert.Contains("query_sha256", script, StringComparison.Ordinal);
+        Assert.Contains("NOT_EXECUTED", script, StringComparison.Ordinal);
+        Assert.Contains("LIVE_ORACLE", script, StringComparison.Ordinal);
+        Assert.Contains("cannot be recorded as PASSED", script, StringComparison.Ordinal);
+        Assert.Contains("thin = $thinProbeEvidence", script, StringComparison.Ordinal);
+        Assert.Contains("thick = $thickProbeEvidence", script, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -134,6 +160,9 @@ public class FactoryValidationPackTests
 
         Assert.Equal("mes-ingest-factory-validation", root.GetProperty("experiment_id").GetString());
         Assert.True(root.TryGetProperty("probe", out _));
+        Assert.True(root.TryGetProperty("formal_source_evidence", out var formalSourceEvidence));
+        Assert.False(formalSourceEvidence.GetProperty("canonical_poll_trace_identity_complete").GetBoolean());
+        Assert.False(formalSourceEvidence.GetProperty("live_oracle_probe_passed").GetBoolean());
         Assert.True(root.TryGetProperty("poll_rounds", out var rounds));
         Assert.Equal(JsonValueKind.Array, rounds.ValueKind);
         Assert.True(rounds.GetArrayLength() >= 1);
@@ -142,13 +171,18 @@ public class FactoryValidationPackTests
         Assert.True(first.TryGetProperty("duration_ms", out _));
         Assert.True(first.TryGetProperty("row_count", out _));
         Assert.True(first.TryGetProperty("success", out _));
+        Assert.Equal(
+            "MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae",
+            first.GetProperty("query_version").GetString());
+        Assert.True(first.TryGetProperty("content_digest", out _));
+        Assert.True(first.TryGetProperty("poll_trace_id", out _));
 
         Assert.True(root.TryGetProperty("request_metrics", out _));
         Assert.True(root.TryGetProperty("dates_semantics", out _));
         Assert.True(root.TryGetProperty("latency_evidence", out _));
 
         var manualChecks = root.GetProperty("manual_checks");
-        Assert.False(manualChecks.GetProperty("swagger_authorized_get_confirmed").GetBoolean());
+        Assert.False(manualChecks.GetProperty("authenticated_v2_get_confirmed").GetBoolean());
         Assert.False(manualChecks.GetProperty("dates_semantics_confirmed").GetBoolean());
 
         var json = File.ReadAllText(path);

@@ -48,6 +48,8 @@ param(
 
     [string]$SqlServerDatabase,
 
+    [switch]$SqlServerDatabaseIsDedicatedEmpty,
+
     [ValidateRange(60, 14400)]
     [int]$TimeoutSeconds = 3600
 )
@@ -137,22 +139,24 @@ try {
         $sqlInputCount = @($sqlInputs | Where-Object {
             -not [string]::IsNullOrWhiteSpace($_)
         }).Count
-        if ($sqlInputCount -notin @(0, 3)) {
-            throw 'SqlServerCredentialPath, SqlServerDataSource, and SqlServerDatabase must be supplied together.'
+        if ($sqlInputCount -ne 3) {
+            throw 'watch-package-release requires SqlServerCredentialPath, SqlServerDataSource, and a dedicated empty SqlServerDatabase.'
         }
-        if ($sqlInputCount -eq 3) {
-            $credentialSource = (Resolve-Path -LiteralPath $SqlServerCredentialPath -ErrorAction Stop).Path
-            $sqlServerCredential = Import-Clixml -LiteralPath $credentialSource
-            if ($sqlServerCredential -isnot [PSCredential] `
-                -or [string]::IsNullOrWhiteSpace($sqlServerCredential.UserName)) {
-                throw 'SqlServerCredentialPath must contain a DPAPI-protected PSCredential exported by the current host user.'
-            }
-            $sqlServerConnectionInfo = [ordered]@{
-                Configured = $true
-                DataSource = $SqlServerDataSource
-                Database = $SqlServerDatabase
-                Authentication = 'SqlPasswordFromDpapiCredential'
-            }
+        if (-not $SqlServerDatabaseIsDedicatedEmpty) {
+            throw 'watch-package-release SQL Server target must be explicitly confirmed dedicated, disposable, and empty.'
+        }
+        $credentialSource = (Resolve-Path -LiteralPath $SqlServerCredentialPath -ErrorAction Stop).Path
+        $sqlServerCredential = Import-Clixml -LiteralPath $credentialSource
+        if ($sqlServerCredential -isnot [PSCredential] `
+            -or [string]::IsNullOrWhiteSpace($sqlServerCredential.UserName)) {
+            throw 'SqlServerCredentialPath must contain a DPAPI-protected PSCredential exported by the current host user.'
+        }
+        $sqlServerConnectionInfo = [ordered]@{
+            Configured = $true
+            DataSource = $SqlServerDataSource
+            Database = $SqlServerDatabase
+            Authentication = 'SqlPasswordFromDpapiCredential'
+            DedicatedEmptyConfirmed = $true
         }
         if ([string]::IsNullOrWhiteSpace($repositoryRoot)) {
             throw 'The package release suite requires a Git worktree so its repository-level regression inputs can be staged.'
@@ -312,6 +316,8 @@ try {
         if ([string]::IsNullOrWhiteSpace($sqlConnectionString)) {
             throw 'The injected SQL Server connection string is empty.'
         }
+        $env:MES_INGEST_RELEASE_SMOKE_SQLSERVER = $sqlConnectionString
+        $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
         $env:MES_INGEST_SQLSERVER = $sqlConnectionString
     }
 

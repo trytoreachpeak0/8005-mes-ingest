@@ -1,0 +1,66 @@
+using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
+
+namespace MesIngest.Host;
+
+/// <summary>
+/// V2 Windows Service / console poll owner. Its lifetime is the Host lifetime;
+/// no Watch process, window, or client cancellation token participates.
+/// </summary>
+public sealed class MesTaskUnionPollHostedService : BackgroundService
+{
+    private readonly MesTaskUnionPollRunner _runner;
+    private readonly MesIngestHostOptions _options;
+    private readonly ILogger<MesTaskUnionPollHostedService> _logger;
+
+    public MesTaskUnionPollHostedService(
+        MesTaskUnionPollRunner runner,
+        MesIngestHostOptions options,
+        ILogger<MesTaskUnionPollHostedService> logger)
+    {
+        _runner = runner ?? throw new ArgumentNullException(nameof(runner));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (!_options.ContinuousPollEnabled)
+        {
+            _logger.LogInformation("Continuous V2 Oracle poll disabled; service idle.");
+            return;
+        }
+
+        var delay = TimeSpan.FromSeconds(Math.Max(0, _options.PostPollDelaySeconds));
+        _logger.LogInformation(
+            "Starting V2 Oracle single-flight poll loop (post-delay={Delay}, command-timeout={Timeout}s).",
+            delay,
+            _options.QueryTimeoutSeconds);
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: async cancellationToken =>
+            {
+                try
+                {
+                    var receipt = await _runner.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation(
+                        "V2 Oracle round {PollTraceId} completed as {Outcome}; projectionCommit={ProjectionCommitId}.",
+                        receipt.PollTraceId,
+                        receipt.Outcome,
+                        receipt.ProjectionCommitId);
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    // Source failures are durable round diagnostics. Failures after the
+                    // source (SQL open/schema/commit) have no PollTrace, so retain a
+                    // sanitized operational signal before the shared loop continues.
+                    _logger.LogError(
+                        "V2 Oracle round could not be persisted ({ExceptionType}); continuing single-flight poll loop.",
+                        exception.GetType().Name);
+                    throw;
+                }
+            },
+            postPollDelay: delay,
+            cancellationToken: stoppingToken).ConfigureAwait(false);
+    }
+}

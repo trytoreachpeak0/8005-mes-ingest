@@ -16,7 +16,8 @@
 - A/B/C 链路分阶段延迟证据已采集：是 / 否
 - DATES/STEP 逐 TASK_TYPE 语义已与 MES 页面/客户 IT 对照：是 / 否
 - UTC+08:00 来源解释与 Watch 本机时区显示已核验：是 / 否
-- Swagger + SharedSecret 只读 GET 已核验：是 / 否
+- SharedSecret + V2 只读 GET 已核验：是 / 否
+- canonical PollTrace identity 与至少一个真实 Oracle 探针 `PASSED` 已核验：是 / 否
 - VISIBLE 投影与告警已人工核验：是 / 否
 - WPF 展示与横幅已核验：是 / 否
 - 关闭 WPF 后 Service/HTTP 仍工作：是 / 否

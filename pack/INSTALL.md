@@ -7,24 +7,24 @@
 ```
 MesIngest/
   service/                 # Windows Service（MesIngest.Host）自包含发布
+    queries/mes-task-union/query.sql  # 唯一正式 Oracle 查询稿
+    queries/mes-task-union/query.manifest.json # 查询版本、长度与原始 SHA-256
   watch/                   # 可选 WPF 盯盘客户端（MesIngest.Watch）
-  queries/                 # 正式 MES_TASK_UNION SQL（与仓库原稿一致）
   templates/               # 填空配置模板（无真实凭证）
   scripts/                 # 安装 / 卸载辅助脚本
   validation/              # 工厂验证、发布烟测与四套 Watch 验收入口
-  openapi/v1.json          # 静态 OpenAPI 契约（离线导入 Postman/代码工具）
   INSTALL.md               # 本说明
   UPGRADE.md               # 现有安装升级、备份前置与回滚
   FACTORY-VALIDATION.md    # 工厂执行与核验清单
   VERSION.txt              # 发布版本信息
-  RELEASE-MANIFEST.json    # 源提交、只读契约结论及逐文件 SHA-256
+  RELEASE-MANIFEST.json    # 源提交、Production V2 发布面声明及逐文件 SHA-256
   RELEASE-EVIDENCE.json    # Ticket 11/12/13 重建代次与证据索引
 ```
 
 ## 配置（凭证不进包）
 
 1. 复制 `templates/appsettings.Local.json.example` → `service/appsettings.Local.json`
-2. 可选：复制 `templates/watch.appsettings.Local.json.example` → `watch/appsettings.Local.json`（或直接改 `watch/appsettings.json`）
+2. 仅做独立 Watch 验收时：复制 `templates/watch.appsettings.Local.json.example` → `watch/appsettings.Local.json`（或直接改 `watch/appsettings.json`）
 3. 填写 SQL Server、Oracle 等占位符；**不要**把填好的文件拷回仓库或再打进安装包
 4. 默认 `Urls` 为 `http://127.0.0.1:5088`（仅本机）
 5. 若改为非本机绑定（如 `http://0.0.0.0:5088` 或局域网 IP），必须同时设置 `SharedSecret`；调用方携带：
@@ -63,9 +63,9 @@ sc.exe delete MesIngest
 
 安装前请先写好 `service/appsettings.Local.json`。Host 以可执行文件目录为 ContentRoot，因此即使服务进程工作目录是 `System32`，也会从 `service/` 读取配置与 `queries/`。建议用 `MesIngest.Host.exe --probe-oracle`（在 `service/` 目录、`SnapshotSource=Oracle`）做一次连通探针，成功后再装服务。
 
-## 可选 WPF
+## 打包 Watch（独立验收）
 
-Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停止 Service。默认连接 `http://127.0.0.1:5088`。
+当前打包的 `watch\MesIngest.Watch.exe` 仍使用旧 `/api/*` 客户端契约，尚未迁移到 Production V2；不要将它作为 `/api/v2/*` Host 的发布烟测客户端。它只由本文后述的四套独立交互式验收入口验证；关闭 WPF **不会**停止 Service。
 
 ## 日志位置
 
@@ -81,17 +81,21 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 
 ## 版本信息
 
-见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256、只读 OpenAPI 校验结果）。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
+见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 中固定的查询版本/路径/长度/哈希）。完整 V2 OpenAPI 由 Ticket 17 冻结；当前发布门禁不会用旧 V1 OpenAPI 冒充新版契约。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
 
 ## 发布烟测与四套 Watch 验收
 
-在已登录的交互式 Windows 会话，从安装包而非源码启动真实 Host/Watch 烟测：
+在已登录的交互式 Windows 会话，先由 SQL Server 管理员创建一个**专用、可丢弃且当前没有任何用户表**的烟测库，再从安装包而非源码启动 Production V2 Host。不要指向共享、旧版或生产业务库；脚本不会为你删库或清表：
 
 ```powershell
+$env:MES_INGEST_RELEASE_SMOKE_SQLSERVER = '<dedicated empty database connection string>'
+$env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 .\validation\Invoke-ReleaseSmoke.ps1 -ArtifactsDirectory C:\MesIngest\release-smoke
 ```
 
-该入口使用临时 CSV 和内存投影启动正式 `service\MesIngest.Host.exe`，核对运行时/离线 OpenAPI、GET 接口和正式 `watch\MesIngest.Watch.exe` 的 10 秒内可响应概览；不携带测试 fake Host。
+该入口强制 `DOTNET_ENVIRONMENT=Production`，把专用环境变量只注入进程内的 `MesIngest:NewSqlServerConnectionString`，以正式 `service\MesIngest.Host.exe` 建立/校验 V2 schema，并验证 `GET /api/v2/contract`、旧 `/api/contract` 不可见以及唯一 canonical Oracle 查询和相邻 manifest 的路径、长度与 SHA-256。烟测关闭 Oracle one-shot/连续轮询，不会把未连接 Oracle 伪报为现场通过；同时不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr。
+
+该烟测明确**不启动 Watch**：当前步骤只证明 Production V2 Host、SQL Server 和 canonical artifact。打包 Watch 由下面四套独立的交互式验收入口验证；在后续 Watch/V2 契约迁移完成前，不能以旧 `/api/*` 调用冒充新版 Host/Watch 联调。
 
 四套正式 Windows 验收仍由独立测试仓提供，避免把 fake Host、xUnit、视觉基线或候选文件装进生产包。把 `-HarnessRoot` 指向同源码提交的 `mes\ingest\csharp`，入口会强制真实窗口套件启动本包内的 Watch：
 
@@ -108,24 +112,23 @@ Service 运行后启动 `watch\MesIngest.Watch.exe`。关闭 WPF **不会**停�
 |------|------|
 | Service 无法启动 | `service/appsettings.Local.json` 是否存在；`Urls` 非本机时是否设置了 `SharedSecret`；事件查看器中的异常 |
 | API 401 | 非本机绑定时是否带了 `Authorization: Bearer …`，密钥是否与配置一致 |
-| 空板 / 无需求 | `GET /api/poll-health`、`GET /api/alerts`；是否 `POLL_FAILURE` / `PAUSED_ZERO_DROP`；Oracle 探针是否成功 |
-| Oracle 连不上 | `OracleMode` Thin→Thick + Instant Client 路径；账号/数据源；工厂网络 |
-| SQL Server 投影丢失 | `SqlServerConnectionString`；库是否可连；空连接串会退回内存（重启丢数据） |
-| 查询 SQL 缺失 | 确认 `service/queries/mes-task-union/query.sql`（或根 `queries/`）存在 |
+| 空板 / 无需求 | `GET /api/v2/current-ingest-attention`、`GET /api/v2/demand-series`；Oracle 探针是否成功 |
+| Oracle 连不上 | `OracleMode` Thin→Thick，并同时配置 `OracleInstantClientDir` + 已注册 `OracleThickOdbcDriver`；账号/数据源；工厂网络。Thick 不会回退 Thin |
+| SQL Server 投影丢失 | `NewSqlServerConnectionString`；库是否可连；Production 不允许空连接串或内存回退 |
+| 查询 SQL 缺失或被拒绝 | 只确认 `service/queries/mes-task-union/query.sql` 与邻接 `query.manifest.json`；不要从别处补第二份 SQL。二者必须匹配发布清单中的 `canonicalQuery` |
 
 只读 API（本机默认）：
 
-- `GET /api/contract`
-- `GET /api/demands`
-- `GET /api/demands/{demandId}`
-- `GET /api/alerts`
-- `GET /api/poll-health`
-- `GET /api/demand-changes`
+- `GET /api/v2/contract`
+- `GET /api/v2/demand-series`
+- `GET /api/v2/demand-series/{seriesId}`
+- `GET /api/v2/current-ingest-attention`
+- `GET /api/v2/watch-overview`
+- `GET /api/v2/poll-traces/{pollTraceId}`
 
 人工试调与合作者文档：
 
-- 浏览器打开 `http://127.0.0.1:5088/swagger`（远程绑定时文档仍默认启用）
-- 机器可读契约：`GET /openapi/v1.json`（安装包离线副本：`openapi/v1.json`）
-- 文档元数据可匿名打开；实际 `/api/*` 在非本机绑定时仍需 `Authorization: Bearer <SharedSecret>`（Swagger UI 点 Authorize 后再 Try it out）
+- V2 合约身份：`GET /api/v2/contract`；完整 V2 OpenAPI 等 Ticket 17 冻结后交付
+- 实际 `/api/v2/*` 在非本机绑定时需 `Authorization: Bearer <SharedSecret>`；受限原始证据即使在本机也要求显式 Bearer 密钥
 
 工厂连通验证、人工核验与回传约定见同包 [`FACTORY-VALIDATION.md`](FACTORY-VALIDATION.md) 与 `validation/`；本说明只覆盖安装与安全配置。

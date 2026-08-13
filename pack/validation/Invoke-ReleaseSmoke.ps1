@@ -4,9 +4,7 @@ param(
     [string] $ArtifactsDirectory,
 
     [ValidateRange(5, 30)]
-    [int] $StartupTimeoutSeconds = 10,
-
-    [switch] $SkipWatch
+    [int] $StartupTimeoutSeconds = 10
 )
 
 Set-StrictMode -Version Latest
@@ -14,13 +12,85 @@ $ErrorActionPreference = 'Stop'
 
 $packageRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
 $serviceExecutable = Join-Path $packageRoot 'service\MesIngest.Host.exe'
-$watchExecutable = Join-Path $packageRoot 'watch\MesIngest.Watch.exe'
-$staticOpenApiPath = Join-Path $packageRoot 'openapi\v1.json'
-foreach ($path in @($serviceExecutable, $staticOpenApiPath)) {
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Release smoke input missing: $path" }
+$canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
+$canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
+$canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
+$canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
+$canonicalQueryPath = Join-Path $packageRoot $canonicalQueryRelativePath
+$canonicalQueryManifestPath = Join-Path $packageRoot $canonicalQueryManifestRelativePath
+
+foreach ($path in @($serviceExecutable, $canonicalQueryPath, $canonicalQueryManifestPath)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Production V2 release smoke input missing: $path"
+    }
 }
-if (-not $SkipWatch -and -not (Test-Path -LiteralPath $watchExecutable -PathType Leaf)) {
-    throw "Release smoke input missing: $watchExecutable"
+
+$sqlConnectionString = [Environment]::GetEnvironmentVariable('MES_INGEST_RELEASE_SMOKE_SQLSERVER')
+if ([string]::IsNullOrWhiteSpace($sqlConnectionString)) {
+    throw 'Production V2 release smoke requires a dedicated empty database via MES_INGEST_RELEASE_SMOKE_SQLSERVER.'
+}
+$emptyDatabaseConfirmation = [Environment]::GetEnvironmentVariable(
+    'MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED')
+if ($emptyDatabaseConfirmation -cne 'YES') {
+    throw 'Set MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED=YES only after confirming the target database is dedicated, disposable, and empty.'
+}
+
+# Fail closed before Host bootstrap. The smoke owns no database lifecycle and never
+# drops or clears a target supplied by an operator.
+try {
+    $sqlBuilder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($sqlConnectionString)
+} catch {
+    throw 'MES_INGEST_RELEASE_SMOKE_SQLSERVER is not a valid SQL Server connection string.'
+}
+$targetDatabase = $sqlBuilder.InitialCatalog.Trim()
+if ([string]::IsNullOrWhiteSpace($targetDatabase) `
+    -or $targetDatabase -in @('master', 'model', 'msdb', 'tempdb')) {
+    throw 'Production V2 release smoke requires an explicit non-system Initial Catalog.'
+}
+$preflightConnection = $null
+$preflightCommand = $null
+try {
+    $preflightConnection = [System.Data.SqlClient.SqlConnection]::new($sqlBuilder.ConnectionString)
+    $preflightConnection.Open()
+    $preflightCommand = $preflightConnection.CreateCommand()
+    $preflightCommand.CommandTimeout = 15
+    $preflightCommand.CommandText = 'SELECT COUNT_BIG(*) FROM sys.tables WHERE is_ms_shipped = 0;'
+    $preflightUserTableCount = [long]$preflightCommand.ExecuteScalar()
+} catch {
+    throw 'Unable to verify that the dedicated release-smoke SQL Server database is reachable and empty.'
+} finally {
+    if ($null -ne $preflightCommand) { $preflightCommand.Dispose() }
+    if ($null -ne $preflightConnection) { $preflightConnection.Dispose() }
+}
+if ($preflightUserTableCount -ne 0) {
+    throw "Dedicated release-smoke database must have zero user tables before Host bootstrap; found $preflightUserTableCount."
+}
+
+$queryFiles = @(Get-ChildItem -LiteralPath $packageRoot -Filter '*.sql' -File -Recurse -Force)
+if ($queryFiles.Count -ne 1) {
+    throw "Production V2 release smoke requires exactly one SQL artifact; found $($queryFiles.Count)."
+}
+$actualQueryPath = $queryFiles[0].FullName.Substring($packageRoot.Length).TrimStart('\', '/').Replace('\', '/')
+if ($actualQueryPath -cne $canonicalQueryRelativePath) {
+    throw "The only SQL artifact is not the canonical deployment path: $actualQueryPath"
+}
+$queryHash = (Get-FileHash -LiteralPath $canonicalQueryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($queryHash -cne $canonicalQuerySha256) {
+    throw "Canonical query hash mismatch: expected $canonicalQuerySha256; actual $queryHash"
+}
+$queryFile = Get-Item -LiteralPath $canonicalQueryPath
+try {
+    $queryManifest = Get-Content -Raw -LiteralPath $canonicalQueryManifestPath | ConvertFrom-Json
+} catch {
+    throw "Canonical query manifest is invalid: $canonicalQueryManifestRelativePath"
+}
+if ([int]$queryManifest.schemaVersion -ne 1 `
+    -or [string]$queryManifest.id -cne 'MES_TASK_UNION' `
+    -or [string]$queryManifest.version -cne $canonicalQueryVersion `
+    -or [string]$queryManifest.path -cne $canonicalQueryRelativePath `
+    -or [long]$queryManifest.length -ne $queryFile.Length `
+    -or ([string]$queryManifest.sha256).ToLowerInvariant() -cne $canonicalQuerySha256) {
+    throw 'Canonical query manifest does not match the approved deployment artifact.'
 }
 
 $artifacts = if ([string]::IsNullOrWhiteSpace($ArtifactsDirectory)) {
@@ -29,14 +99,6 @@ $artifacts = if ([string]::IsNullOrWhiteSpace($ArtifactsDirectory)) {
     [IO.Path]::GetFullPath($ArtifactsDirectory)
 }
 New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
-$sandbox = Join-Path $artifacts 'sandbox'
-$localData = Join-Path $sandbox 'LocalAppData'
-New-Item -ItemType Directory -Path $localData -Force | Out-Null
-$csvPath = Join-Path $sandbox 'snapshot.csv'
-@'
-TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE
-DIE_TO_OVEN,RELEASE-SMOKE,N01-01,WB-01,烘箱,2026-08-10T09:00:00+08:00,PKG-SMOKE
-'@ | Set-Content -LiteralPath $csvPath -Encoding UTF8
 
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
 $listener.Start()
@@ -44,7 +106,6 @@ $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
 $listener.Stop()
 $baseUrl = "http://127.0.0.1:$port"
 $hostProcess = $null
-$watchProcess = $null
 $startedAt = [DateTimeOffset]::UtcNow
 try {
     $hostInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -53,137 +114,94 @@ try {
     $hostInfo.UseShellExecute = $false
     $hostInfo.RedirectStandardOutput = $true
     $hostInfo.RedirectStandardError = $true
-    $hostInfo.EnvironmentVariables['MesIngest__SnapshotSource'] = 'File'
-    $hostInfo.EnvironmentVariables['MesIngest__SnapshotCsvPath'] = $csvPath
-    $hostInfo.EnvironmentVariables['MesIngest__SqlServerConnectionString'] = ''
-    $hostInfo.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'true'
+    $hostInfo.EnvironmentVariables['DOTNET_ENVIRONMENT'] = 'Production'
+    $hostInfo.EnvironmentVariables['ASPNETCORE_ENVIRONMENT'] = 'Production'
+    $hostInfo.EnvironmentVariables.Remove('MES_INGEST_RELEASE_SMOKE_SQLSERVER')
+    $hostInfo.EnvironmentVariables.Remove('MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED')
+    $hostInfo.EnvironmentVariables.Remove('MES_INGEST_SQLSERVER')
+    $hostInfo.EnvironmentVariables['MesIngest__NewSqlServerConnectionString'] = $sqlConnectionString
+    $hostInfo.EnvironmentVariables['MesIngest__SnapshotSource'] = 'Oracle'
+    $hostInfo.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'false'
     $hostInfo.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] = 'false'
+    $hostInfo.EnvironmentVariables['MesIngest__EnableLegacyDevelopmentEndpoints'] = 'false'
     $hostInfo.EnvironmentVariables['MesIngest__Urls'] = $baseUrl
     $hostInfo.EnvironmentVariables['MesIngest__SharedSecret'] = ''
     $hostProcess = [Diagnostics.Process]::Start($hostInfo)
-    if ($null -eq $hostProcess) { throw 'Packaged Host did not start.' }
+    if ($null -eq $hostProcess) { throw 'Packaged Production V2 Host did not start.' }
+    # Drain both streams to prevent a full pipe from blocking the Host, but never persist
+    # provider output: SQL/Oracle failures can include datasource or credential details.
+    $hostProcess.BeginOutputReadLine()
+    $hostProcess.BeginErrorReadLine()
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     $contract = $null
     do {
-        if ($hostProcess.HasExited) { throw "Packaged Host exited during startup with code $($hostProcess.ExitCode)." }
+        if ($hostProcess.HasExited) {
+            throw "Packaged Production V2 Host exited during startup with code $($hostProcess.ExitCode)."
+        }
         try {
-            $contract = Invoke-RestMethod -Uri "$baseUrl/api/contract" -TimeoutSec 2
+            $contract = Invoke-RestMethod -Uri "$baseUrl/api/v2/contract" -TimeoutSec 2
         } catch {
             Start-Sleep -Milliseconds 200
         }
     } while ($null -eq $contract -and [DateTimeOffset]::UtcNow -lt $deadline)
-    if ($null -eq $contract) { throw "Packaged Host did not expose /api/contract within $StartupTimeoutSeconds seconds." }
-
-    $liveOpenApiText = (Invoke-WebRequest -Uri "$baseUrl/openapi/v1.json" -TimeoutSec 5).Content
-    $liveOpenApiText | Set-Content -LiteralPath (Join-Path $artifacts 'live-openapi.json') -Encoding UTF8
-    $liveOpenApi = $liveOpenApiText | ConvertFrom-Json
-    $staticOpenApi = (Get-Content -Raw -LiteralPath $staticOpenApiPath) | ConvertFrom-Json
-    $liveContract = $liveOpenApi | ConvertTo-Json -Depth 100 -Compress
-    $staticContract = $staticOpenApi | ConvertTo-Json -Depth 100 -Compress
-    if ($liveContract -cne $staticContract) { throw 'Packaged runtime OpenAPI differs from the complete offline OpenAPI contract.' }
-
-    $demands = Invoke-RestMethod -Uri "$baseUrl/api/demands?status=VISIBLE" -TimeoutSec 5
-    $alerts = Invoke-RestMethod -Uri "$baseUrl/api/alerts?active=true" -TimeoutSec 5
-    $pollHealth = Invoke-RestMethod -Uri "$baseUrl/api/poll-health" -TimeoutSec 5
-    $changes = Invoke-RestMethod -Uri "$baseUrl/api/demand-changes?afterSequence=0&limit=100" -TimeoutSec 5
-    if (@($demands.items).Count -ne 1 -or $demands.items[0].sublot -ne 'RELEASE-SMOKE') {
-        throw 'Packaged Host did not project the release-smoke TransportDemand.'
+    if ($null -eq $contract) {
+        throw "Packaged Production V2 Host did not expose /api/v2/contract within $StartupTimeoutSeconds seconds."
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$contract.contractVersion) `
+        -or [int]$contract.schemaVersion -le 0 `
+        -or [string]::IsNullOrWhiteSpace([string]$contract.transportDemandKeyComparison)) {
+        throw 'Packaged Production V2 Host returned an incomplete contract identity.'
     }
 
-    $watchStartupMs = $null
-    if (-not $SkipWatch) {
-        $preferenceDirectory = Join-Path $localData 'MesIngest.Watch'
-        New-Item -ItemType Directory -Path $preferenceDirectory -Force | Out-Null
-        '{"version":1,"windowWidth":1333,"windowHeight":777,"demandShare":0.65}' |
-            Set-Content -LiteralPath (Join-Path $preferenceDirectory 'layout-preferences.json') -Encoding UTF8
-        $watchInfo = [Diagnostics.ProcessStartInfo]::new()
-        $watchInfo.FileName = $watchExecutable
-        $watchInfo.WorkingDirectory = Split-Path -Parent $watchExecutable
-        $watchInfo.UseShellExecute = $false
-        $watchInfo.RedirectStandardOutput = $true
-        $watchInfo.RedirectStandardError = $true
-        $watchInfo.EnvironmentVariables['LOCALAPPDATA'] = $localData
-        $watchInfo.EnvironmentVariables['MesIngestWatch__BaseUrl'] = $baseUrl
-        $watchInfo.EnvironmentVariables['MesIngestWatch__RenderingMode'] = 'SoftwareOnly'
-        $watchInfo.EnvironmentVariables['MesIngestWatch__RequestTimeoutSeconds'] = '5'
-        $watchInfo.EnvironmentVariables['MesIngestWatch__LogDirectory'] = (Join-Path $sandbox 'watch-logs')
-        $watchStartedAt = [Diagnostics.Stopwatch]::StartNew()
-        $watchProcess = [Diagnostics.Process]::Start($watchInfo)
-        if ($null -eq $watchProcess) { throw 'Packaged Watch did not start.' }
-        do {
-            if ($watchProcess.HasExited) { throw "Packaged Watch exited during startup with code $($watchProcess.ExitCode)." }
-            $watchProcess.Refresh()
-            if ($watchProcess.MainWindowHandle -ne [IntPtr]::Zero -and $watchProcess.Responding) { break }
-            Start-Sleep -Milliseconds 200
-        } while ($watchStartedAt.Elapsed.TotalSeconds -lt $StartupTimeoutSeconds)
-        if ($watchProcess.MainWindowHandle -eq [IntPtr]::Zero -or -not $watchProcess.Responding) {
-            throw "Packaged Watch did not expose a responsive main window within $StartupTimeoutSeconds seconds."
+    $legacyStatus = 0
+    try {
+        $legacyResponse = Invoke-WebRequest -Uri "$baseUrl/api/contract" -TimeoutSec 2 -UseBasicParsing
+        $legacyStatus = [int]$legacyResponse.StatusCode
+    } catch {
+        if ($null -ne $_.Exception.Response) {
+            $legacyStatus = [int]$_.Exception.Response.StatusCode
+        } else {
+            throw
         }
-        $watchStartupMs = [Math]::Round($watchStartedAt.Elapsed.TotalMilliseconds, 1)
-
-        Add-Type -AssemblyName UIAutomationClient
-        $window = [Windows.Automation.AutomationElement]::FromHandle($watchProcess.MainWindowHandle)
-        if ($window.Current.BoundingRectangle.Width -lt 1250) {
-            throw 'Packaged Watch did not load the isolated LocalApplicationData layout preference.'
-        }
-        $requiredNames = @(
-            '概览健康结论',
-            'Host 接入状态',
-            '最近轮询健康',
-            '查看活动 IngestAlert 默认查询',
-            '查看 VISIBLE TransportDemand 默认查询'
-        )
-        foreach ($name in $requiredNames) {
-            $condition = [Windows.Automation.PropertyCondition]::new(
-                [Windows.Automation.AutomationElement]::NameProperty,
-                $name)
-            $element = $window.FindFirst([Windows.Automation.TreeScope]::Descendants, $condition)
-            if ($null -eq $element) { throw "Packaged Watch overview is missing UI Automation element: $name" }
-        }
-
-        $watchLogDirectory = Join-Path $sandbox 'watch-logs'
-        $logDeadline = [DateTimeOffset]::UtcNow.AddSeconds(5)
-        do {
-            $latencyLogs = @(Get-ChildItem -LiteralPath $watchLogDirectory -Filter 'watch-latency-*.log' -File -ErrorAction SilentlyContinue)
-            if ($latencyLogs.Count -gt 0 -and $latencyLogs[0].Length -gt 0) { break }
-            Start-Sleep -Milliseconds 200
-        } while ([DateTimeOffset]::UtcNow -lt $logDeadline)
-        if ($latencyLogs.Count -eq 0 -or $latencyLogs[0].Length -eq 0) {
-            throw 'Packaged Watch did not write latency evidence under the isolated LocalApplicationData sandbox.'
-        }
+    }
+    if ($legacyStatus -ne 404) {
+        throw "Packaged Production V2 Host exposed the legacy contract endpoint (HTTP $legacyStatus)."
     }
 
     [ordered]@{
         status = 'PASSED'
         completedAt = [DateTimeOffset]::UtcNow.ToString('O')
         durationMs = [Math]::Round(([DateTimeOffset]::UtcNow - $startedAt).TotalMilliseconds, 1)
-        watchStartupMs = $watchStartupMs
         baseUrl = 'http://127.0.0.1:<ephemeral>'
-        contractVersion = $contract.contractVersion
-        schemaVersion = $contract.schemaVersion
-        visibleDemandCount = @($demands.items).Count
-        activeAlertCount = @($alerts.items).Count
-        pollSuccess = $pollHealth.success
-        changeCount = @($changes.items).Count
-        openApiMatched = $true
-        watchValidated = -not $SkipWatch
-        isolatedPreferenceLoaded = -not $SkipWatch
-        isolatedLogWritten = -not $SkipWatch
+        environment = 'Production'
+        contractEndpoint = '/api/v2/contract'
+        contractVersion = [string]$contract.contractVersion
+        schemaVersion = [int]$contract.schemaVersion
+        transportDemandKeyComparison = [string]$contract.transportDemandKeyComparison
+        legacyContractStatus = $legacyStatus
+        canonicalQuery = [ordered]@{
+            path = $canonicalQueryRelativePath
+            length = $queryFile.Length
+            sha256 = $queryHash
+            version = $canonicalQueryVersion
+        }
+        sqlServerConfigured = $true
+        dedicatedEmptyDatabaseConfirmed = $true
+        preflightUserTableCount = $preflightUserTableCount
+        oracleConnectionAttempted = $false
+        watchValidated = $false
+        watchValidation = 'DEFERRED_TO_PACKAGED_WATCH_ACCEPTANCE'
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $artifacts 'release-smoke-result.json') -Encoding UTF8
-    Write-Output "MESINGEST_RELEASE_SMOKE_PASSED: artifacts=$artifacts"
+    Write-Output "MESINGEST_PRODUCTION_V2_RELEASE_SMOKE_PASSED: artifacts=$artifacts"
 }
 finally {
-    foreach ($process in @($watchProcess, $hostProcess)) {
-        if ($null -ne $process) {
-            if (-not $process.HasExited) {
-                $process.Kill()
-                $process.WaitForExit(5000) | Out-Null
-            }
-            $name = if ($process -eq $watchProcess) { 'watch' } else { 'host' }
-            $process.StandardOutput.ReadToEnd() | Set-Content -LiteralPath (Join-Path $artifacts "$name.stdout.log") -Encoding UTF8
-            $process.StandardError.ReadToEnd() | Set-Content -LiteralPath (Join-Path $artifacts "$name.stderr.log") -Encoding UTF8
-            $process.Dispose()
+    $sqlConnectionString = $null
+    if ($null -ne $hostProcess) {
+        if (-not $hostProcess.HasExited) {
+            $hostProcess.Kill()
+            $hostProcess.WaitForExit(5000) | Out-Null
         }
+        $hostProcess.Dispose()
     }
 }

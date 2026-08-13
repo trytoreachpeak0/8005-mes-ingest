@@ -2,13 +2,14 @@
   "MesIngest": {
     "Urls": "http://127.0.0.1:5088",
     "SharedSecret": "",
-    "SqlServerConnectionString": "Server=<SQL_HOST>;Database=MesIngest;User Id=<SQL_USER>;Password=<SQL_PASSWORD>;TrustServerCertificate=True",
+    "NewSqlServerConnectionString": "Server=<SQL_HOST>;Database=MesIngest;User Id=<SQL_USER>;Password=<SQL_PASSWORD>;TrustServerCertificate=True",
     "SnapshotSource": "Oracle",
     "OracleUser": "<ORACLE_USERNAME>",
     "OraclePassword": "<MES_PASSWORD_FROM_SECRET_STORE>",
     "OracleDataSource": "<HOST>:<PORT>/<SERVICE_NAME>",
     "OracleMode": "Thin",
     "OracleInstantClientDir": "",
+    "OracleThickOdbcDriver": "<REGISTERED_ORACLE_ODBC_DRIVER_FOR_THICK_MODE>",
     "ChangeFeedRetentionHours": 48,
     "AlertRetentionDays": 365
   },

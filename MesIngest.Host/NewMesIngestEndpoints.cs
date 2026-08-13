@@ -2327,7 +2327,8 @@ internal sealed record DemandRawObservationDto(
     string? Eqp,
     string? Step,
     DateTimeOffset? MesSourceDate,
-    string? Package)
+    string? Package,
+    string? MesSourceDateRaw)
 {
     public static DemandRawObservationDto From(DemandRawObservationSnapshot snapshot) =>
         new(
@@ -2352,7 +2353,17 @@ internal sealed record DemandRawObservationDto(
             snapshot.Eqp,
             snapshot.Step,
             snapshot.MesSourceDate,
-            snapshot.Package);
+            snapshot.Package,
+            snapshot.MesSourceDateRaw);
+}
+
+internal sealed record MesTaskUnionRoundDiagnosticDto(
+    string Stage,
+    string Code,
+    string SafeDetail)
+{
+    public static MesTaskUnionRoundDiagnosticDto From(MesTaskUnionRoundDiagnostic snapshot) =>
+        new(snapshot.Stage, snapshot.Code, snapshot.SafeDetail);
 }
 
 internal sealed record DemandSeriesEventDto(
@@ -2664,7 +2675,8 @@ internal sealed record PollTraceDto(
     int RowCount,
     string ContentDigest,
     ProjectionCommitDto? ProjectionCommit,
-    IReadOnlyList<DemandRawObservationDto> Observations)
+    IReadOnlyList<DemandRawObservationDto> Observations,
+    MesTaskUnionRoundDiagnosticDto? Diagnostic)
 {
     public static PollTraceDto From(PollTraceSnapshot snapshot) =>
         new(
@@ -2678,5 +2690,8 @@ internal sealed record PollTraceDto(
             snapshot.ProjectionCommit is null
                 ? null
                 : ProjectionCommitDto.From(snapshot.ProjectionCommit),
-            snapshot.Observations.Select(DemandRawObservationDto.From).ToList());
+            snapshot.Observations.Select(DemandRawObservationDto.From).ToList(),
+            snapshot.Diagnostic is null
+                ? null
+                : MesTaskUnionRoundDiagnosticDto.From(snapshot.Diagnostic));
 }

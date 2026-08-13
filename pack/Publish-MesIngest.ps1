@@ -4,7 +4,7 @@
   Publish a self-contained MesIngest install directory for factory copy-deploy.
 
 .PARAMETER OutputDir
-  Root folder that will contain service/, watch/, queries/, templates/, scripts/, validation/, INSTALL.md, FACTORY-VALIDATION.md, VERSION.txt.
+  Root folder that will contain service/, watch/, templates/, scripts/, validation/, INSTALL.md, FACTORY-VALIDATION.md, VERSION.txt.
 
 .PARAMETER Configuration
   Build configuration (default Release).
@@ -42,9 +42,12 @@ $validationSrc = Join-Path $PSScriptRoot "validation"
 $releaseValidator = Join-Path $PSScriptRoot "Test-ReleasePackage.ps1"
 $releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
 $watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
-$openapiSrc = Join-Path $PSScriptRoot "openapi\v1.json"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
+$canonicalQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\mes-task-union\query.sql"))
+$canonicalQueryId = 'MES_TASK_UNION'
+$canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
+$canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
 if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exampleLocal" }
@@ -56,7 +59,7 @@ if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $val
 if (-not (Test-Path $releaseValidator)) { throw "Missing release package validator: $releaseValidator" }
 if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
 if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
-if (-not (Test-Path $openapiSrc)) { throw "Missing static OpenAPI contract: $openapiSrc" }
+if (-not (Test-Path -LiteralPath $canonicalQuerySource -PathType Leaf)) { throw "Missing canonical query source: $canonicalQuerySource" }
 
 $resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
 $pathRoot = [IO.Path]::GetPathRoot($resolvedOutput).TrimEnd('\', '/')
@@ -72,11 +75,9 @@ if ([string]::IsNullOrWhiteSpace($resolvedOutput) `
 $OutputDir = $resolvedOutput
 $serviceDir = Join-Path $OutputDir "service"
 $watchDir = Join-Path $OutputDir "watch"
-$queriesDir = Join-Path $OutputDir "queries"
 $templatesDir = Join-Path $OutputDir "templates"
 $scriptsDir = Join-Path $OutputDir "scripts"
 $validationDir = Join-Path $OutputDir "validation"
-$openapiDir = Join-Path $OutputDir "openapi"
 
 if (Test-Path -LiteralPath $OutputDir) {
     Write-Host "Clearing package output -> $OutputDir"
@@ -108,14 +109,29 @@ if (-not $SkipWatch) {
     if ($LASTEXITCODE -ne 0) { throw "Watch publish failed ($LASTEXITCODE)" }
 }
 
-# Prefer published queries beside Host; also mirror at install root for operators.
-$hostQueries = Join-Path $serviceDir "queries"
-if (Test-Path $queriesDir) { Remove-Item -Recurse -Force $queriesDir }
-if (Test-Path $hostQueries) {
-    Copy-Item -Recurse $hostQueries $queriesDir
-} else {
-    throw "Published Host is missing queries/ (mes-task-union manuscript copy)."
+# The service copy is the only deployable SQL artifact. Verify the repository source and
+# published bytes before declaring their content-addressed version beside the artifact.
+$canonicalSourceHash = (Get-FileHash -LiteralPath $canonicalQuerySource -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($canonicalSourceHash -cne $canonicalQuerySha256) {
+    throw "Canonical query source hash mismatch: expected $canonicalQuerySha256; actual $canonicalSourceHash"
 }
+$publishedCanonicalQuery = Join-Path $OutputDir $canonicalQueryRelativePath
+if (-not (Test-Path -LiteralPath $publishedCanonicalQuery -PathType Leaf)) {
+    throw "Published Host is missing canonical query: $canonicalQueryRelativePath"
+}
+$publishedCanonicalQueryFile = Get-Item -LiteralPath $publishedCanonicalQuery
+$publishedCanonicalQueryHash = (Get-FileHash -LiteralPath $publishedCanonicalQuery -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($publishedCanonicalQueryFile.Length -le 0 -or $publishedCanonicalQueryHash -cne $canonicalQuerySha256) {
+    throw "Published canonical query differs from the approved repository source."
+}
+[ordered]@{
+    schemaVersion = 1
+    id = $canonicalQueryId
+    version = "$canonicalQueryId/sha256:$canonicalQuerySha256"
+    path = $canonicalQueryRelativePath
+    length = $publishedCanonicalQueryFile.Length
+    sha256 = $canonicalQuerySha256
+} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $publishedCanonicalQueryFile.DirectoryName 'query.manifest.json') -Encoding UTF8
 
 New-Item -ItemType Directory -Force -Path $templatesDir | Out-Null
 Copy-Item $exampleLocal (Join-Path $templatesDir "appsettings.Local.json.example") -Force
@@ -141,9 +157,6 @@ Copy-Item $releaseEvidence (Join-Path $OutputDir "RELEASE-EVIDENCE.json") -Force
 
 if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
 Copy-Item -Recurse $validationSrc $validationDir
-
-New-Item -ItemType Directory -Force -Path $openapiDir | Out-Null
-Copy-Item $openapiSrc (Join-Path $openapiDir "v1.json") -Force
 
 $versionPath = Join-Path $OutputDir "VERSION.txt"
 $hostDll = Join-Path $serviceDir "MesIngest.Host.dll"

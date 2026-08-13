@@ -127,7 +127,7 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public void Static_pack_openapi_matches_expected_paths_security_and_is_staged_by_publish()
+    public void Static_v1_openapi_remains_legacy_source_only_until_v2_contract_is_frozen()
     {
         var staticPath = Path.Combine(PackRoot, "openapi", "v1.json");
         Assert.True(File.Exists(staticPath), $"Missing static OpenAPI at {staticPath}");
@@ -142,12 +142,13 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
         AssertDemandSortByAllowList(doc.RootElement);
 
         var publish = File.ReadAllText(Path.Combine(PackRoot, "Publish-MesIngest.ps1"));
-        Assert.Contains("openapi", publish, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("v1.json", publish, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("openapiSrc", publish, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("openapi\\v1.json", publish, StringComparison.OrdinalIgnoreCase);
 
         var install = File.ReadAllText(Path.Combine(PackRoot, "INSTALL.md"));
-        Assert.Contains("/swagger", install, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("/openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/api/v2/contract", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Ticket 17", install, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("/openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

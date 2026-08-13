@@ -660,6 +660,9 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
     private sealed class ProcessEnvironmentScope : IDisposable

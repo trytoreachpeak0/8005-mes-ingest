@@ -74,6 +74,26 @@ public sealed class MesFieldValidationAndSeriesErrorCatalogTests
     }
 
     [Fact]
+    public void Nonblank_unparseable_dates_is_format_evidence_not_missing_evidence()
+    {
+        var observation = CreateValidObservation("N3-3") with
+        {
+            MesSourceDate = null,
+            MesSourceDateRaw = "not-an-oracle-date",
+        };
+
+        var result = MesFieldValidation.Evaluate(observation);
+
+        Assert.Null(result.Fields.MesSourceDate);
+        var issue = Assert.Single(result.Issues);
+        Assert.Equal("INVALID_MES_FIELD_FORMAT", issue.Code);
+        Assert.Equal("DATA_FORMAT", issue.Category);
+        Assert.Equal("DATES", issue.SubjectKind);
+        Assert.Equal("not-an-oracle-date", issue.ObservedValue);
+        Assert.Equal("ORACLE_DATE_OR_TIMESTAMP", issue.ExpectedRule);
+    }
+
+    [Fact]
     public void Series_error_catalog_publishes_the_complete_stable_first_version()
     {
         var definitions = SeriesErrorCatalog.Definitions;

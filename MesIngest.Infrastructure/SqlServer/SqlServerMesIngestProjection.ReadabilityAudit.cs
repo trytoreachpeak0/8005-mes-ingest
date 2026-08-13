@@ -1045,7 +1045,8 @@ public sealed partial class SqlServerMesIngestProjection
                 observation.ProjectionCommitId, observation.SeriesId,
                 observation.DemandId, observation.WorkType, observation.Sublot,
                 observation.Area, observation.Eqp, observation.Step,
-                observation.MesSourceDate, observation.Package, poll.CompletedAt
+                observation.MesSourceDate, observation.Package, poll.CompletedAt,
+                observation.MesSourceDateRaw
             FROM mesingest.DemandRawObservations AS observation
             INNER JOIN mesingest.PollTraces AS poll
                 ON poll.PollTraceId = observation.PollTraceId
@@ -1067,7 +1068,7 @@ public sealed partial class SqlServerMesIngestProjection
                 GetNullableString(reader, 6), GetNullableString(reader, 7),
                 GetNullableString(reader, 8), GetNullableString(reader, 9),
                 GetNullableDateTimeOffset(reader, 10), GetNullableString(reader, 11),
-                reader.GetFieldValue<DateTimeOffset>(12)));
+                reader.GetFieldValue<DateTimeOffset>(12), GetNullableString(reader, 13)));
         }
         return rows;
     }

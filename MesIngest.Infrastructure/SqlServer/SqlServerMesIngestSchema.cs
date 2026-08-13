@@ -109,10 +109,20 @@ internal static class SqlServerMesIngestSchema
             CompletedAt DATETIMEOFFSET(7) NOT NULL,
             [RowCount] INT NOT NULL,
             ContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            DiagnosticStage NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            DiagnosticCode NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
+            DiagnosticSafeDetail NVARCHAR(512) NULL,
             CONSTRAINT UQ_MesIngest_PollTraces_Sequence UNIQUE (PollTraceSequence),
             CONSTRAINT CK_MesIngest_PollTraces_Outcome
                 CHECK (Outcome IN (N'SUCCESS', N'FAILURE', N'INCOMPLETE')),
-            CONSTRAINT CK_MesIngest_PollTraces_RowCount CHECK ([RowCount] >= 0)
+            CONSTRAINT CK_MesIngest_PollTraces_RowCount CHECK ([RowCount] >= 0),
+            CONSTRAINT CK_MesIngest_PollTraces_Diagnostic CHECK
+            (
+                (DiagnosticStage IS NULL AND DiagnosticCode IS NULL AND DiagnosticSafeDetail IS NULL)
+                OR
+                (Outcome <> N'SUCCESS' AND DiagnosticStage IS NOT NULL
+                    AND DiagnosticCode IS NOT NULL AND DiagnosticSafeDetail IS NOT NULL)
+            )
         );
 
         CREATE TABLE mesingest.ProjectionCommits
@@ -426,6 +436,7 @@ internal static class SqlServerMesIngestSchema
             Step NVARCHAR(MAX) NULL,
             MesSourceDate DATETIMEOFFSET(7) NULL,
             Package NVARCHAR(MAX) NULL,
+            MesSourceDateRaw NVARCHAR(MAX) NULL,
             CONSTRAINT PK_MesIngest_DemandRawObservations PRIMARY KEY (PollTraceId, Ordinal),
             CONSTRAINT FK_MesIngest_DemandRawObservations_PollTrace
                 FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
@@ -701,6 +712,9 @@ internal static class SqlServerMesIngestSchema
             (N'PollTraces', 6, N'CompletedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
             (N'PollTraces', 7, N'RowCount', N'int', 4, 10, 0, 0, NULL),
             (N'PollTraces', 8, N'ContentDigest', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 9, N'DiagnosticStage', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 10, N'DiagnosticCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'PollTraces', 11, N'DiagnosticSafeDetail', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'ProjectionCommits', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 2, N'ProjectionSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -826,6 +840,7 @@ internal static class SqlServerMesIngestSchema
             (N'DemandRawObservations', 10, N'Step', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
             (N'DemandRawObservations', 11, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
             (N'DemandRawObservations', 12, N'Package', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 13, N'MesSourceDateRaw', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'DemandSeriesEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeriesEvents', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -1197,6 +1212,7 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength', N'SchemaInfo', N'(datalength([SnapshotTokenSigningKey])=(32))'),
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
             (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
+            (N'CK_MesIngest_PollTraces_Diagnostic', N'PollTraces', N'([DiagnosticStage] IS NULL AND [DiagnosticCode] IS NULL AND [DiagnosticSafeDetail] IS NULL OR [Outcome]<>N''SUCCESS'' AND [DiagnosticStage] IS NOT NULL AND [DiagnosticCode] IS NOT NULL AND [DiagnosticSafeDetail] IS NOT NULL)'),
             (N'CK_MesIngest_ProjectionCommitUnassignedObservationFacts_State', N'ProjectionCommitUnassignedObservationFacts', N'([ObservationCount]=(0) AND [ContentDigest] IS NULL OR [ObservationCount]>(0) AND [ContentDigest] IS NOT NULL)'),
             (N'CK_MesIngest_UnassignedMesObservationEvents_EventType', N'UnassignedMesObservationEvents', N'([EventType]=N''UNASSIGNED_MES_OBSERVATION_CLEARED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_APPEARED'')'),
             (N'CK_MesIngest_UnassignedMesObservationEvents_BeforeState', N'UnassignedMesObservationEvents', N'([BeforeObservationCount]=(0) AND [BeforeContentDigest] IS NULL OR [BeforeObservationCount]>(0) AND [BeforeContentDigest] IS NOT NULL)'),
@@ -1238,7 +1254,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 41
+            WHERE s.name = N'mesingest') <> 42
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
