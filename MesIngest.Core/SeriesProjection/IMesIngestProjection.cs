@@ -40,6 +40,24 @@ public interface IMesIngestProjection
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists every generated Demand generation from one frozen ProjectionCommit.
+    /// Filtering, exact facets, ordering, and bounded paging are performed by
+    /// the Host before any rows are returned to Watch.
+    /// </summary>
+    Task<ReadabilityAuditListSnapshot> ListReadabilityAuditAsync(
+        ReadabilityAuditQuery query,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Explains one Demand's complete qualification decision and evidence at
+    /// the same signed audit snapshot used by its list result.
+    /// </summary>
+    Task<ReadabilityAuditDetailSnapshot?> GetReadabilityAuditDetailAsync(
+        string demandId,
+        string snapshotReference,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads the complete, full-scope externally readable catalog at one
     /// committed CatalogRevision. A matching known revision transfers no body.
     /// </summary>

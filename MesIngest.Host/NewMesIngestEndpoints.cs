@@ -24,6 +24,14 @@ internal static class NewMesIngestEndpoints
                 GetExternallyReadableDemandCatalogAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet("/api/v2/readability-audit", ListReadabilityAuditAsync)
+            .ExcludeFromDescription();
+
+        endpoints.MapGet(
+                "/api/v2/readability-audit/{demandId}",
+                GetReadabilityAuditDetailAsync)
+            .ExcludeFromDescription();
+
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
@@ -53,7 +61,10 @@ internal static class NewMesIngestEndpoints
             NewMesIngestContract.Version,
             NewMesIngestContract.SchemaVersion,
             NewMesIngestContract.KeyComparison,
-            SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray()));
+            SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray(),
+            ReadabilityBlockerCatalog.Definitions.Select(ReadabilityBlockerDefinitionDto.From).ToArray(),
+            ReadabilityQualificationCheckCatalog.Definitions
+                .Select(ReadabilityQualificationCheckDefinitionDto.From).ToArray()));
 
     private static async Task<IResult> GetExternallyReadableDemandCatalogAsync(
         HttpRequest request,
@@ -390,6 +401,198 @@ internal static class NewMesIngestEndpoints
         };
     }
 
+    private static async Task<IResult> ListReadabilityAuditAsync(
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var query = ParseReadabilityAuditQuery(request.Query);
+            var snapshot = await projection.ListReadabilityAuditAsync(query, cancellationToken);
+            return Results.Ok(ReadabilityAuditListDto.From(snapshot));
+        }
+        catch (ReadabilityAuditException exception)
+        {
+            return ToReadabilityAuditError(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                exception.Message));
+        }
+    }
+
+    private static async Task<IResult> GetReadabilityAuditDetailAsync(
+        string demandId,
+        HttpRequest request,
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken)
+    {
+        if (!TryValidateRequiredText(demandId, 64, nameof(demandId), out var requestError))
+        {
+            return Results.BadRequest(requestError);
+        }
+        try
+        {
+            var snapshotReference = ReadReadabilityAuditSingle(request.Query, "snapshot");
+            if (snapshotReference is null)
+            {
+                return Results.BadRequest(new NewMesIngestErrorDto(
+                    ReadabilityAuditErrorCodes.InvalidQuery,
+                    "A readability audit detail requires its list snapshot."));
+            }
+            if (request.Query.Keys.Any(key => !string.Equals(key, "snapshot", StringComparison.Ordinal)))
+            {
+                return Results.BadRequest(new NewMesIngestErrorDto(
+                    ReadabilityAuditErrorCodes.InvalidQuery,
+                    "A readability audit detail accepts only its snapshot parameter."));
+            }
+            var detail = await projection.GetReadabilityAuditDetailAsync(
+                demandId,
+                snapshotReference,
+                cancellationToken);
+            return detail is null
+                ? Results.NotFound()
+                : Results.Ok(ReadabilityAuditDetailDto.From(detail));
+        }
+        catch (ReadabilityAuditException exception)
+        {
+            return ToReadabilityAuditError(exception);
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new NewMesIngestErrorDto(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                exception.Message));
+        }
+    }
+
+    private static ReadabilityAuditQuery ParseReadabilityAuditQuery(IQueryCollection query)
+    {
+        var allowedKeys = new HashSet<string>(
+        [
+            "state", "workType", "blocker", "demandId", "sublot", "area",
+            "pageSize", "page", "snapshot", "cursor", "order",
+        ],
+            StringComparer.Ordinal);
+        var unsupported = query.Keys.FirstOrDefault(key => !allowedKeys.Contains(key));
+        if (unsupported is not null)
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                $"Unsupported readability audit query parameter '{unsupported}'.");
+        }
+
+        var filter = new ReadabilityAuditFilter
+        {
+            ReadabilityStates = ReadSet(query, "state"),
+            WorkTypes = ReadSet(query, "workType"),
+            Blockers = ReadSet(query, "blocker"),
+            DemandId = ReadReadabilityAuditSingle(query, "demandId"),
+            SublotContains = ReadReadabilityAuditSingle(query, "sublot"),
+            MesAreas = ReadSet(query, "area"),
+        }.Normalize();
+        ValidateReadabilityAuditVocabulary(filter);
+        return new ReadabilityAuditQuery(
+            filter,
+            ParseReadabilityAuditInt(query, "pageSize", ReadabilityAuditQuery.DefaultPageSize),
+            ParseReadabilityAuditInt(query, "page", 1),
+            ReadReadabilityAuditSingle(query, "snapshot"),
+            ReadReadabilityAuditSingle(query, "cursor"),
+            ReadReadabilityAuditSingle(query, "order") ?? ReadabilityAuditOrder.Default)
+            .NormalizeAndValidate();
+    }
+
+    private static int ParseReadabilityAuditInt(
+        IQueryCollection query,
+        string name,
+        int defaultValue)
+    {
+        var raw = ReadReadabilityAuditSingle(query, name);
+        if (raw is null)
+        {
+            return defaultValue;
+        }
+        if (!int.TryParse(
+                raw,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value))
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                $"{name} must be an integer.");
+        }
+        return value;
+    }
+
+    private static string? ReadReadabilityAuditSingle(IQueryCollection query, string name)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            return null;
+        }
+        if (values.Count != 1)
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+        }
+        return values[0];
+    }
+
+    private static void ValidateReadabilityAuditVocabulary(ReadabilityAuditFilter filter)
+    {
+        var validStates = new HashSet<string>(
+            [ExternalReadabilityStates.Readable, ExternalReadabilityStates.NotReadable],
+            StringComparer.Ordinal);
+        if (filter.ReadabilityStates.Any(state => !validStates.Contains(state)))
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                "state contains an unsupported exact value.");
+        }
+        var validBlockers = ReadabilityBlockerCatalog.Definitions
+            .Select(definition => definition.Code)
+            .ToHashSet(StringComparer.Ordinal);
+        if (filter.Blockers.Any(blocker => !validBlockers.Contains(blocker)))
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                "blocker contains an unsupported exact value.");
+        }
+        foreach (var area in filter.MesAreas)
+        {
+            var validation = MesFieldValidation.Evaluate(new LiveMesFieldSetSnapshot(
+                area,
+                "VALID",
+                "VALID",
+                DateTimeOffset.UnixEpoch,
+                "VALID"));
+            if (validation.Issues.Any(issue =>
+                    string.Equals(issue.SubjectKind, "AREA", StringComparison.Ordinal)))
+            {
+                throw new ReadabilityAuditException(
+                    ReadabilityAuditErrorCodes.InvalidQuery,
+                    $"area contains invalid MesArea '{area}'.");
+            }
+        }
+    }
+
+    private static IResult ToReadabilityAuditError(ReadabilityAuditException exception)
+    {
+        var error = new NewMesIngestErrorDto(exception.Code, exception.Message);
+        return exception.Code switch
+        {
+            ReadabilityAuditErrorCodes.ProjectionNotAvailable => Results.Conflict(error),
+            ReadabilityAuditErrorCodes.SnapshotNotFound =>
+                Results.Json(error, statusCode: StatusCodes.Status410Gone),
+            _ => Results.BadRequest(error),
+        };
+    }
+
     private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
         string pollTraceId,
         IMesIngestProjection projection,
@@ -496,7 +699,9 @@ internal sealed record NewMesIngestContractDto(
     string ContractVersion,
     int SchemaVersion,
     string TransportDemandKeyComparison,
-    IReadOnlyList<SeriesErrorDefinitionDto> SeriesErrorCatalog);
+    IReadOnlyList<SeriesErrorDefinitionDto> SeriesErrorCatalog,
+    IReadOnlyList<ReadabilityBlockerDefinitionDto> ReadabilityBlockerCatalog,
+    IReadOnlyList<ReadabilityQualificationCheckDefinitionDto> ReadabilityQualificationCheckCatalog);
 
 internal sealed record TransportDemandKeyDto(string WorkType, string Sublot);
 
@@ -556,6 +761,255 @@ internal sealed record SeriesErrorDefinitionDto(
 {
     public static SeriesErrorDefinitionDto From(SeriesErrorDefinition definition) =>
         new(definition.Code, definition.Category, definition.Severity, definition.Scope, definition.Meaning);
+}
+
+internal sealed record ReadabilityBlockerDefinitionDto(
+    string Code,
+    int Priority,
+    string Meaning)
+{
+    public static ReadabilityBlockerDefinitionDto From(ReadabilityBlockerDefinition definition) =>
+        new(definition.Code, definition.Priority, definition.Meaning);
+}
+
+internal sealed record ReadabilityQualificationCheckDefinitionDto(
+    string Code,
+    string BlockingCode,
+    string Meaning)
+{
+    public static ReadabilityQualificationCheckDefinitionDto From(
+        ReadabilityQualificationCheckDefinition definition) =>
+        new(definition.Code, definition.BlockingCode, definition.Meaning);
+}
+
+internal sealed record ReadabilityAuditSnapshotIdentityDto(
+    string ProjectionCommitId,
+    long ProjectionSequence,
+    DateTimeOffset ProjectionCommittedAt,
+    string PollTraceId,
+    long CatalogRevision,
+    string ContractVersion)
+{
+    public static ReadabilityAuditSnapshotIdentityDto From(ReadabilityAuditSnapshotIdentity snapshot) =>
+        new(
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.PollTraceId,
+            snapshot.CatalogRevision,
+            snapshot.ContractVersion);
+}
+
+internal sealed record ReadabilityAuditFilterDto(
+    IReadOnlyList<string> ReadabilityStates,
+    IReadOnlyList<string> WorkTypes,
+    IReadOnlyList<string> Blockers,
+    string? DemandId,
+    string? SublotContains,
+    IReadOnlyList<string> MesAreas)
+{
+    public static ReadabilityAuditFilterDto From(ReadabilityAuditFilter snapshot) =>
+        new(
+            snapshot.ReadabilityStates,
+            snapshot.WorkTypes,
+            snapshot.Blockers,
+            snapshot.DemandId,
+            snapshot.SublotContains,
+            snapshot.MesAreas);
+}
+
+internal sealed record ReadabilityStateFacetDto(string State, long DemandCount);
+
+internal sealed record ReadabilityBlockerFacetDto(string Code, long DemandCount);
+
+internal sealed record ReadabilityAuditFacetsDto(
+    IReadOnlyList<ReadabilityStateFacetDto> ReadabilityStates,
+    IReadOnlyList<ReadabilityBlockerFacetDto> Blockers)
+{
+    public static ReadabilityAuditFacetsDto From(ReadabilityAuditFacets snapshot) =>
+        new(
+            snapshot.ReadabilityStates
+                .Select(facet => new ReadabilityStateFacetDto(facet.State, facet.DemandCount))
+                .ToArray(),
+            snapshot.Blockers
+                .Select(facet => new ReadabilityBlockerFacetDto(facet.Code, facet.DemandCount))
+                .ToArray());
+}
+
+internal sealed record ReadabilityAuditListItemDto(
+    string DemandId,
+    string SeriesId,
+    TransportDemandKeyDto TransportDemandKey,
+    int Generation,
+    string? PredecessorDemandId,
+    string DemandStatus,
+    string SeriesLifecycle,
+    string SeriesCurrentPresence,
+    bool IsCurrentGeneration,
+    DateTimeOffset DemandCreatedAt,
+    DateTimeOffset DemandLastSeenAt,
+    DateTimeOffset? GoneConfirmedAt,
+    LiveMesFieldSetDto? LiveMesFields,
+    int CurrentRawObservationCount,
+    string ExternalReadabilityState,
+    string? LeadReadabilityBlocker,
+    IReadOnlyList<string> ReadabilityBlockers,
+    string LatestObservationPollTraceId,
+    string LatestObservationProjectionCommitId,
+    DateTimeOffset LatestObservationAt)
+{
+    public static ReadabilityAuditListItemDto From(ReadabilityAuditListItemSnapshot snapshot) =>
+        new(
+            snapshot.DemandId,
+            snapshot.SeriesId,
+            new TransportDemandKeyDto(snapshot.WorkType, snapshot.Sublot),
+            snapshot.Generation,
+            snapshot.PredecessorDemandId,
+            snapshot.DemandStatus,
+            snapshot.SeriesLifecycle,
+            snapshot.SeriesCurrentPresence,
+            snapshot.IsCurrentGeneration,
+            snapshot.DemandCreatedAt,
+            snapshot.DemandLastSeenAt,
+            snapshot.GoneConfirmedAt,
+            snapshot.LiveMesFields is null ? null : LiveMesFieldSetDto.From(snapshot.LiveMesFields),
+            snapshot.CurrentRawObservationCount,
+            snapshot.ExternalReadabilityState,
+            snapshot.LeadReadabilityBlocker,
+            snapshot.ReadabilityBlockers,
+            snapshot.LatestObservationPollTraceId,
+            snapshot.LatestObservationProjectionCommitId,
+            snapshot.LatestObservationAt);
+}
+
+internal sealed record ReadabilityAuditListDto(
+    string SnapshotReference,
+    ReadabilityAuditSnapshotIdentityDto Snapshot,
+    ReadabilityAuditFilterDto Filter,
+    long ExactTotalDemandCount,
+    ReadabilityAuditFacetsDto Facets,
+    string Order,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<ReadabilityAuditListItemDto> Items,
+    string? NextCursor,
+    bool HasMore)
+{
+    public static ReadabilityAuditListDto From(ReadabilityAuditListSnapshot snapshot) =>
+        new(
+            snapshot.SnapshotReference,
+            ReadabilityAuditSnapshotIdentityDto.From(snapshot.Snapshot),
+            ReadabilityAuditFilterDto.From(snapshot.Filter),
+            snapshot.ExactTotalDemandCount,
+            ReadabilityAuditFacetsDto.From(snapshot.Facets),
+            snapshot.Order,
+            snapshot.PageSize,
+            snapshot.PageNumber,
+            snapshot.TotalPages,
+            snapshot.Items.Select(ReadabilityAuditListItemDto.From).ToArray(),
+            snapshot.NextCursor,
+            snapshot.HasMore);
+}
+
+internal sealed record ReadabilityAuditSeriesDto(
+    string SeriesId,
+    TransportDemandKeyDto TransportDemandKey,
+    string Lifecycle,
+    string CurrentPresence,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? ArchivedAt,
+    string CurrentDemandId)
+{
+    public static ReadabilityAuditSeriesDto From(ReadabilityAuditSeriesSnapshot snapshot) =>
+        new(
+            snapshot.SeriesId,
+            new TransportDemandKeyDto(snapshot.WorkType, snapshot.Sublot),
+            snapshot.Lifecycle,
+            snapshot.CurrentPresence,
+            snapshot.StartedAt,
+            snapshot.ArchivedAt,
+            snapshot.CurrentDemandId);
+}
+
+internal sealed record ReadabilityQualificationCheckDto(
+    string Code,
+    string BlockingCode,
+    string Result);
+
+internal sealed record ReadabilityEvidenceItemDto(
+    string SubjectKind,
+    string? ObservedValue,
+    string ExpectedRule,
+    DateTimeOffset ObservedAt,
+    string PollTraceId,
+    string ProjectionCommitId);
+
+internal sealed record ReadabilityBlockerEvidenceDto(
+    string Code,
+    int Priority,
+    IReadOnlyList<ReadabilityEvidenceItemDto> Evidence)
+{
+    public static ReadabilityBlockerEvidenceDto From(ReadabilityBlockerEvidenceSnapshot snapshot) =>
+        new(
+            snapshot.Code,
+            snapshot.Priority,
+            snapshot.Evidence.Select(item => new ReadabilityEvidenceItemDto(
+                item.SubjectKind,
+                item.ObservedValue,
+                item.ExpectedRule,
+                item.ObservedAt,
+                item.PollTraceId,
+                item.ProjectionCommitId)).ToArray());
+}
+
+internal sealed record ReadabilityAuditPollTraceDto(
+    string PollTraceId,
+    string QueryVersion,
+    string Outcome,
+    DateTimeOffset StartedAt,
+    DateTimeOffset CompletedAt,
+    int RowCount,
+    string ContentDigest,
+    string ProjectionCommitId,
+    long ProjectionSequence)
+{
+    public static ReadabilityAuditPollTraceDto From(ReadabilityAuditPollTraceSnapshot snapshot) =>
+        new(
+            snapshot.PollTraceId,
+            snapshot.QueryVersion,
+            snapshot.Outcome,
+            snapshot.StartedAt,
+            snapshot.CompletedAt,
+            snapshot.RowCount,
+            snapshot.ContentDigest,
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence);
+}
+
+internal sealed record ReadabilityAuditDetailDto(
+    string SnapshotReference,
+    ReadabilityAuditSnapshotIdentityDto Snapshot,
+    ReadabilityAuditListItemDto Demand,
+    ReadabilityAuditSeriesDto Series,
+    IReadOnlyList<ReadabilityQualificationCheckDto> QualificationChecks,
+    IReadOnlyList<ReadabilityBlockerEvidenceDto> Blockers,
+    IReadOnlyList<DemandRawObservationDto> LatestRawObservations,
+    ReadabilityAuditPollTraceDto LatestObservationPollTrace)
+{
+    public static ReadabilityAuditDetailDto From(ReadabilityAuditDetailSnapshot snapshot) =>
+        new(
+            snapshot.SnapshotReference,
+            ReadabilityAuditSnapshotIdentityDto.From(snapshot.Snapshot),
+            ReadabilityAuditListItemDto.From(snapshot.Demand),
+            ReadabilityAuditSeriesDto.From(snapshot.Series),
+            snapshot.QualificationChecks.Select(check => new ReadabilityQualificationCheckDto(
+                check.Code,
+                check.BlockingCode,
+                check.Result)).ToArray(),
+            snapshot.Blockers.Select(ReadabilityBlockerEvidenceDto.From).ToArray(),
+            snapshot.LatestRawObservations.Select(DemandRawObservationDto.From).ToArray(),
+            ReadabilityAuditPollTraceDto.From(snapshot.LatestObservationPollTrace));
 }
 
 internal sealed record ProjectionCommitDto(
