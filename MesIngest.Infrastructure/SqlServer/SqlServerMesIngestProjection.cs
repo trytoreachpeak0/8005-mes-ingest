@@ -14,13 +14,21 @@ namespace MesIngest.Infrastructure.SqlServer;
 public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 {
     private const string SuccessOutcome = "SUCCESS";
-    private const string TrackingLifecycle = "TRACKING";
-    private const string VisiblePresence = "VISIBLE";
-    private const string GonePresence = "GONE";
-    private const string VisibleDemandStatus = "VISIBLE";
-    private const string GoneDemandStatus = "GONE";
+    private const string TrackingLifecycle = DemandSeriesLifecycleContract.Tracking;
+    private const string ArchivedLifecycle = DemandSeriesLifecycleContract.Archived;
+    private const string VisiblePresence = DemandSeriesLifecycleContract.Visible;
+    private const string GonePresence = DemandSeriesLifecycleContract.Gone;
+    private const string LongGoneButVisiblePresence = DemandSeriesLifecycleContract.LongGoneButVisible;
+    private const string VisibleDemandStatus = DemandSeriesLifecycleContract.Visible;
+    private const string GoneDemandStatus = DemandSeriesLifecycleContract.Gone;
+    private const string LongGoneButVisibleDemandStatus = DemandSeriesLifecycleContract.LongGoneButVisible;
     private const string SeriesStartedEvent = "DEMAND_SERIES_STARTED";
     private const string DemandCreatedEvent = "TRANSPORT_DEMAND_CREATED";
+    private const string SeriesArchivedEvent = DemandSeriesLifecycleContract.GoneTimeoutArchivedEvent;
+    private const string LongGoneButVisibleError = DemandSeriesLifecycleContract.LongGoneButVisible;
+    private const string ArchivedSeriesVisibilitySubject = DemandSeriesLifecycleContract.ArchivedSeriesVisibilitySubject;
+    private const string PostarchiveReappearanceReason = DemandSeriesLifecycleContract.PostarchiveReappearanceReason;
+    private const string SeriesArchivedBlocker = DemandSeriesLifecycleContract.SeriesArchivedBlocker;
 
     private readonly string _connectionString;
     private readonly string _hostSessionId = NewId();
@@ -239,6 +247,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     cancellationToken).ConfigureAwait(false);
 
                 ProjectedIdentity identity;
+                var longGoneButVisible = false;
                 if (current is null)
                 {
                     identity = await InsertFirstGenerationAsync(
@@ -252,20 +261,43 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 }
                 else if (string.Equals(current.DemandStatus, GoneDemandStatus, StringComparison.Ordinal))
                 {
-                    EnsureReappearanceCanAdvance(current, identityObservation, round.CompletedAt);
-                    identity = await InsertSuccessorGenerationAsync(
-                        connection,
-                        transaction,
-                        current,
-                        round,
-                        projectionCommitId,
-                        group.Observations[0],
-                        uniqueObservation,
-                        cancellationToken).ConfigureAwait(false);
+                    if (string.Equals(current.Lifecycle, ArchivedLifecycle, StringComparison.Ordinal))
+                    {
+                        EnsurePostarchiveReappearanceCanAdvance(
+                            current,
+                            identityObservation,
+                            round.CompletedAt);
+                        identity = await InsertPostarchiveSuccessorGenerationAsync(
+                            connection,
+                            transaction,
+                            current,
+                            round,
+                            projectionCommitId,
+                            uniqueObservation,
+                            cancellationToken).ConfigureAwait(false);
+                        longGoneButVisible = true;
+                    }
+                    else
+                    {
+                        EnsureReappearanceCanAdvance(current, identityObservation, round.CompletedAt);
+                        identity = await InsertSuccessorGenerationAsync(
+                            connection,
+                            transaction,
+                            current,
+                            round,
+                            projectionCommitId,
+                            group.Observations[0],
+                            uniqueObservation,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
                     EnsureCurrentObservationCanAdvance(current, identityObservation, round.CompletedAt);
+                    longGoneButVisible = string.Equals(
+                        current.Lifecycle,
+                        ArchivedLifecycle,
+                        StringComparison.Ordinal);
                     if (uniqueObservation is null)
                     {
                         await AdvanceConflictingObservationAsync(
@@ -302,6 +334,17 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     bootstrapRound,
                     cancellationToken).ConfigureAwait(false);
 
+                if (longGoneButVisible)
+                {
+                    await EnsureLongGoneButVisibleConditionAsync(
+                        connection,
+                        transaction,
+                        identity,
+                        round,
+                        projectionCommitId,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
                 foreach (var item in group.Observations)
                 {
                     await InsertRawObservationAsync(
@@ -330,6 +373,16 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     demandIds,
                     cancellationToken).ConfigureAwait(false);
             }
+
+            await ArchiveOverdueGoneSeriesAsync(
+                connection,
+                transaction,
+                round,
+                projectionCommitId,
+                restartTransition.AbsenceAuthority,
+                seriesIds,
+                demandIds,
+                cancellationToken).ConfigureAwait(false);
 
             await AdvanceRestartBarrierAsync(
                 connection,
@@ -638,7 +691,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         s.CreatedPollTraceId,
                         s.CreatedProjectionCommitId,
                         s.LatestProjectionCommitId,
-                        s.CurrentDemandId
+                        s.CurrentDemandId,
+                        s.ArchivedAt
                     FROM mesingest.DemandSeries AS s
                     WHERE {predicate};
                     """;
@@ -692,6 +746,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 transaction,
                 series.SeriesId,
                 series.CurrentDemandId,
+                series.Lifecycle,
+                series.CurrentPresence,
                 errorState.CurrentConditions,
                 cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -714,7 +770,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 observations,
                 events,
                 errorState.CurrentConditions,
-                errorState.ErrorPeriods);
+                errorState.ErrorPeriods,
+                ArchivedAt: series.ArchivedAt);
         }
         catch (Exception exception)
         {
@@ -931,12 +988,19 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         {
             command.Transaction = transaction;
             command.CommandText = """
-                SELECT SeriesId, SubjectId
-                FROM mesingest.DemandSeriesEvents
-                WHERE PollTraceId = @pollTraceId
-                  AND EventType = N'DEMAND_GONE'
-                  AND SubjectId IS NOT NULL
-                ORDER BY SeriesSequence, EventId;
+                SELECT e.SeriesId,
+                       CASE WHEN e.EventType = N'DEMAND_GONE'
+                            THEN e.SubjectId
+                            ELSE JSON_VALUE(e.Payload, N'$.demandId') COLLATE Latin1_General_100_BIN2
+                       END
+                FROM mesingest.DemandSeriesEvents AS e
+                WHERE e.PollTraceId = @pollTraceId
+                  AND e.EventType IN (N'DEMAND_GONE', N'GONE_TIMEOUT_ARCHIVED')
+                  AND CASE WHEN e.EventType = N'DEMAND_GONE'
+                           THEN e.SubjectId
+                           ELSE JSON_VALUE(e.Payload, N'$.demandId') COLLATE Latin1_General_100_BIN2
+                      END IS NOT NULL
+                ORDER BY e.SeriesId, e.SeriesSequence, e.EventId;
                 """;
             AddNVarChar(command, "@pollTraceId", 128, existing.PollTraceId);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken)
@@ -1422,6 +1486,93 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         return new ProjectedIdentity(current.SeriesId, demandId);
     }
 
+    private static async Task<ProjectedIdentity> InsertPostarchiveSuccessorGenerationAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CurrentProjectionRow current,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        MesTaskUnionObservation? liveObservation,
+        CancellationToken cancellationToken)
+    {
+        var demandId = NewId();
+        var generation = checked(current.Generation + 1);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO mesingest.TransportDemands
+                    (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
+                     CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
+                     CreatedProjectionCommitId, LatestProjectionCommitId,
+                     LatestObservationProjectionCommitId,
+                     Area, Eqp, Step, MesSourceDate, Package)
+                VALUES
+                    (@demandId, @seriesId, @generation, @predecessorDemandId, N'LONG_GONE_BUT_VISIBLE',
+                     @occurredAt, @occurredAt, NULL, @pollTraceId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @area, @eqp, @step, @mesSourceDate, @package);
+
+                UPDATE mesingest.DemandSeries
+                SET CurrentDemandId = @demandId,
+                    CurrentPresence = N'LONG_GONE_BUT_VISIBLE',
+                    LatestProjectionCommitId = @projectionCommitId
+                WHERE SeriesId = @seriesId
+                  AND CurrentDemandId = @predecessorDemandId
+                  AND Lifecycle = N'ARCHIVED'
+                  AND CurrentPresence = N'GONE';
+                """;
+            AddNVarChar(command, "@demandId", 64, demandId);
+            AddNVarChar(command, "@seriesId", 64, current.SeriesId);
+            command.Parameters.Add("@generation", SqlDbType.Int).Value = generation;
+            AddNVarChar(command, "@predecessorDemandId", 64, current.DemandId);
+            AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
+            AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
+            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+            {
+                throw new InvalidOperationException(
+                    "The archived GONE Demand changed while creating its visible successor generation.");
+            }
+        }
+
+        var sequence = await GetNextSeriesSequenceAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            cancellationToken).ConfigureAwait(false);
+        await InsertEventAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            sequence,
+            DemandCreatedEvent,
+            "DEMAND",
+            demandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                demandId,
+                generation,
+                predecessorDemandId = current.DemandId,
+                reason = PostarchiveReappearanceReason,
+            }),
+            cancellationToken).ConfigureAwait(false);
+        await SetLastSeriesSequenceAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            sequence,
+            cancellationToken).ConfigureAwait(false);
+        return new ProjectedIdentity(current.SeriesId, demandId);
+    }
+
     private static void EnsureReappearanceCanAdvance(
         CurrentProjectionRow current,
         MesTaskUnionObservation observation,
@@ -1446,6 +1597,32 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         if (current.GoneConfirmedAt is null || completedAt < current.GoneConfirmedAt.Value)
         {
             throw new InvalidOperationException("A reappearance cannot predate the predecessor's GONE confirmation.");
+        }
+    }
+
+    private static void EnsurePostarchiveReappearanceCanAdvance(
+        CurrentProjectionRow current,
+        MesTaskUnionObservation observation,
+        DateTimeOffset completedAt)
+    {
+        if (!string.Equals(current.WorkType, observation.WorkType, StringComparison.Ordinal)
+            || !string.Equals(current.Sublot, observation.Sublot, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "TransportDemandKey token collision detected while applying a postarchive reappearance.");
+        }
+        if (!string.Equals(current.Lifecycle, ArchivedLifecycle, StringComparison.Ordinal)
+            || !string.Equals(current.CurrentPresence, GonePresence, StringComparison.Ordinal)
+            || !string.Equals(current.DemandStatus, GoneDemandStatus, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException("Only an archived GONE Demand can reappear after archive.");
+        }
+        if (completedAt < current.DemandLastSeenAt
+            || current.GoneConfirmedAt is null
+            || completedAt < current.GoneConfirmedAt.Value)
+        {
+            throw new InvalidOperationException(
+                "A postarchive reappearance cannot predate its predecessor evidence.");
         }
     }
 
@@ -1526,12 +1703,16 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 "TransportDemandKey token collision detected while applying a round.");
         }
 
-        if (!string.Equals(current.Lifecycle, TrackingLifecycle, StringComparison.Ordinal)
-            || !string.Equals(current.CurrentPresence, VisiblePresence, StringComparison.Ordinal)
-            || !string.Equals(current.DemandStatus, VisibleDemandStatus, StringComparison.Ordinal))
+        var isTrackingVisible = string.Equals(current.Lifecycle, TrackingLifecycle, StringComparison.Ordinal)
+            && string.Equals(current.CurrentPresence, VisiblePresence, StringComparison.Ordinal)
+            && string.Equals(current.DemandStatus, VisibleDemandStatus, StringComparison.Ordinal);
+        var isArchivedVisible = string.Equals(current.Lifecycle, ArchivedLifecycle, StringComparison.Ordinal)
+            && string.Equals(current.CurrentPresence, LongGoneButVisiblePresence, StringComparison.Ordinal)
+            && string.Equals(current.DemandStatus, LongGoneButVisibleDemandStatus, StringComparison.Ordinal);
+        if (!isTrackingVisible && !isArchivedVisible)
         {
             throw new NotSupportedException(
-                "Lifecycle transitions are outside the ticket 01 tracer spine.");
+                "Only a currently visible tracking or archived Demand can accept an observation.");
         }
 
         if (completedAt < current.DemandLastSeenAt)
@@ -1784,6 +1965,108 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
+    private static async Task EnsureLongGoneButVisibleConditionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ProjectedIdentity identity,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        var target = $"SERIES:{identity.SeriesId}";
+        var key = new ConditionKey(LongGoneButVisibleError, ArchivedSeriesVisibilitySubject);
+        var current = await LoadCurrentConditionsForTargetForUpdateAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            target,
+            cancellationToken).ConfigureAwait(false);
+        if (current.ContainsKey(key))
+        {
+            return;
+        }
+
+        var definition = SeriesErrorCatalog.GetRequired(LongGoneButVisibleError);
+        var periodId = NewId();
+        var evidenceId = NewId();
+        var sequence = await GetNextSeriesSequenceAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            cancellationToken).ConfigureAwait(false);
+        const string expectedRule = "AN_ARCHIVED_SERIES_IS_NEVER_EXTERNALLY_READABLE";
+        var eventId = await InsertEventAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            sequence,
+            "SERIES_ERROR_PERIOD_STARTED",
+            ArchivedSeriesVisibilitySubject,
+            identity.DemandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                periodId,
+                code = LongGoneButVisibleError,
+                category = definition.Category,
+                target,
+                subjectKind = ArchivedSeriesVisibilitySubject,
+                startReason = PostarchiveReappearanceReason,
+                observedValue = identity.DemandId,
+                expectedRule,
+            }),
+            cancellationToken).ConfigureAwait(false);
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO mesingest.DemandSeriesErrorPeriods
+                    (PeriodId, SeriesId, ErrorCode, Category, Severity, Target, SubjectKind,
+                     StartReason, StartedAt, EndedAt, EndReason, OpenedEventId, ClosedEventId)
+                VALUES
+                    (@periodId, @seriesId, @errorCode, @category, @severity, @target, @subjectKind,
+                     @startReason, @observedAt, NULL, NULL, @eventId, NULL);
+
+                INSERT INTO mesingest.SeriesErrorPeriodEvidence
+                    (EvidenceId, PeriodId, EventId, EvidenceKind, ObservedAt, PollTraceId,
+                     ProjectionCommitId, DemandId, ObservedValue, ExpectedRule)
+                VALUES
+                    (@evidenceId, @periodId, @eventId, @startReason, @observedAt,
+                     @pollTraceId, @projectionCommitId, @demandId, @demandId, @expectedRule);
+
+                INSERT INTO mesingest.DemandSeriesCurrentConditions
+                    (SeriesId, ErrorCode, Target, SubjectKind, PeriodId, LatestEvidenceId)
+                VALUES
+                    (@seriesId, @errorCode, @target, @subjectKind, @periodId, @evidenceId);
+                """;
+            AddNVarChar(command, "@periodId", 64, periodId);
+            AddNVarChar(command, "@seriesId", 64, identity.SeriesId);
+            AddNVarChar(command, "@errorCode", 128, LongGoneButVisibleError);
+            AddNVarChar(command, "@category", 64, definition.Category);
+            AddNVarChar(command, "@severity", 32, definition.Severity);
+            AddNVarChar(command, "@target", 128, target);
+            AddNVarChar(command, "@subjectKind", 64, ArchivedSeriesVisibilitySubject);
+            AddNVarChar(command, "@startReason", 64, PostarchiveReappearanceReason);
+            AddDateTimeOffset(command, "@observedAt", round.CompletedAt);
+            AddNVarChar(command, "@eventId", 64, eventId);
+            AddNVarChar(command, "@evidenceId", 64, evidenceId);
+            AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            AddNVarChar(command, "@demandId", 64, identity.DemandId);
+            AddNVarChar(command, "@expectedRule", 256, expectedRule);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await SetLastSeriesSequenceAsync(
+            connection,
+            transaction,
+            identity.SeriesId,
+            sequence,
+            cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task MarkAbsentVisibleDemandsGoneAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -1803,9 +2086,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
                 INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
                     ON d.DemandId = s.CurrentDemandId
-                WHERE s.Lifecycle = N'TRACKING'
-                  AND s.CurrentPresence = N'VISIBLE'
-                  AND d.Status = N'VISIBLE'
+                WHERE (s.Lifecycle = N'TRACKING'
+                       AND s.CurrentPresence = N'VISIBLE'
+                       AND d.Status = N'VISIBLE')
+                   OR (s.Lifecycle = N'ARCHIVED'
+                       AND s.CurrentPresence = N'LONG_GONE_BUT_VISIBLE'
+                       AND d.Status = N'LONG_GONE_BUT_VISIBLE')
                 ORDER BY s.SeriesId;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -1864,6 +2150,14 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 projectionCommitId,
                 nextSequence,
                 cancellationToken).ConfigureAwait(false);
+            nextSequence = await CloseLongGoneButVisibleConditionAsGoneAsync(
+                connection,
+                transaction,
+                absent,
+                round,
+                projectionCommitId,
+                nextSequence,
+                cancellationToken).ConfigureAwait(false);
 
             await using (var command = connection.CreateCommand())
             {
@@ -1873,7 +2167,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     SET Status = N'GONE',
                         GoneConfirmedAt = @goneConfirmedAt,
                         LatestProjectionCommitId = @projectionCommitId
-                    WHERE DemandId = @demandId AND Status = N'VISIBLE';
+                    WHERE DemandId = @demandId
+                      AND Status IN (N'VISIBLE', N'LONG_GONE_BUT_VISIBLE');
 
                     UPDATE mesingest.DemandSeries
                     SET CurrentPresence = N'GONE',
@@ -1897,6 +2192,121 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
     }
 
+    private static async Task ArchiveOverdueGoneSeriesAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        bool absenceAuthority,
+        ICollection<string> affectedSeriesIds,
+        ICollection<string> affectedDemandIds,
+        CancellationToken cancellationToken)
+    {
+        if (!absenceAuthority)
+        {
+            return;
+        }
+
+        var candidates = new List<ArchiveCandidateRow>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT s.SeriesId, d.DemandId, d.Generation, d.GoneConfirmedAt
+                FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
+                    ON d.DemandId = s.CurrentDemandId
+                WHERE s.Lifecycle = N'TRACKING'
+                  AND s.CurrentPresence = N'GONE'
+                  AND d.Status = N'GONE'
+                  AND d.GoneConfirmedAt IS NOT NULL
+                ORDER BY s.SeriesId;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                candidates.Add(new ArchiveCandidateRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetInt32(2),
+                    reader.GetFieldValue<DateTimeOffset>(3)));
+            }
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (!DemandSeriesArchivePolicy.IsDue(
+                    candidate.GoneConfirmedAt,
+                    round.CompletedAt,
+                    absenceAuthority))
+            {
+                continue;
+            }
+
+            var sequence = await GetNextSeriesSequenceAsync(
+                connection,
+                transaction,
+                candidate.SeriesId,
+                cancellationToken).ConfigureAwait(false);
+            await InsertEventAsync(
+                connection,
+                transaction,
+                candidate.SeriesId,
+                sequence,
+                SeriesArchivedEvent,
+                "SERIES",
+                candidate.SeriesId,
+                round,
+                projectionCommitId,
+                JsonSerializer.Serialize(new
+                {
+                    seriesId = candidate.SeriesId,
+                    demandId = candidate.DemandId,
+                    generation = candidate.Generation,
+                    goneConfirmedAt = candidate.GoneConfirmedAt,
+                    archivedAt = round.CompletedAt,
+                    minimumGoneDurationHours = DemandSeriesArchivePolicy.MinimumGoneDuration.TotalHours,
+                }),
+                cancellationToken).ConfigureAwait(false);
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    UPDATE mesingest.TransportDemands
+                    SET LatestProjectionCommitId = @projectionCommitId
+                    WHERE DemandId = @demandId
+                      AND Status = N'GONE'
+                      AND GoneConfirmedAt = @goneConfirmedAt;
+
+                    UPDATE mesingest.DemandSeries
+                    SET Lifecycle = N'ARCHIVED',
+                        ArchivedAt = @archivedAt,
+                        LatestProjectionCommitId = @projectionCommitId,
+                        LastSeriesSequence = @lastSeriesSequence
+                    WHERE SeriesId = @seriesId
+                      AND CurrentDemandId = @demandId
+                      AND Lifecycle = N'TRACKING'
+                      AND CurrentPresence = N'GONE';
+                    """;
+                AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+                AddNVarChar(command, "@demandId", 64, candidate.DemandId);
+                AddDateTimeOffset(command, "@goneConfirmedAt", candidate.GoneConfirmedAt);
+                AddDateTimeOffset(command, "@archivedAt", round.CompletedAt);
+                command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = sequence;
+                AddNVarChar(command, "@seriesId", 64, candidate.SeriesId);
+                if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+                {
+                    throw new InvalidOperationException(
+                        "The overdue GONE series changed while publishing its archive fact.");
+                }
+            }
+
+            affectedSeriesIds.Add(candidate.SeriesId);
+            affectedDemandIds.Add(candidate.DemandId);
+        }
+    }
+
     private static async Task<long> CloseDemandConditionsAsGoneAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -1911,6 +2321,38 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             transaction,
             absent.SeriesId,
             absent.DemandId,
+            cancellationToken).ConfigureAwait(false);
+        foreach (var (key, existing) in conditions.OrderBy(pair => pair.Key, ConditionKeyComparer.Instance))
+        {
+            await CloseConditionAsGoneAsync(
+                connection,
+                transaction,
+                absent.SeriesId,
+                absent.DemandId,
+                key.SubjectKind,
+                existing,
+                round,
+                projectionCommitId,
+                nextSequence++,
+                cancellationToken).ConfigureAwait(false);
+        }
+        return nextSequence;
+    }
+
+    private static async Task<long> CloseLongGoneButVisibleConditionAsGoneAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        AbsentDemandRow absent,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long nextSequence,
+        CancellationToken cancellationToken)
+    {
+        var conditions = await LoadCurrentConditionsForTargetForUpdateAsync(
+            connection,
+            transaction,
+            absent.SeriesId,
+            $"SERIES:{absent.SeriesId}",
             cancellationToken).ConfigureAwait(false);
         foreach (var (key, existing) in conditions.OrderBy(pair => pair.Key, ConditionKeyComparer.Instance))
         {
@@ -2110,7 +2552,21 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         SqlTransaction transaction,
         string seriesId,
         string demandId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        await LoadCurrentConditionsForTargetForUpdateAsync(
+            connection,
+            transaction,
+            seriesId,
+            $"DEMAND:{demandId}",
+            cancellationToken).ConfigureAwait(false);
+
+    private static async Task<Dictionary<ConditionKey, CurrentConditionRow>>
+        LoadCurrentConditionsForTargetForUpdateAsync(
+            SqlConnection connection,
+            SqlTransaction transaction,
+            string seriesId,
+            string target,
+            CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -2123,7 +2579,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
               AND c.Target = @target;
             """;
         AddNVarChar(command, "@seriesId", 64, seriesId);
-        AddNVarChar(command, "@target", 128, $"DEMAND:{demandId}");
+        AddNVarChar(command, "@target", 128, target);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var conditions = new Dictionary<ConditionKey, CurrentConditionRow>();
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -2395,6 +2851,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         SqlTransaction transaction,
         string seriesId,
         string currentDemandId,
+        string lifecycle,
+        string currentPresence,
         IReadOnlyList<DemandSeriesCurrentConditionSnapshot> currentConditions,
         CancellationToken cancellationToken)
     {
@@ -2448,6 +2906,17 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             {
                 blockers.Add("DEMAND_GONE");
             }
+            if (string.Equals(lifecycle, ArchivedLifecycle, StringComparison.Ordinal))
+            {
+                blockers.Add(SeriesArchivedBlocker);
+            }
+            if (isCurrent
+                && string.Equals(currentPresence, LongGoneButVisiblePresence, StringComparison.Ordinal))
+            {
+                blockers.Add(LongGoneButVisibleError);
+            }
+
+            blockers = blockers.Distinct(StringComparer.Ordinal).ToList();
 
             demands.Add(new TransportDemandSnapshot(
                 demandId,
@@ -2714,7 +3183,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetString(6),
             reader.GetString(7),
             reader.GetString(8),
-            reader.GetString(9));
+            reader.GetString(9),
+            GetNullableDateTimeOffset(reader, 10));
 
     private static PollTraceRow ReadPollTraceRow(SqlDataReader reader) =>
         new(
@@ -2889,7 +3359,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string CreatedPollTraceId,
         string CreatedProjectionCommitId,
         string LatestProjectionCommitId,
-        string CurrentDemandId);
+        string CurrentDemandId,
+        DateTimeOffset? ArchivedAt);
 
     private sealed record PollTraceRow(
         string PollTraceId,
@@ -2918,4 +3389,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string DemandId,
         int Generation,
         DateTimeOffset DemandLastSeenAt);
+
+    private sealed record ArchiveCandidateRow(
+        string SeriesId,
+        string DemandId,
+        int Generation,
+        DateTimeOffset GoneConfirmedAt);
 }

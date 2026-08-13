@@ -145,7 +145,8 @@ public sealed record DemandSeriesSnapshot(
     IReadOnlyList<DemandRawObservationSnapshot> RawObservations,
     IReadOnlyList<DemandSeriesEventSnapshot> Events,
     IReadOnlyList<DemandSeriesCurrentConditionSnapshot> CurrentConditions,
-    IReadOnlyList<DemandSeriesErrorPeriodSnapshot> ErrorPeriods);
+    IReadOnlyList<DemandSeriesErrorPeriodSnapshot> ErrorPeriods,
+    DateTimeOffset? ArchivedAt = null);
 
 public sealed record PollTraceSnapshot(
     string PollTraceId,
