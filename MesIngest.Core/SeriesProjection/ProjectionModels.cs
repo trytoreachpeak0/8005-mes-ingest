@@ -11,7 +11,29 @@ public sealed record RoundCommitReceipt(
 public sealed record ProjectionCommitSnapshot(
     string ProjectionCommitId,
     string PollTraceId,
-    DateTimeOffset CommittedAt);
+    DateTimeOffset CommittedAt,
+    string HostSessionId,
+    string RestartPhaseBefore,
+    string RestartPhaseAfter,
+    bool AbsenceAuthority);
+
+public sealed record AbsenceAuthorityEventSnapshot(
+    string EventId,
+    string HostSessionId,
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string? PollTraceId,
+    string? ProjectionCommitId,
+    string PhaseBefore,
+    string PhaseAfter);
+
+public sealed record AbsenceAuthoritySnapshot(
+    string HostSessionId,
+    DateTimeOffset StartedAt,
+    string Phase,
+    bool IsCurrent,
+    bool AbsenceAuthorityAvailable,
+    IReadOnlyList<AbsenceAuthorityEventSnapshot> Events);
 
 public sealed record LiveMesFieldSetSnapshot(
     string? Area,
@@ -66,6 +88,7 @@ public sealed record TransportDemandSnapshot(
     string Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset DemandLastSeenAt,
+    DateTimeOffset? GoneConfirmedAt,
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
@@ -118,6 +141,7 @@ public sealed record DemandSeriesSnapshot(
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
     TransportDemandSnapshot CurrentDemand,
+    IReadOnlyList<TransportDemandSnapshot> Demands,
     IReadOnlyList<DemandRawObservationSnapshot> RawObservations,
     IReadOnlyList<DemandSeriesEventSnapshot> Events,
     IReadOnlyList<DemandSeriesCurrentConditionSnapshot> CurrentConditions,

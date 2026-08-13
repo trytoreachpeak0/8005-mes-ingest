@@ -6,6 +6,8 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public interface IMesIngestProjection
 {
+    Task BeginHostSessionAsync(CancellationToken cancellationToken = default);
+
     Task<RoundCommitReceipt> CommitRoundAsync(
         MesTaskUnionRound round,
         CancellationToken cancellationToken = default);
@@ -21,5 +23,12 @@ public interface IMesIngestProjection
 
     Task<PollTraceSnapshot?> GetPollTraceAsync(
         string pollTraceId,
+        CancellationToken cancellationToken = default);
+
+    Task<AbsenceAuthoritySnapshot> GetAbsenceAuthorityAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<AbsenceAuthoritySnapshot?> GetAbsenceAuthorityAsync(
+        string hostSessionId,
         CancellationToken cancellationToken = default);
 }

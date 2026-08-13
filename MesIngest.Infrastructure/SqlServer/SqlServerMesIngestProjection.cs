@@ -16,13 +16,18 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
     private const string SuccessOutcome = "SUCCESS";
     private const string TrackingLifecycle = "TRACKING";
     private const string VisiblePresence = "VISIBLE";
+    private const string GonePresence = "GONE";
     private const string VisibleDemandStatus = "VISIBLE";
+    private const string GoneDemandStatus = "GONE";
     private const string SeriesStartedEvent = "DEMAND_SERIES_STARTED";
     private const string DemandCreatedEvent = "TRANSPORT_DEMAND_CREATED";
 
     private readonly string _connectionString;
+    private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
+    private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
     private volatile bool _schemaEnsured;
+    private volatile bool _hostSessionInitialized;
 
     public SqlServerMesIngestProjection(string connectionString)
     {
@@ -34,6 +39,86 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         }
 
         _connectionString = connectionString;
+    }
+
+    public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)
+    {
+        if (_hostSessionInitialized)
+        {
+            return;
+        }
+
+        await _hostSessionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (_hostSessionInitialized)
+            {
+                return;
+            }
+
+            await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+            await using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using var lockCommand = connection.CreateCommand();
+                lockCommand.Transaction = transaction;
+                lockCommand.CommandText = """
+                    DECLARE @result INT;
+                    EXEC @result = sys.sp_getapplock
+                        @Resource = N'MesIngest.NewProjection.HostSession',
+                        @LockMode = N'Exclusive',
+                        @LockOwner = N'Transaction',
+                        @LockTimeout = 30000;
+                    IF @result < 0
+                        THROW 51020, 'Unable to establish the new-MesIngest Host session.', 1;
+                    """;
+                await lockCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                var phase = RestartBarrierPhaseContract.Barrier;
+                var startedAt = DateTimeOffset.UtcNow;
+
+                await using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = """
+                    UPDATE mesingest.HostSessions SET IsCurrent = 0 WHERE IsCurrent = 1;
+                    INSERT INTO mesingest.HostSessions
+                        (HostSessionId, StartedAt, RestartPhase, IsCurrent)
+                    VALUES
+                        (@hostSessionId, @startedAt, @restartPhase, 1);
+                    """;
+                AddNVarChar(command, "@hostSessionId", 64, _hostSessionId);
+                AddDateTimeOffset(command, "@startedAt", startedAt);
+                AddNVarChar(command, "@restartPhase", 32, phase);
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+                await InsertAbsenceAuthorityEventAsync(
+                    connection,
+                    transaction,
+                    RestartBarrierEventCode.Entered,
+                    startedAt,
+                    pollTraceId: null,
+                    projectionCommitId: null,
+                    phaseBefore: RestartBarrierPhaseContract.Normal,
+                    phaseAfter: RestartBarrierPhaseContract.Barrier,
+                    cancellationToken).ConfigureAwait(false);
+
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                _hostSessionInitialized = true;
+            }
+            catch (Exception exception)
+            {
+                await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+                throw;
+            }
+        }
+        finally
+        {
+            _hostSessionGate.Release();
+        }
     }
 
     public async Task<RoundCommitReceipt> CommitRoundAsync(
@@ -48,7 +133,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             CompletedAt = round.CompletedAt.ToUniversalTime(),
         };
         var prepared = PrepareRound(round, cancellationToken);
-        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        await BeginHostSessionAsync(cancellationToken).ConfigureAwait(false);
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -97,6 +182,13 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     IsReplay: false);
             }
 
+            var hostSession = await LoadHostSessionForUpdateAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
+            var restartTransition = RestartBarrierTransition.AcceptSuccess(
+                RestartBarrierPhaseContract.Parse(hostSession.RestartPhase));
+            var restartPhaseAfter = restartTransition.After.ToContractValue();
             var projectionCommitId = NewId();
             await InsertPollTraceAndCommitAsync(
                 connection,
@@ -104,6 +196,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 round,
                 prepared.ContentDigest,
                 projectionCommitId,
+                _hostSessionId,
+                hostSession.RestartPhase,
+                restartPhaseAfter,
+                restartTransition.AbsenceAuthority,
                 cancellationToken).ConfigureAwait(false);
             var bootstrapRound = await IsFirstProjectionCommitAsync(
                 connection,
@@ -148,6 +244,19 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     identity = await InsertFirstGenerationAsync(
                         connection,
                         transaction,
+                        round,
+                        projectionCommitId,
+                        group.Observations[0],
+                        uniqueObservation,
+                        cancellationToken).ConfigureAwait(false);
+                }
+                else if (string.Equals(current.DemandStatus, GoneDemandStatus, StringComparison.Ordinal))
+                {
+                    EnsureReappearanceCanAdvance(current, identityObservation, round.CompletedAt);
+                    identity = await InsertSuccessorGenerationAsync(
+                        connection,
+                        transaction,
+                        current,
                         round,
                         projectionCommitId,
                         group.Observations[0],
@@ -208,6 +317,29 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 seriesIds.Add(identity.SeriesId);
                 demandIds.Add(identity.DemandId);
             }
+
+            if (restartTransition.AbsenceAuthority)
+            {
+                await MarkAbsentVisibleDemandsGoneAsync(
+                    connection,
+                    transaction,
+                    groups.Select(group => group.KeyToken).ToHashSet(StringComparer.Ordinal),
+                    round,
+                    projectionCommitId,
+                    seriesIds,
+                    demandIds,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            await AdvanceRestartBarrierAsync(
+                connection,
+                transaction,
+                hostSession.RestartPhase,
+                restartPhaseAfter,
+                restartTransition.EventCode,
+                round,
+                projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new RoundCommitReceipt(
@@ -283,7 +415,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         p.[RowCount],
                         p.ContentDigest,
                         c.ProjectionCommitId,
-                        c.CommittedAt
+                        c.CommittedAt,
+                        c.HostSessionId,
+                        c.RestartPhaseBefore,
+                        c.RestartPhaseAfter,
+                        c.AbsenceAuthority
                     FROM mesingest.PollTraces AS p
                     LEFT JOIN mesingest.ProjectionCommits AS c
                         ON c.PollTraceId = p.PollTraceId
@@ -324,8 +460,145 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                     : new ProjectionCommitSnapshot(
                         trace.ProjectionCommitId,
                         trace.PollTraceId,
-                        trace.CommittedAt!.Value),
+                        trace.CommittedAt!.Value,
+                        trace.HostSessionId!,
+                        trace.RestartPhaseBefore!,
+                        trace.RestartPhaseAfter!,
+                        trace.AbsenceAuthority!.Value),
                 observations);
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public async Task<AbsenceAuthoritySnapshot> GetAbsenceAuthorityAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await BeginHostSessionAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadAbsenceAuthorityAsync(
+                _hostSessionId,
+                requireCurrent: true,
+                cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "This Host session is no longer current and cannot expose absence authority.");
+    }
+
+    public async Task<AbsenceAuthoritySnapshot?> GetAbsenceAuthorityAsync(
+        string hostSessionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hostSessionId) || hostSessionId.Length > 64)
+        {
+            throw new ArgumentException(
+                "Host session id must contain 1 to 64 non-whitespace characters.",
+                nameof(hostSessionId));
+        }
+
+        await BeginHostSessionAsync(cancellationToken).ConfigureAwait(false);
+        return await ReadAbsenceAuthorityAsync(
+                hostSessionId,
+                requireCurrent: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<AbsenceAuthoritySnapshot?> ReadAbsenceAuthorityAsync(
+        string hostSessionId,
+        bool requireCurrent,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            HostSessionRow hostSession;
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT HostSessionId, StartedAt, RestartPhase, IsCurrent
+                    FROM mesingest.HostSessions
+                    WHERE HostSessionId = @hostSessionId;
+                    """;
+                AddNVarChar(command, "@hostSessionId", 64, hostSessionId);
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return null;
+                }
+
+                hostSession = new HostSessionRow(
+                    reader.GetString(0),
+                    reader.GetFieldValue<DateTimeOffset>(1),
+                    reader.GetString(2),
+                    reader.GetBoolean(3));
+            }
+
+            if (requireCurrent && !hostSession.IsCurrent)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+
+            var events = new List<AbsenceAuthorityEventSnapshot>();
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    SELECT EventId, HostSessionId, EventType, OccurredAt, PollTraceId,
+                           ProjectionCommitId, PhaseBefore, PhaseAfter
+                    FROM mesingest.AbsenceAuthorityEvents
+                    WHERE HostSessionId = @hostSessionId
+                    ORDER BY CASE EventType
+                        WHEN @enteredEventCode THEN 0
+                        WHEN @baselineEventCode THEN 1
+                        WHEN @restoredEventCode THEN 2
+                        ELSE 3
+                    END, EventId;
+                    """;
+                AddNVarChar(command, "@hostSessionId", 64, hostSessionId);
+                AddNVarChar(command, "@enteredEventCode", 128, RestartBarrierEventCode.Entered);
+                AddNVarChar(command, "@baselineEventCode", 128, RestartBarrierEventCode.BaselineCompleted);
+                AddNVarChar(
+                    command,
+                    "@restoredEventCode",
+                    128,
+                    RestartBarrierEventCode.AbsenceAuthorityRestored);
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    events.Add(new AbsenceAuthorityEventSnapshot(
+                        reader.GetString(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetFieldValue<DateTimeOffset>(3),
+                        GetNullableString(reader, 4),
+                        GetNullableString(reader, 5),
+                        reader.GetString(6),
+                        reader.GetString(7)));
+                }
+            }
+
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return new AbsenceAuthoritySnapshot(
+                hostSession.HostSessionId,
+                hostSession.StartedAt,
+                hostSession.RestartPhase,
+                hostSession.IsCurrent,
+                RestartBarrierPhaseContract.Parse(hostSession.RestartPhase)
+                    is RestartBarrierPhase.Normal,
+                events);
         }
         catch (Exception exception)
         {
@@ -365,27 +638,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                         s.CreatedPollTraceId,
                         s.CreatedProjectionCommitId,
                         s.LatestProjectionCommitId,
-                        d.DemandId,
-                        d.Generation,
-                        d.PredecessorDemandId,
-                        d.Status,
-                        d.CreatedAt,
-                        d.DemandLastSeenAt,
-                        d.CreatedPollTraceId,
-                        d.CreatedProjectionCommitId,
-                        d.LatestProjectionCommitId,
-                        d.Area,
-                        d.Eqp,
-                        d.Step,
-                        d.MesSourceDate,
-                        d.Package,
-                        (SELECT COUNT_BIG(*)
-                         FROM mesingest.DemandRawObservations AS currentObservation
-                         WHERE currentObservation.DemandId = d.DemandId
-                           AND currentObservation.ProjectionCommitId = d.LatestProjectionCommitId)
+                        s.CurrentDemandId
                     FROM mesingest.DemandSeries AS s
-                    INNER JOIN mesingest.TransportDemands AS d
-                        ON d.DemandId = s.CurrentDemandId
                     WHERE {predicate};
                     """;
                 if (expectedWorkType is null)
@@ -433,7 +687,17 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 transaction,
                 series.SeriesId,
                 cancellationToken).ConfigureAwait(false);
+            var demands = await ReadDemandGenerationsAsync(
+                connection,
+                transaction,
+                series.SeriesId,
+                series.CurrentDemandId,
+                errorState.CurrentConditions,
+                cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            var currentDemand = demands.Single(demand =>
+                string.Equals(demand.DemandId, series.CurrentDemandId, StringComparison.Ordinal));
 
             return new DemandSeriesSnapshot(
                 series.SeriesId,
@@ -445,32 +709,8 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 series.CreatedPollTraceId,
                 series.CreatedProjectionCommitId,
                 series.LatestProjectionCommitId,
-                new TransportDemandSnapshot(
-                    series.DemandId,
-                    series.SeriesId,
-                    series.Generation,
-                    series.PredecessorDemandId,
-                    series.DemandStatus,
-                    series.DemandCreatedAt,
-                    series.DemandLastSeenAt,
-                    series.DemandCreatedPollTraceId,
-                    series.DemandCreatedProjectionCommitId,
-                    series.DemandLatestProjectionCommitId,
-                    series.LatestObservationCount == 1
-                        ? new LiveMesFieldSetSnapshot(
-                            series.Area,
-                            series.Eqp,
-                            series.Step,
-                            series.MesSourceDate,
-                            series.Package)
-                        : null,
-                    ExternalReadabilityState: errorState.CurrentConditions.Count == 0
-                        ? "READABLE"
-                        : "NOT_READABLE",
-                    ReadabilityBlockers: errorState.CurrentConditions
-                        .Select(condition => condition.Code)
-                        .Distinct(StringComparer.Ordinal)
-                        .ToArray()),
+                currentDemand,
+                demands,
                 observations,
                 events,
                 errorState.CurrentConditions,
@@ -620,7 +860,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 p.[RowCount],
                 p.ContentDigest,
                 c.ProjectionCommitId,
-                c.CommittedAt
+                c.CommittedAt,
+                c.HostSessionId,
+                c.RestartPhaseBefore,
+                c.RestartPhaseAfter,
+                c.AbsenceAuthority
             FROM mesingest.PollTraces AS p WITH (UPDLOCK, HOLDLOCK)
             LEFT JOIN mesingest.ProjectionCommits AS c WITH (UPDLOCK, HOLDLOCK)
                 ON c.PollTraceId = p.PollTraceId
@@ -660,25 +904,48 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 IsReplay: true);
         }
 
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT SeriesId, DemandId
-            FROM mesingest.DemandRawObservations
-            WHERE PollTraceId = @pollTraceId
-              AND SeriesId IS NOT NULL
-              AND DemandId IS NOT NULL
-            ORDER BY Ordinal;
-            """;
-        AddNVarChar(command, "@pollTraceId", 128, existing.PollTraceId);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
-            .ConfigureAwait(false);
         var seriesIds = new List<string>();
         var demandIds = new List<string>();
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        await using (var command = connection.CreateCommand())
         {
-            seriesIds.Add(reader.GetString(0));
-            demandIds.Add(reader.GetString(1));
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT SeriesId, DemandId
+                FROM mesingest.DemandRawObservations
+                WHERE PollTraceId = @pollTraceId
+                  AND SeriesId IS NOT NULL
+                  AND DemandId IS NOT NULL
+                ORDER BY Ordinal;
+                """;
+            AddNVarChar(command, "@pollTraceId", 128, existing.PollTraceId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                seriesIds.Add(reader.GetString(0));
+                demandIds.Add(reader.GetString(1));
+            }
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT SeriesId, SubjectId
+                FROM mesingest.DemandSeriesEvents
+                WHERE PollTraceId = @pollTraceId
+                  AND EventType = N'DEMAND_GONE'
+                  AND SubjectId IS NOT NULL
+                ORDER BY SeriesSequence, EventId;
+                """;
+            AddNVarChar(command, "@pollTraceId", 128, existing.PollTraceId);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                seriesIds.Add(reader.GetString(0));
+                demandIds.Add(reader.GetString(1));
+            }
         }
 
         return new RoundCommitReceipt(
@@ -724,6 +991,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionRound round,
         string contentDigest,
         string projectionCommitId,
+        string hostSessionId,
+        string restartPhaseBefore,
+        string restartPhaseAfter,
+        bool absenceAuthority,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -735,9 +1006,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 (@pollTraceId, @queryVersion, N'SUCCESS', @startedAt, @completedAt, @rowCount, @contentDigest);
 
             INSERT INTO mesingest.ProjectionCommits
-                (ProjectionCommitId, PollTraceId, CommittedAt)
+                (ProjectionCommitId, PollTraceId, CommittedAt, HostSessionId,
+                 RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority)
             VALUES
-                (@projectionCommitId, @pollTraceId, @completedAt);
+                (@projectionCommitId, @pollTraceId, @completedAt, @hostSessionId,
+                 @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority);
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -746,6 +1019,10 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         command.Parameters.Add("@rowCount", SqlDbType.Int).Value = round.Observations.Count;
         AddChar(command, "@contentDigest", 64, contentDigest);
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@hostSessionId", 64, hostSessionId);
+        AddNVarChar(command, "@restartPhaseBefore", 32, restartPhaseBefore);
+        AddNVarChar(command, "@restartPhaseAfter", 32, restartPhaseAfter);
+        command.Parameters.Add("@absenceAuthority", SqlDbType.Bit).Value = absenceAuthority;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -790,6 +1067,117 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         _ => throw new InvalidOperationException($"Stored round outcome '{outcome}' is not supported."),
     };
 
+    private async Task<HostSessionRow> LoadHostSessionForUpdateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT HostSessionId, StartedAt, RestartPhase
+            FROM mesingest.HostSessions WITH (UPDLOCK, HOLDLOCK)
+            WHERE HostSessionId = @hostSessionId AND IsCurrent = 1;
+            """;
+        AddNVarChar(command, "@hostSessionId", 64, _hostSessionId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException(
+                "This Host session is no longer current and cannot commit another MES round.");
+        }
+
+        return new HostSessionRow(
+            reader.GetString(0),
+            reader.GetFieldValue<DateTimeOffset>(1),
+            reader.GetString(2),
+            IsCurrent: true);
+    }
+
+    private async Task AdvanceRestartBarrierAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string phaseBefore,
+        string phaseAfter,
+        string? transitionEventCode,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        CancellationToken cancellationToken)
+    {
+        if (string.Equals(phaseBefore, phaseAfter, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE mesingest.HostSessions
+                SET RestartPhase = @phaseAfter
+                WHERE HostSessionId = @hostSessionId
+                  AND IsCurrent = 1
+                  AND RestartPhase = @phaseBefore;
+                """;
+            AddNVarChar(command, "@phaseAfter", 32, phaseAfter);
+            AddNVarChar(command, "@hostSessionId", 64, _hostSessionId);
+            AddNVarChar(command, "@phaseBefore", 32, phaseBefore);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+            {
+                throw new InvalidOperationException("RestartBarrier changed while committing a SUCCESS round.");
+            }
+        }
+
+        if (transitionEventCode is null)
+        {
+            throw new InvalidOperationException(
+                "A RestartBarrier phase transition must carry its stable lifecycle event code.");
+        }
+
+        await InsertAbsenceAuthorityEventAsync(
+            connection,
+            transaction,
+            transitionEventCode,
+            round.CompletedAt,
+            round.PollTraceId,
+            projectionCommitId,
+            phaseBefore,
+            phaseAfter,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task InsertAbsenceAuthorityEventAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string eventType,
+        DateTimeOffset occurredAt,
+        string? pollTraceId,
+        string? projectionCommitId,
+        string phaseBefore,
+        string phaseAfter,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.AbsenceAuthorityEvents
+                (EventId, HostSessionId, EventType, OccurredAt, PollTraceId,
+                 ProjectionCommitId, PhaseBefore, PhaseAfter)
+            VALUES
+                (@eventId, @hostSessionId, @eventType, @occurredAt, @pollTraceId,
+                 @projectionCommitId, @phaseBefore, @phaseAfter);
+            """;
+        AddNVarChar(command, "@eventId", 64, NewId());
+        AddNVarChar(command, "@hostSessionId", 64, _hostSessionId);
+        AddNVarChar(command, "@eventType", 128, eventType);
+        AddDateTimeOffset(command, "@occurredAt", occurredAt);
+        AddNullableNVarChar(command, "@pollTraceId", 128, pollTraceId);
+        AddNullableNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@phaseBefore", 32, phaseBefore);
+        AddNVarChar(command, "@phaseAfter", 32, phaseAfter);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<CurrentProjectionRow?> LoadCurrentProjectionForUpdateAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -809,6 +1197,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 d.Generation,
                 d.Status,
                 d.DemandLastSeenAt,
+                d.GoneConfirmedAt,
                 d.Area,
                 d.Eqp,
                 d.Step,
@@ -843,11 +1232,12 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetInt32(6),
             reader.GetString(7),
             reader.GetFieldValue<DateTimeOffset>(8),
-            GetNullableString(reader, 9),
+            GetNullableDateTimeOffset(reader, 9),
             GetNullableString(reader, 10),
             GetNullableString(reader, 11),
-            GetNullableDateTimeOffset(reader, 12),
-            GetNullableString(reader, 13));
+            GetNullableString(reader, 12),
+            GetNullableDateTimeOffset(reader, 13),
+            GetNullableString(reader, 14));
     }
 
     private static async Task<ProjectedIdentity> InsertFirstGenerationAsync(
@@ -878,13 +1268,14 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 
                 INSERT INTO mesingest.TransportDemands
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
-                     CreatedAt, DemandLastSeenAt, CreatedPollTraceId,
+                     CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
+                     LatestObservationProjectionCommitId,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, 1, NULL, N'VISIBLE',
-                     @occurredAt, @occurredAt, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId,
+                     @occurredAt, @occurredAt, NULL, @pollTraceId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -943,6 +1334,119 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             cancellationToken).ConfigureAwait(false);
 
         return new ProjectedIdentity(seriesId, demandId);
+    }
+
+    private static async Task<ProjectedIdentity> InsertSuccessorGenerationAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CurrentProjectionRow current,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        PreparedObservation item,
+        MesTaskUnionObservation? liveObservation,
+        CancellationToken cancellationToken)
+    {
+        var demandId = NewId();
+        var generation = checked(current.Generation + 1);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO mesingest.TransportDemands
+                    (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
+                     CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
+                     CreatedProjectionCommitId, LatestProjectionCommitId,
+                     LatestObservationProjectionCommitId,
+                     Area, Eqp, Step, MesSourceDate, Package)
+                VALUES
+                    (@demandId, @seriesId, @generation, @predecessorDemandId, N'VISIBLE',
+                     @occurredAt, @occurredAt, NULL, @pollTraceId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @area, @eqp, @step, @mesSourceDate, @package);
+
+                UPDATE mesingest.DemandSeries
+                SET CurrentDemandId = @demandId,
+                    CurrentPresence = N'VISIBLE',
+                    LatestProjectionCommitId = @projectionCommitId
+                WHERE SeriesId = @seriesId
+                  AND CurrentDemandId = @predecessorDemandId
+                  AND Lifecycle = N'TRACKING';
+                """;
+            AddNVarChar(command, "@demandId", 64, demandId);
+            AddNVarChar(command, "@seriesId", 64, current.SeriesId);
+            command.Parameters.Add("@generation", SqlDbType.Int).Value = generation;
+            AddNVarChar(command, "@predecessorDemandId", 64, current.DemandId);
+            AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
+            AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
+            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
+            if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+            {
+                throw new InvalidOperationException("The GONE Demand changed while creating its successor generation.");
+            }
+        }
+
+        var sequence = await GetNextSeriesSequenceAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            cancellationToken).ConfigureAwait(false);
+        await InsertEventAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            sequence,
+            DemandCreatedEvent,
+            "DEMAND",
+            demandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                demandId,
+                generation,
+                predecessorDemandId = current.DemandId,
+                reason = "PREARCHIVE_REAPPEARANCE",
+            }),
+            cancellationToken).ConfigureAwait(false);
+        await SetLastSeriesSequenceAsync(
+            connection,
+            transaction,
+            current.SeriesId,
+            sequence,
+            cancellationToken).ConfigureAwait(false);
+        return new ProjectedIdentity(current.SeriesId, demandId);
+    }
+
+    private static void EnsureReappearanceCanAdvance(
+        CurrentProjectionRow current,
+        MesTaskUnionObservation observation,
+        DateTimeOffset completedAt)
+    {
+        if (!string.Equals(current.WorkType, observation.WorkType, StringComparison.Ordinal)
+            || !string.Equals(current.Sublot, observation.Sublot, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "TransportDemandKey token collision detected while applying a reappearance.");
+        }
+        if (!string.Equals(current.Lifecycle, TrackingLifecycle, StringComparison.Ordinal)
+            || !string.Equals(current.CurrentPresence, GonePresence, StringComparison.Ordinal)
+            || !string.Equals(current.DemandStatus, GoneDemandStatus, StringComparison.Ordinal))
+        {
+            throw new NotSupportedException("Only a tracking GONE Demand can reappear before archive.");
+        }
+        if (completedAt < current.DemandLastSeenAt)
+        {
+            throw new InvalidOperationException("A reappearance cannot predate the predecessor's last observation.");
+        }
+        if (current.GoneConfirmedAt is null || completedAt < current.GoneConfirmedAt.Value)
+        {
+            throw new InvalidOperationException("A reappearance cannot predate the predecessor's GONE confirmation.");
+        }
     }
 
     private static Task InsertInitialEventAsync(
@@ -1084,6 +1588,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
+                LatestObservationProjectionCommitId = @projectionCommitId,
                 DemandLastSeenAt = @completedAt,
                 Area = @area,
                 Eqp = @eqp,
@@ -1132,6 +1637,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
 
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
+                LatestObservationProjectionCommitId = @projectionCommitId,
                 DemandLastSeenAt = @completedAt
             WHERE DemandId = @demandId;
             """;
@@ -1275,6 +1781,207 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
                 identity.SeriesId,
                 nextSequence - 1,
                 cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task MarkAbsentVisibleDemandsGoneAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        IReadOnlySet<string> presentKeyTokens,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        ICollection<string> affectedSeriesIds,
+        ICollection<string> affectedDemandIds,
+        CancellationToken cancellationToken)
+    {
+        var visible = new List<AbsentDemandRow>();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                SELECT s.KeyToken, s.SeriesId, d.DemandId, d.Generation, d.DemandLastSeenAt
+                FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
+                INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
+                    ON d.DemandId = s.CurrentDemandId
+                WHERE s.Lifecycle = N'TRACKING'
+                  AND s.CurrentPresence = N'VISIBLE'
+                  AND d.Status = N'VISIBLE'
+                ORDER BY s.SeriesId;
+                """;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var row = new AbsentDemandRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt32(3),
+                    reader.GetFieldValue<DateTimeOffset>(4));
+                if (!presentKeyTokens.Contains(row.KeyToken))
+                {
+                    visible.Add(row);
+                }
+            }
+        }
+
+        foreach (var absent in visible)
+        {
+            if (round.CompletedAt < absent.DemandLastSeenAt)
+            {
+                throw new InvalidOperationException(
+                    "An authoritative absence cannot predate the Demand's last real observation.");
+            }
+
+            var nextSequence = await GetNextSeriesSequenceAsync(
+                connection,
+                transaction,
+                absent.SeriesId,
+                cancellationToken).ConfigureAwait(false);
+            await InsertEventAsync(
+                connection,
+                transaction,
+                absent.SeriesId,
+                nextSequence++,
+                "DEMAND_GONE",
+                "DEMAND",
+                absent.DemandId,
+                round,
+                projectionCommitId,
+                JsonSerializer.Serialize(new
+                {
+                    demandId = absent.DemandId,
+                    absent.Generation,
+                    demandLastSeenAt = absent.DemandLastSeenAt,
+                    goneConfirmedAt = round.CompletedAt,
+                }),
+                cancellationToken).ConfigureAwait(false);
+
+            nextSequence = await CloseDemandConditionsAsGoneAsync(
+                connection,
+                transaction,
+                absent,
+                round,
+                projectionCommitId,
+                nextSequence,
+                cancellationToken).ConfigureAwait(false);
+
+            await using (var command = connection.CreateCommand())
+            {
+                command.Transaction = transaction;
+                command.CommandText = """
+                    UPDATE mesingest.TransportDemands
+                    SET Status = N'GONE',
+                        GoneConfirmedAt = @goneConfirmedAt,
+                        LatestProjectionCommitId = @projectionCommitId
+                    WHERE DemandId = @demandId AND Status = N'VISIBLE';
+
+                    UPDATE mesingest.DemandSeries
+                    SET CurrentPresence = N'GONE',
+                        LatestProjectionCommitId = @projectionCommitId,
+                        LastSeriesSequence = @lastSeriesSequence
+                    WHERE SeriesId = @seriesId AND CurrentDemandId = @demandId;
+                    """;
+                AddDateTimeOffset(command, "@goneConfirmedAt", round.CompletedAt);
+                AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+                AddNVarChar(command, "@demandId", 64, absent.DemandId);
+                AddNVarChar(command, "@seriesId", 64, absent.SeriesId);
+                command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = nextSequence - 1;
+                if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
+                {
+                    throw new InvalidOperationException("The absent Demand changed while marking it GONE.");
+                }
+            }
+
+            affectedSeriesIds.Add(absent.SeriesId);
+            affectedDemandIds.Add(absent.DemandId);
+        }
+    }
+
+    private static async Task<long> CloseDemandConditionsAsGoneAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        AbsentDemandRow absent,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long nextSequence,
+        CancellationToken cancellationToken)
+    {
+        var conditions = await LoadCurrentConditionsForUpdateAsync(
+            connection,
+            transaction,
+            absent.SeriesId,
+            absent.DemandId,
+            cancellationToken).ConfigureAwait(false);
+        foreach (var (key, existing) in conditions.OrderBy(pair => pair.Key, ConditionKeyComparer.Instance))
+        {
+            await CloseConditionAsGoneAsync(
+                connection,
+                transaction,
+                absent.SeriesId,
+                absent.DemandId,
+                key.SubjectKind,
+                existing,
+                round,
+                projectionCommitId,
+                nextSequence++,
+                cancellationToken).ConfigureAwait(false);
+        }
+        return nextSequence;
+    }
+
+    private static async Task CloseConditionAsGoneAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        string demandId,
+        string subjectKind,
+        CurrentConditionRow existing,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        long sequence,
+        CancellationToken cancellationToken)
+    {
+        var evidenceId = NewId();
+        var eventId = await InsertEventAsync(
+            connection,
+            transaction,
+            seriesId,
+            sequence,
+            "SERIES_ERROR_PERIOD_ENDED",
+            subjectKind,
+            demandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new { periodId = existing.PeriodId, endReason = "DEMAND_GONE" }),
+            cancellationToken).ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO mesingest.SeriesErrorPeriodEvidence
+                (EvidenceId, PeriodId, EventId, EvidenceKind, ObservedAt, PollTraceId,
+                 ProjectionCommitId, DemandId, ObservedValue, ExpectedRule)
+            VALUES
+                (@evidenceId, @periodId, @eventId, N'DEMAND_GONE', @observedAt, @pollTraceId,
+                 @projectionCommitId, @demandId, NULL, @expectedRule);
+
+            DELETE FROM mesingest.DemandSeriesCurrentConditions WHERE PeriodId = @periodId;
+
+            UPDATE mesingest.DemandSeriesErrorPeriods
+            SET EndedAt = @observedAt, EndReason = N'DEMAND_GONE', ClosedEventId = @eventId
+            WHERE PeriodId = @periodId AND EndedAt IS NULL;
+            """;
+        AddNVarChar(command, "@evidenceId", 64, evidenceId);
+        AddNVarChar(command, "@periodId", 64, existing.PeriodId);
+        AddNVarChar(command, "@eventId", 64, eventId);
+        AddDateTimeOffset(command, "@observedAt", round.CompletedAt);
+        AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@demandId", 64, demandId);
+        AddNVarChar(command, "@expectedRule", 256, existing.ExpectedRule);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 3)
+        {
+            throw new InvalidOperationException("The current Series error condition changed while ending it as GONE.");
         }
     }
 
@@ -1683,6 +2390,92 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    private static async Task<IReadOnlyList<TransportDemandSnapshot>> ReadDemandGenerationsAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string seriesId,
+        string currentDemandId,
+        IReadOnlyList<DemandSeriesCurrentConditionSnapshot> currentConditions,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT
+                d.DemandId,
+                d.SeriesId,
+                d.Generation,
+                d.PredecessorDemandId,
+                d.Status,
+                d.CreatedAt,
+                d.DemandLastSeenAt,
+                d.GoneConfirmedAt,
+                d.CreatedPollTraceId,
+                d.CreatedProjectionCommitId,
+                d.LatestProjectionCommitId,
+                d.LatestObservationProjectionCommitId,
+                d.Area,
+                d.Eqp,
+                d.Step,
+                d.MesSourceDate,
+                d.Package,
+                (SELECT COUNT_BIG(*)
+                 FROM mesingest.DemandRawObservations AS latestObservation
+                 WHERE latestObservation.DemandId = d.DemandId
+                   AND latestObservation.ProjectionCommitId =
+                       d.LatestObservationProjectionCommitId)
+            FROM mesingest.TransportDemands AS d
+            WHERE d.SeriesId = @seriesId
+            ORDER BY d.Generation;
+            """;
+        AddNVarChar(command, "@seriesId", 64, seriesId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var demands = new List<TransportDemandSnapshot>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var demandId = reader.GetString(0);
+            var status = reader.GetString(4);
+            var isCurrent = string.Equals(demandId, currentDemandId, StringComparison.Ordinal);
+            var latestObservationCount = reader.GetInt64(17);
+            var blockers = isCurrent
+                ? currentConditions
+                    .Where(condition => string.Equals(condition.DemandId, demandId, StringComparison.Ordinal))
+                    .Select(condition => condition.Code)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList()
+                : [];
+            if (string.Equals(status, GoneDemandStatus, StringComparison.Ordinal))
+            {
+                blockers.Add("DEMAND_GONE");
+            }
+
+            demands.Add(new TransportDemandSnapshot(
+                demandId,
+                reader.GetString(1),
+                reader.GetInt32(2),
+                GetNullableString(reader, 3),
+                status,
+                reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetFieldValue<DateTimeOffset>(6),
+                GetNullableDateTimeOffset(reader, 7),
+                reader.GetString(8),
+                reader.GetString(9),
+                reader.GetString(10),
+                latestObservationCount == 1
+                    ? new LiveMesFieldSetSnapshot(
+                        GetNullableString(reader, 12),
+                        GetNullableString(reader, 13),
+                        GetNullableString(reader, 14),
+                        GetNullableDateTimeOffset(reader, 15),
+                        GetNullableString(reader, 16))
+                    : null,
+                blockers.Count == 0 ? "READABLE" : "NOT_READABLE",
+                blockers));
+        }
+
+        return demands;
+    }
+
     private static async Task<IReadOnlyList<DemandRawObservationSnapshot>> ReadRawObservationsAsync(
         SqlConnection connection,
         SqlTransaction transaction,
@@ -1921,21 +2714,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetString(6),
             reader.GetString(7),
             reader.GetString(8),
-            reader.GetString(9),
-            reader.GetInt32(10),
-            GetNullableString(reader, 11),
-            reader.GetString(12),
-            reader.GetFieldValue<DateTimeOffset>(13),
-            reader.GetFieldValue<DateTimeOffset>(14),
-            reader.GetString(15),
-            reader.GetString(16),
-            reader.GetString(17),
-            GetNullableString(reader, 18),
-            GetNullableString(reader, 19),
-            GetNullableString(reader, 20),
-            GetNullableDateTimeOffset(reader, 21),
-            GetNullableString(reader, 22),
-            reader.GetInt64(23));
+            reader.GetString(9));
 
     private static PollTraceRow ReadPollTraceRow(SqlDataReader reader) =>
         new(
@@ -1947,7 +2726,11 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetInt32(5),
             reader.GetString(6),
             GetNullableString(reader, 7),
-            GetNullableDateTimeOffset(reader, 8));
+            GetNullableDateTimeOffset(reader, 8),
+            GetNullableString(reader, 9),
+            GetNullableString(reader, 10),
+            GetNullableString(reader, 11),
+            reader.IsDBNull(12) ? null : reader.GetBoolean(12));
 
     private static string? GetNullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -2089,6 +2872,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         int Generation,
         string DemandStatus,
         DateTimeOffset DemandLastSeenAt,
+        DateTimeOffset? GoneConfirmedAt,
         string? Area,
         string? Eqp,
         string? Step,
@@ -2105,21 +2889,7 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         string CreatedPollTraceId,
         string CreatedProjectionCommitId,
         string LatestProjectionCommitId,
-        string DemandId,
-        int Generation,
-        string? PredecessorDemandId,
-        string DemandStatus,
-        DateTimeOffset DemandCreatedAt,
-        DateTimeOffset DemandLastSeenAt,
-        string DemandCreatedPollTraceId,
-        string DemandCreatedProjectionCommitId,
-        string DemandLatestProjectionCommitId,
-        string? Area,
-        string? Eqp,
-        string? Step,
-        DateTimeOffset? MesSourceDate,
-        string? Package,
-        long LatestObservationCount);
+        string CurrentDemandId);
 
     private sealed record PollTraceRow(
         string PollTraceId,
@@ -2130,5 +2900,22 @@ public sealed class SqlServerMesIngestProjection : IMesIngestProjection
         int RowCount,
         string ContentDigest,
         string? ProjectionCommitId,
-        DateTimeOffset? CommittedAt);
+        DateTimeOffset? CommittedAt,
+        string? HostSessionId,
+        string? RestartPhaseBefore,
+        string? RestartPhaseAfter,
+        bool? AbsenceAuthority);
+
+    private sealed record HostSessionRow(
+        string HostSessionId,
+        DateTimeOffset StartedAt,
+        string RestartPhase,
+        bool IsCurrent);
+
+    private sealed record AbsentDemandRow(
+        string KeyToken,
+        string SeriesId,
+        string DemandId,
+        int Generation,
+        DateTimeOffset DemandLastSeenAt);
 }

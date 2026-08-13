@@ -19,6 +19,14 @@ internal static class NewMesIngestEndpoints
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
             .ExcludeFromDescription();
 
+        endpoints.MapGet("/api/v2/absence-authority", GetAbsenceAuthorityAsync)
+            .ExcludeFromDescription();
+
+        endpoints.MapGet(
+                "/api/v2/absence-authority/{hostSessionId}",
+                GetAbsenceAuthorityByHostSessionIdAsync)
+            .ExcludeFromDescription();
+
         return endpoints;
     }
 
@@ -89,6 +97,31 @@ internal static class NewMesIngestEndpoints
             : TypedResults.Ok(PollTraceDto.From(snapshot));
     }
 
+    private static async Task<Ok<AbsenceAuthorityDto>> GetAbsenceAuthorityAsync(
+        IMesIngestProjection projection,
+        CancellationToken cancellationToken) =>
+        TypedResults.Ok(AbsenceAuthorityDto.From(
+            await projection.GetAbsenceAuthorityAsync(cancellationToken)));
+
+    private static async Task<Results<Ok<AbsenceAuthorityDto>, BadRequest<NewMesIngestErrorDto>, NotFound>>
+        GetAbsenceAuthorityByHostSessionIdAsync(
+            string hostSessionId,
+            IMesIngestProjection projection,
+            CancellationToken cancellationToken)
+    {
+        if (!TryValidateRequiredText(hostSessionId, 64, nameof(hostSessionId), out var error))
+        {
+            return TypedResults.BadRequest(error);
+        }
+
+        var snapshot = await projection.GetAbsenceAuthorityAsync(
+            hostSessionId,
+            cancellationToken);
+        return snapshot is null
+            ? TypedResults.NotFound()
+            : TypedResults.Ok(AbsenceAuthorityDto.From(snapshot));
+    }
+
     private static bool TryValidateRequiredText(
         string value,
         int maximumLength,
@@ -138,10 +171,61 @@ internal sealed record SeriesErrorDefinitionDto(
 internal sealed record ProjectionCommitDto(
     string ProjectionCommitId,
     string PollTraceId,
-    DateTimeOffset CommittedAt)
+    DateTimeOffset CommittedAt,
+    string HostSessionId,
+    string RestartPhaseBefore,
+    string RestartPhaseAfter,
+    bool AbsenceAuthority)
 {
     public static ProjectionCommitDto From(ProjectionCommitSnapshot snapshot) =>
-        new(snapshot.ProjectionCommitId, snapshot.PollTraceId, snapshot.CommittedAt);
+        new(
+            snapshot.ProjectionCommitId,
+            snapshot.PollTraceId,
+            snapshot.CommittedAt,
+            snapshot.HostSessionId,
+            snapshot.RestartPhaseBefore,
+            snapshot.RestartPhaseAfter,
+            snapshot.AbsenceAuthority);
+}
+
+internal sealed record AbsenceAuthorityEventDto(
+    string EventId,
+    string HostSessionId,
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string? PollTraceId,
+    string? ProjectionCommitId,
+    string PhaseBefore,
+    string PhaseAfter)
+{
+    public static AbsenceAuthorityEventDto From(AbsenceAuthorityEventSnapshot snapshot) =>
+        new(
+            snapshot.EventId,
+            snapshot.HostSessionId,
+            snapshot.EventType,
+            snapshot.OccurredAt,
+            snapshot.PollTraceId,
+            snapshot.ProjectionCommitId,
+            snapshot.PhaseBefore,
+            snapshot.PhaseAfter);
+}
+
+internal sealed record AbsenceAuthorityDto(
+    string HostSessionId,
+    DateTimeOffset StartedAt,
+    string Phase,
+    bool IsCurrent,
+    bool AbsenceAuthorityAvailable,
+    IReadOnlyList<AbsenceAuthorityEventDto> Events)
+{
+    public static AbsenceAuthorityDto From(AbsenceAuthoritySnapshot snapshot) =>
+        new(
+            snapshot.HostSessionId,
+            snapshot.StartedAt,
+            snapshot.Phase,
+            snapshot.IsCurrent,
+            snapshot.AbsenceAuthorityAvailable,
+            snapshot.Events.Select(AbsenceAuthorityEventDto.From).ToArray());
 }
 
 internal sealed record LiveMesFieldSetDto(
@@ -163,6 +247,7 @@ internal sealed record TransportDemandV2Dto(
     string Status,
     DateTimeOffset CreatedAt,
     DateTimeOffset DemandLastSeenAt,
+    DateTimeOffset? GoneConfirmedAt,
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
@@ -179,6 +264,7 @@ internal sealed record TransportDemandV2Dto(
             snapshot.Status,
             snapshot.CreatedAt,
             snapshot.DemandLastSeenAt,
+            snapshot.GoneConfirmedAt,
             snapshot.CreatedPollTraceId,
             snapshot.CreatedProjectionCommitId,
             snapshot.LatestProjectionCommitId,
@@ -350,6 +436,7 @@ internal sealed record DemandSeriesDto(
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,
     TransportDemandV2Dto CurrentDemand,
+    IReadOnlyList<TransportDemandV2Dto> Demands,
     IReadOnlyList<DemandRawObservationDto> RawObservations,
     IReadOnlyList<DemandSeriesEventDto> Events,
     IReadOnlyList<DemandSeriesCurrentConditionDto> CurrentConditions,
@@ -367,6 +454,7 @@ internal sealed record DemandSeriesDto(
             snapshot.CreatedProjectionCommitId,
             snapshot.LatestProjectionCommitId,
             TransportDemandV2Dto.From(snapshot.CurrentDemand),
+            snapshot.Demands.Select(TransportDemandV2Dto.From).ToList(),
             snapshot.RawObservations.Select(DemandRawObservationDto.From).ToList(),
             snapshot.Events.Select(DemandSeriesEventDto.From).ToList(),
             snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToList(),
