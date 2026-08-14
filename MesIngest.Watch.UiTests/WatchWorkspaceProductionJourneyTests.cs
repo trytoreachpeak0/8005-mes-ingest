@@ -394,7 +394,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 "DemandSeriesGenerationGrid",
                 "DemandSeries generations");
-            demandGenerationGrid.Patterns.ScrollItem.Pattern.ScrollIntoView();
+            demandGenerationGrid.Focus();
             WaitUntil(
                 () => !demandGenerationGrid.Properties.IsOffscreen.ValueOrDefault,
                 "DemandSeries detail evidence in view",
