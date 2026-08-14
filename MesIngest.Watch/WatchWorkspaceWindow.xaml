@@ -1,0 +1,340 @@
+<ui:FluentWindow x:Class="MesIngest.Watch.WatchWorkspaceWindow"
+                 x:ClassModifier="internal"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="MesIngest Watch"
+                 Width="1440"
+                 Height="900"
+                 MinWidth="720"
+                 MinHeight="600"
+                 ResizeMode="CanResize"
+                 WindowStyle="SingleBorderWindow"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica"
+                 WindowCornerPreference="Round"
+                 Background="{DynamicResource ApplicationBackgroundBrush}"
+                 FontFamily="Segoe UI Variable, Microsoft YaHei UI"
+                 UseLayoutRounding="True"
+                 SnapsToDevicePixels="True"
+                 TextOptions.TextFormattingMode="Display"
+                 TextOptions.TextRenderingMode="ClearType"
+                 SizeChanged="OnWindowSizeChanged">
+    <ui:FluentWindow.Resources>
+        <Style x:Key="PageTitleText" TargetType="ui:TextBlock">
+            <Setter Property="FontTypography" Value="Title" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+        </Style>
+        <Style x:Key="SectionTitleText" TargetType="ui:TextBlock">
+            <Setter Property="FontTypography" Value="BodyStrong" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+        </Style>
+        <Style x:Key="SecondaryText" TargetType="ui:TextBlock">
+            <Setter Property="FontTypography" Value="Caption" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="SummaryCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="16" />
+            <Setter Property="Margin" Value="0,0,12,12" />
+            <Setter Property="MinHeight" Value="164" />
+        </Style>
+        <Style x:Key="SurfaceCard" TargetType="Border" BasedOn="{StaticResource SummaryCard}">
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style x:Key="SummaryValue" TargetType="ui:TextBlock">
+            <Setter Property="FontTypography" Value="Body" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="ui:TextBlock">
+            <Setter Property="FontTypography" Value="BodyStrong" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </ui:FluentWindow.Resources>
+
+    <Grid x:Name="WindowRoot">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="WindowTitleBar"
+                     Grid.Row="0"
+                     Title="MesIngest Watch"
+                     ShowMinimize="True"
+                     ShowMaximize="True"
+                     ShowClose="True"
+                     Loaded="OnWindowTitleBarLoaded">
+            <ui:TitleBar.Icon>
+                <ui:SymbolIcon Symbol="Pulse24" />
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
+
+        <ui:NavigationView x:Name="WorkspaceNavigation"
+                           Grid.Row="1"
+                           PaneDisplayMode="LeftMinimal"
+                           CompactPaneLength="48"
+                           OpenPaneLength="232"
+                           IsPaneOpen="False"
+                           IsBackButtonVisible="Collapsed"
+                           IsPaneToggleVisible="True"
+                           HeaderVisibility="Collapsed"
+                           AutomationProperties.Name="主导航">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem x:Name="OverviewNavigationItem"
+                                       Content="概览"
+                                       IsActive="True"
+                                       Click="OnOverviewNavigationClick"
+                                       AutomationProperties.Name="概览导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="DemandSeriesNavigationItem"
+                                       Content="需求系列"
+                                       Click="OnDemandSeriesNavigationClick"
+                                       AutomationProperties.Name="需求系列导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Timeline24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="ReadabilityAuditNavigationItem"
+                                       Content="资格审计"
+                                       Click="OnReadabilityAuditNavigationClick"
+                                       AutomationProperties.Name="资格审计导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="DocumentBulletList24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="ErrorSearchNavigationItem"
+                                       Content="错误检索"
+                                       Click="OnErrorSearchNavigationClick"
+                                       AutomationProperties.Name="错误检索导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Search24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="AreaFilterNavigationItem"
+                                       Content="AREA 筛选"
+                                       Click="OnAreaFilterNavigationClick"
+                                       AutomationProperties.Name="AREA 筛选导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Filter24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="CurrentAttentionNavigationItem"
+                                       Content="接入告警"
+                                       Click="OnCurrentAttentionNavigationClick"
+                                       AutomationProperties.Name="接入告警导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.MenuItems>
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem x:Name="HostNavigationItem"
+                                       Content="Host 未连接"
+                                       ToolTip="Host 尚未连接"
+                                       Click="OnSettingsNavigationClick"
+                                       AutomationProperties.Name="Host 状态与连接设置">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon x:Name="HostNavigationIcon" Symbol="CloudOff24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem x:Name="SettingsNavigationItem"
+                                       Content="设置"
+                                       Click="OnSettingsNavigationClick"
+                                       AutomationProperties.Name="设置导航">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.FooterMenuItems>
+
+            <ui:NavigationView.ContentOverlay>
+                <Grid x:Name="WorkspaceContent" Margin="24,16,24,16">
+                    <ScrollViewer x:Name="OverviewPage"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  AutomationProperties.Name="概览页面">
+                        <StackPanel Margin="0,0,8,8">
+                            <StackPanel>
+                                <ui:TextBlock Text="概览" Style="{StaticResource PageTitleText}" />
+                                <ui:TextBlock x:Name="OverviewContextText"
+                                           Text="等待 Host 连接"
+                                           Style="{StaticResource SecondaryText}"
+                                           Margin="0,8,0,0"
+                                           AutomationProperties.Name="概览快照与客户端读取时间" />
+                            </StackPanel>
+
+                            <ui:InfoBar x:Name="OverviewInfoBar"
+                                        IsOpen="False"
+                                        IsClosable="False"
+                                        Severity="Informational"
+                                        Margin="0,16,0,0"
+                                        AutomationProperties.Name="概览读取状态" />
+
+                            <UniformGrid x:Name="OverviewSummaryCards"
+                                         Columns="5"
+                                         Margin="0,16,-12,0">
+                                <Border Style="{StaticResource SummaryCard}">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Timeline24" /><ui:TextBlock Text="需求系列" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel>
+                                        <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="SeriesSummaryValue" Text="—" Style="{StaticResource SummaryValue}" /><ui:TextBlock x:Name="SeriesSummaryDetail" Text="等待 Host 概览" Style="{StaticResource SecondaryText}" /></StackPanel>
+                                        <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                                            <ui:Button x:Name="SeriesSummaryAction" Content="全部" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部需求系列第一页" />
+                                            <ui:Button x:Name="SeriesTrackingAction" Content="Tracking" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看 Tracking 需求系列第一页" />
+                                            <ui:Button x:Name="SeriesArchivedAction" Content="Archived" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看 Archived 需求系列第一页" />
+                                            <ui:Button x:Name="SeriesGoneAction" Content="GONE" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看 GONE 需求系列第一页" />
+                                            <ui:Button x:Name="SeriesLongGoneVisibleAction" Content="归档后可见" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看归档后仍可见需求系列第一页" />
+                                        </WrapPanel>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource SummaryCard}">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DocumentBulletList24" /><ui:TextBlock Text="资格审计" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel>
+                                        <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="ReadabilitySummaryValue" Text="—" Style="{StaticResource SummaryValue}" /><ui:TextBlock x:Name="ReadabilitySummaryDetail" Text="等待 Host 概览" Style="{StaticResource SecondaryText}" /></StackPanel>
+                                        <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                                            <ui:Button x:Name="ReadabilitySummaryAction" Content="全部" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部资格审计第一页" />
+                                            <ui:Button x:Name="ReadableSummaryAction" Content="可读" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看可读资格审计第一页" />
+                                            <ui:Button x:Name="NotReadableSummaryAction" Content="不可读" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看不可读资格审计第一页" />
+                                        </WrapPanel>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource SummaryCard}">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Search24" /><ui:TextBlock Text="错误检索" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel>
+                                        <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="ErrorsSummaryValue" Text="—" Style="{StaticResource SummaryValue}" /><ui:TextBlock x:Name="ErrorsSummaryDetail" Text="等待 Host 概览" Style="{StaticResource SecondaryText}" /></StackPanel>
+                                        <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                                            <ui:Button x:Name="ErrorsSummaryAction" Content="全部" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部错误检索第一页" />
+                                            <ui:Button x:Name="ActiveErrorsSummaryAction" Content="活动" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看活动错误第一页" />
+                                            <ui:Button x:Name="PriorErrorsSummaryAction" Content="近 7 天" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看近七天错误第一页" />
+                                        </WrapPanel>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource SummaryCard}">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Alert24" /><ui:TextBlock Text="接入告警" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel>
+                                        <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="AttentionSummaryValue" Text="—" Style="{StaticResource SummaryValue}" /><ui:TextBlock x:Name="AttentionSummaryDetail" Text="等待 Host 概览" Style="{StaticResource SecondaryText}" /></StackPanel>
+                                        <WrapPanel x:Name="AttentionSummaryActions" Grid.Row="2" Margin="0,8,0,0">
+                                            <ui:Button x:Name="AttentionSummaryAction" Content="全部" Appearance="Secondary" Margin="0,0,8,8" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部接入告警第一页" />
+                                        </WrapPanel>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource SummaryCard}">
+                                    <Grid>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Filter24" /><ui:TextBlock Text="AREA 筛选" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel>
+                                        <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="LocalAreaHeadingText" Text="全部 AREA" FontTypography="Body" TextTrimming="CharacterEllipsis" /><ui:TextBlock x:Name="LocalAreaDetailText" Text="本机默认" Style="{StaticResource SecondaryText}" /><ui:TextBlock x:Name="HostAreaScopeText" Text="Host 已提交范围：尚无快照" Style="{StaticResource SecondaryText}" Margin="0,8,0,0" /></StackPanel>
+                                        <ui:Button Grid.Row="2" Content="管理本机 AREA" Appearance="Secondary" HorizontalAlignment="Left" Click="OnAreaFilterNavigationClick" AutomationProperties.Name="管理 AREA 筛选" />
+                                    </Grid>
+                                </Border>
+                            </UniformGrid>
+
+                            <Grid x:Name="OverviewBodyGrid" Margin="0,8,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="OverviewBodyVerticalGap" Height="0" />
+                                    <RowDefinition x:Name="OverviewFactsRow" Height="0" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="ActivityColumn" Width="1.55*" />
+                                    <ColumnDefinition x:Name="OverviewBodyGap" Width="12" />
+                                    <ColumnDefinition x:Name="FactsColumn" Width="1*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource SurfaceCard}">
+                                    <StackPanel>
+                                        <ui:TextBlock x:Name="RecentActivityHeadingText" Text="近期重点动态" Style="{StaticResource SectionTitleText}" />
+                                        <ui:TextBlock Text="Host 快照前 24 小时内、最多 5 条真实转换；无动态不代表健康。" Style="{StaticResource SecondaryText}" Margin="0,8,0,12" />
+                                        <StackPanel x:Name="RecentActivityItems" AutomationProperties.Name="近期重点动态列表" />
+                                    </StackPanel>
+                                </Border>
+                                <Border x:Name="OverviewFactsCard" Grid.Column="2" Style="{StaticResource SurfaceCard}">
+                                    <StackPanel>
+                                        <ui:TextBlock Text="快照事实" Style="{StaticResource SectionTitleText}" />
+                                        <ui:TextBlock x:Name="SnapshotFactsText" Text="尚无 Host 业务快照" Style="{StaticResource SecondaryText}" Margin="0,12,0,0" AutomationProperties.Name="Host 快照事实" />
+                                        <ui:TextBlock Text="Watch 客户端尝试" FontTypography="BodyStrong" Margin="0,16,0,0" />
+                                        <ui:TextBlock x:Name="ClientAttemptFactsText" Text="Watch 尚无成功读取" Style="{StaticResource SecondaryText}" Margin="0,8,0,0" AutomationProperties.Name="Watch 客户端读取事实" />
+                                        <ui:TextBlock x:Name="StaleNoticeText" Text="" FontTypography="BodyStrong" Foreground="{DynamicResource SystemFillColorCautionBrush}" TextWrapping="Wrap" Margin="0,16,0,0" AutomationProperties.Name="概览陈旧状态" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Grid x:Name="DemandSeriesPage" Visibility="Collapsed" AutomationProperties.Name="需求系列页面">
+                        <StackPanel><ui:TextBlock Text="需求系列" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="列表数据尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="0,16,0,0" /></StackPanel>
+                    </Grid>
+                    <Grid x:Name="ReadabilityAuditPage" Visibility="Collapsed" AutomationProperties.Name="资格审计页面">
+                        <StackPanel><ui:TextBlock Text="资格审计" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="审计列表尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="0,16,0,0" /></StackPanel>
+                    </Grid>
+                    <Grid x:Name="ErrorSearchPage" Visibility="Collapsed" AutomationProperties.Name="错误检索页面">
+                        <StackPanel><ui:TextBlock Text="错误检索" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="错误检索尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="0,16,0,0" /></StackPanel>
+                    </Grid>
+                    <Grid x:Name="AreaFilterPage" Visibility="Collapsed" AutomationProperties.Name="AREA 筛选页面">
+                        <StackPanel><ui:TextBlock Text="AREA 筛选" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="本机上下文已与 Host 快照分离" Message="AREA 配置编辑尚未在此版本启用；概览始终单独显示本机选择与 Host 已提交范围。" Margin="0,16,0,0" /></StackPanel>
+                    </Grid>
+                    <Grid x:Name="CurrentAttentionPage" Visibility="Collapsed" AutomationProperties.Name="接入告警页面">
+                        <StackPanel><ui:TextBlock Text="接入告警" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="接入关注列表尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="0,16,0,0" /></StackPanel>
+                    </Grid>
+
+                    <ScrollViewer x:Name="SettingsPage" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="设置页面">
+                        <StackPanel Margin="0,0,8,8">
+                            <ui:TextBlock Text="设置" Style="{StaticResource PageTitleText}" />
+                            <ui:TextBlock Text="单一 Host、始终开启的分视图自动刷新，以及本机显示偏好" Style="{StaticResource SecondaryText}" Margin="0,8,0,0" />
+                            <ui:InfoBar x:Name="SettingsInfoBar" IsOpen="False" IsClosable="True" Severity="Informational" Margin="0,16,0,0" AutomationProperties.Name="设置操作状态" />
+
+                            <Grid x:Name="SettingsColumns" Margin="0,16,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="SettingsVerticalGap" Height="0" />
+                                    <RowDefinition x:Name="SettingsBottomRow" Height="0" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="SettingsLeftColumn" Width="1*" />
+                                    <ColumnDefinition x:Name="SettingsGapColumn" Width="16" />
+                                    <ColumnDefinition x:Name="SettingsRightColumn" Width="1*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <Border Style="{StaticResource SurfaceCard}">
+                                        <StackPanel>
+                                            <ui:TextBlock Text="Host 连接" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="SettingsHostStateText" Text="Host 未连接" Style="{StaticResource SecondaryText}" Margin="0,8,0,16" />
+                                            <ui:TextBlock Text="服务地址" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="HostBaseUrlInput" Margin="0,8,0,12" AutomationProperties.Name="Host 基址" />
+                                            <ui:TextBlock Text="访问凭据" Style="{StaticResource FieldLabel}" />
+                                            <PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Padding="12,8" Margin="0,8,0,8" AutomationProperties.Name="只读 API 凭据" />
+                                            <ui:TextBlock Text="留空继续使用当前外部配置凭据；输入值仅用于本次进程，保存后立即清空。" Style="{StaticResource SecondaryText}" />
+                                            <ui:TextBlock Text="请求超时（秒）" Style="{StaticResource FieldLabel}" Margin="0,12,0,0" />
+                                            <TextBox x:Name="RequestTimeoutInput" Width="120" HorizontalAlignment="Left" Margin="0,8,0,0" ToolTip="1–300 秒" AutomationProperties.Name="全局请求超时秒数" />
+                                            <ui:Button x:Name="ApplyHostButton" Content="应用 Host 设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,16,0,0" Click="OnApplyHostClick" AutomationProperties.Name="应用 Host 设置" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Style="{StaticResource SurfaceCard}" Margin="0,16,0,0">
+                                        <StackPanel>
+                                            <ui:TextBlock Text="本机显示" Style="{StaticResource SectionTitleText}" />
+                                            <CheckBox x:Name="RememberWindowSizeCheckBox" Content="记住窗口尺寸" Margin="0,12,0,0" AutomationProperties.Name="记住窗口尺寸" />
+                                            <CheckBox x:Name="KeepNavigationPaneOpenCheckBox" Content="默认展开导航窗格" Margin="0,8,0,0" AutomationProperties.Name="默认展开导航窗格" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+                                <Border x:Name="RefreshSettingsCard" Grid.Column="2" Style="{StaticResource SurfaceCard}">
+                                    <StackPanel>
+                                        <ui:TextBlock Text="自动刷新间隔" Style="{StaticResource SectionTitleText}" />
+                                        <ui:TextBlock Text="五个 Host 数据视图始终自动刷新；当前可见视图按所选间隔单飞调度。" Style="{StaticResource SecondaryText}" Margin="0,8,0,16" />
+                                        <ui:TextBlock Text="概览" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="OverviewIntervalInput" Margin="0,8,0,12" AutomationProperties.Name="概览自动刷新间隔" />
+                                        <ui:TextBlock Text="需求系列" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="DemandSeriesIntervalInput" Margin="0,8,0,12" AutomationProperties.Name="需求系列自动刷新间隔" />
+                                        <ui:TextBlock Text="资格审计" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="ReadabilityAuditIntervalInput" Margin="0,8,0,12" AutomationProperties.Name="资格审计自动刷新间隔" />
+                                        <ui:TextBlock Text="错误检索" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="ErrorSearchIntervalInput" Margin="0,8,0,12" AutomationProperties.Name="错误检索自动刷新间隔" />
+                                        <ui:TextBlock Text="接入告警" Style="{StaticResource FieldLabel}" />
+                                        <ComboBox x:Name="CurrentAttentionIntervalInput" Margin="0,8,0,0" AutomationProperties.Name="接入告警自动刷新间隔" />
+                                        <ui:Button x:Name="SaveRefreshIntervalsButton" Content="保存刷新与显示设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,16,0,0" Click="OnSaveLocalPreferencesClick" AutomationProperties.Name="保存刷新与显示设置" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </ui:NavigationView.ContentOverlay>
+        </ui:NavigationView>
+    </Grid>
+</ui:FluentWindow>

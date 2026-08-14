@@ -2,14 +2,14 @@ namespace MesIngest.Watch;
 
 internal partial class App : Application
 {
-    private WatchApplicationComposition? _composition;
+    private WatchV2ApplicationComposition? _composition;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
         var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
-        _composition = WatchApplicationComposition.Create(
+        _composition = WatchV2ApplicationComposition.Create(
             options,
             timeProvider: WatchProcessTimeProvider.Resolve());
         _composition.CreateMainWindow().Show();

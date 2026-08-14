@@ -6,8 +6,9 @@ using MesIngest.Core;
 namespace MesIngest.Watch;
 
 /// <summary>
-/// Production composition root for the Watch desktop application. UI tests use this
-/// same root and replace only the Host boundary adapter.
+/// Legacy V1 composition retained temporarily for pre-ticket-19 regression
+/// fixtures. <see cref="App"/> no longer references this type; production starts
+/// exclusively through <see cref="WatchV2ApplicationComposition"/>.
 /// </summary>
 internal sealed class WatchApplicationComposition : IDisposable
 {

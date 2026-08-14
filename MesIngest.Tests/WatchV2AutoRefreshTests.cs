@@ -114,6 +114,175 @@ public sealed class WatchV2AutoRefreshTests
     }
 
     [Fact]
+    public async Task Refresh_notifications_observe_started_after_the_session_enters_refreshing_and_completed_after_success_commits()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var response = new TaskCompletionSource<WatchOverviewSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new RecordingV2Client
+        {
+            OverviewHandler = (_, _) => response.Task,
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        var observations = new List<RefreshObservation>();
+        coordinator.RefreshStateChanged += (_, change) => observations.Add(new(
+            change.View,
+            change.Phase,
+            session.State.Overview.IsRefreshing,
+            session.State.Overview.Snapshot,
+            session.State.Overview.LastFailureAt));
+        var query = new WatchOverviewQuery(["A1-1"]);
+        coordinator.ActivateOverview(query);
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var refresh = coordinator.WaitForIdleAsync();
+
+        var started = Assert.Single(observations);
+        Assert.Equal(WatchV2DataView.Overview, started.View);
+        Assert.Equal(WatchV2AutoRefreshPhase.Started, started.Phase);
+        Assert.True(started.IsRefreshing);
+        Assert.Null(started.Snapshot);
+
+        var snapshot = RecordingV2Client.OverviewSnapshot(query);
+        response.SetResult(snapshot);
+        await refresh;
+
+        Assert.Collection(
+            observations,
+            value => Assert.Equal(WatchV2AutoRefreshPhase.Started, value.Phase),
+            value =>
+            {
+                Assert.Equal(WatchV2DataView.Overview, value.View);
+                Assert.Equal(WatchV2AutoRefreshPhase.Completed, value.Phase);
+                Assert.False(value.IsRefreshing);
+                Assert.Same(snapshot, value.Snapshot);
+                Assert.Null(value.LastFailureAt);
+            });
+    }
+
+    [Fact]
+    public async Task Refresh_completion_notification_observes_the_committed_failure_state()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var response = new TaskCompletionSource<WatchOverviewSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new RecordingV2Client
+        {
+            OverviewHandler = (_, _) => response.Task,
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        var observations = new List<RefreshObservation>();
+        coordinator.RefreshStateChanged += (_, change) => observations.Add(new(
+            change.View,
+            change.Phase,
+            session.State.Overview.IsRefreshing,
+            session.State.Overview.Snapshot,
+            session.State.Overview.LastFailureAt));
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var refresh = coordinator.WaitForIdleAsync();
+        var started = Assert.Single(observations);
+        Assert.Equal(WatchV2AutoRefreshPhase.Started, started.Phase);
+        Assert.True(started.IsRefreshing);
+
+        response.SetException(new InvalidOperationException(
+            "scripted automatic refresh failure"));
+        await refresh;
+
+        Assert.Collection(
+            observations,
+            value =>
+            {
+                Assert.Equal(WatchV2AutoRefreshPhase.Started, value.Phase);
+                Assert.True(value.IsRefreshing);
+            },
+            value =>
+            {
+                Assert.Equal(WatchV2AutoRefreshPhase.Completed, value.Phase);
+                Assert.False(value.IsRefreshing);
+                Assert.Null(value.Snapshot);
+                Assert.Equal(clock.GetUtcNow(), value.LastFailureAt);
+            });
+        Assert.Equal(WatchHostFailureKind.Unknown, session.State.Overview.FailureKind);
+    }
+
+    [Fact]
+    public async Task Throwing_notification_subscribers_do_not_break_single_flight_or_other_subscribers()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        var phases = new List<WatchV2AutoRefreshPhase>();
+        coordinator.RefreshStateChanged += (_, _) =>
+            throw new InvalidOperationException("observer failure must be isolated");
+        coordinator.RefreshStateChanged += (_, change) => phases.Add(change.Phase);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        await AdvanceOneIntervalAsync(clock, coordinator);
+        await AdvanceOneIntervalAsync(clock, coordinator);
+
+        Assert.Equal(2, client.OverviewCallCount);
+        Assert.Equal(
+            [
+                WatchV2AutoRefreshPhase.Started,
+                WatchV2AutoRefreshPhase.Completed,
+                WatchV2AutoRefreshPhase.Started,
+                WatchV2AutoRefreshPhase.Completed,
+            ],
+            phases);
+        Assert.Null(coordinator.LastUnhandledException);
+    }
+
+    [Fact]
+    public async Task Disposal_suppresses_completion_notification_from_an_in_flight_refresh()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var response = new TaskCompletionSource<WatchOverviewSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new RecordingV2Client
+        {
+            OverviewHandler = (_, _) => response.Task,
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        var phases = new List<WatchV2AutoRefreshPhase>();
+        coordinator.RefreshStateChanged += (_, change) => phases.Add(change.Phase);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var refresh = coordinator.WaitForIdleAsync();
+        coordinator.Dispose();
+        response.SetResult(RecordingV2Client.OverviewSnapshot(new WatchOverviewQuery()));
+        await refresh;
+
+        Assert.Equal([WatchV2AutoRefreshPhase.Started], phases);
+    }
+
+    [Fact]
     public async Task Updating_the_active_interval_rearms_the_due_time()
     {
         var clock = new ManualTimerTimeProvider(
@@ -273,6 +442,13 @@ public sealed class WatchV2AutoRefreshTests
         clock.Advance(TimeSpan.FromSeconds(10));
         await coordinator.WaitForIdleAsync();
     }
+
+    private sealed record RefreshObservation(
+        WatchV2DataView View,
+        WatchV2AutoRefreshPhase Phase,
+        bool IsRefreshing,
+        WatchOverviewSnapshot? Snapshot,
+        DateTimeOffset? LastFailureAt);
 
     private sealed class RecordingV2Client : IWatchV2ApiClient
     {

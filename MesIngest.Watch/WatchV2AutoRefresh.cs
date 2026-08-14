@@ -11,6 +11,21 @@ internal enum WatchV2DataView
     CurrentIngestAttention,
 }
 
+internal enum WatchV2AutoRefreshPhase
+{
+    Started,
+    Completed,
+}
+
+internal sealed class WatchV2AutoRefreshEventArgs(
+    WatchV2DataView view,
+    WatchV2AutoRefreshPhase phase) : EventArgs
+{
+    public WatchV2DataView View { get; } = view;
+
+    public WatchV2AutoRefreshPhase Phase { get; } = phase;
+}
+
 internal sealed record WatchV2AutoRefreshSetting
 {
     public static IReadOnlyList<int> AllowedIntervals { get; } = [10, 30, 60, 300];
@@ -223,6 +238,13 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
         }
     }
 
+    /// <summary>
+    /// Announces automatic refresh state transitions after the workspace has
+    /// committed the corresponding state. Observer failures are isolated from
+    /// the coordinator and from other observers.
+    /// </summary>
+    public event EventHandler<WatchV2AutoRefreshEventArgs>? RefreshStateChanged;
+
     public void ActivateOverview(WatchOverviewQuery query)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -382,7 +404,11 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
     {
         try
         {
-            await RefreshAsync(target, cancellationToken).ConfigureAwait(false);
+            var refresh = RefreshAsync(target, cancellationToken);
+            PublishRefreshStateChanged(
+                target.View,
+                WatchV2AutoRefreshPhase.Started);
+            await refresh.ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -397,6 +423,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
         }
         finally
         {
+            var publishCompleted = false;
             lock (_gate)
             {
                 _refreshInProgress = false;
@@ -410,9 +437,53 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
                 if (!_disposed)
                 {
                     ArmTimerForScheduleLocked();
+                    publishCompleted = true;
                 }
+            }
 
-                completion.TrySetResult();
+            if (publishCompleted)
+            {
+                PublishRefreshStateChanged(
+                    target.View,
+                    WatchV2AutoRefreshPhase.Completed);
+            }
+
+            completion.TrySetResult();
+        }
+    }
+
+    private void PublishRefreshStateChanged(
+        WatchV2DataView view,
+        WatchV2AutoRefreshPhase phase)
+    {
+        EventHandler<WatchV2AutoRefreshEventArgs>? subscribers;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            subscribers = RefreshStateChanged;
+        }
+
+        if (subscribers is null)
+        {
+            return;
+        }
+
+        var args = new WatchV2AutoRefreshEventArgs(view, phase);
+        foreach (EventHandler<WatchV2AutoRefreshEventArgs> subscriber
+                 in subscribers.GetInvocationList())
+        {
+            try
+            {
+                subscriber(this, args);
+            }
+            catch
+            {
+                // Rendering observers must not own the automatic-refresh
+                // single-flight slot or prevent another observer from running.
             }
         }
     }
