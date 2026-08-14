@@ -170,3 +170,10 @@ dotnet test
 ```
 
 Formal V2 seams include `IMesTaskUnionRoundSource`, `MesTaskUnionPollRunner`, `RoundIngestor`, and the read-only HTTP API. Real SQL Server Ticket 15 evidence runs with `Invoke-Ticket15SqlServerGate.ps1`; Oracle executor/probe CI tests use controlled fakes and never claim a plant Oracle pass.
+
+Ticket 16's ProjectionCommit atomicity/concurrency release evidence must run against an explicitly approved real SQL Server. LocalDB and in-memory results are development feedback only and are insufficient release evidence. The gate writes its TRX plus JSON and Markdown reports under `.artifacts/ticket16-tests/`:
+
+```powershell
+$env:MES_INGEST_TICKET01_SQLSERVER = 'Server=<SQL_HOST>;Database=master;...'
+.\Invoke-Ticket16SqlServerGate.ps1 -ExpectedProductMajor <major> -ExpectedCompatibilityLevel <level>
+```

@@ -9,7 +9,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
 {
     private const string CompleteCatalogBody = """
         {
-          "contractVersion": "2026.08.new-mes-ingest.tracer.15",
+          "contractVersion": "2026.08.new-mes-ingest.tracer.16",
           "catalogRevision": 12,
           "projectionCommitId": "commit-12",
           "projectionSequence": 34,
@@ -131,7 +131,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
     {
         const string body = """
             {
-              "contractVersion": "2026.08.new-mes-ingest.tracer.15",
+              "contractVersion": "2026.08.new-mes-ingest.tracer.16",
               "catalogRevision": 0,
               "projectionCommitId": null,
               "projectionSequence": null,
@@ -170,7 +170,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
     public async Task Complete_200_rejects_a_mismatched_contract_version()
     {
         var mismatchedBody = CompleteCatalogBody.Replace(
-            "2026.08.new-mes-ingest.tracer.15",
+            "2026.08.new-mes-ingest.tracer.16",
             "2026.08.new-mes-ingest.tracer.8",
             StringComparison.Ordinal);
         var handler = new RecordingHttpMessageHandler(_ =>

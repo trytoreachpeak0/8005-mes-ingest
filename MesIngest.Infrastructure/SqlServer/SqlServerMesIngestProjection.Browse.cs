@@ -32,6 +32,12 @@ public sealed partial class SqlServerMesIngestProjection
                 query.SnapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.DemandSeries,
+                new ProjectionReadFence(
+                    snapshot.ProjectionCommitId,
+                    snapshot.ProjectionSequence),
+                cancellationToken).ConfigureAwait(false);
 
             var pageNumber = query.PageNumber;
             DemandSeriesBrowseCursor? cursor = null;
@@ -133,6 +139,12 @@ public sealed partial class SqlServerMesIngestProjection
                 transaction,
                 snapshotReference,
                 signingKey,
+                cancellationToken).ConfigureAwait(false);
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.DemandSeries,
+                new ProjectionReadFence(
+                    snapshot.ProjectionCommitId,
+                    snapshot.ProjectionSequence),
                 cancellationToken).ConfigureAwait(false);
             var series = (await ReadSeriesStatesAsync(
                     connection,

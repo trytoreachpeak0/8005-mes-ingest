@@ -23,6 +23,14 @@ public sealed partial class SqlServerMesIngestProjection
             cancellationToken).ConfigureAwait(false);
         try
         {
+            // CatalogState and CatalogItems are one resource. Take the shared
+            // side of the writer's commit-order lock before any table lock so
+            // the reader is wholly before or after a commit and cannot deadlock
+            // while converting the two resources in the opposite order.
+            await AcquireCommitRoundReadFenceLockAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
             long revision;
             string? projectionCommitId;
             long? projectionSequence;
@@ -52,6 +60,14 @@ public sealed partial class SqlServerMesIngestProjection
                     ? null
                     : reader.GetFieldValue<DateTimeOffset>(3);
             }
+
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.Catalog,
+                new ProjectionReadFence(
+                    projectionCommitId,
+                    projectionSequence,
+                    revision),
+                cancellationToken).ConfigureAwait(false);
 
             if (knownRevision == revision)
             {

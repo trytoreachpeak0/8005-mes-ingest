@@ -199,17 +199,15 @@ internal static class NewMesIngestEndpoints
         try
         {
             var requestedSnapshot = ReadSingle(request.Query, "snapshot");
-            if (requestedSnapshot is not null)
-            {
-                // Validate and resolve the snapshot before the mutable permanent-key
-                // lookup. An invalid credential must never be masked as a key 404.
-                await projection.ListDemandSeriesAsync(
-                    new DemandSeriesBrowseQuery(
-                        new DemandSeriesBrowseFilter(),
-                        PageSize: 1,
-                        SnapshotReference: requestedSnapshot),
-                    cancellationToken);
-            }
+            // Select (or validate) the immutable fence before consulting the
+            // permanent key index. Invalid credentials must not be masked by a
+            // mutable key miss, and no second list read may advance the fence.
+            var frozen = await projection.ListDemandSeriesAsync(
+                new DemandSeriesBrowseQuery(
+                    new DemandSeriesBrowseFilter(),
+                    PageSize: 1,
+                    SnapshotReference: requestedSnapshot),
+                cancellationToken);
 
             var current = await projection.GetDemandSeriesByKeyAsync(
                 workType,
@@ -220,20 +218,9 @@ internal static class NewMesIngestEndpoints
                 return Results.NotFound();
             }
 
-            var list = await projection.ListDemandSeriesAsync(
-                new DemandSeriesBrowseQuery(
-                    new DemandSeriesBrowseFilter { SeriesId = current.SeriesId },
-                    PageSize: 1,
-                    SnapshotReference: requestedSnapshot),
-                cancellationToken);
-            if (list.Items.Count == 0)
-            {
-                return Results.NotFound();
-            }
-
             var detail = await projection.GetDemandSeriesAtSnapshotAsync(
                 current.SeriesId,
-                list.SnapshotReference,
+                frozen.SnapshotReference,
                 cancellationToken);
             return detail is null
                 ? Results.NotFound()

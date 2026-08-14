@@ -70,12 +70,18 @@ if (newV2Enabled)
 {
     builder.Services.AddSingleton<IWatchOverviewReadBoundaryObserver>(
         NoopWatchOverviewReadBoundaryObserver.Instance);
+    builder.Services.AddSingleton<IProjectionCommitCheckpointObserver>(
+        NoopProjectionCommitCheckpointObserver.Instance);
+    builder.Services.AddSingleton<IProjectionReadBoundaryObserver>(
+        NoopProjectionReadBoundaryObserver.Instance);
     builder.Services.AddSingleton<IMesIngestProjection>(sp =>
         new SqlServerMesIngestProjection(
             configured.NewSqlServerConnectionString,
             configured.ZeroDropEnterThreshold,
             sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>()));
+            sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>(),
+            sp.GetRequiredService<IProjectionCommitCheckpointObserver>(),
+            sp.GetRequiredService<IProjectionReadBoundaryObserver>()));
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
     if (v2OracleRuntimeEnabled)

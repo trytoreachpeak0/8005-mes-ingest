@@ -17,4 +17,5 @@ dist/
 .artifacts/ticket12-tests/
 .artifacts/ticket14-tests/
 .artifacts/ticket15-tests/
+.artifacts/ticket16-tests/
 .artifacts/ticket15-release-package/

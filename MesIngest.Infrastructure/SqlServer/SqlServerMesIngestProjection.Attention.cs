@@ -29,6 +29,14 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.CurrentIngestAttention,
+                new ProjectionReadFence(
+                    snapshot.ProjectionCommitId,
+                    snapshot.ProjectionSequence,
+                    snapshot.CatalogRevision,
+                    snapshot.PollTraceHighWater),
+                cancellationToken).ConfigureAwait(false);
             var result = await ReadCurrentAttentionAtFenceAsync(
                 connection,
                 transaction,

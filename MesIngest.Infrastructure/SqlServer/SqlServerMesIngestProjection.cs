@@ -35,6 +35,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     private readonly int _zeroDropEnterThreshold;
     private readonly TimeProvider _timeProvider;
     private readonly IWatchOverviewReadBoundaryObserver _overviewReadBoundaryObserver;
+    private readonly IProjectionCommitCheckpointObserver _checkpointObserver;
+    private readonly IProjectionReadBoundaryObserver _readBoundaryObserver;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
@@ -45,7 +47,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string connectionString,
         int zeroDropEnterThreshold = 10,
         TimeProvider? timeProvider = null,
-        IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null)
+        IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null,
+        IProjectionCommitCheckpointObserver? checkpointObserver = null,
+        IProjectionReadBoundaryObserver? readBoundaryObserver = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -67,6 +71,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         _timeProvider = timeProvider ?? TimeProvider.System;
         _overviewReadBoundaryObserver = overviewReadBoundaryObserver
             ?? NoopWatchOverviewReadBoundaryObserver.Instance;
+        _checkpointObserver = checkpointObserver
+            ?? NoopProjectionCommitCheckpointObserver.Instance;
+        _readBoundaryObserver = readBoundaryObserver
+            ?? NoopProjectionReadBoundaryObserver.Instance;
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)
@@ -244,6 +252,15 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 restartPhaseAfter,
                 restartTransition.AbsenceAuthority,
                 cancellationToken).ConfigureAwait(false);
+            var checkpointContext = new ProjectionCommitCheckpointContext(
+                round.PollTraceId,
+                projectionCommitId);
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.RoundEvidencePersisted,
+                checkpointContext,
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
             var bootstrapRound = await IsFirstProjectionCommitAsync(
                 connection,
                 transaction,
@@ -282,6 +299,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 round,
                 projectionCommitId,
                 prepared.UnassignedObservations,
+                cancellationToken).ConfigureAwait(false);
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.ProtectionAndUnassignedPersisted,
+                checkpointContext,
+                connection,
+                transaction,
                 cancellationToken).ConfigureAwait(false);
 
             var workTypesBySublot = PrepareWorkTypeMemberships(groups);
@@ -419,6 +442,13 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 demandIds.Add(identity.DemandId);
             }
 
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.DemandProjectionPersisted,
+                checkpointContext,
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
+
             if (effectiveAuthorityByWorkType.Values.Any(value => value))
             {
                 await MarkAbsentVisibleDemandsGoneAsync(
@@ -442,12 +472,24 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 seriesIds,
                 demandIds,
                 cancellationToken).ConfigureAwait(false);
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.AbsenceAndArchivePersisted,
+                checkpointContext,
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
 
             await ReconcileExternallyReadableDemandCatalogAsync(
                 connection,
                 transaction,
                 round,
                 projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.CatalogPersisted,
+                checkpointContext,
+                connection,
+                transaction,
                 cancellationToken).ConfigureAwait(false);
 
             await AdvanceRestartBarrierAsync(
@@ -464,6 +506,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 connection,
                 transaction,
                 projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
+            await _checkpointObserver.OnCheckpointAsync(
+                ProjectionCommitCheckpoint.BeforeCommit,
+                checkpointContext,
+                connection,
+                transaction,
                 cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new RoundCommitReceipt(
@@ -485,6 +533,27 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     private static async Task AcquireCommitRoundOrderLockAsync(
         SqlConnection connection,
         SqlTransaction transaction,
+        CancellationToken cancellationToken) =>
+        await AcquireCommitRoundLockAsync(
+            connection,
+            transaction,
+            lockMode: "Exclusive",
+            cancellationToken).ConfigureAwait(false);
+
+    private static async Task AcquireCommitRoundReadFenceLockAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken) =>
+        await AcquireCommitRoundLockAsync(
+            connection,
+            transaction,
+            lockMode: "Shared",
+            cancellationToken).ConfigureAwait(false);
+
+    private static async Task AcquireCommitRoundLockAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string lockMode,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -492,19 +561,21 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.CommandText = """
             DECLARE @result INT;
             EXEC @result = sys.sp_getapplock
-                @Resource = N'mesingest.CommitRoundOrder.v15',
-                @LockMode = N'Exclusive',
+                @Resource = N'mesingest.CommitRoundOrder.v16',
+                @LockMode = @lockMode,
                 @LockOwner = N'Transaction',
                 @LockTimeout = 30000;
             SELECT @result;
             """;
+        command.Parameters.Add("@lockMode", SqlDbType.NVarChar, 32).Value = lockMode;
         var result = Convert.ToInt32(
             await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
             CultureInfo.InvariantCulture);
         if (result < 0)
         {
             throw new TimeoutException(
-                $"Unable to acquire the MES ingest commit-order lock (sp_getapplock={result}).");
+                $"Unable to acquire the MES ingest commit-order {lockMode} lock "
+                + $"(sp_getapplock={result}).");
         }
     }
 
