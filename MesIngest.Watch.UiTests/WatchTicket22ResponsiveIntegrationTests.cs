@@ -13,6 +13,131 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchTicket22ResponsiveIntegrationTests
 {
     [Fact]
+    public async Task Current_attention_keeps_longest_type_facet_visible_at_1440_by_900_epx_and_stacks_at_1180_epx()
+    {
+        const string sharedSecret = "ticket-22-facet-width-secret";
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-22-facet-width", sharedSecret)
+            {
+                Overview = FakeHostReply.Return(
+                    WatchErrorSearchProductionIntegrationTests.CreateOverview()),
+                CurrentAttention = FakeHostReply.Select<
+                    CurrentIngestAttentionQuery,
+                    CurrentIngestAttentionSnapshot>(query => FakeHostReply.Return(
+                        WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(query))),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
+        using var timeout = WatchErrorSearchProductionIntegrationTests.CreateTimeout();
+
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = host.BaseUrl,
+                    SharedSecret = sharedSecret,
+                    RequestTimeoutSeconds = 30,
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
+                await window.InitializeAsync(timeout.Token);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    PageNumber: 1,
+                    Cursor: null));
+                await window.CurrentAttentionNavigationTask.WaitAsync(timeout.Token);
+                window.UpdateLayout();
+
+                var dpi = VisualTreeHelper.GetDpi(window);
+                Assert.InRange(window.ActualWidth, 1439.5, 1440.5);
+                Assert.InRange(window.ActualHeight, 899.5, 900.5);
+                var facetCard = Find<FrameworkElement>(window, "CurrentAttentionFacetCard");
+                var resultsCard = Find<FrameworkElement>(window, "CurrentAttentionResultsCard");
+                var evidenceCard = Find<FrameworkElement>(window, "CurrentAttentionEvidenceCard");
+                Assert.Equal((0, 0), (Grid.GetColumn(facetCard), Grid.GetRow(facetCard)));
+                Assert.Equal((2, 0), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
+                Assert.Equal((4, 0), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
+
+                var facetGrid = Find<DataGrid>(window, "CurrentAttentionKindFacetGrid");
+                facetGrid.BringIntoView();
+                window.UpdateLayout();
+                var facet = Assert.Single(
+                    facetGrid.Items.Cast<WatchCurrentIngestAttentionFacetPresentation>(),
+                    candidate => candidate.Value ==
+                        CurrentIngestAttentionKinds.UnassignedMesObservation);
+                facetGrid.ScrollIntoView(facet, facetGrid.Columns[0]);
+                facetGrid.UpdateLayout();
+                window.UpdateLayout();
+                await window.Dispatcher.InvokeAsync(
+                    facetGrid.UpdateLayout,
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+                var renderedText = Assert.IsType<TextBlock>(
+                    facetGrid.Columns[0].GetCellContent(facet));
+                Assert.Equal(
+                    CurrentIngestAttentionKinds.UnassignedMesObservation,
+                    renderedText.Text);
+                var typeface = new Typeface(
+                    renderedText.FontFamily,
+                    renderedText.FontStyle,
+                    renderedText.FontWeight,
+                    renderedText.FontStretch);
+                var naturalText = new FormattedText(
+                    renderedText.Text,
+                    renderedText.Language.GetSpecificCulture(),
+                    renderedText.FlowDirection,
+                    typeface,
+                    renderedText.FontSize,
+                    renderedText.Foreground,
+                    numberSubstitution: null,
+                    TextOptions.GetTextFormattingMode(renderedText),
+                    dpi.PixelsPerDip);
+                var cell = Assert.IsType<DataGridCell>(
+                    FindVisualAncestor<DataGridCell>(renderedText));
+                var textOrigin = renderedText.TranslatePoint(new Point(0, 0), cell);
+                var availableTextWidth = Math.Min(
+                    renderedText.ActualWidth,
+                    cell.ActualWidth
+                        - textOrigin.X
+                        - cell.Padding.Right
+                        - cell.BorderThickness.Right);
+
+                Assert.Equal(TextTrimming.None, renderedText.TextTrimming);
+                Assert.True(
+                    naturalText.WidthIncludingTrailingWhitespace <= availableTextWidth + 0.5,
+                    $"{renderedText.Text} requires " +
+                    $"{naturalText.WidthIncludingTrailingWhitespace:F2} epx, but its realized " +
+                    $"type-facet cell exposes only {availableTextWidth:F2} epx " +
+                    $"(cell={cell.ActualWidth:F2}, text={renderedText.ActualWidth:F2}, " +
+                    $"origin={textOrigin.X:F2}, grid={facetGrid.ActualWidth:F2}, " +
+                    $"type-column={facetGrid.Columns[0].ActualWidth:F2}, " +
+                    $"count-column={facetGrid.Columns[1].ActualWidth:F2}, " +
+                    $"dpi={dpi.PixelsPerInchX:F0}, " +
+                    $"formatting={TextOptions.GetTextFormattingMode(renderedText)}).");
+
+                window.Width = 1180;
+                window.UpdateLayout();
+
+                Assert.Equal((0, 0), (Grid.GetColumn(facetCard), Grid.GetRow(facetCard)));
+                Assert.Equal((0, 2), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
+                Assert.Equal((0, 4), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
     public async Task Error_search_and_current_attention_expose_keyboard_non_color_semantics_and_error_search_reflows_three_aligned_cards_at_720_epx()
     {
         using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
@@ -353,6 +478,22 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
             if (FindVisualDescendant<T>(child) is { } nested)
             {
                 return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static T? FindVisualAncestor<T>(DependencyObject child)
+        where T : DependencyObject
+    {
+        for (var current = VisualTreeHelper.GetParent(child);
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (current is T match)
+            {
+                return match;
             }
         }
 

@@ -88,6 +88,56 @@ public sealed class WatchWorkspaceProductionJourneyTests
     }
 
     [Fact]
+    public void Error_detail_fixture_derives_matched_errors_from_filtered_periods_not_stale_series_summary()
+    {
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter
+            {
+                ActivityStates = [ErrorSearchActivityStates.Active],
+                SeriesId = PreviewErrorSeriesId,
+            },
+            ErrorSearchWindowSelection.Last7Days);
+        var sourceDetail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+            query.NormalizeAndValidate().Filter,
+            ErrorSearchWindowKinds.Last7Days);
+        sourceDetail = sourceDetail with
+        {
+            Series = sourceDetail.Series with
+            {
+                MatchedErrors =
+                [
+                    .. sourceDetail.Series.MatchedErrors,
+                    new ErrorSearchMatchedErrorSnapshot(
+                        "REQUIRED_MES_FIELD_MISSING",
+                        "DATA_COMPLETENESS",
+                        "WARNING"),
+                ],
+            },
+        };
+        var detail = CreateJourneyErrorDetail(
+            query,
+            new FakeHostV2DetailRequest(PreviewErrorSeriesId, ErrorSnapshotReference),
+            sourceDetail);
+
+        var period = Assert.Single(detail.Periods);
+        var matchedError = Assert.Single(detail.Series.MatchedErrors);
+
+        Assert.True(period.ActiveAtAsOf);
+        Assert.Equal("REQUIRED_MES_FIELD_MISSING", period.Code);
+        Assert.Equal("DATA_COMPLETENESS", period.Category);
+        Assert.Equal("ERROR", period.Severity);
+        Assert.Equal(period.Code, matchedError.Code);
+        Assert.Equal(period.Category, matchedError.Category);
+        Assert.Equal(period.Severity, matchedError.Severity);
+        Assert.DoesNotContain(
+            detail.Series.MatchedErrors,
+            error => string.Equals(
+                error.Code,
+                "INVALID_MES_FIELD_FORMAT",
+                StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Error_detail_fixture_keeps_an_ended_boundary_period_inside_the_half_open_window()
     {
         var query = new ErrorSearchQuery(
@@ -754,12 +804,14 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     internal static ErrorSearchDetailSnapshot CreateJourneyErrorDetail(
         ErrorSearchQuery query,
-        FakeHostV2DetailRequest request)
+        FakeHostV2DetailRequest request,
+        ErrorSearchDetailSnapshot? sourceDetail = null)
     {
         var normalized = query.NormalizeAndValidate();
-        var detail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
-            normalized.Filter,
-            ErrorSearchWindowKinds.Last7Days);
+        var detail = sourceDetail
+            ?? WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+                normalized.Filter,
+                ErrorSearchWindowKinds.Last7Days);
         var identity = detail.Snapshot with
         {
             ErrorSearchAsOf = PreviewErrorAsOf,
@@ -847,13 +899,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 ActivityState = periods.Any(period => period.ActiveAtAsOf)
                     ? ErrorSearchActivityStates.Active
                     : ErrorSearchActivityStates.Ended,
-                MatchedErrors = detail.Series.MatchedErrors
-                    .Where(error => periods.Any(period =>
-                        string.Equals(period.Code, error.Code, StringComparison.Ordinal)
-                        && string.Equals(
-                            period.Category,
-                            error.Category,
-                            StringComparison.Ordinal)))
+                MatchedErrors = periods
+                    .Select(period => new ErrorSearchMatchedErrorSnapshot(
+                        period.Code,
+                        period.Category,
+                        period.Severity))
+                    .Distinct()
                     .ToArray(),
                 LatestMatchedEvidenceAt = latestMatchedEvidenceAt,
                 MatchedPeriodCount = periods.Length,
