@@ -70,7 +70,14 @@ internal sealed record WatchV2ViewState<TSnapshot, TDetail>(
     string? CorrelationId,
     string? SelectedId,
     TDetail? Detail,
-    string? SelectionNotice)
+    string? SelectionNotice,
+    bool IsDetailLoading,
+    DateTimeOffset? DetailLastFailureAt,
+    WatchHostFailureKind DetailFailureKind,
+    string? DetailFailureCode,
+    string? DetailErrorMessage,
+    string? DetailEndpoint,
+    string? DetailCorrelationId)
 {
     public bool IsStale => Snapshot is not null
         && (LastFailureAt is not null
@@ -94,7 +101,14 @@ internal sealed record WatchV2ViewState<TSnapshot, TDetail>(
         CorrelationId: null,
         SelectedId: null,
         Detail: default,
-        SelectionNotice: null);
+        SelectionNotice: null,
+        IsDetailLoading: false,
+        DetailLastFailureAt: null,
+        DetailFailureKind: WatchHostFailureKind.None,
+        DetailFailureCode: null,
+        DetailErrorMessage: null,
+        DetailEndpoint: null,
+        DetailCorrelationId: null);
 }
 
 internal sealed record WatchV2WorkspaceState(
@@ -564,7 +578,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                 client.FetchErrorSearchDetailAsync(selectedId, snapshotReference, token),
             static detail => detail.Snapshot.ContractVersion,
             "/api/v2/error-search/{seriesId}",
-            cancellationToken);
+            cancellationToken,
+            isolateDetailFailure: true);
 
     public async Task<ErrorSearchRawEvidenceSnapshot> ReadErrorRawEvidenceAsync(
         string seriesId,
@@ -891,6 +906,13 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                         SelectedId = selectedId,
                         Detail = detail,
                         SelectionNotice = selectionNotice,
+                        IsDetailLoading = false,
+                        DetailLastFailureAt = null,
+                        DetailFailureKind = WatchHostFailureKind.None,
+                        DetailFailureCode = null,
+                        DetailErrorMessage = null,
+                        DetailEndpoint = null,
+                        DetailCorrelationId = null,
                     },
                     selection.SelectionGeneration))
                 {
@@ -947,7 +969,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         Func<IWatchV2ApiClient, string, string, CancellationToken, Task<TDetail>> fetchDetail,
         Func<TDetail, string> getContractVersion,
         string endpoint,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool isolateDetailFailure = false)
     {
         if (string.IsNullOrWhiteSpace(selectedId))
         {
@@ -965,6 +988,13 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                         SelectedId = null,
                         Detail = default,
                         SelectionNotice = null,
+                        IsDetailLoading = false,
+                        DetailLastFailureAt = null,
+                        DetailFailureKind = WatchHostFailureKind.None,
+                        DetailFailureCode = null,
+                        DetailErrorMessage = null,
+                        DetailEndpoint = null,
+                        DetailCorrelationId = null,
                     });
             }
 
@@ -984,7 +1014,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             fetchDetail,
             getContractVersion,
             endpoint,
-            cancellationToken);
+            cancellationToken,
+            isolateDetailFailure);
     }
 
     private async Task SelectDetailCoreAsync<TSnapshot, TDetail>(
@@ -997,7 +1028,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         Func<IWatchV2ApiClient, string, string, CancellationToken, Task<TDetail>> fetchDetail,
         Func<TDetail, string> getContractVersion,
         string endpoint,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool isolateDetailFailure)
     {
         long selectionGeneration;
         CancellationTokenSource? previousDetailCancellation;
@@ -1018,6 +1050,13 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                         SelectedId = null,
                         Detail = default,
                         SelectionNotice = WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot,
+                        IsDetailLoading = false,
+                        DetailLastFailureAt = null,
+                        DetailFailureKind = WatchHostFailureKind.None,
+                        DetailFailureCode = null,
+                        DetailErrorMessage = null,
+                        DetailEndpoint = null,
+                        DetailCorrelationId = null,
                     });
             }
             else
@@ -1039,6 +1078,13 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                         SelectedId = selectedId,
                         Detail = default,
                         SelectionNotice = null,
+                        IsDetailLoading = true,
+                        DetailLastFailureAt = null,
+                        DetailFailureKind = WatchHostFailureKind.None,
+                        DetailFailureCode = null,
+                        DetailErrorMessage = null,
+                        DetailEndpoint = null,
+                        DetailCorrelationId = null,
                     });
             }
         }
@@ -1081,44 +1127,130 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     return;
                 }
 
-                _state = setView(_state, current with { Detail = detail });
-            }
-        }
-        catch (OperationCanceledException) when (linked.IsCancellationRequested)
-        {
-            // Host replacement, selection changes, and caller cancellation are neutral.
-        }
-        catch (WatchHostQueryException exception)
-        {
-            lock (_gate)
-            {
-                var current = getView(_state);
-                if (_disposed
-                    || detailLease.HostGeneration != _hostGeneration
-                    || detailLease.RequestGeneration != current.RequestGeneration
-                    || selectionGeneration != current.SelectionGeneration
-                    || !string.Equals(current.SelectedId, selectedId, StringComparison.Ordinal))
-                {
-                    return;
-                }
-
                 _state = setView(
                     _state,
                     current with
                     {
-                        LastFailureAt = _timeProvider.GetUtcNow(),
-                        FailedQueryKey = current.CommittedQueryKey,
-                        FailureKind = exception.Kind,
-                        FailureCode = exception.ErrorCode,
-                        ErrorMessage = exception.Message,
-                        Endpoint = exception.Endpoint,
-                        CorrelationId = exception.CorrelationId,
+                        Detail = detail,
+                        IsDetailLoading = false,
+                        DetailLastFailureAt = null,
+                        DetailFailureKind = WatchHostFailureKind.None,
+                        DetailFailureCode = null,
+                        DetailErrorMessage = null,
+                        DetailEndpoint = null,
+                        DetailCorrelationId = null,
                     });
             }
+        }
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
+        {
+            CommitDetailFailureIfCurrent(
+                detailLease,
+                selectionGeneration,
+                selectedId,
+                getSnapshotReference,
+                getView,
+                setView,
+                new WatchHostQueryException(
+                    WatchHostFailureKind.Canceled,
+                    endpoint,
+                    Guid.NewGuid().ToString("N"),
+                    "The detail request was canceled.",
+                    errorCode: "REQUEST_CANCELED"),
+                isolateDetailFailure);
+        }
+        catch (WatchHostQueryException exception)
+        {
+            CommitDetailFailureIfCurrent(
+                detailLease,
+                selectionGeneration,
+                selectedId,
+                getSnapshotReference,
+                getView,
+                setView,
+                exception,
+                isolateDetailFailure);
+        }
+        catch (Exception exception)
+        {
+            CommitDetailFailureIfCurrent(
+                detailLease,
+                selectionGeneration,
+                selectedId,
+                getSnapshotReference,
+                getView,
+                setView,
+                new WatchHostQueryException(
+                    WatchHostFailureKind.Unknown,
+                    endpoint,
+                    Guid.NewGuid().ToString("N"),
+                    exception.Message,
+                    exception),
+                isolateDetailFailure);
         }
         finally
         {
             ReleaseDetail(slot, detailLease.Cancellation);
+        }
+    }
+
+    private void CommitDetailFailureIfCurrent<TSnapshot, TDetail>(
+        DetailRequestLease detailLease,
+        long selectionGeneration,
+        string selectedId,
+        Func<TSnapshot, string> getSnapshotReference,
+        Func<WatchV2WorkspaceState, WatchV2ViewState<TSnapshot, TDetail>> getView,
+        Func<WatchV2WorkspaceState, WatchV2ViewState<TSnapshot, TDetail>, WatchV2WorkspaceState> setView,
+        WatchHostQueryException exception,
+        bool isolateDetailFailure)
+    {
+        lock (_gate)
+        {
+            var current = getView(_state);
+            if (_disposed
+                || detailLease.HostGeneration != _hostGeneration
+                || detailLease.RequestGeneration != current.RequestGeneration
+                || selectionGeneration != current.SelectionGeneration
+                || !string.Equals(current.SelectedId, selectedId, StringComparison.Ordinal)
+                || current.Snapshot is null
+                || !string.Equals(
+                    getSnapshotReference(current.Snapshot),
+                    detailLease.SnapshotReference,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var failedAt = _timeProvider.GetUtcNow();
+            var canceledLegacyDetail = exception.Kind == WatchHostFailureKind.Canceled
+                && !isolateDetailFailure;
+            var updated = canceledLegacyDetail
+                ? current with { IsDetailLoading = false }
+                : current with
+                {
+                    IsDetailLoading = false,
+                    DetailLastFailureAt = failedAt,
+                    DetailFailureKind = exception.Kind,
+                    DetailFailureCode = exception.ErrorCode,
+                    DetailErrorMessage = exception.Message,
+                    DetailEndpoint = exception.Endpoint,
+                    DetailCorrelationId = exception.CorrelationId,
+                };
+            if (!isolateDetailFailure && !canceledLegacyDetail)
+            {
+                updated = updated with
+                {
+                    LastFailureAt = failedAt,
+                    FailedQueryKey = current.CommittedQueryKey,
+                    FailureKind = exception.Kind,
+                    FailureCode = exception.ErrorCode,
+                    ErrorMessage = exception.Message,
+                    Endpoint = exception.Endpoint,
+                    CorrelationId = exception.CorrelationId,
+                };
+            }
+
+            _state = setView(_state, updated);
         }
     }
 
@@ -1144,6 +1276,7 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     RequestGeneration = requestGeneration,
                     IsRefreshing = true,
                     PendingQueryKey = queryKey,
+                    IsDetailLoading = false,
                 });
             return new RequestLease<TSnapshot, TDetail>(
                 _client!,

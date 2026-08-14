@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
@@ -15,6 +17,7 @@ namespace MesIngest.Watch;
 internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
 {
     private const string ContractEndpoint = "/api/v2/contract";
+    private const int RawEvidenceMaximumEnvelopeBytes = 256 * 1024;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -286,7 +289,8 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
                 RequireResponseContractVersion(wire.Snapshot.ContractVersion);
                 return wire.ToCore();
             },
-            cancellationToken);
+            cancellationToken,
+            RawEvidenceMaximumEnvelopeBytes);
     }
 
     public Task<CurrentIngestAttentionSnapshot> FetchCurrentAttentionAsync(
@@ -318,7 +322,8 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
     private async Task<TResult> FetchJsonAsync<TWire, TResult>(
         string endpoint,
         Func<TWire, TResult> map,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? maximumResponseBytes = null)
     {
         var correlationId = Guid.NewGuid().ToString("N");
         var stopwatch = Stopwatch.StartNew();
@@ -326,8 +331,18 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
             request.Headers.TryAddWithoutValidation(LatencyHeaders.CorrelationId, correlationId);
-            using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            using var response = await _http.SendAsync(
+                    request,
+                    maximumResponseBytes is null
+                        ? HttpCompletionOption.ResponseContentRead
+                        : HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            var body = await ReadResponseBodyAsync(
+                    response.Content,
+                    maximumResponseBytes,
+                    cancellationToken)
+                .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 V2ErrorPayload? error = null;
@@ -392,6 +407,52 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
                 ex);
             throw WatchHostQueryFailure.From(fetch, correlationId, Redact);
         }
+    }
+
+    private static async Task<string> ReadResponseBodyAsync(
+        HttpContent content,
+        int? maximumResponseBytes,
+        CancellationToken cancellationToken)
+    {
+        if (maximumResponseBytes is null)
+        {
+            return await content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var maximumBytes = maximumResponseBytes.Value;
+        if (content.Headers.ContentLength is > 0 and var contentLength
+            && contentLength > maximumBytes)
+        {
+            throw new JsonException(
+                $"The response body exceeds the {maximumBytes}-byte bounded envelope.");
+        }
+
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        using var body = new MemoryStream(Math.Min(maximumBytes, 8 * 1024));
+        var buffer = new byte[8 * 1024];
+        var totalBytes = 0;
+        while (true)
+        {
+            var read = await stream.ReadAsync(
+                    buffer.AsMemory(0, Math.Min(buffer.Length, maximumBytes - totalBytes + 1)),
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+
+            totalBytes += read;
+            if (totalBytes > maximumBytes)
+            {
+                throw new JsonException(
+                    $"The response body exceeds the {maximumBytes}-byte bounded envelope.");
+            }
+            body.Write(buffer, 0, read);
+        }
+
+        return Encoding.UTF8.GetString(body.GetBuffer(), 0, totalBytes);
     }
 
     private static string BuildEndpoint(

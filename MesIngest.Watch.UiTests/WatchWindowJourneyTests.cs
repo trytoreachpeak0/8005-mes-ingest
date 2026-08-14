@@ -22,7 +22,6 @@ public sealed class WatchWindowJourneyTests
     [InlineData("alert-to-demand")]
     [InlineData("slow-request-cancel")]
     [InlineData("offline-reconnect")]
-    [Trait("Category", "watch-ui-journeys")]
     [Trait("Category", "watch-window-visual")]
     public async Task Operator_completes_high_value_real_window_journey(string journeyName)
     {
@@ -30,7 +29,7 @@ public sealed class WatchWindowJourneyTests
     }
 
     [Fact]
-    [Trait("Category", "watch-ui-journeys")]
+    [Trait("Category", "watch-window-nonbaseline")]
     public async Task Fluent_window_chrome_supports_keyboard_uia_double_click_and_drag()
     {
         await RunJourneyAsync("fluent-window-chrome");
@@ -636,7 +635,7 @@ public sealed class WatchWindowJourneyTests
         }
     }
 
-    private static string DumpUiaTree(
+    internal static string DumpUiaTree(
         AutomationElement root,
         UIA3Automation automation)
     {
@@ -703,7 +702,7 @@ public sealed class WatchWindowJourneyTests
         }
     }
 
-    private static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
+    internal static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
     {
         OperationCanceledException? cancellation = null;
         if (!process.HasExited)
@@ -734,7 +733,7 @@ public sealed class WatchWindowJourneyTests
         }
     }
 
-    private static bool TryRecordFailure(
+    internal static bool TryRecordFailure(
         WatchJourneyEvidence evidence,
         string step,
         Exception exception,
@@ -751,7 +750,7 @@ public sealed class WatchWindowJourneyTests
         }
     }
 
-    private static void CaptureCleanupFailure(
+    internal static void CaptureCleanupFailure(
         ref Exception? primaryFailure,
         ref string failedStep,
         Exception cleanupFailure,
@@ -778,7 +777,7 @@ public sealed class WatchWindowJourneyTests
             "1",
             StringComparison.Ordinal);
 
-    private static string ResolveArtifactRoot()
+    internal static string ResolveArtifactRoot()
     {
         var configured = Environment.GetEnvironmentVariable("MESINGEST_WATCH_UI_ARTIFACTS");
         if (!string.IsNullOrWhiteSpace(configured))
@@ -792,7 +791,7 @@ public sealed class WatchWindowJourneyTests
         return root;
     }
 
-    private static string ResolveWatchExecutable()
+    internal static string ResolveWatchExecutable()
     {
         var configured = Environment.GetEnvironmentVariable("MESINGEST_WATCH_EXECUTABLE");
         if (!string.IsNullOrWhiteSpace(configured))
@@ -828,7 +827,7 @@ public sealed class WatchWindowJourneyTests
         return path;
     }
 
-    private static string FormatEnvironment(WatchVisualEnvironmentSnapshot snapshot) => string.Join(
+    internal static string FormatEnvironment(WatchVisualEnvironmentSnapshot snapshot) => string.Join(
         Environment.NewLine,
         $"interactive={snapshot.HasInteractiveInputDesktop}",
         $"desktop={snapshot.DesktopWidth}x{snapshot.DesktopHeight}",

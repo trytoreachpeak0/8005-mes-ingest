@@ -730,7 +730,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
             WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
     }
 
-    private static DemandSeriesListSnapshot CreateDemandSeriesList(
+    internal static DemandSeriesListSnapshot CreateDemandSeriesList(
         DemandSeriesBrowseQuery query,
         string seriesId,
         string snapshotReference)
@@ -807,7 +807,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
             HasMore = nextCursor is not null,
         };
 
-    private static DemandSeriesDetailSnapshot CreateDemandSeriesDetail(
+    internal static DemandSeriesDetailSnapshot CreateDemandSeriesDetail(
         string seriesId,
         string snapshotReference)
     {

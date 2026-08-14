@@ -3,7 +3,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual")]
+    [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual", "watch-production-preview")]
     [string]$Suite = "watch-vm-tests",
 
     [string]$ArtifactsDirectory
@@ -125,6 +125,11 @@ try {
 
     $suites = if ($Suite -eq "all") {
         @("watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual")
+    } elseif ($Suite -eq "watch-production-preview") {
+        # Tickets 19-22 share one production-UI preview train. Keep the
+        # non-pixel/UIA checks and real-window captures in one deployed payload
+        # without starting either baseline comparison suite.
+        @("watch-vm-tests", "watch-ui-journeys")
     } else {
         @($Suite)
     }

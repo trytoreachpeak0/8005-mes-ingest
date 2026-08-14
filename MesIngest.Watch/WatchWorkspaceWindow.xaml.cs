@@ -85,6 +85,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         InitializeComponent();
         InitializeDemandSeriesPage();
         InitializeReadabilityAuditAndAreaProfiles();
+        InitializeTicket22Pages();
         if (Application.Current is null)
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
@@ -142,6 +143,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ArgumentNullException.ThrowIfNull(settings);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        BeginErrorSearchOperation();
+        BeginCurrentAttentionOperation();
+        _errorSearchQuery = WatchErrorSearchQueries.StartLatest();
+        _currentAttentionQuery = WatchCurrentIngestAttentionQueries.StartLatest();
+        _errorRawEvidence = WatchErrorRawEvidenceState.Empty;
+        _selectedErrorPeriodId = null;
+        _selectedErrorEvidenceId = null;
+        _selectedCurrentAttentionIdentity = null;
+        _currentAttentionSelectionNotice = null;
+        ResetErrorSearchCursorHistory();
+        SyncErrorSearchFilterControls(_errorSearchQuery);
+        SyncCurrentAttentionFilterControls(_currentAttentionQuery);
         _currentHostSettings = settings;
         _autoRefresh.Deactivate();
         NavigateTo(WatchWorkspacePage.Overview, activateRefresh: false);
@@ -336,6 +349,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
                  && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
         {
             ReadabilityAuditNavigationTask = LoadReadabilityAuditNavigationAsync(
+                _lifetimeCancellation.Token);
+        }
+        else if (_activePage == WatchWorkspacePage.ErrorSearch
+                 && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            ErrorSearchNavigationTask = LoadErrorSearchNavigationAsync(
+                _lifetimeCancellation.Token);
+        }
+        else if (_activePage == WatchWorkspacePage.CurrentAttention
+                 && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            CurrentAttentionNavigationTask = LoadCurrentAttentionNavigationAsync(
                 _lifetimeCancellation.Token);
         }
     }
@@ -849,6 +874,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderHostFooter(state, presentation);
         RenderDemandSeries(state);
         RenderReadabilityAudit(state);
+        RenderErrorSearch(state);
+        RenderCurrentAttention(state);
     }
 
     private void RenderDemandSeries(WatchV2WorkspaceState state)
@@ -1222,7 +1249,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 NavigateTo(WatchWorkspacePage.ReadabilityAudit);
                 break;
             case OverviewNavigationTargets.ErrorSearch:
-                _errorSearchQuery = new ErrorSearchQuery(
+                _errorSearchQuery = WatchErrorSearchQueries.StartLatest(
                     new ErrorSearchFilter
                     {
                         ActivityStates = intent.ErrorActivityStates ?? [],
@@ -1230,29 +1257,30 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     },
                     intent.ErrorWindow is null
                         ? ErrorSearchWindowSelection.Last7Days
-                        : new ErrorSearchWindowSelection(intent.ErrorWindow),
-                    Cursor: intent.Cursor).NormalizeAndValidate();
+                        : new ErrorSearchWindowSelection(intent.ErrorWindow));
+                _errorRawEvidence = WatchErrorRawEvidenceState.Empty;
+                SyncErrorSearchFilterControls(_errorSearchQuery);
                 NavigateTo(WatchWorkspacePage.ErrorSearch);
                 break;
             case OverviewNavigationTargets.CurrentIngestAttention:
-                _currentAttentionQuery = new CurrentIngestAttentionQuery(
-                    PageNumber: intent.PageNumber,
-                    Kinds: intent.AttentionKinds,
-                    Severities: intent.AttentionSeverities).NormalizeAndValidate();
+                _currentAttentionQuery = WatchCurrentIngestAttentionQueries.FromNavigation(intent);
+                SyncCurrentAttentionFilterControls(_currentAttentionQuery);
                 NavigateTo(WatchWorkspacePage.CurrentAttention);
                 break;
             case OverviewNavigationTargets.TaskTypeProtection:
-                _currentAttentionQuery = new CurrentIngestAttentionQuery(
-                    PageNumber: intent.PageNumber,
-                    Kinds: [CurrentIngestAttentionKinds.TaskTypeProtection],
-                    Severities: intent.AttentionSeverities).NormalizeAndValidate();
+                _currentAttentionQuery = WatchCurrentIngestAttentionQueries.StartLatest(
+                    [CurrentIngestAttentionKinds.TaskTypeProtection],
+                    intent.AttentionSeverities,
+                    pageNumber: intent.PageNumber);
+                SyncCurrentAttentionFilterControls(_currentAttentionQuery);
                 NavigateTo(WatchWorkspacePage.CurrentAttention);
                 break;
             case OverviewNavigationTargets.PollTrace:
-                _currentAttentionQuery = new CurrentIngestAttentionQuery(
-                    PageNumber: intent.PageNumber,
-                    Kinds: [CurrentIngestAttentionKinds.PollRunFailure],
-                    Severities: intent.AttentionSeverities).NormalizeAndValidate();
+                _currentAttentionQuery = WatchCurrentIngestAttentionQueries.StartLatest(
+                    [CurrentIngestAttentionKinds.PollRunFailure],
+                    intent.AttentionSeverities,
+                    pageNumber: intent.PageNumber);
+                SyncCurrentAttentionFilterControls(_currentAttentionQuery);
                 NavigateTo(WatchWorkspacePage.CurrentAttention);
                 break;
             default:
@@ -1680,8 +1708,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
         await ReadabilityAuditNavigationTask.ConfigureAwait(true);
     }
 
-    private void OnErrorSearchNavigationClick(object sender, RoutedEventArgs e) =>
+    private void OnErrorSearchNavigationClick(object sender, RoutedEventArgs e)
+    {
+        _errorSearchQuery = WatchErrorSearchQueries.StartLatest(
+            _errorSearchQuery.Filter,
+            _errorSearchQuery.Window,
+            _errorSearchQuery.PageSize);
+        _errorRawEvidence = WatchErrorRawEvidenceState.Empty;
+        SyncErrorSearchFilterControls(_errorSearchQuery);
         NavigateTo(WatchWorkspacePage.ErrorSearch);
+        ErrorSearchNavigationTask = _session.State.ConnectionStatus
+            == WatchHostConnectionStatus.Connected
+                ? LoadErrorSearchNavigationAsync(_lifetimeCancellation.Token)
+                : Task.CompletedTask;
+    }
 
     private void OnAreaFilterNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateToAreaProfiles();
@@ -1692,8 +1732,19 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderAreaProfiles();
     }
 
-    private void OnCurrentAttentionNavigationClick(object sender, RoutedEventArgs e) =>
+    private void OnCurrentAttentionNavigationClick(object sender, RoutedEventArgs e)
+    {
+        _currentAttentionQuery = WatchCurrentIngestAttentionQueries.StartLatest(
+            _currentAttentionQuery.Kinds,
+            _currentAttentionQuery.Severities,
+            _currentAttentionQuery.PageSize);
+        SyncCurrentAttentionFilterControls(_currentAttentionQuery);
         NavigateTo(WatchWorkspacePage.CurrentAttention);
+        CurrentAttentionNavigationTask = _session.State.ConnectionStatus
+            == WatchHostConnectionStatus.Connected
+                ? LoadCurrentAttentionNavigationAsync(_lifetimeCancellation.Token)
+                : Task.CompletedTask;
+    }
 
     private void OnSettingsNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.Settings);
@@ -1742,6 +1793,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AreaProfileVerticalGap,
             AreaProfileBottomRow,
             (GridLength)FindResource("AreaProfileMasterColumnWidth"));
+        ReflowTicket22Pages(contentWidth);
         WorkspaceContent.Margin = contentWidth < 760
             ? new Thickness(12)
             : new Thickness(24, 16, 24, 16);
@@ -1872,6 +1924,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Interlocked.Increment(ref _demandSeriesOperationGeneration);
         Interlocked.Increment(ref _readabilityAuditOperationGeneration);
         Interlocked.Increment(ref _areaProfileOperationGeneration);
+        Interlocked.Increment(ref _errorSearchOperationGeneration);
+        Interlocked.Increment(ref _currentAttentionOperationGeneration);
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();

@@ -253,7 +253,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
             WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
     }
 
-    private static ReadabilityAuditListSnapshot CreateAuditList(
+    internal static ReadabilityAuditListSnapshot CreateAuditList(
         ReadabilityAuditQuery query,
         string snapshotReference)
     {
@@ -323,7 +323,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
         };
     }
 
-    private static ReadabilityAuditDetailSnapshot CreateAuditDetail(string snapshotReference)
+    internal static ReadabilityAuditDetailSnapshot CreateAuditDetail(string snapshotReference)
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         var item = AuditItem(at);

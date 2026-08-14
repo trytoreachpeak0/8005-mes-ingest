@@ -720,6 +720,132 @@ public sealed class WatchV2WorkspaceSessionTests
         Assert.Equal(2, session.State.DemandSeries.SelectionGeneration);
     }
 
+    [Fact]
+    public async Task Error_detail_failure_is_isolated_from_the_list_and_a_retry_clears_detail_failure()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var detailStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFailure = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last30Days);
+        var page = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+            query,
+            "error-detail-session-22",
+            pageNumber: 1,
+            totalPages: 1,
+            totalSeriesCount: 1);
+        var successfulDetail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+            page.Filter,
+            ErrorSearchWindowKinds.Last30Days) with
+        {
+            SnapshotReference = page.SnapshotReference,
+            Snapshot = page.Snapshot,
+            Window = page.Window,
+        };
+        var detailCalls = 0;
+        var client = new DelegatingV2Client
+        {
+            ErrorSearch = (_, _) => Task.FromResult(page),
+            ErrorDetail = async (_, _, _) =>
+            {
+                if (Interlocked.Increment(ref detailCalls) == 1)
+                {
+                    detailStarted.SetResult();
+                    await releaseFailure.Task.ConfigureAwait(false);
+                    throw new WatchHostQueryException(
+                        WatchHostFailureKind.ServerQuery,
+                        "/api/v2/error-search/{seriesId}",
+                        "correlation-error-detail-22",
+                        "The selected Error Search detail failed.",
+                        errorCode: "DETAIL_FAILED");
+                }
+
+                return successfulDetail;
+            },
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        await session.RefreshErrorSearchAsync(query, testToken);
+        var seriesId = page.Items.Single().SeriesId;
+
+        var firstSelection = session.SelectErrorSeriesAsync(seriesId, testToken);
+        await detailStarted.Task.WaitAsync(testToken);
+        var loading = session.State.ErrorSearch;
+        Assert.True(loading.IsDetailLoading);
+        Assert.Null(loading.DetailLastFailureAt);
+        Assert.Null(loading.LastFailureAt);
+        Assert.False(loading.IsStale);
+
+        releaseFailure.SetResult();
+        await firstSelection;
+        var failed = session.State.ErrorSearch;
+        Assert.False(failed.IsDetailLoading);
+        Assert.Null(failed.Detail);
+        Assert.NotNull(failed.DetailLastFailureAt);
+        Assert.Equal(WatchHostFailureKind.ServerQuery, failed.DetailFailureKind);
+        Assert.Equal("DETAIL_FAILED", failed.DetailFailureCode);
+        Assert.Equal("correlation-error-detail-22", failed.DetailCorrelationId);
+        Assert.Null(failed.LastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, failed.FailureKind);
+        Assert.False(failed.IsStale);
+        Assert.Same(page, failed.Snapshot);
+
+        await session.SelectErrorSeriesAsync(seriesId, testToken);
+        var recovered = session.State.ErrorSearch;
+        Assert.Same(successfulDetail, recovered.Detail);
+        Assert.False(recovered.IsDetailLoading);
+        Assert.Null(recovered.DetailLastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, recovered.DetailFailureKind);
+        Assert.Null(recovered.DetailFailureCode);
+        Assert.Null(recovered.DetailErrorMessage);
+        Assert.Null(recovered.DetailEndpoint);
+        Assert.Null(recovered.DetailCorrelationId);
+        Assert.Null(recovered.LastFailureAt);
+        Assert.False(recovered.IsStale);
+    }
+
+    [Fact]
+    public async Task Demand_detail_caller_cancellation_remains_neutral_with_new_detail_state()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var detailStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var query = new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter());
+        var client = new DelegatingV2Client
+        {
+            DemandSeries = (_, _) => Task.FromResult(
+                DemandSeriesSnapshot("detail-cancel", query, "series-a")),
+            DemandSeriesDetail = async (_, _, token) =>
+            {
+                detailStarted.SetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+                throw new InvalidOperationException("The canceled detail unexpectedly completed.");
+            },
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        await session.RefreshDemandSeriesAsync(query, testToken);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+
+        var selection = session.SelectDemandSeriesAsync("series-a", cancellation.Token);
+        await detailStarted.Task.WaitAsync(testToken);
+        Assert.True(session.State.DemandSeries.IsDetailLoading);
+        cancellation.Cancel();
+        await selection;
+
+        var canceled = session.State.DemandSeries;
+        Assert.False(canceled.IsDetailLoading);
+        Assert.Null(canceled.LastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, canceled.FailureKind);
+        Assert.Null(canceled.DetailLastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, canceled.DetailFailureKind);
+        Assert.Null(canceled.FailureCode);
+        Assert.Null(canceled.DetailFailureCode);
+    }
+
     private static WatchOverviewSnapshot OverviewSnapshot(
         string projectionCommitId,
         IReadOnlyList<string> areas,

@@ -10,6 +10,7 @@ param(
         'watch-xaml-visual',
         'watch-xaml-stability',
         'watch-ui-journeys',
+        'watch-production-preview',
         'watch-window-visual',
         'watch-window-stability',
         'watch-window-promoted-stability',

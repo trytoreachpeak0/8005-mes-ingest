@@ -37,21 +37,31 @@ difference exits with code `2` before Verify can write a received artifact. See
 [`Baselines/README.md`](Baselines/README.md) for the 10-run stability and human-review
 workflow. Tests and candidates contain fixed fake data only.
 
-The real-window suites launch the packaged `MesIngest.Watch.exe`, drive it through
-FlaUI.UIA3 5.0.0, and serve the public read contract from a loopback HTTP fake Host.
-They never inject a test adapter into the Watch process. The five journeys are:
-
-- cold-start overview;
-- independent VISIBLE/GONE paging and TransportDemand details;
-- IngestAlert to exact TransportDemand navigation;
-- canceling a slow request while retaining the last successful page;
-- going offline and reconnecting.
+The production real-window journey launches `MesIngest.Watch.exe`, drives it through
+FlaUI.UIA3 5.0.0, and serves the versioned V2 read contract from
+`ScriptedFakeHost`. It never injects a page adapter into the Watch process. The
+shared tickets 19-22 journey verifies the Fluent chrome and records real-window
+previews for Overview, Settings, DemandSeries detail, Readability Audit detail,
+AREA profiles, Error Search Variant A, CurrentIngestAttention, and the explicit
+Series-error drill back to Error Search. Each run also retains the production UIA
+tree, redacted V2 request timeline, Watch logs, stdout, and stderr.
 
 Run UIA journey smoke at 100%, 125%, or 150% DPI:
 
 ```powershell
 .\Invoke-WatchUiTests.ps1 -Suite watch-ui-journeys
 ```
+
+Run the implementation-train non-pixel suite and the production real-window
+journey from one deployed payload, without invoking a baseline suite:
+
+```powershell
+.\Invoke-WatchUiTests.ps1 -Suite watch-production-preview
+```
+
+The old five-state window matrix remains isolated under `watch-window-visual`
+until the shared baseline ticket replaces it. Do not use that historical matrix
+as approval evidence for the production workspace.
 
 Run the five pixel-exact `1440x900` client-area baselines only on the calibrated 100%
 environment:

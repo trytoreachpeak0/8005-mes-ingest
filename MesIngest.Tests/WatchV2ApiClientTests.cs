@@ -377,6 +377,45 @@ public sealed class WatchV2ApiClientTests
         Assert.Equal(expected.Items[0].Fields, actual.Items[0].Fields);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Error_raw_evidence_rejects_an_oversized_http_envelope_before_deserialization(
+        bool includeContentLength)
+    {
+        var payload = Encoding.UTF8.GetBytes(new string('x', 300_000));
+        using var handler = new DelegateHandler((_, _) =>
+        {
+            HttpContent content = includeContentLength
+                ? new ByteArrayContent(payload)
+                : new UnknownLengthContent(payload);
+            if (includeContentLength)
+            {
+                content.Headers.ContentLength = payload.Length;
+            }
+
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = content,
+            });
+        });
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings("http://ticket18-host:5088", "secret", 30),
+            handler: handler);
+
+        var error = await Assert.ThrowsAsync<WatchHostQueryException>(() =>
+            client.FetchErrorRawEvidenceAsync(
+                "series-raw",
+                "evidence-raw",
+                "snapshot-raw",
+                new ErrorSearchRawEvidenceQuery([ErrorSearchRawEvidenceFields.Package]),
+                CancellationToken.None));
+
+        Assert.Equal(WatchHostFailureKind.Decode, error.Kind);
+        Assert.Equal(LatencyStages.HttpJson, error.Stage);
+        Assert.Contains("raw-observations", error.Endpoint, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Current_attention_uses_normalized_page_facets_and_maps_navigation_evidence()
     {
@@ -1012,5 +1051,22 @@ public sealed class WatchV2ApiClientTests
             HttpRequestMessage request,
             CancellationToken cancellationToken) =>
             _send(request, cancellationToken);
+    }
+
+    private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(
+            Stream stream,
+            TransportContext? context) =>
+            stream.WriteAsync(bytes).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new MemoryStream(bytes, writable: false));
     }
 }
