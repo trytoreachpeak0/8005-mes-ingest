@@ -215,6 +215,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Equal(2, Find<DataGrid>(window, "ErrorSearchPeriodGrid").Items.Count);
                 Assert.Empty(Find<DataGrid>(window, "ErrorSearchEvidenceGrid").Items);
                 var detailContext = Find<TextBlock>(window, "ErrorSearchDetailContextText").Text;
+                Assert.Contains(SeriesId, detailContext, StringComparison.Ordinal);
                 Assert.Contains("窗口", detailContext, StringComparison.Ordinal);
                 Assert.Contains("Demand", detailContext, StringComparison.OrdinalIgnoreCase);
             }

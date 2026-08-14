@@ -256,7 +256,24 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
             wire =>
             {
                 RequireResponseContractVersion(wire.Snapshot.ContractVersion);
-                return wire.ToCore();
+                var detail = wire.ToCore();
+                if (!string.Equals(
+                        detail.Series.SeriesId,
+                        seriesId,
+                        StringComparison.Ordinal))
+                {
+                    throw new JsonException(
+                        "The Error Search detail SeriesId does not match the requested route.");
+                }
+                if (!string.Equals(
+                        detail.SnapshotReference,
+                        snapshotReference,
+                        StringComparison.Ordinal))
+                {
+                    throw new JsonException(
+                        "The Error Search detail snapshot does not match the requested snapshot.");
+                }
+                return detail;
             },
             cancellationToken);
     }

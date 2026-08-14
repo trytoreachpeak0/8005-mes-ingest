@@ -312,6 +312,11 @@ public sealed class WatchV2ApiClientTests
     {
         Uri? observed = null;
         var expected = ErrorSearchDetail();
+        expected = expected with
+        {
+            SnapshotReference = "error +/=",
+            Series = expected.Series with { SeriesId = "series/error?" },
+        };
         using var handler = new DelegateHandler((request, _) =>
         {
             observed = request.RequestUri;
@@ -340,6 +345,40 @@ public sealed class WatchV2ApiClientTests
         Assert.Equal(
             expected.Periods[0].Evidence[0].RelatedWorkTypes,
             actual.Periods[0].Evidence[0].RelatedWorkTypes);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Error_search_detail_rejects_a_response_for_another_route_identity(
+        bool wrongSeries,
+        bool wrongSnapshot)
+    {
+        const string requestedSeries = "series-requested";
+        const string requestedSnapshot = "snapshot-requested";
+        var response = ErrorSearchDetail();
+        response = response with
+        {
+            SnapshotReference = wrongSnapshot ? "snapshot-other" : requestedSnapshot,
+            Series = response.Series with
+            {
+                SeriesId = wrongSeries ? "series-other" : requestedSeries,
+            },
+        };
+        using var handler = new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse(ErrorSearchDetailDto.From(response))));
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings("http://ticket18-host:5088", "secret", 30),
+            handler: handler);
+
+        var error = await Assert.ThrowsAsync<WatchHostQueryException>(() =>
+            client.FetchErrorSearchDetailAsync(
+                requestedSeries,
+                requestedSnapshot,
+                CancellationToken.None));
+
+        Assert.Equal(WatchHostFailureKind.Decode, error.Kind);
+        Assert.Equal("/api/v2/error-search/series-requested?snapshot=snapshot-requested", error.Endpoint);
     }
 
     [Fact]

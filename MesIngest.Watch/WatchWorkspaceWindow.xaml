@@ -157,7 +157,7 @@
         <wpf:GridLength x:Key="Ticket22CardGap">16</wpf:GridLength>
         <wpf:GridLength x:Key="ErrorSearchCategoryColumnWidth">286</wpf:GridLength>
         <wpf:GridLength x:Key="ErrorSearchDetailColumnWidth">480</wpf:GridLength>
-        <wpf:GridLength x:Key="CurrentAttentionFacetColumnWidth">286</wpf:GridLength>
+        <wpf:GridLength x:Key="CurrentAttentionFacetColumnWidth">320</wpf:GridLength>
         <wpf:GridLength x:Key="CurrentAttentionEvidenceColumnWidth">390</wpf:GridLength>
         <sys:Double x:Key="Ticket22ThreeCardStackBreakpoint">900</sys:Double>
         <Style x:Key="DemandSeriesReadOnlyGrid" TargetType="DataGrid">

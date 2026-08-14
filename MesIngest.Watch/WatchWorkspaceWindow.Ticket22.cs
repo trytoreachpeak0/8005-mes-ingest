@@ -833,7 +833,7 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchEvidenceGrid.SelectedItem = selectedEvidence;
             ErrorSearchDetailContextText.Text = detail is null
                 ? $"{presentation.DetailStatus.Title}：{presentation.DetailStatus.Message}"
-                : $"窗口命中边界：{string.Join("；", detail.Periods.Select(period => period.BoundarySummary).Distinct(StringComparer.Ordinal))} · {detail.GenerationSummary}";
+                : $"{detail.Heading} · 窗口命中边界：{string.Join("；", detail.Periods.Select(period => period.BoundarySummary).Distinct(StringComparer.Ordinal))} · {detail.GenerationSummary}";
             SetTextAutomationName(
                 ErrorSearchDetailContextText,
                 "错误检索窗口边界与 Demand 世代语义",

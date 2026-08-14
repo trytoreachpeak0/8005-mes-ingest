@@ -177,11 +177,14 @@ internal sealed record WatchErrorSearchPresentation(
                 ActivityFacets: [],
                 Rows: [],
                 Detail: null,
-                DetailStatus: ProjectDetailStatus(view, snapshotReference: null),
+                DetailStatus: ProjectDetailStatus(
+                    view,
+                    snapshotReference: null,
+                    hasMatchingDetail: false),
                 RawEvidence: WatchErrorRawEvidencePresentation.Hidden);
         }
 
-        var detail = ProjectDetail(snapshot, view.Detail);
+        var detail = ProjectDetail(snapshot, view.SelectedId, view.Detail);
         var displayPage = snapshot.TotalPages == 0 ? 0 : snapshot.PageNumber;
         return new WatchErrorSearchPresentation(
             HasSnapshot: true,
@@ -219,7 +222,10 @@ internal sealed record WatchErrorSearchPresentation(
                 .ToArray(),
             snapshot.Items.Select(ProjectRow).ToArray(),
             detail,
-            ProjectDetailStatus(view, snapshot.SnapshotReference),
+            ProjectDetailStatus(
+                view,
+                snapshot.SnapshotReference,
+                hasMatchingDetail: detail is not null),
             ProjectRawEvidence(snapshot, detail, rawEvidence ?? WatchErrorRawEvidenceState.Empty));
     }
 
@@ -298,7 +304,8 @@ internal sealed record WatchErrorSearchPresentation(
 
     private static WatchErrorSearchDetailStatusPresentation ProjectDetailStatus(
         WatchV2ViewState<ErrorSearchListSnapshot, ErrorSearchDetailSnapshot> view,
-        string? snapshotReference)
+        string? snapshotReference,
+        bool hasMatchingDetail)
     {
         if (string.IsNullOrWhiteSpace(view.SelectedId))
         {
@@ -336,7 +343,7 @@ internal sealed record WatchErrorSearchPresentation(
                     view.DetailCorrelationId));
         }
 
-        return view.Detail is null
+        return !hasMatchingDetail
             ? new WatchErrorSearchDetailStatusPresentation(
                 IsLoading: false,
                 HasFailure: false,
@@ -373,9 +380,11 @@ internal sealed record WatchErrorSearchPresentation(
 
     private static WatchErrorSearchDetailPresentation? ProjectDetail(
         ErrorSearchListSnapshot list,
+        string? selectedId,
         ErrorSearchDetailSnapshot? detail)
     {
-        if (detail is null || !HasSameSnapshot(list, detail))
+        if (detail is null
+            || !WatchErrorSearchDetailConsistency.Matches(list, selectedId, detail))
         {
             return null;
         }
@@ -582,27 +591,6 @@ internal sealed record WatchErrorSearchPresentation(
             && measuredPayloadBytes <= raw.Limits.MaxTotalBytes
             && measuredPayloadBytes <= ErrorSearchRawEvidenceLimits.MaximumTotalBytes;
     }
-
-    private static bool HasSameSnapshot(
-        ErrorSearchListSnapshot list,
-        ErrorSearchDetailSnapshot detail) =>
-        string.Equals(list.SnapshotReference, detail.SnapshotReference, StringComparison.Ordinal)
-        && list.Snapshot == detail.Snapshot
-        && list.Window == detail.Window
-        && string.Equals(list.Order, detail.Order, StringComparison.Ordinal)
-        && SameFilter(list.Filter, detail.Filter)
-        && list.Items.Any(item => string.Equals(
-            item.SeriesId,
-            detail.Series.SeriesId,
-            StringComparison.Ordinal));
-
-    private static bool SameFilter(ErrorSearchFilter left, ErrorSearchFilter right) =>
-        left.Categories.SequenceEqual(right.Categories, StringComparer.Ordinal)
-        && left.ErrorCodes.SequenceEqual(right.ErrorCodes, StringComparer.Ordinal)
-        && left.ActivityStates.SequenceEqual(right.ActivityStates, StringComparer.Ordinal)
-        && string.Equals(left.SeriesId, right.SeriesId, StringComparison.Ordinal)
-        && string.Equals(left.DemandId, right.DemandId, StringComparison.Ordinal)
-        && string.Equals(left.SublotContains, right.SublotContains, StringComparison.Ordinal);
 
     private static string ProjectSnapshotFacts(ErrorSearchSnapshotIdentity identity) =>
         $"ErrorSearchAsOf {FormatUtc(identity.ErrorSearchAsOf)} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId}";

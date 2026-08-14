@@ -318,6 +318,64 @@ public sealed class WatchErrorSearchPresentationTests
     }
 
     [Fact]
+    public void A_detail_that_does_not_match_the_selected_series_is_hidden_without_claiming_success()
+    {
+        var snapshot = Snapshot(
+            FullFilter(),
+            total: 1,
+            pageNumber: 1,
+            totalPages: 1,
+            items: [Item("series-detail-22", ErrorSearchActivityStates.Active, AsOf)]);
+        var mismatched = Detail(snapshot) with
+        {
+            Series = Item("series-other", ErrorSearchActivityStates.Active, AsOf),
+        };
+        var view = Workspace(snapshot).ErrorSearch with
+        {
+            SelectedId = "series-detail-22",
+            Detail = mismatched,
+        };
+
+        var presentation = WatchErrorSearchPresentation.Project(
+            WorkspaceWithView(view),
+            new ErrorSearchQuery(snapshot.Filter, ErrorSearchWindowSelection.Last7Days));
+
+        Assert.Null(presentation.Detail);
+        Assert.False(presentation.DetailStatus.IsLoading);
+        Assert.False(presentation.DetailStatus.HasFailure);
+        Assert.Equal("错误详情尚不可用", presentation.DetailStatus.Title);
+        Assert.DoesNotContain("已读取", presentation.DetailStatus.Title, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_matching_selected_detail_is_not_tied_to_the_current_page_rows()
+    {
+        var selectedPage = Snapshot(
+            FullFilter(),
+            total: 2,
+            pageNumber: 1,
+            totalPages: 2,
+            items: [Item("series-detail-22", ErrorSearchActivityStates.Active, AsOf)]);
+        var currentPage = selectedPage with
+        {
+            PageNumber = 2,
+            Items = [Item("series-other", ErrorSearchActivityStates.Active, AsOf.AddMinutes(-1))],
+        };
+        var view = Workspace(currentPage).ErrorSearch with
+        {
+            SelectedId = "series-detail-22",
+            Detail = Detail(selectedPage),
+        };
+
+        var presentation = WatchErrorSearchPresentation.Project(
+            WorkspaceWithView(view),
+            new ErrorSearchQuery(currentPage.Filter, ErrorSearchWindowSelection.Last7Days));
+
+        Assert.NotNull(presentation.Detail);
+        Assert.Equal("错误详情已读取", presentation.DetailStatus.Title);
+    }
+
+    [Fact]
     public void Explicit_raw_evidence_projects_only_returned_allowed_fields_and_host_limits()
     {
         var snapshot = Snapshot(

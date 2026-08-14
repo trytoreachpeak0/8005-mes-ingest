@@ -508,7 +508,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     selectedId,
                     snapshot.SnapshotReference,
                     token),
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            validateDetail: RequireMatchingErrorSearchDetail).ConfigureAwait(false);
     }
 
     public async Task RefreshCurrentAttentionAsync(
@@ -579,7 +580,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             static detail => detail.Snapshot.ContractVersion,
             "/api/v2/error-search/{seriesId}",
             cancellationToken,
-            isolateDetailFailure: true);
+            isolateDetailFailure: true,
+            validateDetail: RequireMatchingErrorSearchDetail);
 
     public async Task<ErrorSearchRawEvidenceSnapshot> ReadErrorRawEvidenceAsync(
         string seriesId,
@@ -805,7 +807,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         string endpoint,
         Func<TSnapshot, string, bool>? containsSelected = null,
         Func<IWatchV2ApiClient, string, TSnapshot, CancellationToken, Task<TDetail>>? fetchDetail = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<TSnapshot, string, TDetail>? validateDetail = null)
     {
         var lease = BeginRequest(slot, queryKey, getView, setView);
         lease.PreviousCancellation?.Cancel();
@@ -860,6 +863,7 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                                     linked.Token)
                                 .ConfigureAwait(false);
                             linked.Token.ThrowIfCancellationRequested();
+                            validateDetail?.Invoke(snapshot, selectedId, detail);
                         }
                         catch when (!IsSelectionCurrent(
                             lease.HostGeneration,
@@ -970,7 +974,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         Func<TDetail, string> getContractVersion,
         string endpoint,
         CancellationToken cancellationToken,
-        bool isolateDetailFailure = false)
+        bool isolateDetailFailure = false,
+        Action<TSnapshot, string, TDetail>? validateDetail = null)
     {
         if (string.IsNullOrWhiteSpace(selectedId))
         {
@@ -1015,7 +1020,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             getContractVersion,
             endpoint,
             cancellationToken,
-            isolateDetailFailure);
+            isolateDetailFailure,
+            validateDetail);
     }
 
     private async Task SelectDetailCoreAsync<TSnapshot, TDetail>(
@@ -1029,7 +1035,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         Func<TDetail, string> getContractVersion,
         string endpoint,
         CancellationToken cancellationToken,
-        bool isolateDetailFailure)
+        bool isolateDetailFailure,
+        Action<TSnapshot, string, TDetail>? validateDetail)
     {
         long selectionGeneration;
         CancellationTokenSource? previousDetailCancellation;
@@ -1127,6 +1134,7 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     return;
                 }
 
+                validateDetail?.Invoke(current.Snapshot, selectedId, detail);
                 _state = setView(
                     _state,
                     current with
@@ -1429,6 +1437,23 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             $"{NewMesIngestContractMismatchException.ErrorCode}: "
             + $"Snapshot contractVersion={actual}.",
             errorCode: NewMesIngestContractMismatchException.ErrorCode);
+    }
+
+    private static void RequireMatchingErrorSearchDetail(
+        ErrorSearchListSnapshot snapshot,
+        string selectedId,
+        ErrorSearchDetailSnapshot detail)
+    {
+        if (WatchErrorSearchDetailConsistency.Matches(snapshot, selectedId, detail))
+        {
+            return;
+        }
+
+        throw new WatchHostQueryException(
+            WatchHostFailureKind.Decode,
+            "/api/v2/error-search/{seriesId}",
+            Guid.NewGuid().ToString("N"),
+            "The Host Error Search detail does not match the selected Series or frozen snapshot.");
     }
 
     private static bool IsObjectNotInSnapshot(WatchHostQueryException exception) =>

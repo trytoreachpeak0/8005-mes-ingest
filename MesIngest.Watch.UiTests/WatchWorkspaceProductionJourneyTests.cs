@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Windows.Interop;
@@ -28,7 +30,261 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private const string DemandSnapshotReference = "demand-preview-snapshot-20";
     private const string AuditSnapshotReference = "audit-preview-snapshot-21";
     private const string ErrorSnapshotReference = "error-search-snapshot-22";
+    private const string PreviewErrorSeriesId = "SERIES-ATTENTION-22";
     private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(20);
+    private static readonly DateTimeOffset PreviewErrorAsOf =
+        DateTimeOffset.Parse("2026-08-14T07:08:10Z", CultureInfo.InvariantCulture);
+
+    [Fact]
+    public void Error_detail_fixture_tracks_the_committed_query_and_requested_identity()
+    {
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter
+            {
+                Categories = ["DATA_COMPLETENESS"],
+                ErrorCodes = ["REQUIRED_MES_FIELD_MISSING"],
+                ActivityStates = [ErrorSearchActivityStates.Active],
+                SeriesId = "SERIES-ATTENTION-22",
+            },
+            ErrorSearchWindowSelection.Last7Days);
+        var request = new FakeHostV2DetailRequest(
+            "SERIES-ATTENTION-22",
+            ErrorSnapshotReference);
+
+        var detail = CreateJourneyErrorDetail(query, request);
+        var normalizedFilter = query.Filter.Normalize();
+
+        Assert.Equal(request.ObjectId, detail.Series.SeriesId);
+        Assert.Equal(request.SnapshotReference, detail.SnapshotReference);
+        Assert.Equal(normalizedFilter.Categories, detail.Filter.Categories);
+        Assert.Equal(normalizedFilter.ErrorCodes, detail.Filter.ErrorCodes);
+        Assert.Equal(normalizedFilter.ActivityStates, detail.Filter.ActivityStates);
+        Assert.Equal(normalizedFilter.SeriesId, detail.Filter.SeriesId);
+        Assert.Equal(normalizedFilter.DemandId, detail.Filter.DemandId);
+        Assert.Equal(normalizedFilter.SublotContains, detail.Filter.SublotContains);
+        Assert.Equal(query.Window.Resolve(detail.Snapshot.ErrorSearchAsOf), detail.Window);
+        Assert.Equal(query.Order, detail.Order);
+        Assert.Equal(detail.Periods.Count, detail.Series.MatchedPeriodCount);
+        Assert.Equal(
+            detail.Periods.Select(period => period.Code).Distinct(StringComparer.Ordinal),
+            detail.Series.MatchedErrors.Select(error => error.Code));
+        Assert.Equal(
+            detail.Periods.SelectMany(period => period.Evidence).Max(evidence => evidence.ObservedAt),
+            detail.Series.LatestMatchedEvidenceAt);
+        Assert.Equal(
+            detail.Periods
+                .SelectMany(period => period.Evidence)
+                .Select(evidence => evidence.DemandId)
+                .Distinct(StringComparer.Ordinal)
+                .Count(),
+            detail.Series.MatchedDemandGenerationCount);
+        Assert.All(detail.Periods, period =>
+        {
+            Assert.Contains(period.Category, normalizedFilter.Categories);
+            Assert.Contains(period.Code, normalizedFilter.ErrorCodes);
+            Assert.True(period.ActiveAtAsOf);
+            Assert.True(period.EndedAt is null || period.EndedAt > period.StartedAt);
+        });
+    }
+
+    [Fact]
+    public void Error_detail_fixture_keeps_an_ended_boundary_period_inside_the_half_open_window()
+    {
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter
+            {
+                Categories = ["DATA_FORMAT"],
+                ErrorCodes = ["INVALID_MES_FIELD_FORMAT"],
+                ActivityStates = [ErrorSearchActivityStates.Ended],
+                SeriesId = PreviewErrorSeriesId,
+            },
+            ErrorSearchWindowSelection.Last7Days);
+
+        var detail = CreateJourneyErrorDetail(
+            query,
+            new FakeHostV2DetailRequest(PreviewErrorSeriesId, ErrorSnapshotReference));
+        var period = Assert.Single(detail.Periods);
+
+        Assert.False(period.ActiveAtAsOf);
+        Assert.NotNull(period.EndedAt);
+        Assert.True(period.StartedAt < detail.Window.ToUtc);
+        Assert.True(period.EndedAt > detail.Window.FromUtc);
+        Assert.All(period.Evidence, evidence =>
+        {
+            Assert.True(evidence.ObservedAt >= detail.Window.FromUtc);
+            Assert.True(evidence.ObservedAt < detail.Window.ToUtc);
+        });
+    }
+
+    [Fact]
+    public void Error_page_fixture_derives_counts_and_facets_from_its_canonical_detail_periods()
+    {
+        var page = CreateJourneyErrorPage(new ErrorSearchQuery(
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last7Days));
+        var item = Assert.Single(page.Items);
+
+        Assert.True(
+            page.Snapshot.ErrorSearchAsOf
+                >= WatchCurrentAttentionProductionIntegrationTests
+                    .CreateAttentionSnapshot(new CurrentIngestAttentionQuery())
+                    .Snapshot
+                    .SnapshotAsOf);
+        Assert.Equal(2, item.MatchedPeriodCount);
+        Assert.Equal(2, item.MatchedDemandGenerationCount);
+        Assert.Equal(
+            1,
+            Assert.Single(page.Facets.Categories, facet =>
+                facet.Category == "DATA_COMPLETENESS").SeriesCount);
+        Assert.Equal(
+            1,
+            Assert.Single(page.Facets.Categories, facet =>
+                facet.Category == "DATA_FORMAT").SeriesCount);
+        Assert.All(
+            page.Facets.Categories.Where(facet =>
+                facet.Category is not "DATA_COMPLETENESS" and not "DATA_FORMAT"),
+            facet => Assert.Equal(0, facet.SeriesCount));
+        Assert.Equal(
+            SeriesErrorCatalog.Definitions
+                .Select(definition => definition.Category)
+                .Distinct(StringComparer.Ordinal),
+            page.Facets.Categories.Select(facet => facet.Category));
+        Assert.Equal(
+            1,
+            Assert.Single(page.Facets.ActivityStates, facet =>
+                facet.State == ErrorSearchActivityStates.Active).SeriesCount);
+        Assert.Equal(
+            0,
+            Assert.Single(page.Facets.ActivityStates, facet =>
+                facet.State == ErrorSearchActivityStates.Ended).SeriesCount);
+
+        var drilled = CreateJourneyErrorPage(new ErrorSearchQuery(
+            new ErrorSearchFilter
+            {
+                Categories = ["DATA_COMPLETENESS"],
+                ErrorCodes = ["REQUIRED_MES_FIELD_MISSING"],
+                ActivityStates = [ErrorSearchActivityStates.Active],
+                SeriesId = PreviewErrorSeriesId,
+            },
+            ErrorSearchWindowSelection.Last7Days));
+        var drilledItem = Assert.Single(drilled.Items);
+        Assert.NotEqual(page.SnapshotReference, drilled.SnapshotReference);
+        Assert.Equal(PreviewErrorSeriesId, item.SeriesId);
+        Assert.Equal(item.SeriesId, drilledItem.SeriesId);
+        Assert.Equal(1, drilledItem.MatchedPeriodCount);
+        Assert.Equal(1, drilledItem.MatchedDemandGenerationCount);
+        Assert.Equal(
+            1,
+            Assert.Single(drilled.Facets.Categories, facet =>
+                facet.Category == "DATA_COMPLETENESS").SeriesCount);
+        Assert.Equal(
+            SeriesErrorCatalog.Definitions
+                .Select(definition => definition.Category)
+                .Distinct(StringComparer.Ordinal)
+                .Count(),
+            drilled.Facets.Categories.Count);
+        Assert.All(
+            drilled.Facets.Categories.Where(facet => facet.Category != "DATA_COMPLETENESS"),
+            facet => Assert.Equal(0, facet.SeriesCount));
+        Assert.Equal(
+            1,
+            Assert.Single(drilled.Facets.ActivityStates, facet =>
+                facet.State == ErrorSearchActivityStates.Active).SeriesCount);
+        Assert.Equal(
+            0,
+            Assert.Single(drilled.Facets.ActivityStates, facet =>
+                facet.State == ErrorSearchActivityStates.Ended).SeriesCount);
+        Assert.Equal(ErrorSearchActivityStates.All.Count, drilled.Facets.ActivityStates.Count);
+    }
+
+    [Fact]
+    public void Error_detail_filters_never_rewrite_canonical_period_facts()
+    {
+        var unfiltered = CreateJourneyErrorDetail(
+            new ErrorSearchQuery(new ErrorSearchFilter(), ErrorSearchWindowSelection.Last7Days),
+            new FakeHostV2DetailRequest(PreviewErrorSeriesId, "snapshot-unfiltered"));
+        var filtered = CreateJourneyErrorDetail(
+            new ErrorSearchQuery(
+                new ErrorSearchFilter
+                {
+                    Categories = ["DATA_COMPLETENESS"],
+                    ErrorCodes = ["REQUIRED_MES_FIELD_MISSING"],
+                    ActivityStates = [ErrorSearchActivityStates.Active],
+                    SeriesId = PreviewErrorSeriesId,
+                },
+                ErrorSearchWindowSelection.Last7Days),
+            new FakeHostV2DetailRequest(PreviewErrorSeriesId, "snapshot-filtered"));
+
+        var canonical = Assert.Single(unfiltered.Periods, period =>
+            string.Equals(
+                period.Code,
+                "REQUIRED_MES_FIELD_MISSING",
+                StringComparison.Ordinal));
+        var drilled = Assert.Single(filtered.Periods);
+        Assert.Equal(canonical.PeriodId, drilled.PeriodId);
+        Assert.Equal(canonical.Code, drilled.Code);
+        Assert.Equal(canonical.Category, drilled.Category);
+        Assert.Equal(canonical.StartedAt, drilled.StartedAt);
+        Assert.Equal(canonical.EndedAt, drilled.EndedAt);
+        Assert.Equal(canonical.StartsBeforeWindow, drilled.StartsBeforeWindow);
+        Assert.Equal(canonical.EndsAfterWindow, drilled.EndsAfterWindow);
+        Assert.Equal(canonical.ActiveAtAsOf, drilled.ActiveAtAsOf);
+        Assert.Equal(
+            Assert.Single(canonical.Evidence).ObservedAt,
+            Assert.Single(drilled.Evidence).ObservedAt);
+        Assert.True(canonical.ActiveAtAsOf);
+        Assert.Null(canonical.EndedAt);
+    }
+
+    [Fact]
+    public async Task Error_detail_fixture_resolves_the_query_bound_to_each_opaque_snapshot()
+    {
+        var observedQueries = new ConcurrentQueue<ErrorSearchQuery>();
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            CreateScenario(observedQueries.Enqueue),
+            TestContext.Current.CancellationToken);
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings(host.BaseUrl, Credential, 30));
+        await client.VerifyContractAsync(TestContext.Current.CancellationToken);
+
+        var unfiltered = await client.FetchErrorSearchAsync(
+            new ErrorSearchQuery(new ErrorSearchFilter(), ErrorSearchWindowSelection.Last7Days),
+            TestContext.Current.CancellationToken);
+        var drilledQuery = new ErrorSearchQuery(
+            new ErrorSearchFilter
+            {
+                Categories = ["DATA_COMPLETENESS"],
+                ErrorCodes = ["REQUIRED_MES_FIELD_MISSING"],
+                ActivityStates = [ErrorSearchActivityStates.Active],
+                SeriesId = PreviewErrorSeriesId,
+            },
+            ErrorSearchWindowSelection.Last7Days);
+        var drilled = await client.FetchErrorSearchAsync(
+            drilledQuery,
+            TestContext.Current.CancellationToken);
+
+        var unfilteredDetail = await client.FetchErrorSearchDetailAsync(
+            Assert.Single(unfiltered.Items).SeriesId,
+            unfiltered.SnapshotReference,
+            TestContext.Current.CancellationToken);
+        var drilledDetail = await client.FetchErrorSearchDetailAsync(
+            Assert.Single(drilled.Items).SeriesId,
+            drilled.SnapshotReference,
+            TestContext.Current.CancellationToken);
+        var wrongSeries = await Assert.ThrowsAsync<WatchHostQueryException>(() =>
+            client.FetchErrorSearchDetailAsync(
+                "SERIES-NOT-IN-SNAPSHOT",
+                unfiltered.SnapshotReference,
+                TestContext.Current.CancellationToken));
+
+        Assert.NotEqual(unfiltered.SnapshotReference, drilled.SnapshotReference);
+        Assert.Empty(unfilteredDetail.Filter.Categories);
+        Assert.Equal(drilledQuery.Filter.Normalize().Categories, drilledDetail.Filter.Categories);
+        Assert.Equal(PreviewErrorSeriesId, drilledDetail.Series.SeriesId);
+        Assert.Equal(2, observedQueries.Count);
+        Assert.Equal(WatchHostFailureKind.ServerQuery, wrongSeries.Kind);
+        Assert.Equal(ErrorSearchErrorCodes.ObjectNotInSnapshot, wrongSeries.ErrorCode);
+    }
 
     [Fact]
     [Trait("Category", "watch-ui-journeys")]
@@ -134,7 +390,15 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
             var demandGrid = WaitForRows(window, "DemandSeriesGrid", "DemandSeries rows");
             demandGrid.Select(0);
-            WaitForRows(window, "DemandSeriesGenerationGrid", "DemandSeries generations");
+            var demandGenerationGrid = WaitForRows(
+                window,
+                "DemandSeriesGenerationGrid",
+                "DemandSeries generations");
+            demandGenerationGrid.Patterns.ScrollItem.Pattern.ScrollIntoView();
+            WaitUntil(
+                () => !demandGenerationGrid.Properties.IsOffscreen.ValueOrDefault,
+                "DemandSeries detail evidence in view",
+                StepTimeout);
             Capture(evidence, process.MainWindowHandle, "03-demand-series-detail");
 
             failedStep = "readability-audit";
@@ -196,6 +460,25 @@ public sealed class WatchWorkspaceProductionJourneyTests
                         .Contains("SERIES-ATTENTION-22", StringComparison.Ordinal),
                 "explicit CurrentIngestAttention to Error Search drill",
                 StepTimeout);
+            var drillErrorGrid = WaitForRows(
+                window,
+                "ErrorSearchSeriesGrid",
+                "drilled Error Search Series rows");
+            drillErrorGrid.Select(0);
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "ErrorSearchDetailContextText"))
+                    .Contains("SERIES-ATTENTION-22", StringComparison.Ordinal),
+                "the drilled Error Search detail identity",
+                StepTimeout);
+            var drillPeriodGrid = WaitForRows(
+                window,
+                "ErrorSearchPeriodGrid",
+                "drilled Error Search periods");
+            drillPeriodGrid.Select(0);
+            WaitForRows(
+                window,
+                "ErrorSearchEvidenceGrid",
+                "drilled Error Search evidence");
             Capture(evidence, process.MainWindowHandle, "08-current-attention-error-drill");
             Capture(evidence, process.MainWindowHandle, "final");
 
@@ -319,8 +602,13 @@ public sealed class WatchWorkspaceProductionJourneyTests
     }
 
     private static FakeHostV2Scenario CreateScenario(
-        Action<ErrorSearchQuery> rememberErrorQuery) =>
-        new("production-preview-19-22", Credential)
+        Action<ErrorSearchQuery> rememberErrorQuery)
+    {
+        var errorBindings = new ConcurrentDictionary<
+            string,
+            JourneyErrorSnapshotBinding>(StringComparer.Ordinal);
+        var errorSnapshotSequence = 0;
+        return new("production-preview-19-22", Credential)
         {
             Overview = FakeHostReply.Return(
                 WatchErrorSearchProductionIntegrationTests.CreateOverview()),
@@ -350,32 +638,239 @@ public sealed class WatchWorkspaceProductionJourneyTests
                         request.SnapshotReference))),
             ErrorSearch = FakeHostReply.Select<ErrorSearchQuery, ErrorSearchListSnapshot>(query =>
             {
-                rememberErrorQuery(query);
-                var item = WatchErrorSearchProductionIntegrationTests.CreateErrorItem() with
-                {
-                    SeriesId = query.Filter.SeriesId ?? "SERIES-ERROR-22",
-                };
-                return FakeHostReply.Return(
-                    WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
-                        query,
-                        ErrorSnapshotReference,
-                        pageNumber: 1,
-                        totalPages: 1,
-                        totalSeriesCount: 1,
-                        item: item));
+                var normalized = query.NormalizeAndValidate();
+                rememberErrorQuery(normalized);
+                var snapshotReference =
+                    $"{ErrorSnapshotReference}-{Interlocked.Increment(ref errorSnapshotSequence):D2}";
+                var page = CreateJourneyErrorPage(normalized, snapshotReference);
+                errorBindings[snapshotReference] = new JourneyErrorSnapshotBinding(
+                    normalized,
+                    page.Items
+                        .Select(item => item.SeriesId)
+                        .ToHashSet(StringComparer.Ordinal));
+                return FakeHostReply.Return(page);
             }),
             ErrorSearchDetail = FakeHostReply.Select<
                 FakeHostV2DetailRequest,
-                ErrorSearchDetailSnapshot>(_ => FakeHostReply.Return(
-                    WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
-                        new ErrorSearchFilter(),
-                        ErrorSearchWindowKinds.Last7Days))),
+                ErrorSearchDetailSnapshot>(request =>
+                {
+                    if (!errorBindings.TryGetValue(request.SnapshotReference, out var binding)
+                        || !binding.SeriesIds.Contains(request.ObjectId))
+                    {
+                        return FakeHostReply.HttpFailure<ErrorSearchDetailSnapshot>(
+                            HttpStatusCode.NotFound,
+                            ErrorSearchErrorCodes.ObjectNotInSnapshot,
+                            "The requested Series is not part of this frozen Error Search snapshot.");
+                    }
+
+                    return FakeHostReply.Return(
+                        CreateJourneyErrorDetail(binding.Query, request));
+                }),
             CurrentAttention = FakeHostReply.Select<
                 CurrentIngestAttentionQuery,
                 CurrentIngestAttentionSnapshot>(query => FakeHostReply.Return(
                     WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(
                         query))),
         };
+    }
+
+    private sealed record JourneyErrorSnapshotBinding(
+        ErrorSearchQuery Query,
+        IReadOnlySet<string> SeriesIds);
+
+    internal static ErrorSearchListSnapshot CreateJourneyErrorPage(
+        ErrorSearchQuery query,
+        string? snapshotReference = null)
+    {
+        var normalized = query.NormalizeAndValidate();
+        var seriesId = normalized.Filter.SeriesId ?? PreviewErrorSeriesId;
+        var resolvedSnapshotReference = snapshotReference
+            ?? (string.IsNullOrWhiteSpace(normalized.Filter.SeriesId)
+            ? ErrorSnapshotReference
+            : $"{ErrorSnapshotReference}-series-attention-22");
+        var detailRequest = new FakeHostV2DetailRequest(
+            seriesId,
+            resolvedSnapshotReference);
+        var detail = CreateJourneyErrorDetail(
+            normalized,
+            detailRequest);
+        var categoryFacetDetail = CreateJourneyErrorDetail(
+            normalized with
+            {
+                Filter = normalized.Filter with
+                {
+                    Categories = [],
+                    ErrorCodes = [],
+                },
+            },
+            detailRequest);
+        var activityFacetDetail = CreateJourneyErrorDetail(
+            normalized with
+            {
+                Filter = normalized.Filter with { ActivityStates = [] },
+            },
+            detailRequest);
+        var hasMatches = detail.Periods.Count > 0;
+        var page = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+            normalized,
+            resolvedSnapshotReference,
+            pageNumber: 1,
+            totalPages: hasMatches ? 1 : 0,
+            totalSeriesCount: hasMatches ? 1 : 0,
+            includeItem: hasMatches,
+            item: detail.Series);
+        return page with
+        {
+            Snapshot = detail.Snapshot,
+            Window = detail.Window,
+            Facets = new ErrorSearchFacets(
+                SeriesErrorCatalog.Definitions
+                    .Select(definition => definition.Category)
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(category => new ErrorSearchCategoryFacetSnapshot(
+                        category,
+                        categoryFacetDetail.Periods.Any(period => string.Equals(
+                            period.Category,
+                            category,
+                            StringComparison.Ordinal))
+                            ? 1
+                            : 0))
+                    .ToArray(),
+                ErrorSearchActivityStates.All
+                    .Select(state => new ErrorSearchActivityStateFacetSnapshot(
+                        state,
+                        string.Equals(
+                            activityFacetDetail.Periods.Any(period => period.ActiveAtAsOf)
+                                ? ErrorSearchActivityStates.Active
+                                : ErrorSearchActivityStates.Ended,
+                            state,
+                            StringComparison.Ordinal)
+                        && activityFacetDetail.Periods.Count > 0
+                            ? 1
+                            : 0))
+                    .ToArray()),
+        };
+    }
+
+    internal static ErrorSearchDetailSnapshot CreateJourneyErrorDetail(
+        ErrorSearchQuery query,
+        FakeHostV2DetailRequest request)
+    {
+        var normalized = query.NormalizeAndValidate();
+        var detail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+            normalized.Filter,
+            ErrorSearchWindowKinds.Last7Days);
+        var identity = detail.Snapshot with
+        {
+            ErrorSearchAsOf = PreviewErrorAsOf,
+            ProjectionCommitId = "error-preview-commit-22",
+            ProjectionSequence = 231,
+            ProjectionCommittedAt = PreviewErrorAsOf,
+            PollTraceId = "error-preview-poll-22",
+        };
+        var resolvedWindow = normalized.Window.Resolve(identity.ErrorSearchAsOf);
+        var periods = detail.Periods
+            .Where(period => MatchesErrorFilter(
+                normalized.Filter,
+                period.Category,
+                period.Code))
+            .Select(period =>
+            {
+                var isActive = string.Equals(
+                    period.Code,
+                    "REQUIRED_MES_FIELD_MISSING",
+                    StringComparison.Ordinal);
+                var startsBeforeWindow = resolvedWindow.FromUtc is not null;
+                var startedAt = startsBeforeWindow && resolvedWindow.FromUtc is { } fromUtc
+                    ? fromUtc.AddHours(-2)
+                    : identity.ErrorSearchAsOf.AddHours(-2);
+                DateTimeOffset? endedAt = isActive
+                    ? null
+                    : period.EndedAt is { } existingEnd && existingEnd > startedAt
+                        ? existingEnd
+                        : startedAt.AddHours(3);
+                var evidenceAt = isActive
+                    ? identity.ErrorSearchAsOf.AddSeconds(-1)
+                    : startedAt.AddMinutes(150);
+                return period with
+                {
+                    StartedAt = startedAt,
+                    EndedAt = endedAt,
+                    EndReason = isActive ? null : period.EndReason ?? "RESOLVED",
+                    StartsBeforeWindow = startsBeforeWindow,
+                    EndsAfterWindow = isActive,
+                    ActiveAtAsOf = isActive,
+                    Evidence = period.Evidence
+                        .Select(evidence => evidence with
+                        {
+                            ObservedAt = evidenceAt,
+                            DemandId = isActive
+                                ? "DEMAND-ATTENTION-22"
+                                : "DEMAND-ATTENTION-21",
+                        })
+                        .ToArray(),
+                };
+            })
+            .Where(period => normalized.Filter.ActivityStates.Count == 0
+                || normalized.Filter.ActivityStates.Contains(
+                    period.ActiveAtAsOf
+                        ? ErrorSearchActivityStates.Active
+                        : ErrorSearchActivityStates.Ended,
+                    StringComparer.Ordinal))
+            .Where(period => string.IsNullOrWhiteSpace(normalized.Filter.DemandId)
+                || period.Evidence.Any(evidence => string.Equals(
+                    evidence.DemandId,
+                    normalized.Filter.DemandId,
+                    StringComparison.Ordinal)))
+            .ToArray();
+        var matchedDemandGenerationCount = periods
+            .SelectMany(period => period.Evidence)
+            .Select(evidence => evidence.DemandId)
+            .Where(demandId => !string.IsNullOrWhiteSpace(demandId))
+            .Distinct(StringComparer.Ordinal)
+            .Count();
+        var latestMatchedEvidenceAt = periods
+            .SelectMany(period => period.Evidence)
+            .Select(evidence => evidence.ObservedAt)
+            .DefaultIfEmpty(detail.Series.LatestMatchedEvidenceAt)
+            .Max();
+        return detail with
+        {
+            SnapshotReference = request.SnapshotReference,
+            Snapshot = identity,
+            Filter = normalized.Filter,
+            Window = resolvedWindow,
+            Order = normalized.Order,
+            Series = detail.Series with
+            {
+                SeriesId = request.ObjectId,
+                ActivityState = periods.Any(period => period.ActiveAtAsOf)
+                    ? ErrorSearchActivityStates.Active
+                    : ErrorSearchActivityStates.Ended,
+                MatchedErrors = detail.Series.MatchedErrors
+                    .Where(error => periods.Any(period =>
+                        string.Equals(period.Code, error.Code, StringComparison.Ordinal)
+                        && string.Equals(
+                            period.Category,
+                            error.Category,
+                            StringComparison.Ordinal)))
+                    .ToArray(),
+                LatestMatchedEvidenceAt = latestMatchedEvidenceAt,
+                MatchedPeriodCount = periods.Length,
+                MatchedDemandGenerationCount = matchedDemandGenerationCount,
+            },
+            Periods = periods,
+        };
+    }
+
+    private static bool MatchesErrorFilter(
+        ErrorSearchFilter filter,
+        string category,
+        string code) =>
+        (filter.Categories.Count == 0
+            || filter.Categories.Contains(category, StringComparer.Ordinal))
+        && (filter.ErrorCodes.Count == 0
+            || filter.ErrorCodes.Contains(code, StringComparer.Ordinal));
 
     private static string ExerciseWindowChrome(
         FlaUI.Core.AutomationElements.Window window,

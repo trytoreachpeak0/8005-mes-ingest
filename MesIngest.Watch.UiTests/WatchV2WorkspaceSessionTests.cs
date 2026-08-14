@@ -808,6 +808,152 @@ public sealed class WatchV2WorkspaceSessionTests
     }
 
     [Fact]
+    public async Task Error_selection_rejects_a_detail_for_another_series_without_staling_the_list()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last30Days);
+        var page = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+            query,
+            "error-detail-identity-22",
+            pageNumber: 1,
+            totalPages: 1,
+            totalSeriesCount: 1);
+        var mismatchedDetail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+            page.Filter,
+            ErrorSearchWindowKinds.Last30Days) with
+        {
+            SnapshotReference = page.SnapshotReference,
+            Snapshot = page.Snapshot,
+            Window = page.Window,
+            Order = page.Order,
+            Series = page.Items.Single() with { SeriesId = "another-series-22" },
+        };
+        var client = new DelegatingV2Client
+        {
+            ErrorSearch = (_, _) => Task.FromResult(page),
+            ErrorDetail = (_, _, _) => Task.FromResult(mismatchedDetail),
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        await session.RefreshErrorSearchAsync(query, testToken);
+        var selectedId = page.Items.Single().SeriesId;
+
+        await session.SelectErrorSeriesAsync(selectedId, testToken);
+
+        var state = session.State.ErrorSearch;
+        Assert.Same(page, state.Snapshot);
+        Assert.Equal(selectedId, state.SelectedId);
+        Assert.Null(state.Detail);
+        Assert.False(state.IsDetailLoading);
+        Assert.NotNull(state.DetailLastFailureAt);
+        Assert.Equal(WatchHostFailureKind.Decode, state.DetailFailureKind);
+        Assert.Contains("does not match", state.DetailErrorMessage, StringComparison.Ordinal);
+        Assert.Null(state.LastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, state.FailureKind);
+        Assert.False(state.IsStale);
+    }
+
+    [Theory]
+    [InlineData("snapshot-reference")]
+    [InlineData("snapshot-identity")]
+    [InlineData("filter")]
+    [InlineData("window")]
+    [InlineData("order")]
+    public async Task Error_refresh_rejects_a_relocated_detail_that_does_not_match_the_new_atomic_snapshot(
+        string mismatch)
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var query = new ErrorSearchQuery(
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last30Days);
+        var oldPage = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+            query,
+            "error-atomic-old-22",
+            pageNumber: 1,
+            totalPages: 1,
+            totalSeriesCount: 1);
+        var newPage = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+            query,
+            "error-atomic-new-22",
+            pageNumber: 1,
+            totalPages: 1,
+            totalSeriesCount: 1);
+        var oldDetail = MatchingErrorDetail(oldPage);
+        var matchingNewDetail = MatchingErrorDetail(newPage);
+        var mismatchedNewDetail = mismatch switch
+        {
+            "snapshot-reference" => matchingNewDetail with
+            {
+                SnapshotReference = "error-atomic-unrequested-22",
+            },
+            "snapshot-identity" => matchingNewDetail with
+            {
+                Snapshot = matchingNewDetail.Snapshot with
+                {
+                    ProjectionSequence = matchingNewDetail.Snapshot.ProjectionSequence + 1,
+                },
+            },
+            "filter" => matchingNewDetail with
+            {
+                Filter = matchingNewDetail.Filter with { SeriesId = "another-filter-series-22" },
+            },
+            "window" => matchingNewDetail with
+            {
+                Window = matchingNewDetail.Window with
+                {
+                    ToUtc = matchingNewDetail.Window.ToUtc.AddTicks(1),
+                },
+            },
+            "order" => matchingNewDetail with { Order = "UNREQUESTED_ERROR_ORDER" },
+            _ => throw new ArgumentOutOfRangeException(nameof(mismatch), mismatch, null),
+        };
+        var listCalls = 0;
+        var client = new DelegatingV2Client
+        {
+            ErrorSearch = (_, _) => Task.FromResult(
+                Interlocked.Increment(ref listCalls) == 1 ? oldPage : newPage),
+            ErrorDetail = (_, snapshotReference, _) => Task.FromResult(
+                snapshotReference == oldPage.SnapshotReference
+                    ? oldDetail
+                    : mismatchedNewDetail),
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        await session.RefreshErrorSearchAsync(query, testToken);
+        var selectedId = oldPage.Items.Single().SeriesId;
+        await session.SelectErrorSeriesAsync(selectedId, testToken);
+
+        await session.RefreshErrorSearchAsync(query, testToken);
+
+        var state = session.State.ErrorSearch;
+        Assert.Same(oldPage, state.Snapshot);
+        Assert.Same(oldDetail, state.Detail);
+        Assert.Equal(selectedId, state.SelectedId);
+        Assert.False(state.IsRefreshing);
+        Assert.True(state.IsStale);
+        Assert.NotNull(state.LastFailureAt);
+        Assert.Equal(WatchHostFailureKind.Decode, state.FailureKind);
+        Assert.Contains("does not match", state.ErrorMessage, StringComparison.Ordinal);
+        Assert.Null(state.DetailLastFailureAt);
+        Assert.Equal(WatchHostFailureKind.None, state.DetailFailureKind);
+
+        static ErrorSearchDetailSnapshot MatchingErrorDetail(ErrorSearchListSnapshot page) =>
+            WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+                page.Filter,
+                ErrorSearchWindowKinds.Last30Days) with
+            {
+                SnapshotReference = page.SnapshotReference,
+                Snapshot = page.Snapshot,
+                Filter = page.Filter,
+                Window = page.Window,
+                Order = page.Order,
+                Series = page.Items.Single(),
+            };
+    }
+
+    [Fact]
     public async Task Demand_detail_caller_cancellation_remains_neutral_with_new_detail_state()
     {
         var testToken = TestContext.Current.CancellationToken;
