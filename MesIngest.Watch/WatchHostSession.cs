@@ -20,6 +20,8 @@ internal enum WatchHostFailureKind
     Contract,
     Decode,
     Http,
+    ServerQuery,
+    Canceled,
     Unknown,
 }
 
@@ -88,7 +90,9 @@ internal sealed class WatchHostQueryException : Exception
         string message,
         Exception? innerException = null,
         string? stage = null,
-        TimeSpan? elapsed = null)
+        TimeSpan? elapsed = null,
+        string? errorCode = null,
+        HttpStatusCode? statusCode = null)
         : base(message, innerException)
     {
         Kind = kind;
@@ -96,6 +100,8 @@ internal sealed class WatchHostQueryException : Exception
         CorrelationId = correlationId;
         Stage = stage;
         Elapsed = elapsed ?? TimeSpan.Zero;
+        ErrorCode = errorCode;
+        StatusCode = statusCode;
     }
 
     public WatchHostFailureKind Kind { get; }
@@ -103,6 +109,8 @@ internal sealed class WatchHostQueryException : Exception
     public string CorrelationId { get; }
     public string? Stage { get; }
     public TimeSpan Elapsed { get; }
+    public string? ErrorCode { get; }
+    public HttpStatusCode? StatusCode { get; }
 }
 
 internal interface IWatchOverviewQueries
@@ -369,6 +377,12 @@ internal static class WatchHostQueryFailure
         };
 
         var safeMessage = redact?.Invoke(exception.Message) ?? exception.Message;
+        var errorCode = kind == WatchHostFailureKind.Contract
+            ? MesIngestApiContract.MismatchErrorCode
+            : null;
+        var statusCode = exception.InnerException is HttpRequestException http
+            ? http.StatusCode
+            : null;
         return new WatchHostQueryException(
             kind,
             exception.Endpoint,
@@ -376,6 +390,8 @@ internal static class WatchHostQueryFailure
             safeMessage,
             innerException: null,
             stage: exception.Stage,
-            elapsed: exception.Elapsed);
+            elapsed: exception.Elapsed,
+            errorCode: errorCode,
+            statusCode: statusCode);
     }
 }

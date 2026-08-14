@@ -1,0 +1,587 @@
+using MesIngest.Core.SeriesProjection;
+using MesIngest.Watch;
+
+namespace MesIngest.Tests;
+
+public sealed class WatchV2AutoRefreshTests
+{
+    [Fact]
+    public async Task Due_tick_refreshes_the_active_overview_through_the_workspace_session()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+
+        coordinator.ActivateOverview(new WatchOverviewQuery(["A1-1"]));
+        clock.Advance(TimeSpan.FromSeconds(9));
+
+        Assert.Equal(0, client.OverviewCallCount);
+        Assert.Null(session.State.Overview.Snapshot);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await coordinator.WaitForIdleAsync();
+
+        Assert.Equal(1, client.OverviewCallCount);
+        Assert.Equal(["A1-1"], session.State.Overview.Snapshot?.MesAreas);
+    }
+
+    [Fact]
+    public async Task Every_host_data_view_dispatches_its_matching_workspace_refresh()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+        await AdvanceOneIntervalAsync(clock, coordinator);
+        coordinator.ActivateDemandSeries(
+            new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter()));
+        await AdvanceOneIntervalAsync(clock, coordinator);
+        coordinator.ActivateReadabilityAudit(
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()));
+        await AdvanceOneIntervalAsync(clock, coordinator);
+        coordinator.ActivateErrorSearch(
+            new ErrorSearchQuery(
+                new ErrorSearchFilter(),
+                ErrorSearchWindowSelection.Last7Days));
+        await AdvanceOneIntervalAsync(clock, coordinator);
+        coordinator.ActivateCurrentAttention(new CurrentIngestAttentionQuery());
+        await AdvanceOneIntervalAsync(clock, coordinator);
+
+        Assert.Equal(1, client.OverviewCallCount);
+        Assert.Equal(1, client.DemandSeriesCallCount);
+        Assert.Equal(1, client.ReadabilityAuditCallCount);
+        Assert.Equal(1, client.ErrorSearchCallCount);
+        Assert.Equal(1, client.CurrentAttentionCallCount);
+        Assert.NotNull(session.State.Overview.Snapshot);
+        Assert.NotNull(session.State.DemandSeries.Snapshot);
+        Assert.NotNull(session.State.ReadabilityAudit.Snapshot);
+        Assert.NotNull(session.State.ErrorSearch.Snapshot);
+        Assert.NotNull(session.State.CurrentAttention.Snapshot);
+    }
+
+    [Fact]
+    public async Task Busy_due_tick_is_not_overlapped_or_queued_by_the_coordinator()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var firstResponse = new TaskCompletionSource<WatchOverviewSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new RecordingV2Client();
+        client.OverviewHandler = (query, _) => client.OverviewCallCount == 1
+            ? firstResponse.Task
+            : Task.FromResult(RecordingV2Client.OverviewSnapshot(query));
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var firstRefresh = coordinator.WaitForIdleAsync();
+        Assert.Equal(1, client.OverviewCallCount);
+        Assert.False(firstRefresh.IsCompleted);
+
+        coordinator.Update(
+            WatchV2DataView.Overview,
+            new WatchV2AutoRefreshSetting(10));
+        clock.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, client.OverviewCallCount);
+        firstResponse.SetResult(RecordingV2Client.OverviewSnapshot(new WatchOverviewQuery()));
+        await firstRefresh;
+        Assert.Equal(1, client.OverviewCallCount);
+
+        clock.Advance(TimeSpan.FromSeconds(9));
+        Assert.Equal(1, client.OverviewCallCount);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await coordinator.WaitForIdleAsync();
+        Assert.Equal(2, client.OverviewCallCount);
+    }
+
+    [Fact]
+    public async Task Updating_the_active_interval_rearms_the_due_time()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        var settings = WatchV2AutoRefreshSettings.Default.With(
+            WatchV2DataView.Overview,
+            new WatchV2AutoRefreshSetting(30));
+        using var coordinator = new WatchV2AutoRefreshCoordinator(session, settings, clock);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal(0, client.OverviewCallCount);
+
+        coordinator.Update(
+            WatchV2DataView.Overview,
+            new WatchV2AutoRefreshSetting(10));
+        clock.Advance(TimeSpan.FromSeconds(9));
+        Assert.Equal(0, client.OverviewCallCount);
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await coordinator.WaitForIdleAsync();
+        Assert.Equal(1, client.OverviewCallCount);
+        Assert.Equal(10, coordinator.Settings.Overview.IntervalSeconds);
+    }
+
+    [Fact]
+    public async Task Disposal_stops_future_automatic_refreshes()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        coordinator.Dispose();
+        clock.Advance(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, client.OverviewCallCount);
+        Assert.Throws<ObjectDisposedException>(() => coordinator.ActivateOverview(
+            new WatchOverviewQuery()));
+    }
+
+    [Fact]
+    public void Settings_cover_all_five_host_data_views_and_expose_only_an_interval()
+    {
+        var views = Enum.GetValues<WatchV2DataView>();
+
+        Assert.Equal(
+            new[]
+            {
+                WatchV2DataView.Overview,
+                WatchV2DataView.DemandSeries,
+                WatchV2DataView.ReadabilityAudit,
+                WatchV2DataView.ErrorSearch,
+                WatchV2DataView.CurrentIngestAttention,
+            },
+            views);
+        foreach (var view in views)
+        {
+            Assert.Equal(10, WatchV2AutoRefreshSettings.Default.For(view).IntervalSeconds);
+        }
+
+        Assert.Null(typeof(WatchV2AutoRefreshSetting).GetProperty("Enabled"));
+    }
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(30)]
+    [InlineData(60)]
+    [InlineData(300)]
+    public void Supported_intervals_are_accepted(int intervalSeconds)
+    {
+        var setting = new WatchV2AutoRefreshSetting(intervalSeconds);
+
+        Assert.Equal(intervalSeconds, setting.IntervalSeconds);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(9)]
+    [InlineData(11)]
+    [InlineData(301)]
+    public void Unsupported_intervals_are_rejected(int intervalSeconds)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WatchV2AutoRefreshSetting(intervalSeconds));
+    }
+
+    [Fact]
+    public void Automatic_refresh_is_always_scheduled_for_only_the_current_host_data_view()
+    {
+        var start = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+        var clock = new AdjustableTimeProvider(start);
+        var settings = WatchV2AutoRefreshSettings.Default
+            .With(
+                WatchV2DataView.DemandSeries,
+                new WatchV2AutoRefreshSetting(10))
+            .With(
+                WatchV2DataView.ErrorSearch,
+                new WatchV2AutoRefreshSetting(30));
+        var schedule = new WatchV2AutoRefreshSchedule(settings, clock);
+
+        schedule.Activate(WatchV2DataView.DemandSeries);
+        clock.SetUtcNow(start.AddSeconds(5));
+        schedule.Activate(WatchV2DataView.ErrorSearch);
+
+        clock.SetUtcNow(start.AddSeconds(10));
+        Assert.Null(schedule.TryTakeDue(refreshInProgress: false));
+        clock.SetUtcNow(start.AddSeconds(35));
+        Assert.Equal(
+            WatchV2DataView.ErrorSearch,
+            schedule.TryTakeDue(refreshInProgress: false));
+    }
+
+    [Fact]
+    public void Busy_due_tick_is_dropped_and_completion_restarts_the_full_interval()
+    {
+        var start = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+        var clock = new AdjustableTimeProvider(start);
+        var schedule = new WatchV2AutoRefreshSchedule(
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        schedule.Activate(WatchV2DataView.Overview);
+
+        clock.SetUtcNow(start.AddSeconds(10));
+        Assert.Null(schedule.TryTakeDue(refreshInProgress: true));
+        clock.SetUtcNow(start.AddSeconds(11));
+        Assert.Null(schedule.TryTakeDue(refreshInProgress: false));
+
+        clock.SetUtcNow(start.AddSeconds(15));
+        schedule.CompleteRefresh(WatchV2DataView.Overview);
+        clock.SetUtcNow(start.AddSeconds(24));
+        Assert.Null(schedule.TryTakeDue(refreshInProgress: false));
+        clock.SetUtcNow(start.AddSeconds(25));
+        Assert.Equal(
+            WatchV2DataView.Overview,
+            schedule.TryTakeDue(refreshInProgress: false));
+    }
+
+    private static WatchHostSettings ValidHostSettings() => new(
+        "http://localhost:5000",
+        "test-token",
+        5);
+
+    private static async Task AdvanceOneIntervalAsync(
+        ManualTimerTimeProvider clock,
+        WatchV2AutoRefreshCoordinator coordinator)
+    {
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await coordinator.WaitForIdleAsync();
+    }
+
+    private sealed class RecordingV2Client : IWatchV2ApiClient
+    {
+        public Func<WatchOverviewQuery, CancellationToken, Task<WatchOverviewSnapshot>>?
+            OverviewHandler { get; set; }
+
+        public int OverviewCallCount { get; private set; }
+
+        public int DemandSeriesCallCount { get; private set; }
+
+        public int ReadabilityAuditCallCount { get; private set; }
+
+        public int ErrorSearchCallCount { get; private set; }
+
+        public int CurrentAttentionCallCount { get; private set; }
+
+        public Task VerifyContractAsync(CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task<WatchOverviewSnapshot> FetchOverviewAsync(
+            WatchOverviewQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            OverviewCallCount++;
+            return OverviewHandler?.Invoke(query, cancellationToken)
+                ?? Task.FromResult(OverviewSnapshot(query));
+        }
+
+        public static WatchOverviewSnapshot OverviewSnapshot(WatchOverviewQuery query)
+        {
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            var identity = new OperationalSnapshotIdentity(
+                "commit-overview",
+                1,
+                at,
+                "poll-overview",
+                1,
+                1,
+                at);
+            var series = new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries);
+            var audit = new OverviewNavigationIntent(OverviewNavigationTargets.ReadabilityAudit);
+            var errors = new OverviewNavigationIntent(OverviewNavigationTargets.ErrorSearch);
+            var attention = new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention);
+            return new WatchOverviewSnapshot(
+                identity,
+                query.MesAreas ?? [],
+                new WatchOverviewSeriesSummary(
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    series,
+                    series,
+                    series,
+                    series,
+                    series),
+                new WatchOverviewReadabilitySummary(0, 0, 0, audit, audit, audit),
+                new WatchOverviewErrorSummary(0, 0, errors, errors, errors),
+                new WatchOverviewAttentionSummary(0, [], [], attention),
+                [],
+                WatchOverviewRecentActivityStates.NoRecentHighlights,
+                WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
+        }
+
+        public Task<DemandSeriesListSnapshot> FetchDemandSeriesAsync(
+            DemandSeriesBrowseQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            DemandSeriesCallCount++;
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            return Task.FromResult(new DemandSeriesListSnapshot(
+                new DemandSeriesSnapshotIdentity(
+                    "commit-demand",
+                    1,
+                    at,
+                    "poll-demand"),
+                "snapshot-demand",
+                query.Filter,
+                query.Order,
+                0,
+                new DemandSeriesFacets(0, 0, 0, 0, 0),
+                query.PageSize,
+                query.PageNumber,
+                0,
+                [],
+                null,
+                false));
+        }
+
+        public Task<DemandSeriesDetailSnapshot> FetchDemandSeriesDetailAsync(
+            string seriesId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<ReadabilityAuditListSnapshot> FetchReadabilityAuditAsync(
+            ReadabilityAuditQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            ReadabilityAuditCallCount++;
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            return Task.FromResult(new ReadabilityAuditListSnapshot(
+                new ReadabilityAuditSnapshotIdentity(
+                    "commit-audit",
+                    1,
+                    at,
+                    "poll-audit",
+                    1),
+                "snapshot-audit",
+                query.Filter,
+                query.Order,
+                0,
+                new ReadabilityAuditFacets([], []),
+                query.PageSize,
+                query.PageNumber,
+                0,
+                [],
+                null,
+                false));
+        }
+
+        public Task<ReadabilityAuditDetailSnapshot> FetchReadabilityAuditDetailAsync(
+            string demandId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<ErrorSearchListSnapshot> FetchErrorSearchAsync(
+            ErrorSearchQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            ErrorSearchCallCount++;
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            return Task.FromResult(new ErrorSearchListSnapshot(
+                "snapshot-errors",
+                new ErrorSearchSnapshotIdentity(
+                    at,
+                    "commit-errors",
+                    1,
+                    at,
+                    "poll-errors"),
+                query.Filter,
+                query.Window.Resolve(at),
+                query.Order,
+                0,
+                new ErrorSearchFacets([], []),
+                query.PageSize,
+                1,
+                0,
+                [],
+                null,
+                false));
+        }
+
+        public Task<ErrorSearchDetailSnapshot> FetchErrorSearchDetailAsync(
+            string seriesId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<ErrorSearchRawEvidenceSnapshot> FetchErrorRawEvidenceAsync(
+            string seriesId,
+            string evidenceId,
+            string snapshotReference,
+            ErrorSearchRawEvidenceQuery query,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<CurrentIngestAttentionSnapshot> FetchCurrentAttentionAsync(
+            CurrentIngestAttentionQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            CurrentAttentionCallCount++;
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            return Task.FromResult(new CurrentIngestAttentionSnapshot(
+                new OperationalSnapshotIdentity(
+                    "commit-attention",
+                    1,
+                    at,
+                    "poll-attention",
+                    1,
+                    1,
+                    at),
+                0,
+                new CurrentIngestAttentionFacets([], []),
+                query.Order,
+                query.PageSize,
+                query.PageNumber,
+                0,
+                query.Kinds ?? [],
+                query.Severities ?? [],
+                []));
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+
+    private sealed class ManualTimerTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        private readonly object _gate = new();
+        private readonly List<ManualTimer> _timers = [];
+        private DateTimeOffset _utcNow = utcNow;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            lock (_gate)
+            {
+                return _utcNow;
+            }
+        }
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            lock (_gate)
+            {
+                _timers.Add(timer);
+            }
+
+            timer.Change(dueTime, period);
+            return timer;
+        }
+
+        public void Advance(TimeSpan elapsed)
+        {
+            if (elapsed < TimeSpan.Zero)
+            {
+                throw new ArgumentOutOfRangeException(nameof(elapsed));
+            }
+
+            lock (_gate)
+            {
+                _utcNow += elapsed;
+            }
+
+            while (TryTakeDueCallback(out var callback))
+            {
+                callback();
+            }
+        }
+
+        private bool TryTakeDueCallback(out Action callback)
+        {
+            lock (_gate)
+            {
+                var timer = _timers.FirstOrDefault(value => value.IsDue(_utcNow));
+                if (timer is null)
+                {
+                    callback = null!;
+                    return false;
+                }
+
+                callback = timer.TakeCallback(_utcNow);
+                return true;
+            }
+        }
+
+        private sealed class ManualTimer(
+            ManualTimerTimeProvider owner,
+            TimerCallback callback,
+            object? state) : ITimer
+        {
+            private DateTimeOffset? _dueAt;
+            private TimeSpan _period = Timeout.InfiniteTimeSpan;
+            private bool _disposed;
+
+            public bool IsDue(DateTimeOffset utcNow) =>
+                !_disposed && _dueAt is { } dueAt && dueAt <= utcNow;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (owner._gate)
+                {
+                    ObjectDisposedException.ThrowIf(_disposed, this);
+                    _period = period;
+                    _dueAt = dueTime == Timeout.InfiniteTimeSpan
+                        ? null
+                        : owner._utcNow + dueTime;
+                    return true;
+                }
+            }
+
+            public Action TakeCallback(DateTimeOffset utcNow)
+            {
+                _dueAt = _period == Timeout.InfiniteTimeSpan
+                    ? null
+                    : utcNow + _period;
+                return () => callback(state);
+            }
+
+            public void Dispose()
+            {
+                lock (owner._gate)
+                {
+                    _disposed = true;
+                    _dueAt = null;
+                    owner._timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
+    }
+}
