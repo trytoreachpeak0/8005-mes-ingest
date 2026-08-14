@@ -392,6 +392,85 @@ public sealed class WatchV2WorkspaceSessionTests
         Assert.Equal(NewMesIngestContractMismatchException.ErrorCode, state.FailureCode);
     }
 
+    [Fact]
+    public async Task Latest_series_refresh_acquires_a_new_snapshot_before_reopening_the_current_page()
+    {
+        var token = TestContext.Current.CancellationToken;
+        var requests = new List<DemandSeriesBrowseQuery>();
+        var targetPageStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTargetPage = new TaskCompletionSource<DemandSeriesListSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new DelegatingV2Client
+        {
+            DemandSeries = (query, _) =>
+            {
+                requests.Add(query);
+                return requests.Count switch
+                {
+                    1 => Task.FromResult(DemandSeriesSnapshot("old", query, "series-old") with
+                    {
+                        PageNumber = 3,
+                        TotalPages = 5,
+                    }),
+                    2 => Task.FromResult(DemandSeriesSnapshot("latest", query, "series-first") with
+                    {
+                        PageNumber = 1,
+                        TotalPages = 5,
+                        HasMore = true,
+                        NextCursor = "latest-page-two",
+                    }),
+                    3 => WaitForTargetPageAsync(query),
+                    _ => throw new InvalidOperationException("Unexpected DemandSeries request."),
+                };
+            },
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), token);
+        var oldPage = new DemandSeriesBrowseQuery(
+            new DemandSeriesBrowseFilter { MesAreas = ["A1-1"] },
+            PageSize: 100,
+            PageNumber: 3,
+            SnapshotReference: "snapshot-old");
+        await session.RefreshDemandSeriesAsync(oldPage, token);
+
+        var refresh = session.RefreshLatestDemandSeriesPageAsync(
+            oldPage with { SnapshotReference = null },
+            token);
+        await targetPageStarted.Task.WaitAsync(token);
+
+        Assert.Equal("old", session.State.DemandSeries.Snapshot!.Snapshot.ProjectionCommitId);
+        Assert.True(session.State.DemandSeries.IsRefreshing);
+        Assert.Equal(3, requests.Count);
+        Assert.Equal(1, requests[1].PageNumber);
+        Assert.Null(requests[1].SnapshotReference);
+        Assert.Equal(3, requests[2].PageNumber);
+        Assert.Equal("snapshot-latest", requests[2].SnapshotReference);
+
+        releaseTargetPage.SetResult(DemandSeriesSnapshot(
+            "latest",
+            requests[2],
+            "series-latest-page-three") with
+        {
+            PageNumber = 3,
+            TotalPages = 5,
+        });
+        await refresh;
+
+        Assert.Equal("latest", session.State.DemandSeries.Snapshot!.Snapshot.ProjectionCommitId);
+        Assert.Equal(3, session.State.DemandSeries.Snapshot.PageNumber);
+        Assert.Equal("series-latest-page-three", session.State.DemandSeries.Snapshot.Items.Single().SeriesId);
+        Assert.False(session.State.DemandSeries.IsRefreshing);
+
+        async Task<DemandSeriesListSnapshot> WaitForTargetPageAsync(
+            DemandSeriesBrowseQuery query)
+        {
+            Assert.Equal("snapshot-latest", query.SnapshotReference);
+            targetPageStarted.SetResult();
+            return await releaseTargetPage.Task.ConfigureAwait(false);
+        }
+    }
+
     [Theory]
     [InlineData("Authentication", "UNAUTHORIZED")]
     [InlineData("Contract", "CONTRACT_VERSION_MISMATCH")]

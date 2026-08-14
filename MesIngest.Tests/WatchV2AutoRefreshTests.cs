@@ -73,6 +73,76 @@ public sealed class WatchV2AutoRefreshTests
     }
 
     [Fact]
+    public async Task Automatic_demand_series_refresh_opens_the_same_page_on_a_new_snapshot()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client
+        {
+            DemandSeriesHandler = (query, _) => Task.FromResult(query switch
+            {
+                { PageNumber: 1, SnapshotReference: null } =>
+                    RecordingV2Client.DemandSeriesSnapshot(
+                        query,
+                        "commit-new",
+                        "snapshot-new",
+                        totalPages: 3),
+                { PageNumber: 2, SnapshotReference: "snapshot-new" } =>
+                    RecordingV2Client.DemandSeriesSnapshot(
+                        query,
+                        "commit-new",
+                        "snapshot-new",
+                        totalPages: 3),
+                _ => throw new InvalidOperationException(
+                    $"Unexpected automatic DemandSeries query: page={query.PageNumber}, snapshot={query.SnapshotReference ?? "<latest>"}."),
+            }),
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        var activePage = new DemandSeriesBrowseQuery(
+            new DemandSeriesBrowseFilter
+            {
+                Lifecycles = [DemandSeriesLifecycleContract.Tracking],
+                MesAreas = ["A1-1"],
+            },
+            PageSize: 25,
+            PageNumber: 2,
+            SnapshotReference: "snapshot-old");
+        coordinator.ActivateDemandSeries(activePage);
+
+        await AdvanceOneIntervalAsync(clock, coordinator);
+
+        Assert.Collection(
+            client.DemandSeriesQueries,
+            firstPage =>
+            {
+                Assert.Equal(1, firstPage.PageNumber);
+                Assert.Null(firstPage.SnapshotReference);
+                Assert.Equal(activePage.Filter.Lifecycles, firstPage.Filter.Lifecycles);
+                Assert.Equal(activePage.Filter.MesAreas, firstPage.Filter.MesAreas);
+                Assert.Equal(activePage.PageSize, firstPage.PageSize);
+                Assert.Equal(activePage.Order, firstPage.Order);
+            },
+            secondPage =>
+            {
+                Assert.Equal(2, secondPage.PageNumber);
+                Assert.Equal("snapshot-new", secondPage.SnapshotReference);
+                Assert.Equal(activePage.Filter.Lifecycles, secondPage.Filter.Lifecycles);
+                Assert.Equal(activePage.Filter.MesAreas, secondPage.Filter.MesAreas);
+                Assert.Equal(activePage.PageSize, secondPage.PageSize);
+                Assert.Equal(activePage.Order, secondPage.Order);
+            });
+        var committed = Assert.IsType<DemandSeriesListSnapshot>(
+            session.State.DemandSeries.Snapshot);
+        Assert.Equal("snapshot-new", committed.SnapshotReference);
+        Assert.Equal(2, committed.PageNumber);
+    }
+
+    [Fact]
     public async Task Busy_due_tick_is_not_overlapped_or_queued_by_the_coordinator()
     {
         var clock = new ManualTimerTimeProvider(
@@ -455,9 +525,14 @@ public sealed class WatchV2AutoRefreshTests
         public Func<WatchOverviewQuery, CancellationToken, Task<WatchOverviewSnapshot>>?
             OverviewHandler { get; set; }
 
+        public Func<DemandSeriesBrowseQuery, CancellationToken, Task<DemandSeriesListSnapshot>>?
+            DemandSeriesHandler { get; set; }
+
         public int OverviewCallCount { get; private set; }
 
         public int DemandSeriesCallCount { get; private set; }
+
+        public List<DemandSeriesBrowseQuery> DemandSeriesQueries { get; } = [];
 
         public int ReadabilityAuditCallCount { get; private set; }
 
@@ -520,24 +595,39 @@ public sealed class WatchV2AutoRefreshTests
             CancellationToken cancellationToken = default)
         {
             DemandSeriesCallCount++;
-            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
-            return Task.FromResult(new DemandSeriesListSnapshot(
-                new DemandSeriesSnapshotIdentity(
+            DemandSeriesQueries.Add(query);
+            return DemandSeriesHandler?.Invoke(query, cancellationToken)
+                ?? Task.FromResult(DemandSeriesSnapshot(
+                    query,
                     "commit-demand",
+                    "snapshot-demand",
+                    totalPages: 0));
+        }
+
+        public static DemandSeriesListSnapshot DemandSeriesSnapshot(
+            DemandSeriesBrowseQuery query,
+            string projectionCommitId,
+            string snapshotReference,
+            int totalPages)
+        {
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            return new DemandSeriesListSnapshot(
+                new DemandSeriesSnapshotIdentity(
+                    projectionCommitId,
                     1,
                     at,
                     "poll-demand"),
-                "snapshot-demand",
+                snapshotReference,
                 query.Filter,
                 query.Order,
                 0,
                 new DemandSeriesFacets(0, 0, 0, 0, 0),
                 query.PageSize,
                 query.PageNumber,
-                0,
+                totalPages,
                 [],
                 null,
-                false));
+                false);
         }
 
         public Task<DemandSeriesDetailSnapshot> FetchDemandSeriesDetailAsync(

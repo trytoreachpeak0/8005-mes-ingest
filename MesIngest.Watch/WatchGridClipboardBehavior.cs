@@ -17,9 +17,13 @@ internal static class WatchGridClipboardBehavior
         "复制整行（含列名）",
     ];
 
-    public static void Attach(DataGrid grid)
+    public static void Attach(DataGrid grid, bool preserveSelectionUnit = false)
     {
-        grid.SelectionUnit = DataGridSelectionUnit.CellOrRowHeader;
+        if (!preserveSelectionUnit)
+        {
+            grid.SelectionUnit = DataGridSelectionUnit.CellOrRowHeader;
+        }
+
         grid.ClipboardCopyMode = DataGridClipboardCopyMode.None;
         if (grid.HeadersVisibility == DataGridHeadersVisibility.Column)
         {
@@ -170,6 +174,11 @@ internal static class WatchGridClipboardBehavior
             && !string.IsNullOrWhiteSpace(binding.Path?.Path))
         {
             return WatchGridClipboard.ReadProperty(rowItem, binding.Path.Path);
+        }
+
+        if (!string.IsNullOrWhiteSpace(column.SortMemberPath))
+        {
+            return WatchGridClipboard.ReadProperty(rowItem, column.SortMemberPath);
         }
 
         return null;

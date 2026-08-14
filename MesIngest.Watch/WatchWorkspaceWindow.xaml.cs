@@ -51,7 +51,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         new ErrorSearchFilter(),
         ErrorSearchWindowSelection.Last7Days);
     private CurrentIngestAttentionQuery _currentAttentionQuery = new();
+    private WatchDemandSeriesNavigationContext? _demandSeriesNavigation;
+    private string? _focusedDemandId;
     private WatchWorkspacePage _activePage = WatchWorkspacePage.Overview;
+    private bool _isRenderingDemandSeries;
+    private long _demandSeriesOperationGeneration;
     private bool _initialized;
     private bool _isWatchingSystemTheme;
     private bool _disposed;
@@ -77,6 +81,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             timeProvider);
 
         InitializeComponent();
+        InitializeDemandSeriesPage();
         if (Application.Current is null)
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
@@ -109,6 +114,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     internal Task InitializationTask { get; private set; } = Task.CompletedTask;
 
+    internal Task DemandSeriesNavigationTask { get; private set; } = Task.CompletedTask;
+
     internal event EventHandler<WatchOverviewNavigationEventArgs>? OverviewNavigationRequested;
 
     internal async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -139,6 +146,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         var expectedHostGeneration = _session.State.HostGeneration;
         RenderWorkspace();
         await apply.ConfigureAwait(true);
+        if (_disposed || cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
         RenderWorkspace();
         if (_session.State.HostGeneration != expectedHostGeneration)
         {
@@ -155,7 +167,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         if (_session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
         {
             await RefreshOverviewAndRenderAsync(cancellationToken).ConfigureAwait(true);
-            if (_session.State.HostGeneration != expectedHostGeneration)
+            if (_disposed
+                || cancellationToken.IsCancellationRequested
+                || _session.State.HostGeneration != expectedHostGeneration)
             {
                 return false;
             }
@@ -171,6 +185,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        var demandAreaOperation = BeginDemandSeriesOperation();
+        if (!await SuspendDemandSeriesAutoRefreshAsync(
+                demandAreaOperation,
+                cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
+
         _areaContext = (context ?? throw new ArgumentNullException(nameof(context)))
             .NormalizeAndValidate();
         _overviewQuery = new WatchOverviewQuery(_areaContext.MesAreas).NormalizeAndValidate();
@@ -181,6 +203,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             SnapshotReference = null,
             Cursor = null,
         };
+        SyncDemandSeriesFilterControls(_demandSeriesQuery);
         _readabilityAuditQuery = _readabilityAuditQuery with
         {
             Filter = _readabilityAuditQuery.Filter with { MesAreas = _areaContext.MesAreas },
@@ -196,9 +219,23 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         await RefreshOverviewAndRenderAsync(cancellationToken).ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken))
+        {
+            return;
+        }
+
         if (_activePage == WatchWorkspacePage.Overview)
         {
             _autoRefresh.ActivateOverview(_overviewQuery);
+        }
+        else if (_activePage == WatchWorkspacePage.DemandSeries)
+        {
+            _demandSeriesNavigation = null;
+            await RefreshLatestDemandSeriesAndRenderAsync(
+                    _demandSeriesQuery,
+                    _demandSeriesQuery.Filter.SeriesId,
+                    cancellationToken)
+                .ConfigureAwait(true);
         }
     }
 
@@ -230,11 +267,62 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 nameof(intent));
         }
 
+        if (intent.Target is OverviewNavigationTargets.DemandSeries
+            or OverviewNavigationTargets.DemandSeriesDetail)
+        {
+            _demandSeriesNavigation = WatchDemandSeriesNavigationContext.FromOverview(
+                _session.State.Overview.Snapshot,
+                intent);
+            _focusedDemandId = _demandSeriesNavigation?.FocusedDemandId;
+        }
+
         LastOverviewNavigationIntent = intent;
         ApplyNavigationIntent(intent);
         OverviewNavigationRequested?.Invoke(
             this,
             new WatchOverviewNavigationEventArgs(intent));
+        if (_activePage == WatchWorkspacePage.DemandSeries
+            && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            DemandSeriesNavigationTask = LoadDemandSeriesNavigationAsync(
+                intent.SeriesId,
+                _lifetimeCancellation.Token);
+        }
+    }
+
+    /// <summary>
+    /// Strongly typed entry point for other V2 operational pages (notably the
+    /// readability audit) to drill into a series without sharing their frozen
+    /// snapshot. The DemandSeries page always acquires its own current snapshot
+    /// and uses the source fence only for an explicit comparison message.
+    /// </summary>
+    internal Task NavigateToDemandSeriesAsync(
+        WatchDemandSeriesNavigationContext navigation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(navigation);
+        var areas = new WatchOverviewQuery(navigation.RequestedMesAreas)
+            .NormalizeAndValidate()
+            .MesAreas ?? [];
+        _demandSeriesNavigation = navigation;
+        _focusedDemandId = navigation.FocusedDemandId;
+        _demandSeriesQuery = WatchDemandSeriesQueries.StartLatest(
+            new DemandSeriesBrowseFilter
+            {
+                SeriesId = navigation.SeriesId,
+                DemandId = navigation.FocusedDemandId,
+                MesAreas = areas,
+            },
+            _demandSeriesQuery.PageSize);
+        SyncDemandSeriesFilterControls(_demandSeriesQuery);
+        NavigateTo(WatchWorkspacePage.DemandSeries);
+        DemandSeriesNavigationTask = _session.State.ConnectionStatus
+            == WatchHostConnectionStatus.Connected
+            ? LoadDemandSeriesNavigationAsync(
+                navigation.SeriesId,
+                cancellationToken)
+            : Task.CompletedTask;
+        return DemandSeriesNavigationTask;
     }
 
     public void Dispose()
@@ -248,6 +336,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         var apply = _session.ApplyAsync(_currentHostSettings, cancellationToken);
         RenderWorkspace();
         await apply.ConfigureAwait(true);
+        if (_disposed || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         RenderWorkspace();
         if (_session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
         {
@@ -255,6 +348,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         await RefreshOverviewAndRenderAsync(cancellationToken).ConfigureAwait(true);
+        if (_disposed || cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
         _autoRefresh.ActivateOverview(_overviewQuery);
     }
 
@@ -264,6 +362,354 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderWorkspace();
         await refresh.ConfigureAwait(true);
         RenderWorkspace();
+    }
+
+    private void InitializeDemandSeriesPage()
+    {
+        WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesGenerationGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesRawObservationGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesConditionGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesErrorPeriodGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesErrorEvidenceGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesEventGrid, preserveSelectionUnit: true);
+        DemandSeriesLifecycleFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
+        DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
+        DemandSeriesWorkTypeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
+        DemandSeriesWorkTypeFilter.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(
+            OnDemandSeriesFilterDraftTextChanged));
+        DemandSeriesSublotFilter.TextChanged += OnDemandSeriesFilterDraftTextChanged;
+        DemandSeriesSeriesIdFilter.TextChanged += OnDemandSeriesFilterDraftTextChanged;
+        DemandSeriesDemandIdFilter.TextChanged += OnDemandSeriesFilterDraftTextChanged;
+        DemandSeriesPageSizeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
+        UpdateDemandSeriesClearFiltersState();
+    }
+
+    private async Task LoadDemandSeriesNavigationAsync(
+        string? desiredSeriesId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await RefreshLatestDemandSeriesAndRenderAsync(
+                    _demandSeriesQuery,
+                    desiredSeriesId,
+                    cancellationToken)
+                .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested
+            || _lifetimeCancellation.IsCancellationRequested)
+        {
+            // Leaving the page or closing the window is a neutral end to navigation.
+        }
+    }
+
+    private async Task RefreshLatestDemandSeriesAndRenderAsync(
+        DemandSeriesBrowseQuery query,
+        string? desiredSeriesId,
+        CancellationToken cancellationToken)
+    {
+        var operation = BeginDemandSeriesOperation();
+        if (!await SuspendDemandSeriesAutoRefreshAsync(
+                operation,
+                cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        _demandSeriesQuery = query;
+        var refresh = _session.RefreshLatestDemandSeriesPageAsync(query, cancellationToken);
+        RenderWorkspace();
+        await refresh.ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+        {
+            return;
+        }
+
+        RenderWorkspace();
+
+        var view = _session.State.DemandSeries;
+        if (!view.IsStale && view.Snapshot is { } committed)
+        {
+            _demandSeriesQuery = CanonicalDemandSeriesAutoRefreshQuery(committed);
+            if (!string.IsNullOrWhiteSpace(desiredSeriesId)
+                && committed.Items.Any(item => string.Equals(
+                    item.SeriesId,
+                    desiredSeriesId,
+                    StringComparison.Ordinal)))
+            {
+                await SelectDemandSeriesAndRenderAsync(
+                        desiredSeriesId,
+                        operation,
+                        cancellationToken,
+                        manageAutoRefresh: false)
+                    .ConfigureAwait(true);
+                if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+                {
+                    return;
+                }
+            }
+        }
+
+        if (_activePage == WatchWorkspacePage.DemandSeries
+            && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
+        }
+    }
+
+    private async Task RefreshFrozenDemandSeriesAndRenderAsync(
+        DemandSeriesBrowseQuery frozenRequest,
+        DemandSeriesBrowseQuery automaticRequest,
+        CancellationToken cancellationToken)
+    {
+        var operation = BeginDemandSeriesOperation();
+        if (!await SuspendDemandSeriesAutoRefreshAsync(
+                operation,
+                cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        _demandSeriesQuery = automaticRequest;
+        var refresh = _session.RefreshDemandSeriesAsync(frozenRequest, cancellationToken);
+        RenderWorkspace();
+        await refresh.ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+        {
+            return;
+        }
+
+        RenderWorkspace();
+
+        var view = _session.State.DemandSeries;
+        if (!view.IsStale && view.Snapshot is { } committed)
+        {
+            _demandSeriesQuery = CanonicalDemandSeriesAutoRefreshQuery(committed);
+        }
+
+        if (_activePage == WatchWorkspacePage.DemandSeries
+            && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
+        }
+    }
+
+    private async Task SelectDemandSeriesAndRenderAsync(
+        string? seriesId,
+        CancellationToken cancellationToken) =>
+        await SelectDemandSeriesAndRenderAsync(
+            seriesId,
+            BeginDemandSeriesOperation(),
+            cancellationToken,
+            manageAutoRefresh: true).ConfigureAwait(true);
+
+    private async Task SelectDemandSeriesAndRenderAsync(
+        string? seriesId,
+        long operation,
+        CancellationToken cancellationToken,
+        bool manageAutoRefresh)
+    {
+        if (manageAutoRefresh
+            && !await SuspendDemandSeriesAutoRefreshAsync(
+                operation,
+                cancellationToken).ConfigureAwait(true))
+        {
+            return;
+        }
+
+        if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+        {
+            return;
+        }
+
+        var selection = _session.SelectDemandSeriesAsync(seriesId, cancellationToken);
+        RenderWorkspace();
+        await selection.ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+        {
+            return;
+        }
+
+        RenderWorkspace();
+        if (manageAutoRefresh
+            && _activePage == WatchWorkspacePage.DemandSeries
+            && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
+        }
+    }
+
+    private long BeginDemandSeriesOperation() =>
+        Interlocked.Increment(ref _demandSeriesOperationGeneration);
+
+    private bool IsCurrentDemandSeriesOperation(
+        long operation,
+        CancellationToken cancellationToken) =>
+        !_disposed
+        && !cancellationToken.IsCancellationRequested
+        && operation == Interlocked.Read(ref _demandSeriesOperationGeneration);
+
+    private async Task<bool> SuspendDemandSeriesAutoRefreshAsync(
+        long operation,
+        CancellationToken cancellationToken)
+    {
+        if (_autoRefresh.ActiveView == WatchV2DataView.DemandSeries)
+        {
+            _autoRefresh.Deactivate();
+            await _autoRefresh.WaitForIdleAsync()
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(true);
+        }
+
+        return IsCurrentDemandSeriesOperation(operation, cancellationToken);
+    }
+
+    private static DemandSeriesBrowseQuery CanonicalDemandSeriesAutoRefreshQuery(
+        DemandSeriesListSnapshot snapshot) => snapshot.TotalPages == 0
+        ? WatchDemandSeriesQueries.StartLatest(snapshot.Filter, snapshot.PageSize)
+        : WatchDemandSeriesQueries.OpenFrozenPage(snapshot, snapshot.PageNumber);
+
+    private DemandSeriesBrowseFilter ReadDemandSeriesFilter() => new()
+    {
+        Lifecycles = ReadDemandSeriesChoice(DemandSeriesLifecycleFilter),
+        CurrentPresences = ReadDemandSeriesChoice(DemandSeriesPresenceFilter),
+        WorkTypes = ReadDemandSeriesChoice(DemandSeriesWorkTypeFilter),
+        SublotContains = ReadDemandSeriesText(DemandSeriesSublotFilter.Text),
+        SeriesId = ReadDemandSeriesText(DemandSeriesSeriesIdFilter.Text),
+        DemandId = ReadDemandSeriesText(DemandSeriesDemandIdFilter.Text),
+        MesAreas = _areaContext.MesAreas,
+    };
+
+    private static IReadOnlyList<string> ReadDemandSeriesChoice(ComboBox comboBox)
+    {
+        var value = comboBox.IsEditable
+            ? comboBox.Text
+            : comboBox.SelectedItem is ComboBoxItem item
+            ? item.Content?.ToString()
+            : comboBox.Text;
+        value = ReadDemandSeriesText(value);
+        return value is null || value.StartsWith("全部", StringComparison.Ordinal)
+            ? []
+            : [value];
+    }
+
+    private static string? ReadDemandSeriesText(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private int ReadDemandSeriesPageSize()
+    {
+        var value = DemandSeriesPageSizeFilter.SelectedItem is ComboBoxItem item
+            ? item.Content?.ToString()
+            : DemandSeriesPageSizeFilter.Text;
+        return int.TryParse(value, out var pageSize)
+            ? pageSize
+            : throw new ArgumentException("每页数量必须是 25、50、100 或 200。");
+    }
+
+    private bool ShouldOfferDemandSeriesAllAreasConfirmation()
+    {
+        var view = _session.State.DemandSeries;
+        return !view.IsRefreshing
+            && view.LastFailureAt is null
+            && view.Snapshot is { ExactTotalCount: 0 } snapshot
+            && snapshot.Filter.MesAreas.Count > 0
+            && !string.IsNullOrWhiteSpace(
+                _demandSeriesNavigation?.SeriesId ?? _demandSeriesQuery.Filter.SeriesId);
+    }
+
+    internal async Task ConfirmDemandSeriesAllAreasAsync(
+        CancellationToken cancellationToken = default)
+    {
+        if (!ShouldOfferDemandSeriesAllAreasConfirmation())
+        {
+            throw new InvalidOperationException(
+                "The current DemandSeries result does not require an all-AREA confirmation.");
+        }
+
+        _areaContext = WatchAreaDisplayContext.AllAreas;
+        _overviewQuery = new WatchOverviewQuery([]).NormalizeAndValidate();
+        _readabilityAuditQuery = _readabilityAuditQuery with
+        {
+            Filter = _readabilityAuditQuery.Filter with { MesAreas = [] },
+            PageNumber = 1,
+            SnapshotReference = null,
+            Cursor = null,
+        };
+        var targetSeriesId = _demandSeriesNavigation?.SeriesId
+            ?? _demandSeriesQuery.Filter.SeriesId;
+        var query = WatchDemandSeriesQueries.StartLatest(
+            _demandSeriesQuery.Filter with { MesAreas = [] },
+            _demandSeriesQuery.PageSize);
+        SyncDemandSeriesFilterControls(query);
+        await RefreshLatestDemandSeriesAndRenderAsync(
+                query,
+                targetSeriesId,
+                cancellationToken)
+            .ConfigureAwait(true);
+    }
+
+    private void SyncDemandSeriesFilterControls(DemandSeriesBrowseQuery query)
+    {
+        SelectDemandSeriesChoice(DemandSeriesLifecycleFilter, query.Filter.Lifecycles.SingleOrDefault());
+        SelectDemandSeriesChoice(DemandSeriesPresenceFilter, query.Filter.CurrentPresences.SingleOrDefault());
+        SelectDemandSeriesChoice(DemandSeriesWorkTypeFilter, query.Filter.WorkTypes.SingleOrDefault());
+        DemandSeriesSublotFilter.Text = query.Filter.SublotContains ?? string.Empty;
+        DemandSeriesSeriesIdFilter.Text = query.Filter.SeriesId ?? string.Empty;
+        DemandSeriesDemandIdFilter.Text = query.Filter.DemandId ?? string.Empty;
+        SelectDemandSeriesChoice(DemandSeriesPageSizeFilter, query.PageSize.ToString());
+    }
+
+    private static void SelectDemandSeriesChoice(ComboBox comboBox, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            comboBox.SelectedIndex = 0;
+            return;
+        }
+
+        foreach (var candidate in comboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(candidate.Content?.ToString(), value, StringComparison.Ordinal))
+            {
+                comboBox.SelectedItem = candidate;
+                return;
+            }
+        }
+
+        if (comboBox.IsEditable)
+        {
+            comboBox.SelectedIndex = -1;
+            comboBox.Text = value;
+        }
+    }
+
+    private void OnDemandSeriesFilterDraftChanged(object sender, SelectionChangedEventArgs e) =>
+        UpdateDemandSeriesClearFiltersState();
+
+    private void OnDemandSeriesFilterDraftTextChanged(object sender, TextChangedEventArgs e) =>
+        UpdateDemandSeriesClearFiltersState();
+
+    private void UpdateDemandSeriesClearFiltersState()
+    {
+        if (DemandSeriesClearFiltersButton is null)
+        {
+            return;
+        }
+
+        var hasChoice = DemandSeriesLifecycleFilter.SelectedIndex > 0
+            || DemandSeriesPresenceFilter.SelectedIndex > 0
+            || ReadDemandSeriesChoice(DemandSeriesWorkTypeFilter).Count > 0;
+        var hasText = ReadDemandSeriesText(DemandSeriesSublotFilter.Text) is not null
+            || ReadDemandSeriesText(DemandSeriesSeriesIdFilter.Text) is not null
+            || ReadDemandSeriesText(DemandSeriesDemandIdFilter.Text) is not null;
+        var pageSizeIsDefault = int.TryParse(
+                (DemandSeriesPageSizeFilter.SelectedItem as ComboBoxItem)?.Content?.ToString()
+                    ?? DemandSeriesPageSizeFilter.Text,
+                out var pageSize)
+            && pageSize == DemandSeriesBrowseQuery.DefaultPageSize;
+        DemandSeriesClearFiltersButton.IsEnabled = hasChoice || hasText || !pageSizeIsDefault;
     }
 
     private async void OnWindowLoaded(object sender, RoutedEventArgs e)
@@ -365,6 +811,181 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderAttentionFacetActions(state.Overview.Snapshot?.Attention);
         RenderRecentActivity(presentation);
         RenderHostFooter(state, presentation);
+        RenderDemandSeries(state);
+    }
+
+    private void RenderDemandSeries(WatchV2WorkspaceState state)
+    {
+        var presentation = WatchDemandSeriesPresentation.Project(
+            state,
+            _demandSeriesQuery,
+            _areaContext,
+            _demandSeriesNavigation,
+            _focusedDemandId);
+        _isRenderingDemandSeries = true;
+        try
+        {
+            DemandSeriesContextText.Text = string.Join(
+                " · ",
+                new[]
+                {
+                    $"本机 AREA：{presentation.LocalAreaHeading}",
+                    presentation.HostAreaScope,
+                    presentation.SnapshotFacts,
+                    presentation.ClientAttemptFacts,
+                    $"自动刷新 {_preferences.RefreshIntervals.DemandSeries.IntervalSeconds} 秒",
+                }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            AutomationProperties.SetName(
+                DemandSeriesContextText,
+                presentation.HasSnapshot
+                    ? $"需求系列快照与 AREA 范围：{DemandSeriesContextText.Text}"
+                    : "需求系列快照与 AREA 范围");
+
+            var showSource = presentation.SourceComparison
+                != WatchDemandSeriesSourceComparison.None;
+            DemandSeriesInfoBar.IsOpen = presentation.IsInfoOpen || showSource;
+            DemandSeriesInfoBar.Severity = ToInfoBarSeverity(
+                presentation.IsInfoOpen
+                    ? presentation.InfoSeverity
+                    : presentation.SourceComparisonSeverity);
+            DemandSeriesInfoBar.Title = presentation.IsInfoOpen
+                ? presentation.InfoTitle
+                : showSource ? "来源快照比较" : string.Empty;
+            var infoParts = new[]
+            {
+                presentation.IsInfoOpen ? presentation.InfoMessage : null,
+                showSource ? presentation.SourceSnapshotSummary : null,
+                showSource ? presentation.SourceComparisonMessage : null,
+            }.Where(value => !string.IsNullOrWhiteSpace(value));
+            DemandSeriesInfoBar.Message = string.Join(" ", infoParts);
+            AutomationProperties.SetName(
+                DemandSeriesInfoBar,
+                DemandSeriesInfoBar.IsOpen
+                    ? $"{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}"
+                    : "需求系列读取状态");
+
+            DemandSeriesPageSummaryText.Text = presentation.PageSummary;
+            DemandSeriesOrderText.Text = presentation.OrderSummary;
+            AutomationProperties.SetName(
+                DemandSeriesPageSummaryText,
+                presentation.HasSnapshot
+                    ? $"需求系列精确分页摘要：{presentation.PageSummary}"
+                    : "需求系列精确分页摘要");
+            DemandSeriesPreviousButton.IsEnabled = presentation.CanGoPrevious
+                && !presentation.IsRefreshing;
+            DemandSeriesNextButton.IsEnabled = presentation.CanGoNext
+                && !presentation.IsRefreshing;
+            var hasPages = state.DemandSeries.Snapshot is { TotalPages: > 0 };
+            DemandSeriesGoToPageButton.IsEnabled = hasPages && !presentation.IsRefreshing;
+            DemandSeriesPageNumberInput.IsEnabled = hasPages && !presentation.IsRefreshing;
+            if (!DemandSeriesPageNumberInput.IsKeyboardFocusWithin)
+            {
+                DemandSeriesPageNumberInput.Text = state.DemandSeries.Snapshot?.TotalPages == 0
+                    ? "0"
+                    : (state.DemandSeries.Snapshot?.PageNumber ?? 1).ToString();
+            }
+
+            var selectedSeriesId = state.DemandSeries.SelectedId;
+            DemandSeriesGrid.ItemsSource = presentation.Rows;
+            var hasEmptyResult = presentation.HasSnapshot && presentation.Rows.Count == 0;
+            DemandSeriesGrid.Visibility = hasEmptyResult
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            DemandSeriesEmptyState.Visibility = hasEmptyResult
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            DemandSeriesEmptyState.IsOpen = hasEmptyResult;
+            DemandSeriesGrid.SelectedItem = presentation.Rows.FirstOrDefault(row => string.Equals(
+                row.SeriesId,
+                selectedSeriesId,
+                StringComparison.Ordinal));
+            AddObservedWorkTypes(presentation.Rows.Select(row => row.WorkType));
+
+            DemandSeriesAllAreasConfirmPanel.Visibility =
+                ShouldOfferDemandSeriesAllAreasConfirmation()
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            DemandSeriesAllAreasConfirmButton.IsEnabled =
+                DemandSeriesAllAreasConfirmPanel.Visibility == Visibility.Visible;
+
+            var detail = presentation.Detail;
+            DemandSeriesDetailHeadingText.Text = detail is null
+                ? "选择一个需求系列以查看详情"
+                : $"{detail.SeriesHeading} · {detail.LifecycleSummary}";
+            AutomationProperties.SetName(
+                DemandSeriesDetailHeadingText,
+                detail is null
+                    ? "选中需求系列详情"
+                    : $"选中需求系列详情：{DemandSeriesDetailHeadingText.Text}");
+            DemandSeriesDetailFactsText.Text = detail is null
+                ? "选择后显示 Series 生命周期时间与创建证据。"
+                : $"SeriesStartedAt {detail.StartedAt} · ArchivedAt {detail.ArchivedAt} · 创建 PollTrace {detail.CreatedPollTraceId} · 创建 ProjectionCommit {detail.CreatedProjectionCommitId} · 最近 PollTrace {detail.LatestPollTraceId} · 最近 ProjectionCommit {detail.LatestProjectionCommitId}";
+            DemandSeriesGenerationGrid.ItemsSource = detail?.Generations;
+            DemandSeriesRawObservationGrid.ItemsSource = detail?.RawObservations;
+            var liveMes = detail?.FocusedLiveMesFields;
+            DemandSeriesLiveMesFieldsText.Text = detail is null
+                ? "选择 Demand 后显示唯一可信 LiveMesFieldSet。"
+                : liveMes is null
+                    ? $"DemandId {detail.FocusedDemandId} · 当前无可信 LiveMesFieldSet · {detail.MesSourceDateLabel} {detail.MesSourceDateValue}"
+                    : $"DemandId {detail.FocusedDemandId} · AREA {liveMes.Area} · EQP {liveMes.Eqp} · STEP {liveMes.Step} · {detail.MesSourceDateLabel} {liveMes.MesSourceDate} · PACKAGE {liveMes.Package}";
+            DemandSeriesObservationSummaryText.Text = detail?.ObservationSummary
+                ?? "尚无 Demand 原始观测摘要。";
+            var focusedGeneration = detail?.Generations.FirstOrDefault(row => string.Equals(
+                row.DemandId,
+                detail.FocusedDemandId,
+                StringComparison.Ordinal));
+            DemandSeriesReadabilityBlockersText.Text = focusedGeneration is null
+                ? "尚无当前 Demand 资格结论。"
+                : focusedGeneration.ReadabilityBlockers.Count == 0
+                    ? $"{focusedGeneration.ExternalReadabilityState} · 无资格阻断"
+                    : $"{focusedGeneration.ExternalReadabilityState} · 资格阻断 {string.Join('、', focusedGeneration.ReadabilityBlockers)}";
+            AutomationProperties.SetName(
+                DemandSeriesLiveMesFieldsText,
+                $"可信 LiveMesFieldSet：{DemandSeriesLiveMesFieldsText.Text}");
+            AutomationProperties.SetName(
+                DemandSeriesReadabilityBlockersText,
+                $"当前 Demand 资格阻断：{DemandSeriesReadabilityBlockersText.Text}");
+            DemandSeriesConditionGrid.ItemsSource = detail?.CurrentConditions;
+            var selectedPeriodId = (DemandSeriesErrorPeriodGrid.SelectedItem
+                as WatchDemandErrorPeriodPresentation)?.PeriodId;
+            DemandSeriesErrorPeriodGrid.ItemsSource = detail?.ErrorPeriods;
+            var selectedPeriod = detail?.ErrorPeriods.FirstOrDefault(period => string.Equals(
+                    period.PeriodId,
+                    selectedPeriodId,
+                    StringComparison.Ordinal))
+                ?? detail?.ErrorPeriods.FirstOrDefault();
+            DemandSeriesErrorPeriodGrid.SelectedItem = selectedPeriod;
+            DemandSeriesErrorEvidenceGrid.ItemsSource = selectedPeriod?.Evidence;
+            DemandSeriesEventGrid.ItemsSource = detail?.Events;
+            DemandSeriesGenerationGrid.SelectedItem = detail?.Generations.FirstOrDefault(row =>
+                string.Equals(row.DemandId, detail.FocusedDemandId, StringComparison.Ordinal));
+            DemandSeriesCopyTimeButton.IsEnabled = detail is not null;
+            DemandSeriesCopyEvidenceButton.IsEnabled = detail is not null;
+            UpdateDemandSeriesClearFiltersState();
+        }
+        finally
+        {
+            _isRenderingDemandSeries = false;
+        }
+    }
+
+    private void AddObservedWorkTypes(IEnumerable<string> values)
+    {
+        var existing = DemandSeriesWorkTypeFilter.Items
+            .OfType<ComboBoxItem>()
+            .Select(item => item.Content?.ToString())
+            .Where(value => value is not null)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var value in values
+                     .Where(value => !string.IsNullOrWhiteSpace(value))
+                     .Distinct(StringComparer.Ordinal)
+                     .Order(StringComparer.Ordinal))
+        {
+            if (existing.Add(value))
+            {
+                DemandSeriesWorkTypeFilter.Items.Add(new ComboBoxItem { Content = value });
+            }
+        }
     }
 
     private void RenderAttentionFacetActions(WatchOverviewAttentionSummary? attention)
@@ -547,6 +1168,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     },
                     PageNumber: intent.PageNumber,
                     Cursor: intent.Cursor).NormalizeAndValidate();
+                SyncDemandSeriesFilterControls(_demandSeriesQuery);
                 NavigateTo(WatchWorkspacePage.DemandSeries);
                 break;
             case OverviewNavigationTargets.ReadabilityAudit:
@@ -809,11 +1431,203 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
+    private async void OnDemandSeriesApplyFiltersClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            _demandSeriesNavigation = null;
+            _focusedDemandId = null;
+            var query = WatchDemandSeriesQueries.StartLatest(
+                ReadDemandSeriesFilter(),
+                ReadDemandSeriesPageSize());
+            await RefreshLatestDemandSeriesAndRenderAsync(
+                    query,
+                    query.Filter.SeriesId,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+
+    private async void OnDemandSeriesClearFiltersClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            DemandSeriesLifecycleFilter.SelectedIndex = 0;
+            DemandSeriesPresenceFilter.SelectedIndex = 0;
+            DemandSeriesWorkTypeFilter.SelectedIndex = 0;
+            DemandSeriesSublotFilter.Clear();
+            DemandSeriesSeriesIdFilter.Clear();
+            DemandSeriesDemandIdFilter.Clear();
+            DemandSeriesPageSizeFilter.SelectedIndex = 2;
+            _demandSeriesNavigation = null;
+            _focusedDemandId = null;
+            var query = WatchDemandSeriesQueries.StartLatest(
+                new DemandSeriesBrowseFilter { MesAreas = _areaContext.MesAreas },
+                ReadDemandSeriesPageSize());
+            await RefreshLatestDemandSeriesAndRenderAsync(
+                    query,
+                    desiredSeriesId: null,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+
+    private async void OnDemandSeriesPreviousClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            var snapshot = _session.State.DemandSeries.Snapshot
+                ?? throw new InvalidOperationException("当前没有可分页的需求系列快照。");
+            var targetPage = snapshot.PageNumber - 1;
+            var request = WatchDemandSeriesQueries.OpenFrozenPage(snapshot, targetPage);
+            await RefreshFrozenDemandSeriesAndRenderAsync(
+                    request,
+                    request,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+
+    private async void OnDemandSeriesNextClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            var snapshot = _session.State.DemandSeries.Snapshot
+                ?? throw new InvalidOperationException("当前没有可分页的需求系列快照。");
+            var request = WatchDemandSeriesQueries.OpenNextFrozenPage(snapshot)
+                ?? throw new InvalidOperationException("当前冻结快照没有下一页。");
+            var automaticRequest = WatchDemandSeriesQueries.OpenFrozenPage(
+                snapshot,
+                snapshot.PageNumber + 1);
+            await RefreshFrozenDemandSeriesAndRenderAsync(
+                    request,
+                    automaticRequest,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+
+    private async void OnDemandSeriesGoToPageClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            var snapshot = _session.State.DemandSeries.Snapshot
+                ?? throw new InvalidOperationException("当前没有可分页的需求系列快照。");
+            if (!int.TryParse(DemandSeriesPageNumberInput.Text, out var pageNumber))
+            {
+                throw new ArgumentException("页码必须是整数。");
+            }
+
+            var request = WatchDemandSeriesQueries.OpenFrozenPage(snapshot, pageNumber);
+            await RefreshFrozenDemandSeriesAndRenderAsync(
+                    request,
+                    request,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+
+    private async void OnDemandSeriesAllAreasConfirmClick(object sender, RoutedEventArgs e) =>
+        await RunDemandSeriesUiActionAsync(() => ConfirmDemandSeriesAllAreasAsync(
+            _lifetimeCancellation.Token)).ConfigureAwait(true);
+
+    private async void OnDemandSeriesSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRenderingDemandSeries)
+        {
+            return;
+        }
+
+        await RunDemandSeriesUiActionAsync(async () =>
+        {
+            _focusedDemandId = null;
+            var seriesId = (DemandSeriesGrid.SelectedItem as WatchDemandSeriesRowPresentation)?.SeriesId;
+            await SelectDemandSeriesAndRenderAsync(
+                    seriesId,
+                    _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }).ConfigureAwait(true);
+    }
+
+    private void OnDemandSeriesGenerationSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRenderingDemandSeries
+            || DemandSeriesGenerationGrid.SelectedItem
+                is not WatchDemandGenerationPresentation generation)
+        {
+            return;
+        }
+
+        _focusedDemandId = generation.DemandId;
+        RenderWorkspace();
+    }
+
+    private void OnDemandSeriesErrorPeriodSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRenderingDemandSeries)
+        {
+            return;
+        }
+
+        DemandSeriesErrorEvidenceGrid.ItemsSource =
+            (DemandSeriesErrorPeriodGrid.SelectedItem
+                as WatchDemandErrorPeriodPresentation)?.Evidence;
+    }
+
+    private void OnDemandSeriesCopyTimeClick(object sender, RoutedEventArgs e)
+    {
+        if (_session.State.DemandSeries.Detail?.Series is not { } series)
+        {
+            return;
+        }
+
+        WatchGridClipboardBehavior.TrySetClipboardText(
+            WatchDemandSeriesClipboard.FormatFocusedDemandTimes(
+                series,
+                _focusedDemandId));
+    }
+
+    private void OnDemandSeriesCopyEvidenceClick(object sender, RoutedEventArgs e)
+    {
+        if (_session.State.DemandSeries.Detail?.Series is not { } series)
+        {
+            return;
+        }
+
+        WatchGridClipboardBehavior.TrySetClipboardText(
+            WatchDemandSeriesClipboard.FormatSeriesEvidence(series));
+    }
+
+    private async Task RunDemandSeriesUiActionAsync(Func<Task> action)
+    {
+        try
+        {
+            await action().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            // Closing the window is a neutral end to an in-flight action.
+        }
+        catch (Exception exception) when (exception is ArgumentException
+            or InvalidOperationException
+            or DemandSeriesBrowseException)
+        {
+            DemandSeriesInfoBar.IsOpen = true;
+            DemandSeriesInfoBar.Severity = InfoBarSeverity.Error;
+            DemandSeriesInfoBar.Title = "无法执行需求系列操作";
+            DemandSeriesInfoBar.Message = exception.Message;
+            AutomationProperties.SetName(
+                DemandSeriesInfoBar,
+                $"{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}");
+        }
+    }
+
     private void OnOverviewNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.Overview);
 
-    private void OnDemandSeriesNavigationClick(object sender, RoutedEventArgs e) =>
+    private async void OnDemandSeriesNavigationClick(object sender, RoutedEventArgs e)
+    {
         NavigateTo(WatchWorkspacePage.DemandSeries);
+        if (_session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
+        {
+            return;
+        }
+
+        DemandSeriesNavigationTask = LoadDemandSeriesNavigationAsync(
+            _demandSeriesQuery.Filter.SeriesId,
+            _lifetimeCancellation.Token);
+        await DemandSeriesNavigationTask.ConfigureAwait(true);
+    }
 
     private void OnReadabilityAuditNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.ReadabilityAudit);
@@ -956,6 +1770,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         _disposed = true;
+        Interlocked.Increment(ref _demandSeriesOperationGeneration);
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();

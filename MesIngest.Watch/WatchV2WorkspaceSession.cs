@@ -335,6 +335,62 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Refreshes the requested page against the newest available projection.
+    /// Pages after one require a snapshot reference at the HTTP boundary, so
+    /// this method first acquires the newest page-one snapshot and then opens
+    /// the requested page inside that same frozen snapshot. Only the final page
+    /// is committed to the workspace.
+    /// </summary>
+    public async Task RefreshLatestDemandSeriesPageAsync(
+        DemandSeriesBrowseQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.PageNumber < 1)
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                "PageNumber must be one or greater.");
+        }
+
+        if (query.Cursor is not null)
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                "Latest page refresh does not accept a frozen-snapshot cursor.");
+        }
+
+        var firstPage = (query with
+        {
+            PageNumber = 1,
+            SnapshotReference = null,
+            Cursor = null,
+        }).NormalizeAndValidate();
+        var request = new DemandSeriesLatestPageRequest(
+            firstPage.Filter,
+            firstPage.PageSize,
+            query.PageNumber,
+            firstPage.Order);
+        await RefreshViewAsync(
+            RequestSlot.DemandSeries,
+            WatchV2QueryKeys.LatestDemandSeries(request),
+            request,
+            state => state.DemandSeries,
+            (state, view) => state with { DemandSeries = view },
+            FetchLatestDemandSeriesPageAsync,
+            static snapshot => snapshot.Snapshot.ContractVersion,
+            "/api/v2/demand-series",
+            static (snapshot, selectedId) => snapshot.Items.Any(item =>
+                string.Equals(item.SeriesId, selectedId, StringComparison.Ordinal)),
+            static (client, selectedId, snapshot, token) =>
+                client.FetchDemandSeriesDetailAsync(
+                    selectedId,
+                    snapshot.SnapshotReference,
+                    token),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task RefreshReadabilityAuditAsync(
         ReadabilityAuditQuery query,
         CancellationToken cancellationToken = default)
@@ -578,6 +634,41 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         hostCancellation.Cancel();
         hostCancellation.Dispose();
         client.Dispose();
+    }
+
+    private static async Task<DemandSeriesListSnapshot> FetchLatestDemandSeriesPageAsync(
+        IWatchV2ApiClient client,
+        DemandSeriesLatestPageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var firstPage = await client.FetchDemandSeriesAsync(
+                new DemandSeriesBrowseQuery(
+                    request.Filter,
+                    request.PageSize,
+                    PageNumber: 1,
+                    Order: request.Order),
+                cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        RequireSnapshotContract(firstPage.Snapshot.ContractVersion, "/api/v2/demand-series");
+
+        var targetPage = firstPage.TotalPages <= 1
+            ? 1
+            : Math.Min(request.PageNumber, firstPage.TotalPages);
+        if (targetPage == 1)
+        {
+            return firstPage;
+        }
+
+        return await client.FetchDemandSeriesAsync(
+                new DemandSeriesBrowseQuery(
+                    request.Filter,
+                    request.PageSize,
+                    targetPage,
+                    firstPage.SnapshotReference,
+                    Order: request.Order),
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private void CommitConnectionIfCurrent(
@@ -1143,6 +1234,12 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         long HostGeneration,
         long RequestGeneration,
         string SnapshotReference);
+
+    internal sealed record DemandSeriesLatestPageRequest(
+        DemandSeriesBrowseFilter Filter,
+        int PageSize,
+        int PageNumber,
+        string Order);
 }
 
 internal static class WatchV2SelectionNotices
@@ -1165,6 +1262,10 @@ internal static class WatchV2QueryKeys
 
     public static string DemandSeries(DemandSeriesBrowseQuery query) =>
         Serialize("demand-series", query);
+
+    public static string LatestDemandSeries(
+        WatchV2WorkspaceSession.DemandSeriesLatestPageRequest request) =>
+        Serialize("demand-series-latest", request);
 
     public static string ReadabilityAudit(ReadabilityAuditQuery query) =>
         Serialize("readability-audit", query);

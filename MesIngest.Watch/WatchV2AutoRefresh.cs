@@ -494,7 +494,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
             WatchV2DataView.Overview => _session.RefreshOverviewAsync(
                 (WatchOverviewQuery)target.Query,
                 cancellationToken),
-            WatchV2DataView.DemandSeries => _session.RefreshDemandSeriesAsync(
+            WatchV2DataView.DemandSeries => _session.RefreshLatestDemandSeriesPageAsync(
                 (DemandSeriesBrowseQuery)target.Query,
                 cancellationToken),
             WatchV2DataView.ReadabilityAudit => _session.RefreshReadabilityAuditAsync(
