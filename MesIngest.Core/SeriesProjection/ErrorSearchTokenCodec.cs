@@ -145,7 +145,7 @@ public static class ErrorSearchTokenCodec
         {
             cursor = null;
             error = new(
-                ErrorSearchErrorCodes.InvalidCursor,
+                ErrorSearchErrorCodes.CursorMismatch,
                 "The cursor does not belong to this Error Search snapshot, filter, window, order, page size, or contract version.");
             return false;
         }

@@ -346,6 +346,7 @@ public static class ReadabilityAuditErrorCodes
     public const string SnapshotMismatch = "READABILITY_AUDIT_SNAPSHOT_MISMATCH";
     public const string InvalidCursor = "INVALID_READABILITY_AUDIT_CURSOR";
     public const string CursorMismatch = "READABILITY_AUDIT_CURSOR_MISMATCH";
+    public const string ObjectNotInSnapshot = "READABILITY_AUDIT_OBJECT_NOT_IN_SNAPSHOT";
 }
 
 public sealed class ReadabilityAuditException : Exception

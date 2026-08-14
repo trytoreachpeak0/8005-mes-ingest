@@ -809,7 +809,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
         try
         {
-            HostSessionRow hostSession;
+            HostSessionRow? hostSession = null;
             await using (var command = connection.CreateCommand())
             {
                 command.Transaction = transaction;
@@ -821,17 +821,20 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 AddNVarChar(command, "@hostSessionId", 64, hostSessionId);
                 await using var reader = await command.ExecuteReaderAsync(cancellationToken)
                     .ConfigureAwait(false);
-                if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                    return null;
+                    hostSession = new HostSessionRow(
+                        reader.GetString(0),
+                        reader.GetFieldValue<DateTimeOffset>(1),
+                        reader.GetString(2),
+                        reader.GetBoolean(3));
                 }
+            }
 
-                hostSession = new HostSessionRow(
-                    reader.GetString(0),
-                    reader.GetFieldValue<DateTimeOffset>(1),
-                    reader.GetString(2),
-                    reader.GetBoolean(3));
+            if (hostSession is null)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return null;
             }
 
             if (requireCurrent && !hostSession.IsCurrent)

@@ -1,11 +1,11 @@
 # MesIngest (C#)
 
-MES task ingest Host. The repository currently contains two deliberately different surfaces:
+MES task ingest Host. The repository contains two deliberately different surfaces:
 
-- **Production V2 (Ticket 15):** Oracle `MES_TASK_UNION` → causal round / PollTrace → the dedicated new SQL Server projection → read-only `/api/v2/*`.
-- **Legacy Development V1:** CSV or the old snapshot source → `TransportDemandReconciler` → `/api/*`. This remains useful for historical tests and local demos only.
+- **Production V2 (Tickets 15–17):** Oracle `MES_TASK_UNION` → causal round / PollTrace → the dedicated new SQL Server projection → frozen, read-only `/api/v2/*` contract.
+- **Legacy Development V1:** CSV or the old snapshot source → `TransportDemandReconciler` → `/api/*`. This remains useful for historical tests and local demos only; it is not a V2 compatibility surface.
 
-Outside `Development`, Host requires `MesIngest:NewSqlServerConnectionString`. With that key set and `MesIngest:SnapshotSource=Oracle`, only the V2 production poller and V2 HTTP surface run; the legacy `/api/demands`, `/api/alerts`, `/api/poll-health`, `/api/demand-changes`, Swagger, and `/openapi/v1.json` are not production endpoints.
+Outside `Development`, Host requires `MesIngest:NewSqlServerConnectionString`. With that key set and `MesIngest:SnapshotSource=Oracle`, only the V2 production poller and V2 HTTP surface run. The legacy `/api/demands`, `/api/alerts`, `/api/poll-health`, `/api/demand-changes`, and `/openapi/v1.json` are absent in Production; `/openapi/v2.json` is the canonical production API description.
 
 ## Tickets 01–07 — legacy Development V1
 
@@ -110,7 +110,7 @@ Representative read-only endpoints are:
 - `GET /api/v2/externally-readable-demand-catalog`
 - `GET /api/v2/poll-traces/{pollTraceId}`
 
-The V2 routes are intentionally excluded from the legacy OpenAPI document. Ticket 17 owns the complete V2 contract/OpenAPI freeze; do not use Swagger or `openapi/v1.json` as Ticket 15 production evidence.
+`GET /api/v2/contract` returns the one exact, comparable contract identity and its stable capability set. Host and consumers must match that identity exactly; missing fields, old states, or client-side single-page filtering are not compatibility fallbacks. The canonical `/openapi/v2.json` describes only the read-only V2 GET surface, including its snapshot identities, ProjectionCommit, CatalogRevision, pagination bounds, stable ordering, conditional catalog reads, and error responses. The legacy `/openapi/v1.json` remains Development-only and is never production evidence.
 
 ## Ticket 09 — legacy Development Watch
 
@@ -154,7 +154,7 @@ Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond l
 
 Install package also ships `FACTORY-VALIDATION.md` and `validation/` (manifest / execution-log / return checklist / signoff templates).
 
-`validation/Invoke-FactoryValidation.ps1` automates Ticket 15 read-only evidence capture per logical site A/B/C. It samples `/api/v2/contract`, frozen DemandSeries pages, DemandId/readability evidence, CurrentIngestAttention, ExternallyReadableDemandCatalog, and multiple distinct PollTraces; records request duration and correlation ids; exports DATES samples; redacts output; and creates a SHA-256 inventory. It accepts SharedSecret only through a named environment variable, never a command-line value.
+`validation/Invoke-FactoryValidation.ps1` automates Ticket 15 read-only evidence capture per logical site A/B/C. It samples `/api/v2/contract`, snapshot-bound DemandSeries pages, DemandId/readability evidence, CurrentIngestAttention, ExternallyReadableDemandCatalog, and multiple distinct PollTraces; records request duration and correlation ids; exports DATES samples; redacts output; and creates a SHA-256 inventory. It accepts SharedSecret only through a named environment variable, never a command-line value.
 
 Plant flow: fill V2 SQL Server and Oracle configuration → Thin `--probe-oracle` → on failure explicitly configure Thick and retry → start Service → sample multiple distinct `/api/v2/poll-traces/{pollTraceId}` rounds → compare row counts and VISIBLE projection → confirm PollTrace high-water continues without any Watch process → return only the redacted bundle.
 

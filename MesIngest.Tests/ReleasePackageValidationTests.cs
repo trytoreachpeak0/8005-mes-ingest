@@ -1,11 +1,15 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace MesIngest.Tests;
 
 public sealed class ReleasePackageValidationTests
 {
+    private const string ContractVersion = "2026.08.new-mes-ingest.v2.0";
+    private const int ContractSchemaVersion = 17;
+    private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
     private const string CanonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
     private const string CanonicalQueryRelativePath = "service/queries/mes-task-union/query.sql";
@@ -30,8 +34,11 @@ public sealed class ReleasePackageValidationTests
         var smoke = File.ReadAllText(
             Path.Combine(CSharpRoot, "pack", "validation", "Invoke-ReleaseSmoke.ps1"));
 
-        Assert.DoesNotContain("openapiSrc", publish, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("openapi\\v1.json", validator, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("openapiSrc", publish, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(CanonicalOpenApiRelativePath, publish.Replace('\\', '/'), StringComparison.Ordinal);
+        Assert.Contains(CanonicalOpenApiRelativePath, validator.Replace('\\', '/'), StringComparison.Ordinal);
+        Assert.Contains("openApiStatus = 'FROZEN'", validator, StringComparison.Ordinal);
+        Assert.Contains("Get-FileHash", validator, StringComparison.Ordinal);
         Assert.Contains("MES_INGEST_RELEASE_SMOKE_SQLSERVER", smoke, StringComparison.Ordinal);
         Assert.Contains("MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED", smoke, StringComparison.Ordinal);
         Assert.Contains("dedicated, disposable, and empty", smoke, StringComparison.Ordinal);
@@ -45,10 +52,26 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("MesIngest__SnapshotSource'] = 'Oracle'", smoke, StringComparison.Ordinal);
         Assert.Contains("MesIngest__RunOneShotOnStartup'] = 'false'", smoke, StringComparison.Ordinal);
         Assert.Contains("MesIngest__ContinuousPollEnabled'] = 'false'", smoke, StringComparison.Ordinal);
+        Assert.Contains(
+            "MesIngest__EnableLegacyDevelopmentEndpoints'] = 'true'",
+            smoke,
+            StringComparison.Ordinal);
         Assert.Contains("/api/v2/contract", smoke, StringComparison.Ordinal);
+        Assert.Contains("/openapi/v2.json", smoke, StringComparison.Ordinal);
+        Assert.Contains("/openapi/v1.json", smoke, StringComparison.Ordinal);
+        Assert.Contains("/api/demands", smoke, StringComparison.Ordinal);
+        Assert.Contains("/api/alerts", smoke, StringComparison.Ordinal);
+        Assert.Contains("/api/poll-health", smoke, StringComparison.Ordinal);
+        Assert.Contains("/api/demand-changes", smoke, StringComparison.Ordinal);
+        Assert.Contains("EXACT_VERSION_SCHEMA_AND_CAPABILITIES", smoke, StringComparison.Ordinal);
+        Assert.Contains("$expectedCapabilityVersion = '1.0'", smoke, StringComparison.Ordinal);
+        Assert.Contains("$expectedCapabilityOperations", smoke, StringComparison.Ordinal);
+        Assert.Contains(
+            "[string]$actualCapability[0].version -cne $expectedCapabilityVersion",
+            smoke,
+            StringComparison.Ordinal);
         Assert.Contains(CanonicalQueryRelativePath, smoke, StringComparison.Ordinal);
         Assert.Contains(CanonicalQuerySha256, smoke, StringComparison.Ordinal);
-        Assert.DoesNotContain("/api/demands", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("SnapshotCsvPath", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("MesIngest.Watch.exe", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("host.stdout.log", smoke, StringComparison.Ordinal);
@@ -69,10 +92,18 @@ public sealed class ReleasePackageValidationTests
             var manifestPath = Path.Combine(root, "RELEASE-MANIFEST.json");
             Assert.True(File.Exists(manifestPath), result.Output);
             using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+            Assert.Equal(3, manifest.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal("PASSED", manifest.RootElement.GetProperty("validationStatus").GetString());
             Assert.Equal("/api/v2/*", manifest.RootElement.GetProperty("productionSurface").GetString());
             Assert.Equal("/api/v2/contract", manifest.RootElement.GetProperty("contractDiscovery").GetString());
-            Assert.Equal("DEFERRED_TO_TICKET_17", manifest.RootElement.GetProperty("openApiStatus").GetString());
+            Assert.Equal("FROZEN", manifest.RootElement.GetProperty("openApiStatus").GetString());
+            var openApi = manifest.RootElement.GetProperty("openApi");
+            Assert.Equal(CanonicalOpenApiRelativePath, openApi.GetProperty("path").GetString());
+            Assert.Equal(ContractVersion, openApi.GetProperty("contractVersion").GetString());
+            Assert.Equal(ContractSchemaVersion, openApi.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal(
+                ComputeSha256(Path.Combine(root, CanonicalOpenApiRelativePath.Replace('/', Path.DirectorySeparatorChar))),
+                openApi.GetProperty("sha256").GetString());
             var rebuild = manifest.RootElement.GetProperty("rebuildEvidence");
             Assert.Equal("2026-08-09", rebuild.GetProperty("rebuildDecision").GetString());
             Assert.False(rebuild.GetProperty("oldVisualEvidenceAccepted").GetBoolean());
@@ -90,6 +121,101 @@ public sealed class ReleasePackageValidationTests
             Assert.All(
                 manifest.RootElement.GetProperty("files").EnumerateArray(),
                 file => Assert.Matches("^[A-F0-9]{64}$", file.GetProperty("sha256").GetString()));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Release_smoke_rejects_semantically_equal_openapi_byte_drift_before_database_access()
+    {
+        var root = CreateFixture();
+        try
+        {
+            File.Copy(
+                Path.Combine(CSharpRoot, "pack", "validation", "Invoke-ReleaseSmoke.ps1"),
+                Path.Combine(root, "validation", "Invoke-ReleaseSmoke.ps1"),
+                overwrite: true);
+            var validation = await RunValidatorAsync(root);
+            Assert.Equal(0, validation.ExitCode);
+
+            var openApiPath = Path.Combine(
+                root,
+                CanonicalOpenApiRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            await File.AppendAllTextAsync(openApiPath, Environment.NewLine);
+
+            var smoke = await RunReleaseSmokeAsync(root);
+
+            Assert.NotEqual(0, smoke.ExitCode);
+            Assert.Contains("SHA-256", smoke.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "MES_INGEST_RELEASE_SMOKE_SQLSERVER",
+                smoke.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("wrong-version")]
+    [InlineData("legacy-path")]
+    [InlineData("write-operation")]
+    [InlineData("legacy-term")]
+    public async Task Missing_or_noncanonical_v2_openapi_is_rejected(string mutation)
+    {
+        var root = CreateFixture();
+        try
+        {
+            var openApiPath = Path.Combine(
+                root,
+                CanonicalOpenApiRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            switch (mutation)
+            {
+                case "missing":
+                    File.Delete(openApiPath);
+                    break;
+                case "wrong-version":
+                    await File.WriteAllTextAsync(
+                        openApiPath,
+                        (await File.ReadAllTextAsync(openApiPath)).Replace(
+                            ContractVersion,
+                            "2026.08.new-mes-ingest.v2.drift",
+                            StringComparison.Ordinal));
+                    break;
+                case "legacy-path":
+                    await MutateOpenApiAsync(openApiPath, rootElement =>
+                    {
+                        rootElement["paths"]!["/api/contract"] = new JsonObject
+                        {
+                            ["get"] = new JsonObject(),
+                        };
+                    });
+                    break;
+                case "write-operation":
+                    await MutateOpenApiAsync(openApiPath, rootElement =>
+                    {
+                        rootElement["paths"]!["/api/v2/contract"]!["post"] = new JsonObject();
+                    });
+                    break;
+                case "legacy-term":
+                    await MutateOpenApiAsync(openApiPath, rootElement =>
+                    {
+                        rootElement["info"]!["description"] = "DemandChangeFeed";
+                    });
+                    break;
+            }
+
+            var result = await RunValidatorAsync(root);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("OpenAPI", result.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(Path.Combine(root, "RELEASE-MANIFEST.json")));
         }
         finally
         {
@@ -224,7 +350,7 @@ public sealed class ReleasePackageValidationTests
         var root = Path.Combine(Path.GetTempPath(), $"mes-ingest-release-{Guid.NewGuid():N}");
         foreach (var directory in new[]
                  {
-                     "service", "watch", "templates", "scripts", "validation",
+                     "service", "watch", "templates", "scripts", "validation", "openapi",
                  })
         {
             Directory.CreateDirectory(Path.Combine(root, directory));
@@ -232,6 +358,12 @@ public sealed class ReleasePackageValidationTests
 
         File.WriteAllText(Path.Combine(root, "service", "MesIngest.Host.exe"), "host");
         File.WriteAllText(Path.Combine(root, "watch", "MesIngest.Watch.exe"), "watch");
+        File.Copy(
+            Path.Combine(
+                CSharpRoot,
+                "pack",
+                CanonicalOpenApiRelativePath.Replace('/', Path.DirectorySeparatorChar)),
+            Path.Combine(root, CanonicalOpenApiRelativePath.Replace('/', Path.DirectorySeparatorChar)));
         var canonicalQueryDirectory = Path.Combine(root, "service", "queries", "mes-task-union");
         Directory.CreateDirectory(canonicalQueryDirectory);
         var canonicalQueryPath = Path.Combine(canonicalQueryDirectory, "query.sql");
@@ -273,6 +405,21 @@ public sealed class ReleasePackageValidationTests
         return root;
     }
 
+    private static async Task MutateOpenApiAsync(
+        string path,
+        Action<JsonObject> mutate)
+    {
+        var root = JsonNode.Parse(await File.ReadAllTextAsync(path))?.AsObject()
+                   ?? throw new InvalidOperationException("Canonical V2 OpenAPI must be a JSON object.");
+        mutate(root);
+        await File.WriteAllTextAsync(
+            path,
+            root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+    }
+
+    private static string ComputeSha256(string path) =>
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
+
     private static async Task<ValidationResult> RunValidatorAsync(string packageRoot)
     {
         var script = Path.Combine(CSharpRoot, "pack", "Test-ReleasePackage.ps1");
@@ -288,6 +435,26 @@ public sealed class ReleasePackageValidationTests
         start.ArgumentList.Add(script);
         start.ArgumentList.Add("-PackageRoot");
         start.ArgumentList.Add(packageRoot);
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        return new ValidationResult(process.ExitCode, (await stdout) + Environment.NewLine + (await stderr));
+    }
+
+    private static async Task<ValidationResult> RunReleaseSmokeAsync(string packageRoot)
+    {
+        var script = Path.Combine(packageRoot, "validation", "Invoke-ReleaseSmoke.ps1");
+        var start = new ProcessStartInfo
+        {
+            FileName = "pwsh",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        start.ArgumentList.Add("-NoProfile");
+        start.ArgumentList.Add("-File");
+        start.ArgumentList.Add(script);
         using var process = Process.Start(start) ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();

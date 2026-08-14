@@ -15,6 +15,8 @@ namespace MesIngest.ReferenceConsumer;
 public sealed class HttpExternallyReadableDemandCatalogClient
     : IExternallyReadableDemandCatalogClient
 {
+    public const string ContractPath = "/api/v2/contract";
+
     public const string CatalogPath = "/api/v2/externally-readable-demand-catalog";
 
     private static readonly JsonSerializerOptions SerializerOptions =
@@ -35,6 +37,8 @@ public sealed class HttpExternallyReadableDemandCatalogClient
                 nameof(knownRevision),
                 "A catalog revision cannot be negative.");
         }
+
+        await RequireCompatibleContractAsync(cancellationToken).ConfigureAwait(false);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, CatalogPath);
         if (knownRevision is long revision)
@@ -78,7 +82,7 @@ public sealed class HttpExternallyReadableDemandCatalogClient
                 NewMesIngestContract.Version,
                 StringComparison.Ordinal))
         {
-            throw new InvalidDataException(
+            throw ContractMismatch(
                 $"The catalog contractVersion must be '{NewMesIngestContract.Version}'.");
         }
         if (body.CatalogRevision != responseRevision)
@@ -112,6 +116,58 @@ public sealed class HttpExternallyReadableDemandCatalogClient
             items).Validate();
         return ExternallyReadableDemandCatalogRead.Complete(snapshot);
     }
+
+    private async Task RequireCompatibleContractAsync(CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, ContractPath);
+        using var response = await _httpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadFromJsonAsync<ContractDto>(
+            SerializerOptions,
+            cancellationToken).ConfigureAwait(false)
+            ?? throw ContractMismatch("The contract discovery response returned an empty JSON body.");
+        var capabilities = body.Capabilities ?? [];
+
+        try
+        {
+            NewMesIngestContract.RequireExactCompatibility(
+                body.ContractVersion,
+                body.SchemaVersion,
+                capabilities.Select(capability => capability?.Id ?? string.Empty));
+        }
+        catch (NewMesIngestContractMismatchException error)
+        {
+            throw ContractMismatch(error.Message, error);
+        }
+
+        var actualById = capabilities
+            .Select(capability => capability!)
+            .ToDictionary(
+                capability => capability.Id!,
+                StringComparer.Ordinal);
+        foreach (var expected in NewMesIngestContract.Capabilities)
+        {
+            if (!string.Equals(
+                    actualById[expected.Id].Version,
+                    expected.Version,
+                    StringComparison.Ordinal))
+            {
+                throw ContractMismatch(
+                    $"Capability '{expected.Id}' must have version '{expected.Version}'.");
+            }
+        }
+    }
+
+    private static InvalidDataException ContractMismatch(
+        string detail,
+        Exception? innerException = null) =>
+        new(
+            $"{NewMesIngestContractMismatchException.ErrorCode}: {detail}",
+            innerException);
 
     private static ExternallyReadableDemandSnapshot MapItem(CatalogItemDto item)
     {
@@ -180,6 +236,15 @@ public sealed class HttpExternallyReadableDemandCatalogClient
         DateTimeOffset? ProjectionCommittedAt,
         int Count,
         IReadOnlyList<CatalogItemDto> Items);
+
+    private sealed record ContractDto(
+        string? ContractVersion,
+        int SchemaVersion,
+        IReadOnlyList<CapabilityDto?>? Capabilities);
+
+    private sealed record CapabilityDto(
+        string? Id,
+        string? Version);
 
     private sealed record CatalogItemDto(
         string? DemandId,

@@ -165,7 +165,7 @@ public sealed partial class SqlServerMesIngestProjection
                 throw new ErrorSearchException(
                     query.Cursor is null
                         ? ErrorSearchErrorCodes.SnapshotMismatch
-                        : ErrorSearchErrorCodes.InvalidCursor,
+                        : ErrorSearchErrorCodes.CursorMismatch,
                     query.Cursor is null
                         ? "The Error Search snapshot does not belong to this filter, window, or order."
                         : "The Error Search cursor does not belong to this filter, window, or order.");

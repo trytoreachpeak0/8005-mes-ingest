@@ -38,6 +38,28 @@ $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed81
 $canonicalQueryVersion = "$canonicalQueryId/sha256:$canonicalQuerySha256"
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
+$canonicalOpenApiRelativePath = 'openapi/v2.json'
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.0'
+$expectedContractSchemaVersion = 17
+$expectedOpenApiPaths = @(
+    '/api/v2/absence-authority',
+    '/api/v2/absence-authority/{hostSessionId}',
+    '/api/v2/contract',
+    '/api/v2/current-ingest-attention',
+    '/api/v2/demand-series',
+    '/api/v2/demand-series/by-key',
+    '/api/v2/demand-series/{seriesId}',
+    '/api/v2/error-search',
+    '/api/v2/error-search/{seriesId}',
+    '/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations',
+    '/api/v2/externally-readable-demand-catalog',
+    '/api/v2/poll-traces/{pollTraceId}',
+    '/api/v2/readability-audit',
+    '/api/v2/readability-audit/{demandId}',
+    '/api/v2/task-type-protections',
+    '/api/v2/task-type-protections/{workType}',
+    '/api/v2/watch-overview'
+)
 
 $required = @(
     "service\MesIngest.Host.exe",
@@ -54,6 +76,7 @@ $required = @(
     "FACTORY-VALIDATION.md",
     "RELEASE-EVIDENCE.json",
     "VERSION.txt",
+    $canonicalOpenApiRelativePath,
     $canonicalQueryRelativePath,
     $canonicalQueryManifestRelativePath
 )
@@ -68,6 +91,77 @@ if ($missing.Count -gt 0) {
     }
     throw "Release package is missing required files: $($missing -join ', ')"
 }
+
+$canonicalOpenApiPath = Join-Path $root $canonicalOpenApiRelativePath
+$canonicalOpenApiText = Get-Content -Raw -LiteralPath $canonicalOpenApiPath
+try {
+    $canonicalOpenApi = $canonicalOpenApiText | ConvertFrom-Json
+} catch {
+    throw "Canonical V2 OpenAPI is invalid JSON: $canonicalOpenApiRelativePath"
+}
+$openApiVersionIsSupported = [string]$canonicalOpenApi.openapi -match '^3\.'
+$openApiContractIdentityMatches =
+    [string]$canonicalOpenApi.info.version -ceq $expectedContractVersion
+if (-not $openApiVersionIsSupported -or -not $openApiContractIdentityMatches) {
+    throw "Canonical V2 OpenAPI identity mismatch: expected contract $expectedContractVersion."
+}
+if ($null -eq $canonicalOpenApi.paths -or $null -eq $canonicalOpenApi.components.schemas) {
+    throw 'Canonical V2 OpenAPI must define paths and component schemas.'
+}
+
+$actualOpenApiPaths = @(
+    $canonicalOpenApi.paths.PSObject.Properties |
+        ForEach-Object { $_.Name } |
+        Sort-Object
+)
+$openApiPathDifference = @(
+    Compare-Object -ReferenceObject $expectedOpenApiPaths -DifferenceObject $actualOpenApiPaths -CaseSensitive
+)
+if ($openApiPathDifference.Count -gt 0) {
+    throw 'Canonical V2 OpenAPI paths must exactly match the frozen /api/v2 surface.'
+}
+foreach ($pathProperty in $canonicalOpenApi.paths.PSObject.Properties) {
+    if (-not $pathProperty.Name.StartsWith('/api/v2/', [StringComparison]::Ordinal)) {
+        throw "Canonical V2 OpenAPI contains a legacy or non-V2 path: $($pathProperty.Name)"
+    }
+    $pathMembers = @($pathProperty.Value.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($pathMembers.Count -ne 1 -or $pathMembers[0] -cne 'get') {
+        throw "Canonical V2 OpenAPI permits only GET operations: $($pathProperty.Name)"
+    }
+    if ([string]::IsNullOrWhiteSpace([string]$pathProperty.Value.get.operationId)) {
+        throw "Canonical V2 OpenAPI operation is missing operationId: $($pathProperty.Name)"
+    }
+}
+$forbiddenOpenApiTerms = @(
+    '/api/contract',
+    '/api/demands',
+    '/api/alerts',
+    '/api/poll-health',
+    '/api/demand-changes',
+    'DemandSeriesIssue',
+    'DemandChangeFeed',
+    'FeedSequence',
+    'feed sequence',
+    'HighWatermark',
+    'high-watermark',
+    'SYNC_CURSOR_EXPIRED',
+    'REAPPEAR_AFTER_GONE',
+    'DUPLICATE_RECONCILE_KEY',
+    'FrozenMesFieldSet',
+    'FIELD_DRIFT',
+    'IngestAlert',
+    'incident',
+    'OccurrenceCount',
+    'Fingerprint'
+)
+foreach ($term in $forbiddenOpenApiTerms) {
+    if ($canonicalOpenApiText.IndexOf($term, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        throw "Canonical V2 OpenAPI contains a forbidden legacy term: $term"
+    }
+}
+$canonicalOpenApiSha256 = (
+    Get-FileHash -LiteralPath $canonicalOpenApiPath -Algorithm SHA256
+).Hash.ToLowerInvariant()
 
 $queryFiles = @(Get-ChildItem -LiteralPath $root -Filter "*.sql" -File -Force -Recurse -ErrorAction SilentlyContinue)
 if ($queryFiles.Count -ne 1) {
@@ -178,7 +272,7 @@ $inventory = @(
         Sort-Object path
 )
 [ordered]@{
-    schemaVersion = 2
+    schemaVersion = 3
     validationStatus = 'PASSED'
     generatedAt = [DateTimeOffset]::UtcNow.ToString('O')
     sourceCommit = $SourceCommit
@@ -188,7 +282,13 @@ $inventory = @(
     businessApiMethods = @('GET')
     productionSurface = '/api/v2/*'
     contractDiscovery = '/api/v2/contract'
-    openApiStatus = 'DEFERRED_TO_TICKET_17'
+    openApiStatus = 'FROZEN'
+    openApi = [ordered]@{
+        path = $canonicalOpenApiRelativePath
+        contractVersion = $expectedContractVersion
+        schemaVersion = $expectedContractSchemaVersion
+        sha256 = $canonicalOpenApiSha256
+    }
     canonicalQuery = [ordered]@{
         id = $canonicalQueryId
         version = $canonicalQueryVersion

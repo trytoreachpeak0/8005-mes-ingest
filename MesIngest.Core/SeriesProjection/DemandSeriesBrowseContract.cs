@@ -216,6 +216,7 @@ public static class DemandSeriesBrowseErrorCodes
     public const string SnapshotMismatch = "DEMAND_SERIES_SNAPSHOT_MISMATCH";
     public const string InvalidCursor = "INVALID_DEMAND_SERIES_CURSOR";
     public const string CursorMismatch = "DEMAND_SERIES_CURSOR_MISMATCH";
+    public const string ObjectNotInSnapshot = "DEMAND_SERIES_OBJECT_NOT_IN_SNAPSHOT";
 }
 
 public sealed class DemandSeriesBrowseException : Exception

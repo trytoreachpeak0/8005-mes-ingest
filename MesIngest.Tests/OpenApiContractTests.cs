@@ -127,7 +127,7 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public void Static_v1_openapi_remains_legacy_source_only_until_v2_contract_is_frozen()
+    public void Static_v1_openapi_is_explicitly_legacy_and_v2_is_the_release_contract()
     {
         var staticPath = Path.Combine(PackRoot, "openapi", "v1.json");
         Assert.True(File.Exists(staticPath), $"Missing static OpenAPI at {staticPath}");
@@ -140,15 +140,26 @@ public class OpenApiContractTests : IClassFixture<WebApplicationFactory<Program>
         AssertErrorResponsesDocumented(doc.RootElement);
         AssertAlertSortByAllowList(doc.RootElement);
         AssertDemandSortByAllowList(doc.RootElement);
+        Assert.Contains(
+            "Legacy Development",
+            doc.RootElement.GetProperty("info").GetProperty("title").GetString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "LEGACY / DEVELOPMENT ONLY",
+            doc.RootElement.GetProperty("info").GetProperty("description").GetString(),
+            StringComparison.Ordinal);
 
         var publish = File.ReadAllText(Path.Combine(PackRoot, "Publish-MesIngest.ps1"));
-        Assert.DoesNotContain("openapiSrc", publish, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("openapiSrc", publish, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("openapi\\v2.json", publish, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("openapi\\v1.json", publish, StringComparison.OrdinalIgnoreCase);
 
         var install = File.ReadAllText(Path.Combine(PackRoot, "INSTALL.md"));
         Assert.Contains("/api/v2/contract", install, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Ticket 17", install, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("/openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/openapi/v2.json", install, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Ticket 17", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Development", install, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -10,6 +10,7 @@ MesIngest/
     queries/mes-task-union/query.sql  # 唯一正式 Oracle 查询稿
     queries/mes-task-union/query.manifest.json # 查询版本、长度与原始 SHA-256
   watch/                   # 可选 WPF 盯盘客户端（MesIngest.Watch）
+  openapi/v2.json          # Production V2 唯一 canonical OpenAPI 契约
   templates/               # 填空配置模板（无真实凭证）
   scripts/                 # 安装 / 卸载辅助脚本
   validation/              # 工厂验证、发布烟测与四套 Watch 验收入口
@@ -81,7 +82,7 @@ sc.exe delete MesIngest
 
 ## 版本信息
 
-见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 中固定的查询版本/路径/长度/哈希）。完整 V2 OpenAPI 由 Ticket 17 冻结；当前发布门禁不会用旧 V1 OpenAPI 冒充新版契约。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
+见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 和 `openApi` 中固定的路径、契约/Schema 版本与 SHA-256）。`openapi/v2.json` 是 Production V2 唯一 canonical OpenAPI；`openApiStatus` 必须是 `FROZEN`，旧 V1 文档不能作为新版契约证据。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
 
 ## 发布烟测与四套 Watch 验收
 
@@ -93,7 +94,7 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 .\validation\Invoke-ReleaseSmoke.ps1 -ArtifactsDirectory C:\MesIngest\release-smoke
 ```
 
-该入口强制 `DOTNET_ENVIRONMENT=Production`，把专用环境变量只注入进程内的 `MesIngest:NewSqlServerConnectionString`，以正式 `service\MesIngest.Host.exe` 建立/校验 V2 schema，并验证 `GET /api/v2/contract`、旧 `/api/contract` 不可见以及唯一 canonical Oracle 查询和相邻 manifest 的路径、长度与 SHA-256。烟测关闭 Oracle one-shot/连续轮询，不会把未连接 Oracle 伪报为现场通过；同时不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr。
+该入口强制 `DOTNET_ENVIRONMENT=Production`，把专用环境变量只注入进程内的 `MesIngest:NewSqlServerConnectionString`，以正式 `service\MesIngest.Host.exe` 建立/校验 V2 schema。它严格核对 `GET /api/v2/contract` 的版本、schema、精确能力集合与只读策略，要求包内 canonical 文档的 SHA-256 匹配发布清单，且运行时 `/openapi/v2.json` 与包内文档完整 JSON 语义严格一致，并逐项确认 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404。脚本会故意请求开启开发旧面；Production 若仍暴露任一旧路由就拒绝 ADR-mes-0017 切换声明。烟测也校验唯一 canonical Oracle 查询和相邻 manifest；它关闭 Oracle one-shot/连续轮询，不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr。
 
 该烟测明确**不启动 Watch**：当前步骤只证明 Production V2 Host、SQL Server 和 canonical artifact。打包 Watch 由下面四套独立的交互式验收入口验证；在后续 Watch/V2 契约迁移完成前，不能以旧 `/api/*` 调用冒充新版 Host/Watch 联调。
 
@@ -128,7 +129,8 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 
 人工试调与合作者文档：
 
-- V2 合约身份：`GET /api/v2/contract`；完整 V2 OpenAPI 等 Ticket 17 冻结后交付
+- V2 合约身份：`GET /api/v2/contract`；唯一 canonical 描述：包内 `openapi/v2.json`，运行时 `GET /openapi/v2.json`
+- 旧 `/api/*` 与 `/openapi/v1.json` 只允许 Development 调试，不属于 V2 能力发现、兼容面或 Production 发布面
 - 实际 `/api/v2/*` 在非本机绑定时需 `Authorization: Bearer <SharedSecret>`；受限原始证据即使在本机也要求显式 Bearer 密钥
 
 工厂连通验证、人工核验与回传约定见同包 [`FACTORY-VALIDATION.md`](FACTORY-VALIDATION.md) 与 `validation/`；本说明只覆盖安装与安全配置。

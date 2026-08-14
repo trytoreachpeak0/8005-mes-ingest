@@ -164,7 +164,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             TokenSigningKey,
             out _,
             out var filterMismatch));
-        Assert.Equal(ErrorSearchErrorCodes.InvalidCursor, filterMismatch!.Code);
+        Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, filterMismatch!.Code);
         Assert.False(ErrorSearchTokenCodec.TryReadCursor(
             cursor,
             snapshot,
@@ -172,7 +172,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             TokenSigningKey,
             out _,
             out var pageSizeMismatch));
-        Assert.Equal(ErrorSearchErrorCodes.InvalidCursor, pageSizeMismatch!.Code);
+        Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, pageSizeMismatch!.Code);
         Assert.False(ErrorSearchTokenCodec.TryReadCursor(
             cursor,
             snapshot with
@@ -183,7 +183,37 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             TokenSigningKey,
             out _,
             out var highWaterMismatch));
-        Assert.Equal(ErrorSearchErrorCodes.InvalidCursor, highWaterMismatch!.Code);
+        Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, highWaterMismatch!.Code);
+
+        var previousContractSnapshot = snapshot with
+        {
+            Snapshot = identity with { ContractVersion = "2026.08.new-mes-ingest.previous" },
+        };
+        var previousContractSnapshotToken = ErrorSearchTokenCodec.CreateSnapshotReference(
+            previousContractSnapshot,
+            TokenSigningKey);
+        Assert.False(ErrorSearchTokenCodec.TryReadSnapshotReference(
+            previousContractSnapshotToken,
+            TokenSigningKey,
+            out _,
+            out var contractSnapshotMismatch));
+        Assert.Equal(ErrorSearchErrorCodes.SnapshotMismatch, contractSnapshotMismatch!.Code);
+        var previousContractCursor = ErrorSearchTokenCodec.CreateCursor(
+            previousContractSnapshot,
+            pageSize: 25,
+            targetPageNumber: 2,
+            afterActivityRank: 0,
+            afterLatestMatchedEvidenceAt: identity.ErrorSearchAsOf.AddMinutes(-5),
+            afterSeriesId: "series-ticket11-anchor",
+            TokenSigningKey);
+        Assert.False(ErrorSearchTokenCodec.TryReadCursor(
+            previousContractCursor,
+            previousContractSnapshot,
+            expectedPageSize: 25,
+            TokenSigningKey,
+            out _,
+            out var contractCursorMismatch));
+        Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, contractCursorMismatch!.Code);
 
         var tampered = string.Concat(
             cursor.AsSpan(0, cursor.Length - 1),
@@ -650,7 +680,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             + "&cursor=" + Uri.EscapeDataString(cursor)))
         {
             Assert.Equal(HttpStatusCode.BadRequest, mismatch.StatusCode);
-            AssertErrorCode(mismatch, ErrorSearchErrorCodes.InvalidCursor);
+            AssertErrorCode(mismatch, ErrorSearchErrorCodes.CursorMismatch);
         }
 
         var tampered = frozenReference[..^1] + (frozenReference[^1] == 'A' ? "B" : "A");
@@ -711,19 +741,43 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
 
         var signingKey = await ReadSnapshotSigningKeyAsync(database.ConnectionString);
         var retained = empty.GetProperty("snapshot");
+        var missingSnapshot = new ErrorSearchSnapshotReference(
+            new ErrorSearchSnapshotIdentity(
+                retained.GetProperty("errorSearchAsOf").GetDateTimeOffset(),
+                $"missing-{Guid.NewGuid():N}",
+                retained.GetProperty("projectionSequence").GetInt64() + 1000,
+                retained.GetProperty("projectionCommittedAt").GetDateTimeOffset(),
+                "missing-poll-ticket11"),
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last7Days.Resolve(
+                retained.GetProperty("errorSearchAsOf").GetDateTimeOffset()),
+            ErrorSearchOrder.Default);
         var missingReference = ErrorSearchTokenCodec.CreateSnapshotReference(
-            new ErrorSearchSnapshotReference(
-                new ErrorSearchSnapshotIdentity(
-                    retained.GetProperty("errorSearchAsOf").GetDateTimeOffset(),
-                    $"missing-{Guid.NewGuid():N}",
-                    retained.GetProperty("projectionSequence").GetInt64() + 1000,
-                    retained.GetProperty("projectionCommittedAt").GetDateTimeOffset(),
-                    "missing-poll-ticket11"),
-                new ErrorSearchFilter(),
-                ErrorSearchWindowSelection.Last7Days.Resolve(
-                    retained.GetProperty("errorSearchAsOf").GetDateTimeOffset()),
-                ErrorSearchOrder.Default),
+            missingSnapshot,
             signingKey);
+        using (var mismatchedSnapshot = await client.GetAsync(
+            "/api/v2/error-search?state=ACTIVE&snapshot=" + Uri.EscapeDataString(missingReference)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, mismatchedSnapshot.StatusCode);
+            AssertErrorCode(mismatchedSnapshot, ErrorSearchErrorCodes.SnapshotMismatch);
+        }
+
+        var missingCursor = ErrorSearchTokenCodec.CreateCursor(
+            missingSnapshot,
+            pageSize: ErrorSearchQuery.DefaultPageSize,
+            targetPageNumber: 2,
+            afterActivityRank: 0,
+            afterLatestMatchedEvidenceAt: missingSnapshot.Snapshot.ErrorSearchAsOf.AddMinutes(-1),
+            afterSeriesId: "missing-series-anchor",
+            signingKey);
+        using (var mismatchedCursor = await client.GetAsync(
+            "/api/v2/error-search?state=ACTIVE&snapshot=" + Uri.EscapeDataString(missingReference)
+            + "&cursor=" + Uri.EscapeDataString(missingCursor)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, mismatchedCursor.StatusCode);
+            AssertErrorCode(mismatchedCursor, ErrorSearchErrorCodes.CursorMismatch);
+        }
+
         using (var expired = await client.GetAsync(
             "/api/v2/error-search?snapshot=" + Uri.EscapeDataString(missingReference)))
         {

@@ -8,69 +8,69 @@ internal static class NewMesIngestEndpoints
     public static IEndpointRouteBuilder MapNewMesIngestEndpoints(this IEndpointRouteBuilder endpoints)
     {
         endpoints.MapGet("/api/v2/contract", GetContract)
-            .ExcludeFromDescription();
+            .DescribeV2("GetV2Contract", "Contract");
 
         endpoints.MapGet("/api/v2/demand-series", ListDemandSeriesAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("ListDemandSeries", "DemandSeries");
 
         endpoints.MapGet("/api/v2/demand-series/by-key", GetDemandSeriesByKeyAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetDemandSeriesByKey", "DemandSeries");
 
         endpoints.MapGet("/api/v2/demand-series/{seriesId}", GetDemandSeriesAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetDemandSeries", "DemandSeries");
 
         endpoints.MapGet(
                 "/api/v2/externally-readable-demand-catalog",
                 GetExternallyReadableDemandCatalogAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetExternallyReadableDemandCatalog", "DemandCatalog");
 
         endpoints.MapGet("/api/v2/readability-audit", ListReadabilityAuditAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("ListReadabilityAudit", "ReadabilityAudit");
 
         endpoints.MapGet(
                 "/api/v2/readability-audit/{demandId}",
                 GetReadabilityAuditDetailAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetReadabilityAuditDetail", "ReadabilityAudit");
 
         endpoints.MapGet("/api/v2/error-search", ListErrorSearchAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("ListErrorSearch", "ErrorSearch");
 
         endpoints.MapGet("/api/v2/error-search/{seriesId}", GetErrorSearchDetailAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetErrorSearchDetail", "ErrorSearch");
 
         endpoints.MapGet(
                 "/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
                 GetErrorSearchRawEvidenceAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetErrorSearchRawEvidence", "ErrorSearch");
 
         endpoints.MapGet(
                 "/api/v2/current-ingest-attention",
                 ListCurrentIngestAttentionAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("ListCurrentIngestAttention", "CurrentIngestAttention");
 
         endpoints.MapGet("/api/v2/watch-overview", GetWatchOverviewAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetWatchOverview", "WatchOverview");
 
         endpoints.MapGet("/api/v2/poll-traces/{pollTraceId}", GetPollTraceAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetPollTrace", "PollEvidence");
 
         endpoints.MapGet("/api/v2/absence-authority", GetAbsenceAuthorityAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetCurrentAbsenceAuthority", "PollEvidence");
 
         endpoints.MapGet(
                 "/api/v2/absence-authority/{hostSessionId}",
                 GetAbsenceAuthorityByHostSessionIdAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetAbsenceAuthority", "PollEvidence");
 
         endpoints.MapGet(
                 "/api/v2/task-type-protections",
                 ListTaskTypeProtectionsAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("ListTaskTypeProtections", "PollEvidence");
 
         endpoints.MapGet(
                 "/api/v2/task-type-protections/{workType}",
                 GetTaskTypeProtectionAsync)
-            .ExcludeFromDescription();
+            .DescribeV2("GetTaskTypeProtection", "PollEvidence");
 
         return endpoints;
     }
@@ -79,11 +79,87 @@ internal static class NewMesIngestEndpoints
         TypedResults.Ok(new NewMesIngestContractDto(
             NewMesIngestContract.Version,
             NewMesIngestContract.SchemaVersion,
+            NewMesIngestContract.CompatibilityPolicy,
+            NewMesIngestContract.OpenApiDocumentPath,
+            "READ_ONLY_GET",
+            "DEVELOPMENT_ONLY_EXCLUDED_FROM_V2",
             NewMesIngestContract.KeyComparison,
+            NewMesIngestContract.Capabilities.Select(NewMesIngestCapabilityDto.From).ToArray(),
             SeriesErrorCatalog.Definitions.Select(SeriesErrorDefinitionDto.From).ToArray(),
             ReadabilityBlockerCatalog.Definitions.Select(ReadabilityBlockerDefinitionDto.From).ToArray(),
             ReadabilityQualificationCheckCatalog.Definitions
                 .Select(ReadabilityQualificationCheckDefinitionDto.From).ToArray()));
+
+    private static RouteHandlerBuilder DescribeV2(
+        this RouteHandlerBuilder endpoint,
+        string operationName,
+        string tag)
+    {
+        endpoint = endpoint
+            .WithGroupName(MesIngestOpenApi.V2DocumentName)
+            .WithName(operationName)
+            .WithTags(tag);
+
+        // Catalog owns its CATALOG_QUERY_NOT_SUPPORTED response and restricted
+        // raw evidence must authorize before validating any request shape.
+        if (operationName is "GetExternallyReadableDemandCatalog" or "GetErrorSearchRawEvidence")
+        {
+            return endpoint;
+        }
+
+        return endpoint.AddEndpointFilter(async (context, next) =>
+        {
+            var request = context.HttpContext.Request;
+            var allowed = AllowedQueryParameters(operationName);
+            var unsupported = request.Query.Keys.FirstOrDefault(key => !allowed.Contains(key));
+            if (unsupported is not null)
+            {
+                return Results.BadRequest(new NewMesIngestErrorDto(
+                    InvalidQueryCode(operationName),
+                    $"Unsupported V2 query parameter '{unsupported}'."));
+            }
+
+            return await next(context);
+        });
+    }
+
+    internal static IReadOnlySet<string> AllowedQueryParameters(string operationName) =>
+        operationName switch
+        {
+            "ListDemandSeries" => Set(
+                "lifecycle", "presence", "workType", "area", "sublot", "seriesId",
+                "demandId", "pageSize", "page", "snapshot", "cursor", "order"),
+            "GetDemandSeriesByKey" => Set("workType", "sublot", "snapshot"),
+            "GetDemandSeries" => Set("snapshot"),
+            "ListReadabilityAudit" => Set(
+                "state", "workType", "blocker", "demandId", "sublot", "area",
+                "pageSize", "page", "snapshot", "cursor", "order"),
+            "GetReadabilityAuditDetail" => Set("snapshot"),
+            "ListErrorSearch" => Set(
+                "category", "code", "state", "seriesId", "demandId", "sublot",
+                "window", "from", "to", "pageSize", "snapshot", "cursor"),
+            "GetErrorSearchDetail" => Set("snapshot"),
+            "GetErrorSearchRawEvidence" => Set("snapshot", "fields", "maxItems"),
+            "ListCurrentIngestAttention" => Set("pageSize", "pageNumber", "kind", "severity"),
+            "GetWatchOverview" => Set("area"),
+            _ => Set(),
+        };
+
+    private static string InvalidQueryCode(string operationName) => operationName switch
+    {
+        "ListDemandSeries" or "GetDemandSeriesByKey" or "GetDemandSeries" =>
+            DemandSeriesBrowseErrorCodes.InvalidQuery,
+        "ListReadabilityAudit" or "GetReadabilityAuditDetail" =>
+            ReadabilityAuditErrorCodes.InvalidQuery,
+        "ListErrorSearch" or "GetErrorSearchDetail" => ErrorSearchErrorCodes.InvalidQuery,
+        "ListCurrentIngestAttention" => CurrentIngestAttentionErrorCodes.InvalidQuery,
+        "GetWatchOverview" => WatchOverviewErrorCodes.InvalidQuery,
+        "GetV2Contract" => "INVALID_CONTRACT_QUERY",
+        _ => PollEvidenceErrorCodes.InvalidQuery,
+    };
+
+    private static IReadOnlySet<string> Set(params string[] values) =>
+        new HashSet<string>(values, StringComparer.Ordinal);
 
     private static async Task<IResult> GetExternallyReadableDemandCatalogAsync(
         HttpRequest request,
@@ -187,11 +263,21 @@ internal static class NewMesIngestEndpoints
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(workType, 128, nameof(workType), out var workTypeError))
+        if (!TryValidateRequiredText(
+                workType,
+                128,
+                nameof(workType),
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var workTypeError))
         {
             return Results.BadRequest(workTypeError);
         }
-        if (!TryValidateRequiredText(sublot, 256, nameof(sublot), out var sublotError))
+        if (!TryValidateRequiredText(
+                sublot,
+                256,
+                nameof(sublot),
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var sublotError))
         {
             return Results.BadRequest(sublotError);
         }
@@ -215,7 +301,9 @@ internal static class NewMesIngestEndpoints
                 cancellationToken);
             if (current is null)
             {
-                return Results.NotFound();
+                return Results.NotFound(new NewMesIngestErrorDto(
+                    DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot,
+                    "The requested DemandSeries is not available in the selected snapshot."));
             }
 
             var detail = await projection.GetDemandSeriesAtSnapshotAsync(
@@ -223,7 +311,9 @@ internal static class NewMesIngestEndpoints
                 frozen.SnapshotReference,
                 cancellationToken);
             return detail is null
-                ? Results.NotFound()
+                ? Results.NotFound(new NewMesIngestErrorDto(
+                    DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot,
+                    "The requested DemandSeries is not available in the selected snapshot."))
                 : Results.Ok(FrozenDemandSeriesDto.From(detail));
         }
         catch (DemandSeriesBrowseException exception)
@@ -238,7 +328,12 @@ internal static class NewMesIngestEndpoints
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var error))
+        if (!TryValidateRequiredText(
+                seriesId,
+                64,
+                nameof(seriesId),
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var error))
         {
             return Results.BadRequest(error);
         }
@@ -255,7 +350,9 @@ internal static class NewMesIngestEndpoints
                     cancellationToken);
                 if (frozen.Items.Count == 0)
                 {
-                    return Results.NotFound();
+                    return Results.NotFound(new NewMesIngestErrorDto(
+                        DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot,
+                        "The requested DemandSeries is not available in the selected snapshot."));
                 }
 
                 snapshotReference = frozen.SnapshotReference;
@@ -266,7 +363,9 @@ internal static class NewMesIngestEndpoints
                 snapshotReference,
                 cancellationToken);
             return detail is null
-                ? Results.NotFound()
+                ? Results.NotFound(new NewMesIngestErrorDto(
+                    DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot,
+                    "The requested DemandSeries is not available in the selected snapshot."))
                 : Results.Ok(FrozenDemandSeriesDto.From(detail));
         }
         catch (DemandSeriesBrowseException exception)
@@ -436,7 +535,12 @@ internal static class NewMesIngestEndpoints
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(demandId, 64, nameof(demandId), out var requestError))
+        if (!TryValidateRequiredText(
+                demandId,
+                64,
+                nameof(demandId),
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                out var requestError))
         {
             return Results.BadRequest(requestError);
         }
@@ -460,7 +564,9 @@ internal static class NewMesIngestEndpoints
                 snapshotReference,
                 cancellationToken);
             return detail is null
-                ? Results.NotFound()
+                ? Results.NotFound(new NewMesIngestErrorDto(
+                    ReadabilityAuditErrorCodes.ObjectNotInSnapshot,
+                    "The requested Demand is not available in the selected readability snapshot."))
                 : Results.Ok(ReadabilityAuditDetailDto.From(detail));
         }
         catch (ReadabilityAuditException exception)
@@ -777,7 +883,12 @@ internal static class NewMesIngestEndpoints
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var requestError))
+        if (!TryValidateRequiredText(
+                seriesId,
+                64,
+                nameof(seriesId),
+                ErrorSearchErrorCodes.InvalidQuery,
+                out var requestError))
         {
             return Results.BadRequest(requestError);
         }
@@ -832,11 +943,21 @@ internal static class NewMesIngestEndpoints
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        if (!TryValidateRequiredText(seriesId, 64, nameof(seriesId), out var seriesError))
+        if (!TryValidateRequiredText(
+                seriesId,
+                64,
+                nameof(seriesId),
+                ErrorSearchErrorCodes.InvalidQuery,
+                out var seriesError))
         {
             return Results.BadRequest(seriesError);
         }
-        if (!TryValidateRequiredText(evidenceId, 128, nameof(evidenceId), out var evidenceError))
+        if (!TryValidateRequiredText(
+                evidenceId,
+                128,
+                nameof(evidenceId),
+                ErrorSearchErrorCodes.InvalidQuery,
+                out var evidenceError))
         {
             return Results.BadRequest(evidenceError);
         }
@@ -848,7 +969,7 @@ internal static class NewMesIngestEndpoints
         }
         catch (ErrorSearchException exception)
         {
-            return Results.BadRequest(new NewMesIngestErrorDto(exception.Code, exception.Message));
+            return ToErrorSearchError(exception);
         }
 
         try
@@ -897,7 +1018,7 @@ internal static class NewMesIngestEndpoints
     private static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
         IQueryCollection query)
     {
-        var allowedKeys = new HashSet<string>(["snapshot", "fields", "maxItems"], StringComparer.Ordinal);
+        var allowedKeys = AllowedQueryParameters("GetErrorSearchRawEvidence");
         var snapshot = ParseRequiredErrorSearchSnapshot(query, allowedKeys);
 
         var fieldsValue = ReadErrorSearchSingle(query, "fields");
@@ -1080,12 +1201,20 @@ internal static class NewMesIngestEndpoints
             : Results.BadRequest(error);
     }
 
-    private static async Task<Results<Ok<PollTraceDto>, BadRequest<NewMesIngestErrorDto>, NotFound>> GetPollTraceAsync(
+    private static async Task<Results<
+        Ok<PollTraceDto>,
+        BadRequest<NewMesIngestErrorDto>,
+        NotFound<NewMesIngestErrorDto>>> GetPollTraceAsync(
         string pollTraceId,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(pollTraceId, 128, nameof(pollTraceId), out var error))
+        if (!TryValidateRequiredText(
+                pollTraceId,
+                128,
+                nameof(pollTraceId),
+                PollEvidenceErrorCodes.InvalidPollTraceId,
+                out var error))
         {
             return TypedResults.BadRequest(error);
         }
@@ -1094,7 +1223,9 @@ internal static class NewMesIngestEndpoints
             pollTraceId,
             cancellationToken);
         return snapshot is null
-            ? TypedResults.NotFound()
+            ? TypedResults.NotFound(new NewMesIngestErrorDto(
+                PollEvidenceErrorCodes.PollTraceNotFound,
+                "The requested PollTrace was not found."))
             : TypedResults.Ok(PollTraceDto.From(snapshot));
     }
 
@@ -1104,13 +1235,21 @@ internal static class NewMesIngestEndpoints
         TypedResults.Ok(AbsenceAuthorityDto.From(
             await projection.GetAbsenceAuthorityAsync(cancellationToken)));
 
-    private static async Task<Results<Ok<AbsenceAuthorityDto>, BadRequest<NewMesIngestErrorDto>, NotFound>>
+    private static async Task<Results<
+        Ok<AbsenceAuthorityDto>,
+        BadRequest<NewMesIngestErrorDto>,
+        NotFound<NewMesIngestErrorDto>>>
         GetAbsenceAuthorityByHostSessionIdAsync(
             string hostSessionId,
             IMesIngestProjection projection,
             CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(hostSessionId, 64, nameof(hostSessionId), out var error))
+        if (!TryValidateRequiredText(
+                hostSessionId,
+                64,
+                nameof(hostSessionId),
+                PollEvidenceErrorCodes.InvalidHostSessionId,
+                out var error))
         {
             return TypedResults.BadRequest(error);
         }
@@ -1119,7 +1258,9 @@ internal static class NewMesIngestEndpoints
             hostSessionId,
             cancellationToken);
         return snapshot is null
-            ? TypedResults.NotFound()
+            ? TypedResults.NotFound(new NewMesIngestErrorDto(
+                PollEvidenceErrorCodes.AbsenceAuthorityNotFound,
+                "AbsenceAuthority for the requested HostSession was not found."))
             : TypedResults.Ok(AbsenceAuthorityDto.From(snapshot));
     }
 
@@ -1136,20 +1277,30 @@ internal static class NewMesIngestEndpoints
         return TypedResults.Ok(new TaskTypeProtectionListDto(items.Length, items));
     }
 
-    private static async Task<Results<Ok<TaskTypeProtectionDto>, BadRequest<NewMesIngestErrorDto>, NotFound>>
+    private static async Task<Results<
+        Ok<TaskTypeProtectionDto>,
+        BadRequest<NewMesIngestErrorDto>,
+        NotFound<NewMesIngestErrorDto>>>
         GetTaskTypeProtectionAsync(
             string workType,
             IMesIngestProjection projection,
             CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(workType, 128, nameof(workType), out var error))
+        if (!TryValidateRequiredText(
+                workType,
+                128,
+                nameof(workType),
+                PollEvidenceErrorCodes.InvalidWorkType,
+                out var error))
         {
             return TypedResults.BadRequest(error);
         }
 
         var snapshot = await projection.GetTaskTypeProtectionAsync(workType, cancellationToken);
         return snapshot is null
-            ? TypedResults.NotFound()
+            ? TypedResults.NotFound(new NewMesIngestErrorDto(
+                PollEvidenceErrorCodes.TaskTypeProtectionNotFound,
+                "TaskTypeProtection for the requested WorkType was not found."))
             : TypedResults.Ok(TaskTypeProtectionDto.From(snapshot));
     }
 
@@ -1157,19 +1308,20 @@ internal static class NewMesIngestEndpoints
         string value,
         int maximumLength,
         string field,
+        string errorCode,
         out NewMesIngestErrorDto error)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             error = new NewMesIngestErrorDto(
-                "INVALID_REQUEST",
+                errorCode,
                 $"{field} must contain a non-whitespace value.");
             return false;
         }
         if (value.Length > maximumLength)
         {
             error = new NewMesIngestErrorDto(
-                "INVALID_REQUEST",
+                errorCode,
                 $"{field} must not exceed {maximumLength} characters.");
             return false;
         }
@@ -1484,10 +1636,33 @@ internal sealed record WatchOverviewDto(
 internal sealed record NewMesIngestContractDto(
     string ContractVersion,
     int SchemaVersion,
+    string CompatibilityPolicy,
+    string OpenApiDocument,
+    string BusinessSurface,
+    string LegacySurfacePolicy,
     string TransportDemandKeyComparison,
+    IReadOnlyList<NewMesIngestCapabilityDto> Capabilities,
     IReadOnlyList<SeriesErrorDefinitionDto> SeriesErrorCatalog,
     IReadOnlyList<ReadabilityBlockerDefinitionDto> ReadabilityBlockerCatalog,
     IReadOnlyList<ReadabilityQualificationCheckDefinitionDto> ReadabilityQualificationCheckCatalog);
+
+internal sealed record NewMesIngestOperationDto(string Method, string Path)
+{
+    public static NewMesIngestOperationDto From(NewMesIngestOperation operation) =>
+        new(operation.Method, operation.Path);
+}
+
+internal sealed record NewMesIngestCapabilityDto(
+    string Id,
+    string Version,
+    IReadOnlyList<NewMesIngestOperationDto> Operations)
+{
+    public static NewMesIngestCapabilityDto From(NewMesIngestCapability capability) =>
+        new(
+            capability.Id,
+            capability.Version,
+            capability.Operations.Select(NewMesIngestOperationDto.From).ToArray());
+}
 
 internal sealed record TransportDemandKeyDto(string WorkType, string Sublot);
 

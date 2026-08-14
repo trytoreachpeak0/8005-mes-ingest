@@ -4,7 +4,7 @@
   Publish a self-contained MesIngest install directory for factory copy-deploy.
 
 .PARAMETER OutputDir
-  Root folder that will contain service/, watch/, templates/, scripts/, validation/, INSTALL.md, FACTORY-VALIDATION.md, VERSION.txt.
+  Root folder that will contain service/, watch/, openapi/, templates/, scripts/, validation/, INSTALL.md, FACTORY-VALIDATION.md, VERSION.txt.
 
 .PARAMETER Configuration
   Build configuration (default Release).
@@ -44,6 +44,7 @@ $releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
 $watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
+$openapiSrc = Join-Path $PSScriptRoot "openapi\v2.json"
 $canonicalQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\mes-task-union\query.sql"))
 $canonicalQueryId = 'MES_TASK_UNION'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
@@ -59,6 +60,7 @@ if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $val
 if (-not (Test-Path $releaseValidator)) { throw "Missing release package validator: $releaseValidator" }
 if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
 if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
+if (-not (Test-Path -LiteralPath $openapiSrc -PathType Leaf)) { throw "Missing frozen V2 OpenAPI source: $openapiSrc" }
 if (-not (Test-Path -LiteralPath $canonicalQuerySource -PathType Leaf)) { throw "Missing canonical query source: $canonicalQuerySource" }
 
 $resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
@@ -75,6 +77,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedOutput) `
 $OutputDir = $resolvedOutput
 $serviceDir = Join-Path $OutputDir "service"
 $watchDir = Join-Path $OutputDir "watch"
+$openapiDir = Join-Path $OutputDir "openapi"
 $templatesDir = Join-Path $OutputDir "templates"
 $scriptsDir = Join-Path $OutputDir "scripts"
 $validationDir = Join-Path $OutputDir "validation"
@@ -108,6 +111,9 @@ if (-not $SkipWatch) {
         /p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw "Watch publish failed ($LASTEXITCODE)" }
 }
+
+New-Item -ItemType Directory -Force -Path $openapiDir | Out-Null
+Copy-Item -LiteralPath $openapiSrc -Destination (Join-Path $openapiDir "v2.json") -Force
 
 # The service copy is the only deployable SQL artifact. Verify the repository source and
 # published bytes before declaring their content-addressed version beside the artifact.

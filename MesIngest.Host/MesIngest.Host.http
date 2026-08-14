@@ -1,17 +1,119 @@
-@MesIngestHost = http://localhost:5089
+@MesIngestHost = http://localhost:5088
+@sharedSecret = replace-with-shared-secret
+@demandSeriesSnapshot = replace-with-DemandSeries-snapshotReference
+@demandSeriesNextCursor = replace-with-DemandSeries-nextCursor
+@readabilityAuditSnapshot = replace-with-ReadabilityAudit-snapshotReference
+@readabilityAuditNextCursor = replace-with-ReadabilityAudit-nextCursor
+@errorSearchSnapshot = replace-with-ErrorSearch-snapshotReference
+@errorSearchNextCursor = replace-with-ErrorSearch-nextCursor
+@catalogEtag = "replace-with-etag-from-the-catalog-response"
+@seriesId = replace-with-seriesId
+@demandId = replace-with-demandId
+@evidenceId = replace-with-evidenceId
+@pollTraceId = replace-with-pollTraceId
+@hostSessionId = replace-with-hostSessionId
+@workType = WIRE_TO_NITROGEN
+@sublot = SL-EXAMPLE-001
 
-### Read the bounded current operational attention page
-GET {{MesIngestHost}}/api/v2/current-ingest-attention?pageSize=100&pageNumber=1
+# V2 business operations are read-only GETs. Loopback reads do not need a
+# bearer token. Add `Authorization: Bearer {{sharedSecret}}` to every request
+# when Host is bound beyond loopback; restricted raw evidence always requires it.
+#
+# DemandSeries, ReadabilityAudit, and ErrorSearch lists default to pageSize=100
+# and reject pageSize above 200. A first list request obtains snapshotReference
+# and nextCursor. Each list owns its snapshot and cursor; never reuse them across
+# capabilities. URL-encode and reuse a list's values together for cursor paging:
+# snapshot identifies immutable facts; cursor identifies the next position in
+# that same snapshot/filter/order. Neither value is a catalog ETag.
+
+### Get the exact V2 contract identity and stable capability set
+GET {{MesIngestHost}}/api/v2/contract
 Accept: application/json
 
-### Read one atomic Watch overview for selected MES areas
+### Get the canonical V2 OpenAPI document
+GET {{MesIngestHost}}/openapi/v2.json
+Accept: application/json
+
+### List DemandSeries — first page (default 100, maximum 200)
+GET {{MesIngestHost}}/api/v2/demand-series?presence=VISIBLE&area=A1-1&pageSize=100&page=1&order=STARTED_AT_DESC_SERIES_ID_ASC
+Accept: application/json
+
+### Resolve one DemandSeries by its exact transport key in a chosen snapshot
+GET {{MesIngestHost}}/api/v2/demand-series/by-key?workType={{workType}}&sublot={{sublot}}&snapshot={{demandSeriesSnapshot}}
+Accept: application/json
+
+### Get one DemandSeries from the same immutable snapshot
+GET {{MesIngestHost}}/api/v2/demand-series/{{seriesId}}?snapshot={{demandSeriesSnapshot}}
+Accept: application/json
+
+### Read the complete externally readable Demand catalog
+# Copy the response ETag into @catalogEtag.
+GET {{MesIngestHost}}/api/v2/externally-readable-demand-catalog
+Accept: application/json
+
+### Read the catalog conditionally; returns 304 when CatalogRevision is unchanged
+GET {{MesIngestHost}}/api/v2/externally-readable-demand-catalog
+Accept: application/json
+If-None-Match: {{catalogEtag}}
+
+### List the independent ReadabilityAudit snapshot — first page
+GET {{MesIngestHost}}/api/v2/readability-audit?state=NOT_READABLE&area=N3-3&pageSize=100&page=1&order=NOT_READABLE_FIRST_LEAD_PRIORITY_DEMAND_LAST_SEEN_DESC_DEMAND_ID_ASC
+Accept: application/json
+
+### Get one ReadabilityAudit record from that audit snapshot
+GET {{MesIngestHost}}/api/v2/readability-audit/{{demandId}}?snapshot={{readabilityAuditSnapshot}}
+Accept: application/json
+
+### Search Series errors — first page with an event-time window
+GET {{MesIngestHost}}/api/v2/error-search?state=ACTIVE&window=LAST_7_DAYS&pageSize=100
+Accept: application/json
+
+### Get one error-search Series detail from the same error snapshot
+GET {{MesIngestHost}}/api/v2/error-search/{{seriesId}}?snapshot={{errorSearchSnapshot}}
+Accept: application/json
+
+### Read explicitly selected, bounded raw evidence (always authorized)
+# maxItems is 1..20; each item is capped at 2,048 bytes and the response at 65,536 bytes.
+GET {{MesIngestHost}}/api/v2/error-search/{{seriesId}}/evidence/{{evidenceId}}/raw-observations?snapshot={{errorSearchSnapshot}}&fields=workType,sublot,area,eqp,step,mesSourceDate,package&maxItems=20
+Accept: application/json
+Authorization: Bearer {{sharedSecret}}
+
+### Read the bounded current operational attention page (default 100, maximum 200)
+GET {{MesIngestHost}}/api/v2/current-ingest-attention?kind=SERIES_ERROR&severity=ERROR&pageSize=100&pageNumber=1
+Accept: application/json
+
+### Read one atomic WatchOverviewSnapshot for selected MES areas
 GET {{MesIngestHost}}/api/v2/watch-overview?area=A1-1&area=N3-3
 Accept: application/json
 
-### Current attention rejects an out-of-range page size with a stable V2 error
-GET {{MesIngestHost}}/api/v2/current-ingest-attention?pageSize=201&pageNumber=1
+### Read health and causal evidence for one PollTrace
+GET {{MesIngestHost}}/api/v2/poll-traces/{{pollTraceId}}
 Accept: application/json
 
-### Watch overview rejects malformed MES areas with a stable V2 error
-GET {{MesIngestHost}}/api/v2/watch-overview?area=not-an-area
+### Read the current absence-authority state
+GET {{MesIngestHost}}/api/v2/absence-authority
+Accept: application/json
+
+### Read absence authority for one Host session
+GET {{MesIngestHost}}/api/v2/absence-authority/{{hostSessionId}}
+Accept: application/json
+
+### List all task-type protection decisions
+GET {{MesIngestHost}}/api/v2/task-type-protections
+Accept: application/json
+
+### Read the protection decision for one exact work type
+GET {{MesIngestHost}}/api/v2/task-type-protections/{{workType}}
+Accept: application/json
+
+### Cursor paging example — keep snapshot, filter, page size, and order unchanged
+GET {{MesIngestHost}}/api/v2/demand-series?presence=VISIBLE&area=A1-1&pageSize=100&order=STARTED_AT_DESC_SERIES_ID_ASC&snapshot={{demandSeriesSnapshot}}&cursor={{demandSeriesNextCursor}}
+Accept: application/json
+
+### ReadabilityAudit cursor — bound only to its own snapshot/filter/order
+GET {{MesIngestHost}}/api/v2/readability-audit?state=NOT_READABLE&area=N3-3&pageSize=100&order=NOT_READABLE_FIRST_LEAD_PRIORITY_DEMAND_LAST_SEEN_DESC_DEMAND_ID_ASC&snapshot={{readabilityAuditSnapshot}}&cursor={{readabilityAuditNextCursor}}
+Accept: application/json
+
+### ErrorSearch cursor — bound only to its own event snapshot/filter/window/order
+GET {{MesIngestHost}}/api/v2/error-search?state=ACTIVE&window=LAST_7_DAYS&pageSize=100&snapshot={{errorSearchSnapshot}}&cursor={{errorSearchNextCursor}}
 Accept: application/json

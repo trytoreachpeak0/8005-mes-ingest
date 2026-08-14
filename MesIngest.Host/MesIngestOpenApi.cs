@@ -1,5 +1,6 @@
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
+using MesIngest.Core.SeriesProjection;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
 namespace MesIngest.Host;
@@ -10,8 +11,11 @@ namespace MesIngest.Host;
 /// </summary>
 public static class MesIngestOpenApi
 {
-    public const string DocumentName = "v1";
+    public const string LegacyDocumentName = "v1";
+    public const string DocumentName = LegacyDocumentName;
+    public const string V2DocumentName = "v2";
     public const string OpenApiJsonPath = "/openapi/v1.json";
+    public const string V2OpenApiJsonPath = "/openapi/v2.json";
     public const string SwaggerUiPathPrefix = "swagger";
     public const string BearerSchemeId = "Bearer";
 
@@ -24,6 +28,34 @@ public static class MesIngestOpenApi
         "/api/poll-health",
         "/api/demand-changes",
     ];
+
+    public static readonly string[] V2ApiPaths = NewMesIngestContract.Capabilities
+        .SelectMany(capability => capability.Operations)
+        .Select(operation => operation.Path)
+        .Distinct(StringComparer.Ordinal)
+        .Order(StringComparer.Ordinal)
+        .ToArray();
+
+    public static readonly string V2InfoDescription =
+        $$"""
+        MesIngest replacement V2 read contract. Every business operation is GET; no TransportDemand,
+        error, projection, or Watch business write is accepted by this surface.
+
+        Compatibility is {{NewMesIngestContract.CompatibilityPolicy}}. A consumer must read
+        /api/v2/contract and require the exact contractVersion, schemaVersion, and complete capability
+        set before interpreting any business response. Missing fields, unknown states, and client-side
+        single-page filtering are not compatibility fallbacks.
+
+        Host timestamps and ProjectionCommit timestamps are ISO-8601 date-time values in UTC.
+        mesSourceDate preserves its MES source offset. Snapshot references and cursors are opaque,
+        purpose-bound credentials; CatalogRevision conditional reads instead use a weak ETag and 304.
+        List totals and facets are exact within the named snapshot. Default page size is 100 and the
+        hard maximum is 200 unless an operation documents a stricter diagnostic limit.
+
+        Bearer SharedSecret is required for non-loopback business reads. Restricted raw evidence always
+        requires explicit Bearer authorization, including on loopback. Legacy V1 is development-only,
+        excluded from this document and capability discovery, and is not a compatibility surface.
+        """.ReplaceLineEndings("\n");
 
     public static readonly string InfoDescription =
         """
@@ -63,17 +95,43 @@ public static class MesIngestOpenApi
             || value.StartsWith("/openapi", StringComparison.OrdinalIgnoreCase);
     }
 
-    public static void AddMesIngestOpenApi(this IServiceCollection services)
+    public static void AddMesIngestOpenApi(
+        this IServiceCollection services,
+        bool includeLegacy = true,
+        bool includeV2 = false)
     {
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
-            options.SwaggerDoc(DocumentName, new OpenApiInfo
+            if (includeLegacy)
             {
-                Title = "MesIngest Read API",
-                Version = "v1",
-                Description = InfoDescription,
+                options.SwaggerDoc(LegacyDocumentName, new OpenApiInfo
+                {
+                    Title = "MesIngest Legacy Development Read API",
+                    Version = "v1-legacy-development-only",
+                    Description =
+                        "LEGACY / DEVELOPMENT ONLY. Excluded from the replacement V2 contract.\n\n"
+                        + InfoDescription,
+                });
+            }
+
+            if (includeV2)
+            {
+                options.SwaggerDoc(V2DocumentName, new OpenApiInfo
+                {
+                    Title = "MesIngest V2 Read Contract",
+                    Version = NewMesIngestContract.Version,
+                    Description = V2InfoDescription,
+                });
+            }
+
+            options.DocInclusionPredicate((documentName, api) => documentName switch
+            {
+                V2DocumentName => string.Equals(api.GroupName, V2DocumentName, StringComparison.Ordinal),
+                LegacyDocumentName => !string.Equals(api.GroupName, V2DocumentName, StringComparison.Ordinal),
+                _ => false,
             });
+            options.SupportNonNullableReferenceTypes();
 
             options.AddSecurityDefinition(BearerSchemeId, new OpenApiSecurityScheme
             {
@@ -123,14 +181,56 @@ public static class MesIngestOpenApi
                     return ["DemandChangeFeed"];
                 }
 
-                return ["Other"];
+                if (path.StartsWith("api/v2/demand-series", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["DemandSeries"];
+                }
+
+                if (path.StartsWith("api/v2/error-search", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["ErrorSearch"];
+                }
+
+                if (path.StartsWith("api/v2/readability-audit", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["ReadabilityAudit"];
+                }
+
+                if (path.StartsWith("api/v2/externally-readable", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["DemandCatalog"];
+                }
+
+                if (path.StartsWith("api/v2/current-ingest-attention", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["CurrentIngestAttention"];
+                }
+
+                if (path.StartsWith("api/v2/watch-overview", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["WatchOverview"];
+                }
+
+                if (path.StartsWith("api/v2/contract", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["Contract"];
+                }
+
+                return path.StartsWith("api/v2/", StringComparison.OrdinalIgnoreCase)
+                    ? ["PollEvidence"]
+                    : ["Other"];
             });
 
             options.DocumentFilter<MesIngestOpenApiDocumentFilter>();
+            options.DocumentFilter<NewMesIngestOpenApiDocumentFilter>();
+            options.SchemaFilter<NewMesIngestOpenApiSchemaFilter>();
         });
     }
 
-    public static void UseMesIngestOpenApi(this WebApplication app)
+    public static void UseMesIngestOpenApi(
+        this WebApplication app,
+        bool includeLegacy = true,
+        bool includeV2 = false)
     {
         app.UseSwagger(options =>
         {
@@ -138,7 +238,16 @@ public static class MesIngestOpenApi
         });
         app.UseSwaggerUI(options =>
         {
-            options.SwaggerEndpoint(OpenApiJsonPath, "MesIngest Read API v1");
+            if (includeV2)
+            {
+                options.SwaggerEndpoint(V2OpenApiJsonPath, "MesIngest V2 Read Contract");
+            }
+
+            if (includeLegacy)
+            {
+                options.SwaggerEndpoint(OpenApiJsonPath, "Legacy Development API v1");
+            }
+
             options.RoutePrefix = SwaggerUiPathPrefix;
         });
     }

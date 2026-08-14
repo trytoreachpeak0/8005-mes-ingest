@@ -10,8 +10,74 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Get-HttpStatus {
+    param([Parameter(Mandatory = $true)][string] $Uri)
+
+    try {
+        $response = Invoke-WebRequest -Uri $Uri -TimeoutSec 2 -UseBasicParsing
+        return [int]$response.StatusCode
+    } catch {
+        if ($null -eq $_.Exception.Response) {
+            throw
+        }
+        return [int]$_.Exception.Response.StatusCode
+    }
+}
+
+function Get-BytesSha256 {
+    param([Parameter(Mandatory = $true)][byte[]] $Bytes)
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($Bytes))).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $sha.Dispose()
+    }
+}
+
 $packageRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
 $serviceExecutable = Join-Path $packageRoot 'service\MesIngest.Host.exe'
+$releaseManifestPath = Join-Path $packageRoot 'RELEASE-MANIFEST.json'
+$canonicalOpenApiRelativePath = 'openapi/v2.json'
+$canonicalOpenApiPath = Join-Path $packageRoot $canonicalOpenApiRelativePath
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.0'
+$expectedContractSchemaVersion = 17
+$expectedCompatibilityPolicy = 'EXACT_VERSION_SCHEMA_AND_CAPABILITIES'
+$expectedCapabilityVersion = '1.0'
+$expectedCapabilityOperations = [ordered]@{
+    CONTRACT_DISCOVERY = @('/api/v2/contract')
+    CURRENT_INGEST_ATTENTION = @('/api/v2/current-ingest-attention')
+    DEMAND_SERIES = @(
+        '/api/v2/demand-series',
+        '/api/v2/demand-series/by-key',
+        '/api/v2/demand-series/{seriesId}'
+    )
+    ERROR_SEARCH = @(
+        '/api/v2/error-search',
+        '/api/v2/error-search/{seriesId}',
+        '/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations'
+    )
+    EXTERNALLY_READABLE_DEMAND_CATALOG = @('/api/v2/externally-readable-demand-catalog')
+    POLL_HEALTH_AND_EVIDENCE = @(
+        '/api/v2/poll-traces/{pollTraceId}',
+        '/api/v2/absence-authority',
+        '/api/v2/absence-authority/{hostSessionId}',
+        '/api/v2/task-type-protections',
+        '/api/v2/task-type-protections/{workType}'
+    )
+    READABILITY_AUDIT = @(
+        '/api/v2/readability-audit',
+        '/api/v2/readability-audit/{demandId}'
+    )
+    SERIES_ERROR_CATALOG = @('/api/v2/contract')
+    WATCH_OVERVIEW = @('/api/v2/watch-overview')
+}
+$expectedCapabilityIds = @($expectedCapabilityOperations.Keys)
+$expectedOpenApiPaths = @(
+    $expectedCapabilityOperations.Values |
+        ForEach-Object { $_ } |
+        Sort-Object -Unique
+)
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
@@ -19,9 +85,58 @@ $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
 $canonicalQueryPath = Join-Path $packageRoot $canonicalQueryRelativePath
 $canonicalQueryManifestPath = Join-Path $packageRoot $canonicalQueryManifestRelativePath
 
-foreach ($path in @($serviceExecutable, $canonicalQueryPath, $canonicalQueryManifestPath)) {
+foreach ($path in @(
+    $serviceExecutable,
+    $releaseManifestPath,
+    $canonicalOpenApiPath,
+    $canonicalQueryPath,
+    $canonicalQueryManifestPath
+)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Production V2 release smoke input missing: $path"
+    }
+}
+
+try {
+    $releaseManifest = Get-Content -Raw -LiteralPath $releaseManifestPath | ConvertFrom-Json
+    $canonicalOpenApi = Get-Content -Raw -LiteralPath $canonicalOpenApiPath | ConvertFrom-Json
+} catch {
+    throw 'Production V2 release smoke requires valid RELEASE-MANIFEST.json and canonical openapi/v2.json.'
+}
+$canonicalOpenApiHash = (
+    Get-FileHash -LiteralPath $canonicalOpenApiPath -Algorithm SHA256
+).Hash.ToLowerInvariant()
+if (
+    [int]$releaseManifest.schemaVersion -ne 3 -or
+    [string]$releaseManifest.validationStatus -cne 'PASSED' -or
+    [string]$releaseManifest.openApiStatus -cne 'FROZEN' -or
+    [string]$releaseManifest.openApi.path -cne $canonicalOpenApiRelativePath -or
+    [string]$releaseManifest.openApi.contractVersion -cne $expectedContractVersion -or
+    [int]$releaseManifest.openApi.schemaVersion -ne $expectedContractSchemaVersion -or
+    ([string]$releaseManifest.openApi.sha256).ToLowerInvariant() -cne $canonicalOpenApiHash
+) {
+    throw 'Production V2 release manifest does not claim the exact frozen OpenAPI identity and SHA-256.'
+}
+if (
+    [string]$canonicalOpenApi.info.version -cne $expectedContractVersion -or
+    $null -eq $canonicalOpenApi.paths
+) {
+    throw 'Packaged canonical OpenAPI contract identity is not the frozen V2 identity.'
+}
+$packagedOpenApiPaths = @(
+    $canonicalOpenApi.paths.PSObject.Properties |
+        ForEach-Object { $_.Name } |
+        Sort-Object
+)
+if (@(
+    Compare-Object -ReferenceObject $expectedOpenApiPaths -DifferenceObject $packagedOpenApiPaths -CaseSensitive
+).Count -gt 0) {
+    throw 'Packaged canonical OpenAPI paths differ from the frozen V2 surface.'
+}
+foreach ($pathProperty in $canonicalOpenApi.paths.PSObject.Properties) {
+    $members = @($pathProperty.Value.PSObject.Properties | ForEach-Object { $_.Name })
+    if ($members.Count -ne 1 -or $members[0] -cne 'get') {
+        throw "Packaged canonical OpenAPI is not read-only GET at $($pathProperty.Name)."
     }
 }
 
@@ -106,6 +221,7 @@ $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
 $listener.Stop()
 $baseUrl = "http://127.0.0.1:$port"
 $hostProcess = $null
+$httpClient = $null
 $startedAt = [DateTimeOffset]::UtcNow
 try {
     $hostInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -123,7 +239,9 @@ try {
     $hostInfo.EnvironmentVariables['MesIngest__SnapshotSource'] = 'Oracle'
     $hostInfo.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'false'
     $hostInfo.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] = 'false'
-    $hostInfo.EnvironmentVariables['MesIngest__EnableLegacyDevelopmentEndpoints'] = 'false'
+    # Request the development-only switch deliberately. Production must suppress
+    # it, otherwise this build cannot claim the ADR-mes-0017 production cutover.
+    $hostInfo.EnvironmentVariables['MesIngest__EnableLegacyDevelopmentEndpoints'] = 'true'
     $hostInfo.EnvironmentVariables['MesIngest__Urls'] = $baseUrl
     $hostInfo.EnvironmentVariables['MesIngest__SharedSecret'] = ''
     $hostProcess = [Diagnostics.Process]::Start($hostInfo)
@@ -148,25 +266,115 @@ try {
     if ($null -eq $contract) {
         throw "Packaged Production V2 Host did not expose /api/v2/contract within $StartupTimeoutSeconds seconds."
     }
-    if ([string]::IsNullOrWhiteSpace([string]$contract.contractVersion) `
-        -or [int]$contract.schemaVersion -le 0 `
-        -or [string]::IsNullOrWhiteSpace([string]$contract.transportDemandKeyComparison)) {
-        throw 'Packaged Production V2 Host returned an incomplete contract identity.'
+    if (
+        [string]$contract.contractVersion -cne $expectedContractVersion -or
+        [int]$contract.schemaVersion -ne $expectedContractSchemaVersion -or
+        [string]$contract.compatibilityPolicy -cne $expectedCompatibilityPolicy -or
+        [string]$contract.openApiDocument -cne '/openapi/v2.json' -or
+        [string]$contract.businessSurface -cne 'READ_ONLY_GET' -or
+        [string]$contract.legacySurfacePolicy -cne 'DEVELOPMENT_ONLY_EXCLUDED_FROM_V2' -or
+        [string]::IsNullOrWhiteSpace([string]$contract.transportDemandKeyComparison)
+    ) {
+        throw 'Packaged Production V2 Host returned a non-frozen contract identity or production policy.'
     }
 
-    $legacyStatus = 0
-    try {
-        $legacyResponse = Invoke-WebRequest -Uri "$baseUrl/api/contract" -TimeoutSec 2 -UseBasicParsing
-        $legacyStatus = [int]$legacyResponse.StatusCode
-    } catch {
-        if ($null -ne $_.Exception.Response) {
-            $legacyStatus = [int]$_.Exception.Response.StatusCode
-        } else {
-            throw
+    $actualCapabilities = @($contract.capabilities)
+    $actualCapabilityIds = @(
+        $actualCapabilities |
+            ForEach-Object { [string]$_.id } |
+            Sort-Object
+    )
+    $capabilityDifference = @(
+        Compare-Object -ReferenceObject $expectedCapabilityIds -DifferenceObject $actualCapabilityIds -CaseSensitive
+    )
+    if (
+        $actualCapabilities.Count -ne $expectedCapabilityIds.Count -or
+        $capabilityDifference.Count -gt 0
+    ) {
+        throw 'Packaged Production V2 Host capability set is not the exact frozen set.'
+    }
+    foreach ($expectedCapabilityId in $expectedCapabilityIds) {
+        $actualCapability = @(
+            $actualCapabilities |
+                Where-Object { [string]$_.id -ceq $expectedCapabilityId }
+        )
+        if (
+            $actualCapability.Count -ne 1 -or
+            [string]$actualCapability[0].version -cne $expectedCapabilityVersion
+        ) {
+            throw "Packaged Production V2 Host capability $expectedCapabilityId has a non-frozen identity."
+        }
+        $actualCapabilityOperations = @(
+            $actualCapability[0].operations |
+                Where-Object { [string]$_.method -ceq 'GET' } |
+                ForEach-Object { [string]$_.path } |
+                Sort-Object
+        )
+        $expectedOperations = @($expectedCapabilityOperations[$expectedCapabilityId] | Sort-Object)
+        $operationDifference = @(
+            Compare-Object `
+                -ReferenceObject $expectedOperations `
+                -DifferenceObject $actualCapabilityOperations `
+                -CaseSensitive
+        )
+        if (
+            @($actualCapability[0].operations).Count -ne $expectedOperations.Count -or
+            $operationDifference.Count -gt 0
+        ) {
+            throw "Packaged Production V2 Host capability $expectedCapabilityId has non-frozen operations."
         }
     }
-    if ($legacyStatus -ne 404) {
-        throw "Packaged Production V2 Host exposed the legacy contract endpoint (HTTP $legacyStatus)."
+    $contractOperations = @($actualCapabilities | ForEach-Object { $_.operations })
+    $nonGetContractOperations = @(
+        $contractOperations | Where-Object { [string]$_.method -cne 'GET' }
+    )
+    $contractOperationPaths = @(
+        $contractOperations |
+            ForEach-Object { [string]$_.path } |
+            Sort-Object -Unique
+    )
+    $contractPathDifference = @(
+        Compare-Object -ReferenceObject $expectedOpenApiPaths -DifferenceObject $contractOperationPaths -CaseSensitive
+    )
+    if ($nonGetContractOperations.Count -gt 0 -or $contractPathDifference.Count -gt 0) {
+        throw 'Packaged Production V2 Host discovery operations differ from canonical OpenAPI.'
+    }
+
+    Add-Type -AssemblyName System.Net.Http
+    $httpClient = [Net.Http.HttpClient]::new()
+    $liveOpenApiBytes = $httpClient.GetByteArrayAsync(
+        "$baseUrl/openapi/v2.json"
+    ).GetAwaiter().GetResult()
+    try {
+        $liveOpenApi = [Text.Encoding]::UTF8.GetString($liveOpenApiBytes) | ConvertFrom-Json
+    } catch {
+        throw 'Live /openapi/v2.json is not valid JSON.'
+    }
+    $packagedCanonicalJson = $canonicalOpenApi | ConvertTo-Json -Depth 100 -Compress
+    $liveCanonicalJson = $liveOpenApi | ConvertTo-Json -Depth 100 -Compress
+    if ($liveCanonicalJson -cne $packagedCanonicalJson) {
+        throw 'Live /openapi/v2.json differs semantically from packaged canonical OpenAPI.'
+    }
+    $liveOpenApiCanonicalHash = Get-BytesSha256 -Bytes (
+        [Text.Encoding]::UTF8.GetBytes($liveCanonicalJson)
+    )
+
+    $legacyRoutes = @(
+        '/api/contract',
+        '/api/demands',
+        '/api/demands/legacy-probe',
+        '/api/alerts',
+        '/api/poll-health',
+        '/api/demand-changes',
+        '/openapi/v1.json'
+    )
+    $legacyStatuses = [ordered]@{}
+    foreach ($legacyRoute in $legacyRoutes) {
+        $legacyStatus = Get-HttpStatus -Uri "$baseUrl$legacyRoute"
+        $legacyStatuses[$legacyRoute] = $legacyStatus
+        if ($legacyStatus -ne 404) {
+            throw "Packaged Production V2 Host exposed legacy route $legacyRoute (HTTP $legacyStatus)."
+        }
     }
 
     [ordered]@{
@@ -178,8 +386,16 @@ try {
         contractEndpoint = '/api/v2/contract'
         contractVersion = [string]$contract.contractVersion
         schemaVersion = [int]$contract.schemaVersion
+        compatibilityPolicy = [string]$contract.compatibilityPolicy
+        capabilityIds = $actualCapabilityIds
         transportDemandKeyComparison = [string]$contract.transportDemandKeyComparison
-        legacyContractStatus = $legacyStatus
+        openApi = [ordered]@{
+            path = $canonicalOpenApiRelativePath
+            sha256 = $canonicalOpenApiHash
+            liveCanonicalSha256 = $liveOpenApiCanonicalHash
+        }
+        legacyDevelopmentFlagRequested = $true
+        legacyRouteStatuses = $legacyStatuses
         canonicalQuery = [ordered]@{
             path = $canonicalQueryRelativePath
             length = $queryFile.Length
@@ -197,6 +413,9 @@ try {
 }
 finally {
     $sqlConnectionString = $null
+    if ($null -ne $httpClient) {
+        $httpClient.Dispose()
+    }
     if ($null -ne $hostProcess) {
         if (-not $hostProcess.HasExited) {
             $hostProcess.Kill()

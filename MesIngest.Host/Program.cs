@@ -163,9 +163,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
-if (!probeOracle && legacySurfaceEnabled)
+if (!probeOracle && (legacySurfaceEnabled || newV2Enabled))
 {
-    builder.Services.AddMesIngestOpenApi();
+    builder.Services.AddMesIngestOpenApi(
+        includeLegacy: legacySurfaceEnabled,
+        includeV2: newV2Enabled);
 }
 
 var app = builder.Build();
@@ -185,7 +187,16 @@ app.Use(async (context, next) =>
     if (!SharedSecretAuth.IsAuthorized(context.Request, options, configuration))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        await context.Response.WriteAsJsonAsync(new { error = "shared secret required" });
+        if (context.Request.Path.StartsWithSegments("/api/v2"))
+        {
+            await context.Response.WriteAsJsonAsync(new NewMesIngestErrorDto(
+                "UNAUTHORIZED",
+                "Bearer SharedSecret is required."));
+        }
+        else
+        {
+            await context.Response.WriteAsJsonAsync(new { error = "shared secret required" });
+        }
         return;
     }
 
@@ -222,9 +233,11 @@ if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
     }
 }
 
-if (legacySurfaceEnabled)
+if (legacySurfaceEnabled || newV2Enabled)
 {
-    app.UseMesIngestOpenApi();
+    app.UseMesIngestOpenApi(
+        includeLegacy: legacySurfaceEnabled,
+        includeV2: newV2Enabled);
 }
 if (newV2Enabled)
 {
