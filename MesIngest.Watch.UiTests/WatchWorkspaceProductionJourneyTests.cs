@@ -160,10 +160,17 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Capture(evidence, process.MainWindowHandle, "05-area-filter-profile");
 
             failedStep = "error-search";
-            Navigate(window, "ErrorSearchNavigationItem", "ErrorSearchPage");
+            Navigate(
+                window,
+                "ErrorSearchNavigationItem",
+                "ErrorSearchNormalizedFilterText");
             var errorGrid = WaitForRows(window, "ErrorSearchSeriesGrid", "error Series rows");
             errorGrid.Select(0);
-            WaitForRows(window, "ErrorSearchPeriodGrid", "matched error periods");
+            var periodGrid = WaitForRows(
+                window,
+                "ErrorSearchPeriodGrid",
+                "matched error periods");
+            periodGrid.Select(0);
             WaitForRows(window, "ErrorSearchEvidenceGrid", "matched error evidence");
             Capture(evidence, process.MainWindowHandle, "06-error-search-variant-a");
 
@@ -183,8 +190,9 @@ public sealed class WatchWorkspaceProductionJourneyTests
             WaitUntil(() => drill.IsEnabled, "Series error drill command", StepTimeout);
             drill.Invoke();
             WaitUntil(
-                () => FindById(window, "ErrorSearchPage") is not null
-                    && TextValue(FindRequiredById(window, "ErrorSearchNormalizedFilterText"))
+                () => FindById(window, "ErrorSearchNormalizedFilterText") is { } filterText
+                    && !filterText.Properties.IsOffscreen.ValueOrDefault
+                    && TextValue(filterText)
                         .Contains("SERIES-ATTENTION-22", StringComparison.Ordinal),
                 "explicit CurrentIngestAttention to Error Search drill",
                 StepTimeout);
