@@ -9,9 +9,13 @@ internal partial class App : Application
         base.OnStartup(e);
 
         var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
+        var processFileLocations = WatchProcessFileLocations.Resolve();
         _composition = WatchV2ApplicationComposition.Create(
             options,
-            timeProvider: WatchProcessTimeProvider.Resolve());
+            connectionPreferencesPath: processFileLocations.ConnectionPreferencesPath,
+            workspacePreferencesPath: processFileLocations.WorkspacePreferencesPath,
+            timeProvider: WatchProcessTimeProvider.Resolve(),
+            areaFilterProfilesDirectoryPath: processFileLocations.AreaFilterProfilesDirectoryPath);
         _composition.CreateMainWindow().Show();
     }
 
