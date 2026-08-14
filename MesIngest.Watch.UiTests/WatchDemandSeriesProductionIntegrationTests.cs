@@ -30,10 +30,18 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     FakeHostReply.Return(CreateOverview(query.MesAreas ?? []))),
                 DemandSeries = FakeHostReply.Select<DemandSeriesBrowseQuery, DemandSeriesListSnapshot>(query =>
                 {
-                    listQueryReceived.TrySetResult(query);
-                    return FakeHostReply.After(
-                        listGate,
-                        CreateDemandSeriesList(query, seriesId, snapshotReference));
+                    if (query.Filter.Lifecycles.Contains(
+                            DemandSeriesLifecycleContract.Tracking,
+                            StringComparer.Ordinal))
+                    {
+                        listQueryReceived.TrySetResult(query);
+                        return FakeHostReply.After(
+                            listGate,
+                            CreateDemandSeriesList(query, seriesId, snapshotReference));
+                    }
+
+                    return FakeHostReply.Return(
+                        CreateDemandSeriesList(query, seriesId, "snapshot-area-refresh-21"));
                 }),
                 DemandSeriesDetail = FakeHostReply.Select<FakeHostV2DetailRequest, DemandSeriesDetailSnapshot>(request =>
                 {
@@ -66,6 +74,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         "本机已应用",
                         DateTimeOffset.Parse("2026-08-14T05:05:00Z")),
                     timeout.Token);
+                var navigationTimelineStart = host.Timeline.Count;
                 var intent = new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeriesDetail,
                     PageNumber: 1,
@@ -103,6 +112,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         (FakeHostOperation.DemandSeriesDetailV2, FakeHostRequestState.Completed),
                     ],
                     host.Timeline
+                        .Skip(navigationTimelineStart)
                         .Where(entry => entry.Operation is FakeHostOperation.DemandSeriesV2
                             or FakeHostOperation.DemandSeriesDetailV2)
                         .Select(entry => (entry.Operation, entry.State))
@@ -252,6 +262,8 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Equal(seriesId, detail.ObjectId);
                 Assert.Equal("snapshot-all-areas", detail.SnapshotReference);
                 Assert.Empty(window.AreaContext.MesAreas);
+                Assert.Equal("本机已应用", window.AreaContext.LocalState);
+                Assert.NotNull(window.AreaContext.LastUpdatedAt);
                 Assert.Equal(Visibility.Collapsed, confirmation.Visibility);
                 Assert.Equal(seriesId, window.WorkspaceState.DemandSeries.SelectedId);
             }

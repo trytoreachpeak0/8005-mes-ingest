@@ -111,6 +111,42 @@
         <wpf:Thickness x:Key="DemandSeriesContentMargin">8</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesPagingTopPadding">0,12,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesPagingDividerThickness">0,1,0,0</wpf:Thickness>
+        <!-- ReadabilityAudit and AREA page geometry stays tokenized so the shared
+             integration train can calibrate the two master-detail workspaces. -->
+        <sys:Double x:Key="ReadabilityStateFilterWidth">170</sys:Double>
+        <sys:Double x:Key="ReadabilityWorkTypeFilterWidth">190</sys:Double>
+        <sys:Double x:Key="ReadabilityBlockerFilterWidth">250</sys:Double>
+        <sys:Double x:Key="ReadabilityTextFilterWidth">210</sys:Double>
+        <sys:Double x:Key="ReadabilityPageSizeWidth">120</sys:Double>
+        <sys:Double x:Key="ReadabilityFacetGridHeight">112</sys:Double>
+        <sys:Double x:Key="ReadabilityAuditGridMinHeight">270</sys:Double>
+        <sys:Double x:Key="ReadabilityQualificationGridMinHeight">190</sys:Double>
+        <sys:Double x:Key="ReadabilityEvidenceGridMinHeight">210</sys:Double>
+        <sys:Double x:Key="AreaProfileListMinHeight">300</sys:Double>
+        <sys:Double x:Key="AreaProfileEditorMinHeight">260</sys:Double>
+        <sys:Double x:Key="AreaProfileValidationGridMinHeight">120</sys:Double>
+        <sys:Double x:Key="ReadabilityMasterDetailStackBreakpoint">1080</sys:Double>
+        <sys:Double x:Key="AreaProfileMasterDetailStackBreakpoint">900</sys:Double>
+        <wpf:GridLength x:Key="WatchCollapsedGridLength">0</wpf:GridLength>
+        <wpf:GridLength x:Key="WatchMasterDetailGapWidth">16</wpf:GridLength>
+        <wpf:GridLength x:Key="ReadabilityMasterColumnWidth">460</wpf:GridLength>
+        <wpf:GridLength x:Key="ReadabilityFacetGapWidth">12</wpf:GridLength>
+        <wpf:GridLength x:Key="AreaProfileMasterColumnWidth">318</wpf:GridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn45">45</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn80">80</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn90">90</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn100">100</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn120">120</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn130">130</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn160">160</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn170">170</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn180">180</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn220">220</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="ReadabilityColumn240">240</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="AreaProfileDiagnosticLineColumnWidth">60</wpfControls:DataGridLength>
+        <wpfControls:DataGridLength x:Key="AreaProfileDiagnosticCodeColumnWidth">180</wpfControls:DataGridLength>
+        <wpf:Thickness x:Key="WatchPageCardPadding">16</wpf:Thickness>
+        <wpf:Thickness x:Key="AreaProfileListMargin">0,12,0,12</wpf:Thickness>
         <Style x:Key="DemandSeriesReadOnlyGrid" TargetType="DataGrid">
             <Setter Property="AutoGenerateColumns" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
@@ -845,15 +881,613 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
-                    <Grid x:Name="ReadabilityAuditPage" Visibility="Collapsed" AutomationProperties.Name="资格审计页面">
-                        <StackPanel><ui:TextBlock Text="资格审计" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="审计列表尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="{StaticResource DemandSeriesSectionTopMargin}" /></StackPanel>
-                    </Grid>
+                    <ScrollViewer x:Name="ReadabilityAuditPage"
+                                  Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  AutomationProperties.Name="资格审计页面"
+                                  AutomationProperties.AutomationId="ReadabilityAuditPage">
+                        <StackPanel Margin="{StaticResource DemandSeriesPageBodyMargin}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <ui:TextBlock Text="资格审计" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock Text="按一个冻结 ReadabilityAuditSnapshot 核对每个 Demand 世代的外部可读资格"
+                                                  Style="{StaticResource SecondaryText}"
+                                                  Margin="{StaticResource DemandSeriesControlTopMargin}" />
+                                </StackPanel>
+                                <ui:TextBlock x:Name="ReadabilityRefreshPolicyText"
+                                              Grid.Column="1"
+                                              Text="自动刷新"
+                                              Style="{StaticResource SecondaryText}"
+                                              VerticalAlignment="Center"
+                                              AutomationProperties.Name="资格审计自动刷新策略" />
+                            </Grid>
+
+                            <ui:InfoBar x:Name="ReadabilityAuditInfoBar"
+                                        IsOpen="False"
+                                        IsClosable="True"
+                                        Severity="Informational"
+                                        Margin="{StaticResource DemandSeriesSectionTopMargin}"
+                                        AutomationProperties.Name="资格审计状态" />
+
+                            <ui:Card Padding="{StaticResource WatchPageCardPadding}"
+                                     HorizontalContentAlignment="Stretch"
+                                     VerticalContentAlignment="Stretch"
+                                     Margin="{StaticResource DemandSeriesSectionTopMargin}">
+                                <StackPanel>
+                                    <ui:TextBlock Text="Host 查询条件" Style="{StaticResource SectionTitleText}" />
+                                    <WrapPanel Margin="{StaticResource DemandSeriesControlTopMargin}">
+                                        <StackPanel Width="{StaticResource ReadabilityStateFilterWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="资格（逗号分隔表示 OR）" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="ReadabilityStateFilter"
+                                                      IsEditable="True"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="OnReadabilityFilterDraftChanged"
+                                                      KeyUp="OnReadabilityFilterDraftChanged"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                      AutomationProperties.Name="资格状态筛选"
+                                                      AutomationProperties.AutomationId="ReadabilityStateFilter">
+                                                <ComboBoxItem Content="全部资格" Tag="" />
+                                                <ComboBoxItem Content="READABLE" Tag="READABLE" />
+                                                <ComboBoxItem Content="NOT_READABLE" Tag="NOT_READABLE" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                        <StackPanel Width="{StaticResource ReadabilityWorkTypeFilterWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="WorkType（逗号分隔表示 OR）" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="ReadabilityWorkTypeFilter"
+                                                      IsEditable="True"
+                                                      SelectionChanged="OnReadabilityFilterDraftChanged"
+                                                      KeyUp="OnReadabilityFilterDraftChanged"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                      AutomationProperties.Name="资格审计 WorkType 筛选"
+                                                      AutomationProperties.AutomationId="ReadabilityWorkTypeFilter" />
+                                        </StackPanel>
+                                        <StackPanel Width="{StaticResource ReadabilityBlockerFilterWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="任意阻断原因（逗号分隔表示 OR）" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="ReadabilityBlockerFilter"
+                                                      IsEditable="True"
+                                                      SelectionChanged="OnReadabilityFilterDraftChanged"
+                                                      KeyUp="OnReadabilityFilterDraftChanged"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                      AutomationProperties.Name="资格阻断原因筛选"
+                                                      AutomationProperties.AutomationId="ReadabilityBlockerFilter" />
+                                        </StackPanel>
+                                        <StackPanel Width="{StaticResource ReadabilityTextFilterWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="DemandId（精确）" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="ReadabilityDemandIdFilter"
+                                                     TextChanged="OnReadabilityFilterDraftChanged"
+                                                     KeyboardNavigation.IsTabStop="True"
+                                                     Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                     AutomationProperties.Name="资格审计 DemandId 精确筛选"
+                                                     AutomationProperties.AutomationId="ReadabilityDemandIdFilter" />
+                                        </StackPanel>
+                                        <StackPanel Width="{StaticResource ReadabilityTextFilterWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="SUBLOT（包含）" Style="{StaticResource FieldLabel}" />
+                                            <TextBox x:Name="ReadabilitySublotFilter"
+                                                     TextChanged="OnReadabilityFilterDraftChanged"
+                                                     KeyboardNavigation.IsTabStop="True"
+                                                     Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                     AutomationProperties.Name="资格审计 SUBLOT 包含筛选"
+                                                     AutomationProperties.AutomationId="ReadabilitySublotFilter" />
+                                        </StackPanel>
+                                        <StackPanel Width="{StaticResource ReadabilityPageSizeWidth}"
+                                                    Margin="{StaticResource DemandSeriesFilterFieldMargin}">
+                                            <ui:TextBlock Text="每页" Style="{StaticResource FieldLabel}" />
+                                            <ComboBox x:Name="ReadabilityPageSizeInput"
+                                                      SelectedIndex="0"
+                                                      SelectionChanged="OnReadabilityFilterDraftChanged"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                      AutomationProperties.Name="资格审计每页数量"
+                                                      AutomationProperties.AutomationId="ReadabilityPageSizeInput">
+                                                <ComboBoxItem Content="100" Tag="100" />
+                                                <ComboBoxItem Content="200" Tag="200" />
+                                            </ComboBox>
+                                        </StackPanel>
+                                    </WrapPanel>
+                                    <WrapPanel>
+                                        <ui:Button x:Name="ReadabilityApplyFilterButton"
+                                                   Content="应用条件"
+                                                   Appearance="Secondary"
+                                                   Margin="{StaticResource DemandSeriesCommandTrailingMargin}"
+                                                   KeyboardNavigation.IsTabStop="True"
+                                                   Click="OnReadabilityApplyFiltersClick"
+                                                   AutomationProperties.Name="应用资格审计条件"
+                                                   AutomationProperties.AutomationId="ReadabilityApplyFilterButton" />
+                                        <ui:Button x:Name="ReadabilityClearFilterButton"
+                                                   Content="清除条件"
+                                                   Appearance="Transparent"
+                                                   IsEnabled="False"
+                                                   KeyboardNavigation.IsTabStop="True"
+                                                   Click="OnReadabilityClearFiltersClick"
+                                                   AutomationProperties.Name="清除资格审计条件"
+                                                   AutomationProperties.AutomationId="ReadabilityClearFilterButton" />
+                                    </WrapPanel>
+                                </StackPanel>
+                            </ui:Card>
+
+                            <ui:Card Padding="{StaticResource WatchPageCardPadding}"
+                                     HorizontalContentAlignment="Stretch"
+                                     VerticalContentAlignment="Stretch"
+                                     Margin="{StaticResource DemandSeriesSectionTopMargin}">
+                                <StackPanel>
+                                    <ui:TextBlock x:Name="ReadabilitySnapshotFactsText"
+                                                  Text="尚无 Host 审计快照"
+                                                  Style="{StaticResource SecondaryText}"
+                                                  AutomationProperties.Name="资格审计 Host 快照事实" />
+                                    <ui:TextBlock x:Name="ReadabilityClientAttemptText"
+                                                  Text="尚无客户端读取尝试"
+                                                  Style="{StaticResource SecondaryText}"
+                                                  Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                  AutomationProperties.Name="资格审计客户端读取事实" />
+                                    <ui:TextBlock x:Name="ReadabilityAreaScopeText"
+                                                  Text="当前 AREA：全部 AREA · 尚无 Host 提交范围"
+                                                  Style="{StaticResource SecondaryText}"
+                                                  Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                  AutomationProperties.Name="资格审计 AREA 范围" />
+                                    <ui:TextBlock x:Name="ReadabilityOrderSummaryText"
+                                                  Text="Host 固定排序：NOT_READABLE、主要阻断、最后看见时间、DemandId"
+                                                  Style="{StaticResource SecondaryText}"
+                                                  Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                  AutomationProperties.Name="资格审计稳定排序" />
+                                </StackPanel>
+                            </ui:Card>
+
+                            <Grid x:Name="ReadabilityBodyGrid"
+                                  Margin="{StaticResource DemandSeriesSectionTopMargin}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="ReadabilityBodyVerticalGap"
+                                                   Height="{StaticResource WatchCollapsedGridLength}" />
+                                    <RowDefinition x:Name="ReadabilityBodyBottomRow"
+                                                   Height="{StaticResource WatchCollapsedGridLength}" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="ReadabilityMasterColumn"
+                                                      Width="{StaticResource ReadabilityMasterColumnWidth}" />
+                                    <ColumnDefinition x:Name="ReadabilityBodyGapColumn"
+                                                      Width="{StaticResource WatchMasterDetailGapWidth}" />
+                                    <ColumnDefinition x:Name="ReadabilityDetailColumn" Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <ui:Card x:Name="ReadabilityMasterCard"
+                                         Padding="{StaticResource WatchPageCardPadding}"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch"
+                                         AutomationProperties.Name="资格审计主列表与精确分面"
+                                         AutomationProperties.AutomationId="ReadabilityMasterCard">
+                                    <StackPanel>
+                                        <ui:TextBlock Text="Host 精确分面" Style="{StaticResource SectionTitleText}" />
+                                        <Grid Margin="{StaticResource DemandSeriesControlTopMargin}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="{StaticResource ReadabilityFacetGapWidth}" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <DataGrid x:Name="ReadabilityStateFacetGrid"
+                                                      Height="{StaticResource ReadabilityFacetGridHeight}"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      ItemsSource="{Binding}"
+                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                      AutomationProperties.Name="资格状态 Host 精确分面"
+                                                      AutomationProperties.AutomationId="ReadabilityStateFacetGrid">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="资格" Binding="{Binding State}" Width="*" />
+                                                    <DataGridTextColumn Header="Demand"
+                                                                        Binding="{Binding DemandCount}"
+                                                                        Width="{StaticResource ReadabilityColumn90}" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                            <DataGrid x:Name="ReadabilityBlockerFacetGrid"
+                                                      Grid.Column="2"
+                                                      Height="{StaticResource ReadabilityFacetGridHeight}"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      ItemsSource="{Binding}"
+                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                      AutomationProperties.Name="阻断原因 Host 精确去重分面"
+                                                      AutomationProperties.AutomationId="ReadabilityBlockerFacetGrid">
+                                                <DataGrid.Columns>
+                                                    <DataGridTextColumn Header="阻断" Binding="{Binding Code}" Width="*" />
+                                                    <DataGridTextColumn Header="Demand"
+                                                                        Binding="{Binding DemandCount}"
+                                                                        Width="{StaticResource ReadabilityColumn90}" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                        </Grid>
+                                        <ui:TextBlock Text="原因分面可重叠；NOT_READABLE 总数按 Demand 世代去重，不能相加原因数量。"
+                                                      Style="{StaticResource SecondaryText}"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}" />
+
+                                        <ui:TextBlock x:Name="ReadabilityPageSummaryText"
+                                                      Text="尚无资格审计快照"
+                                                      Style="{StaticResource SectionTitleText}"
+                                                      Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}"
+                                                      AutomationProperties.Name="资格审计精确总数与页码"
+                                                      AutomationProperties.AutomationId="ReadabilityPageSummaryText" />
+                                        <DataGrid x:Name="ReadabilityAuditGrid"
+                                                  MinHeight="{StaticResource ReadabilityAuditGridMinHeight}"
+                                                  KeyboardNavigation.IsTabStop="True"
+                                                  SelectionChanged="OnReadabilitySelectionChanged"
+                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                  AutomationProperties.Name="资格审计 Demand 世代列表"
+                                                  AutomationProperties.AutomationId="ReadabilityAuditGrid">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                <DataGridTextColumn Header="资格" Binding="{Binding ExternalReadabilityState}" Width="{StaticResource ReadabilityColumn130}" />
+                                                <DataGridTextColumn Header="生命周期" Binding="{Binding LifecycleSummary}" Width="{StaticResource ReadabilityColumn180}" />
+                                                <DataGridTextColumn Header="主要阻断" Binding="{Binding LeadReadabilityBlocker}" Width="{StaticResource ReadabilityColumn220}" />
+                                                <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource ReadabilityColumn160}" />
+                                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource ReadabilityColumn160}" />
+                                                <DataGridTextColumn Header="最后看见" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource ReadabilityColumn170}" />
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                        <ui:InfoBar x:Name="ReadabilityEmptyInfoBar"
+                                                    IsOpen="False"
+                                                    IsClosable="False"
+                                                    Severity="Informational"
+                                                    Title="当前条件零命中"
+                                                    Message="Host 已成功返回精确 0 个 Demand 世代；这不代表接入系统整体健康。"
+                                                    Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                    AutomationProperties.Name="资格审计成功零结果" />
+                                        <Border BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                                                BorderThickness="{StaticResource DemandSeriesPagingDividerThickness}"
+                                                Padding="{StaticResource DemandSeriesPagingTopPadding}">
+                                            <WrapPanel>
+                                                <ui:Button x:Name="ReadabilityPreviousPageButton"
+                                                           Content="上一页"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnReadabilityPreviousPageClick"
+                                                           AutomationProperties.Name="资格审计上一页"
+                                                           AutomationProperties.AutomationId="ReadabilityPreviousPageButton" />
+                                                <ui:Button x:Name="ReadabilityNextPageButton"
+                                                           Content="下一页"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnReadabilityNextPageClick"
+                                                           AutomationProperties.Name="资格审计下一页"
+                                                           AutomationProperties.AutomationId="ReadabilityNextPageButton" />
+                                                <TextBox x:Name="ReadabilityPageNumberInput"
+                                                         Width="{StaticResource DemandSeriesPageNumberWidth}"
+                                                         Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                         KeyboardNavigation.IsTabStop="True"
+                                                         AutomationProperties.Name="资格审计目标页码"
+                                                         AutomationProperties.AutomationId="ReadabilityPageNumberInput" />
+                                                <ui:Button x:Name="ReadabilityGoToPageButton"
+                                                           Content="跳转"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandLastMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnReadabilityGoToPageClick"
+                                                           AutomationProperties.Name="资格审计直接页码跳转"
+                                                           AutomationProperties.AutomationId="ReadabilityGoToPageButton" />
+                                            </WrapPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </ui:Card>
+
+                                <ui:Card x:Name="ReadabilityDetailCard"
+                                         Grid.Column="2"
+                                         Padding="{StaticResource WatchPageCardPadding}"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch"
+                                         AutomationProperties.Name="资格审计详情与证据"
+                                         AutomationProperties.AutomationId="ReadabilityDetailCard">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <ui:TextBlock x:Name="ReadabilityDetailHeadingText"
+                                                              Text="选择一个 Demand 世代查看资格证据"
+                                                              Style="{StaticResource SectionTitleText}"
+                                                              AutomationProperties.Name="资格审计详情标题" />
+                                                <ui:TextBlock x:Name="ReadabilityDetailFactsText"
+                                                              Text="列表与详情将共享同一投影提交"
+                                                              Style="{StaticResource SecondaryText}"
+                                                              Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                              AutomationProperties.Name="资格审计详情快照事实" />
+                                            </StackPanel>
+                                            <ui:Button x:Name="ReadabilityOpenSeriesButton"
+                                                       Grid.Column="1"
+                                                       Content="查看所属 Series"
+                                                       Appearance="Secondary"
+                                                       IsEnabled="False"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       Click="OnReadabilityOpenSeriesClick"
+                                                       AutomationProperties.Name="从资格审计查看所属需求系列"
+                                                       AutomationProperties.AutomationId="ReadabilityOpenSeriesButton" />
+                                        </Grid>
+                                        <ui:InfoBar x:Name="ReadabilityDetailInfoBar"
+                                                    IsOpen="False"
+                                                    IsClosable="False"
+                                                    Severity="Informational"
+                                                    Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                    AutomationProperties.Name="资格审计详情结论" />
+                                        <ui:TextBlock x:Name="ReadabilitySeriesFactsText"
+                                                      Text="尚无所属 Series 事实"
+                                                      Style="{StaticResource SecondaryText}"
+                                                      Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}"
+                                                      AutomationProperties.Name="资格审计所属 Series 事实" />
+                                        <ui:TextBlock x:Name="ReadabilityLiveMesFactsText"
+                                                      Text="尚无可信 MES 字段或原始观测冲突"
+                                                      Style="{StaticResource SecondaryText}"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                      AutomationProperties.Name="资格审计可信 MES 字段或原始观测冲突" />
+
+                                        <TabControl Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}"
+                                                    AutomationProperties.Name="资格审计详情证据分组">
+                                            <TabItem Header="资格检查">
+                                                <DataGrid x:Name="ReadabilityQualificationGrid"
+                                                          MinHeight="{StaticResource ReadabilityQualificationGridMinHeight}"
+                                                          KeyboardNavigation.IsTabStop="True"
+                                                          Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                          AutomationProperties.Name="资格审计全部资格检查"
+                                                          AutomationProperties.AutomationId="ReadabilityQualificationGrid">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="检查" Binding="{Binding Code}" Width="*" />
+                                                        <DataGridTextColumn Header="阻断码" Binding="{Binding BlockingCode}" Width="{StaticResource ReadabilityColumn240}" />
+                                                        <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="{StaticResource ReadabilityColumn120}" />
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </TabItem>
+                                            <TabItem Header="全部阻断证据">
+                                                <DataGrid x:Name="ReadabilityBlockerEvidenceGrid"
+                                                          MinHeight="{StaticResource ReadabilityEvidenceGridMinHeight}"
+                                                          KeyboardNavigation.IsTabStop="True"
+                                                          Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                          AutomationProperties.Name="资格审计全部阻断证据"
+                                                          AutomationProperties.AutomationId="ReadabilityBlockerEvidenceGrid">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="阻断" Binding="{Binding Code}" Width="{StaticResource ReadabilityColumn220}" />
+                                                        <DataGridTextColumn Header="优先级" Binding="{Binding Priority}" Width="{StaticResource ReadabilityColumn80}" />
+                                                        <DataGridTextColumn Header="主体" Binding="{Binding SubjectKind}" Width="{StaticResource ReadabilityColumn120}" />
+                                                        <DataGridTextColumn Header="观测值" Binding="{Binding ObservedValue}" Width="{StaticResource ReadabilityColumn180}" />
+                                                        <DataGridTextColumn Header="规则" Binding="{Binding ExpectedRule}" Width="{StaticResource ReadabilityColumn240}" />
+                                                        <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                        <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </TabItem>
+                                            <TabItem Header="原始观测冲突">
+                                                <DataGrid x:Name="ReadabilityRawObservationGrid"
+                                                          MinHeight="{StaticResource ReadabilityEvidenceGridMinHeight}"
+                                                          KeyboardNavigation.IsTabStop="True"
+                                                          Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                          AutomationProperties.Name="资格审计全部原始观测"
+                                                          AutomationProperties.AutomationId="ReadabilityRawObservationGrid">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource ReadabilityColumn45}" />
+                                                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="{StaticResource ReadabilityColumn100}" />
+                                                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="{StaticResource ReadabilityColumn120}" />
+                                                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="{StaticResource ReadabilityColumn120}" />
+                                                        <DataGridTextColumn Header="MesSourceDate" Binding="{Binding MesSourceDate}" Width="{StaticResource ReadabilityColumn170}" />
+                                                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="{StaticResource ReadabilityColumn120}" />
+                                                        <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                        <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </TabItem>
+                                        </TabControl>
+                                    </StackPanel>
+                                </ui:Card>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
                     <Grid x:Name="ErrorSearchPage" Visibility="Collapsed" AutomationProperties.Name="错误检索页面">
                         <StackPanel><ui:TextBlock Text="错误检索" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="错误检索尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="{StaticResource DemandSeriesSectionTopMargin}" /></StackPanel>
                     </Grid>
-                    <Grid x:Name="AreaFilterPage" Visibility="Collapsed" AutomationProperties.Name="AREA 筛选页面">
-                        <StackPanel><ui:TextBlock Text="AREA 筛选" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="本机上下文已与 Host 快照分离" Message="AREA 配置编辑尚未在此版本启用；概览始终单独显示本机选择与 Host 已提交范围。" Margin="{StaticResource DemandSeriesSectionTopMargin}" /></StackPanel>
-                    </Grid>
+                    <ScrollViewer x:Name="AreaFilterPage"
+                                  Visibility="Collapsed"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  AutomationProperties.Name="AREA 筛选页面"
+                                  AutomationProperties.AutomationId="AreaFilterPage">
+                        <StackPanel Margin="{StaticResource DemandSeriesPageBodyMargin}">
+                            <ui:TextBlock Text="AREA 筛选" Style="{StaticResource PageTitleText}" />
+                            <ui:TextBlock Text="当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围"
+                                          Style="{StaticResource SecondaryText}"
+                                          Margin="{StaticResource DemandSeriesControlTopMargin}" />
+                            <ui:InfoBar x:Name="AreaProfileInfoBar"
+                                        IsOpen="False"
+                                        IsClosable="True"
+                                        Severity="Informational"
+                                        Margin="{StaticResource DemandSeriesSectionTopMargin}"
+                                        AutomationProperties.Name="AREA 配置操作状态" />
+
+                            <Grid x:Name="AreaProfileBodyGrid"
+                                  Margin="{StaticResource DemandSeriesSectionTopMargin}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="AreaProfileVerticalGap"
+                                                   Height="{StaticResource WatchCollapsedGridLength}" />
+                                    <RowDefinition x:Name="AreaProfileBottomRow"
+                                                   Height="{StaticResource WatchCollapsedGridLength}" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="AreaProfileMasterColumn"
+                                                      Width="{StaticResource AreaProfileMasterColumnWidth}" />
+                                    <ColumnDefinition x:Name="AreaProfileGapColumn"
+                                                      Width="{StaticResource WatchMasterDetailGapWidth}" />
+                                    <ColumnDefinition x:Name="AreaProfileEditorColumn" Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <ui:Card x:Name="AreaProfileMasterCard"
+                                         Padding="{StaticResource WatchPageCardPadding}"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch"
+                                         AutomationProperties.Name="AREA 配置主列表"
+                                         AutomationProperties.AutomationId="AreaProfileMasterCard">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <ui:TextBlock Text="筛选配置" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="AreaProfileListSummaryText"
+                                                              Text="尚未读取本机配置"
+                                                              Style="{StaticResource SecondaryText}"
+                                                              Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                              AutomationProperties.Name="AREA 配置列表摘要" />
+                                            </StackPanel>
+                                            <ui:Button x:Name="AreaProfileNewButton"
+                                                       Grid.Column="1"
+                                                       Content="新建"
+                                                       Appearance="Secondary"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       Click="OnAreaProfileNewClick"
+                                                       AutomationProperties.Name="新建 AREA 配置"
+                                                       AutomationProperties.AutomationId="AreaProfileNewButton" />
+                                        </Grid>
+                                        <ListBox x:Name="AreaProfileList"
+                                                 Grid.Row="1"
+                                                 MinHeight="{StaticResource AreaProfileListMinHeight}"
+                                                 Margin="{StaticResource AreaProfileListMargin}"
+                                                 SelectionChanged="OnAreaProfileSelectionChanged"
+                                                 DisplayMemberPath="DisplaySummary"
+                                                 KeyboardNavigation.IsTabStop="True"
+                                                 AutomationProperties.Name="本机命名 AREA 配置列表"
+                                                 AutomationProperties.AutomationId="AreaProfileList" />
+                                        <StackPanel Grid.Row="2">
+                                            <ui:Button x:Name="AreaApplyAllAreasButton"
+                                                       Content="应用全部 AREA"
+                                                       Appearance="Secondary"
+                                                       HorizontalAlignment="Stretch"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       Click="OnAreaApplyAllAreasClick"
+                                                       AutomationProperties.Name="应用全部 AREA 显示范围"
+                                                       AutomationProperties.AutomationId="AreaApplyAllAreasButton" />
+                                            <ui:TextBlock Text="选择列表项只切换编辑对象；只有“应用”会改变查询范围。"
+                                                          Style="{StaticResource SecondaryText}"
+                                                          Margin="{StaticResource DemandSeriesControlTopMargin}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </ui:Card>
+
+                                <ui:Card x:Name="AreaProfileEditorCard"
+                                         Grid.Column="2"
+                                         Padding="{StaticResource WatchPageCardPadding}"
+                                         HorizontalContentAlignment="Stretch"
+                                         VerticalContentAlignment="Stretch"
+                                         AutomationProperties.Name="AREA 配置编辑器"
+                                         AutomationProperties.AutomationId="AreaProfileEditorCard">
+                                    <StackPanel>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <ui:TextBlock Text="选中的 TXT 配置" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="AreaProfileDirectoryText"
+                                                              Text="本机配置目录"
+                                                              Style="{StaticResource SecondaryText}"
+                                                              Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                              AutomationProperties.Name="AREA 配置存储目录" />
+                                            </StackPanel>
+                                            <ui:TextBlock x:Name="AreaProfileAppliedStateText"
+                                                          Grid.Column="1"
+                                                          Text="当前应用：全部 AREA"
+                                                          Style="{StaticResource SecondaryText}"
+                                                          VerticalAlignment="Center"
+                                                          AutomationProperties.Name="当前应用 AREA 配置" />
+                                        </Grid>
+                                        <ui:TextBlock Text="配置名称" Style="{StaticResource FieldLabel}"
+                                                      Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}" />
+                                        <TextBox x:Name="AreaProfileNameInput"
+                                                 TextChanged="OnAreaProfileDraftChanged"
+                                                 KeyboardNavigation.IsTabStop="True"
+                                                 AutomationProperties.Name="AREA 配置名称"
+                                                 AutomationProperties.AutomationId="AreaProfileNameInput" />
+                                        <ui:TextBlock Text="AREA（每行一个；空行与整行 # 注释忽略）"
+                                                      Style="{StaticResource FieldLabel}"
+                                                      Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}" />
+                                        <TextBox x:Name="AreaProfileEditor"
+                                                 MinHeight="{StaticResource AreaProfileEditorMinHeight}"
+                                                 AcceptsReturn="True"
+                                                 AcceptsTab="False"
+                                                 VerticalScrollBarVisibility="Auto"
+                                                 KeyboardNavigation.IsTabStop="True"
+                                                 TextChanged="OnAreaProfileDraftChanged"
+                                                 AutomationProperties.Name="AREA 配置 TXT 内容编辑器"
+                                                 AutomationProperties.AutomationId="AreaProfileEditor" />
+                                        <Grid Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:TextBlock x:Name="AreaProfileValidationSummaryText"
+                                                          Text="有效配置至少包含一个 AREA"
+                                                          Style="{StaticResource SecondaryText}"
+                                                          AutomationProperties.Name="AREA 配置校验摘要" />
+                                            <ui:TextBlock x:Name="AreaProfileDiskStateText"
+                                                          Grid.Column="1"
+                                                          Text="尚未保存"
+                                                          Style="{StaticResource SecondaryText}"
+                                                          AutomationProperties.Name="AREA 配置保存状态" />
+                                        </Grid>
+                                        <DataGrid x:Name="AreaProfileValidationGrid"
+                                                  MinHeight="{StaticResource AreaProfileValidationGridMinHeight}"
+                                                  KeyboardNavigation.IsTabStop="True"
+                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                  AutomationProperties.Name="AREA 配置逐项校验"
+                                                  AutomationProperties.AutomationId="AreaProfileValidationGrid">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="行" Binding="{Binding LineNumber}" Width="{StaticResource AreaProfileDiagnosticLineColumnWidth}" />
+                                                <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="{StaticResource AreaProfileDiagnosticCodeColumnWidth}" />
+                                                <DataGridTextColumn Header="说明" Binding="{Binding Message}" Width="*" />
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                        <WrapPanel Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}">
+                                            <ui:Button x:Name="AreaProfileSaveButton"
+                                                       Content="保存"
+                                                       Appearance="Secondary"
+                                                       IsEnabled="False"
+                                                       Margin="{StaticResource DemandSeriesCommandTrailingMargin}"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       Click="OnAreaProfileSaveClick"
+                                                       AutomationProperties.Name="保存 AREA TXT 配置"
+                                                       AutomationProperties.AutomationId="AreaProfileSaveButton" />
+                                            <ui:Button x:Name="AreaProfileApplyButton"
+                                                       Content="应用"
+                                                       Appearance="Secondary"
+                                                       IsEnabled="False"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       Click="OnAreaProfileApplyClick"
+                                                       AutomationProperties.Name="应用选中 AREA 配置"
+                                                       AutomationProperties.AutomationId="AreaProfileApplyButton" />
+                                        </WrapPanel>
+                                        <ui:TextBlock Text="保存只更新本机 TXT；应用会保存有效草稿并使概览、需求系列和资格审计从第一页重新查询。"
+                                                      Style="{StaticResource SecondaryText}"
+                                                      Margin="{StaticResource DemandSeriesControlTopMargin}" />
+                                    </StackPanel>
+                                </ui:Card>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
                     <Grid x:Name="CurrentAttentionPage" Visibility="Collapsed" AutomationProperties.Name="接入告警页面">
                         <StackPanel><ui:TextBlock Text="接入告警" Style="{StaticResource PageTitleText}" /><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="页面宿主已就绪" Message="接入关注列表尚未在此版本启用；来自概览的第一页筛选意图已完整保留。" Margin="{StaticResource DemandSeriesSectionTopMargin}" /></StackPanel>
                     </Grid>

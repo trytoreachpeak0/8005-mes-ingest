@@ -67,7 +67,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         string workspacePreferencesPath,
         Func<WatchHostSettings, IWatchV2ApiClient>? clientFactory = null,
         TimeProvider? timeProvider = null,
-        bool initializeOnLoaded = true)
+        bool initializeOnLoaded = true,
+        string? areaFilterProfilesDirectoryPath = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -79,9 +80,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _session,
             preferences.RefreshIntervals,
             timeProvider);
+        InitializeAreaFilterProfiles(areaFilterProfilesDirectoryPath, timeProvider);
 
         InitializeComponent();
         InitializeDemandSeriesPage();
+        InitializeReadabilityAuditAndAreaProfiles();
         if (Application.Current is null)
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
@@ -186,9 +189,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var demandAreaOperation = BeginDemandSeriesOperation();
-        if (!await SuspendDemandSeriesAutoRefreshAsync(
-                demandAreaOperation,
-                cancellationToken).ConfigureAwait(true))
+        var auditAreaOperation = BeginReadabilityAuditOperation();
+        _autoRefresh.Deactivate();
+        await _autoRefresh.WaitForIdleAsync()
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken)
+            || !IsCurrentReadabilityAuditOperation(auditAreaOperation, cancellationToken))
         {
             return;
         }
@@ -196,21 +203,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _areaContext = (context ?? throw new ArgumentNullException(nameof(context)))
             .NormalizeAndValidate();
         _overviewQuery = new WatchOverviewQuery(_areaContext.MesAreas).NormalizeAndValidate();
-        _demandSeriesQuery = _demandSeriesQuery with
-        {
-            Filter = _demandSeriesQuery.Filter with { MesAreas = _areaContext.MesAreas },
-            PageNumber = 1,
-            SnapshotReference = null,
-            Cursor = null,
-        };
+        _demandSeriesQuery = WatchDemandSeriesQueries.StartLatest(
+            _demandSeriesQuery.Filter with { MesAreas = _areaContext.MesAreas },
+            _demandSeriesQuery.PageSize);
         SyncDemandSeriesFilterControls(_demandSeriesQuery);
-        _readabilityAuditQuery = _readabilityAuditQuery with
-        {
-            Filter = _readabilityAuditQuery.Filter with { MesAreas = _areaContext.MesAreas },
-            PageNumber = 1,
-            SnapshotReference = null,
-            Cursor = null,
-        };
+        _readabilityAuditQuery = WatchReadabilityAuditQueries.StartLatest(
+            _readabilityAuditQuery.Filter with { MesAreas = _areaContext.MesAreas },
+            _readabilityAuditQuery.PageSize);
+        SyncReadabilityFilterControls(_readabilityAuditQuery);
         RenderWorkspace();
 
         if (_session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
@@ -218,24 +218,68 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        await RefreshOverviewAndRenderAsync(cancellationToken).ConfigureAwait(true);
-        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken))
+        var overviewRefresh = _session.RefreshOverviewAsync(_overviewQuery, cancellationToken);
+        var demandSeriesRefresh = _session.RefreshLatestDemandSeriesPageAsync(
+            _demandSeriesQuery,
+            cancellationToken);
+        var readabilityRefresh = _session.RefreshLatestReadabilityAuditPageAsync(
+            _readabilityAuditQuery,
+            cancellationToken);
+        RenderWorkspace();
+        await Task.WhenAll(overviewRefresh, demandSeriesRefresh, readabilityRefresh)
+            .ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken)
+            || !IsCurrentReadabilityAuditOperation(auditAreaOperation, cancellationToken))
         {
             return;
         }
 
-        if (_activePage == WatchWorkspacePage.Overview)
+        if (!_session.State.DemandSeries.IsStale
+            && _session.State.DemandSeries.Snapshot is { } demandSnapshot)
         {
-            _autoRefresh.ActivateOverview(_overviewQuery);
+            _demandSeriesQuery = CanonicalDemandSeriesAutoRefreshQuery(demandSnapshot);
         }
-        else if (_activePage == WatchWorkspacePage.DemandSeries)
+        if (!_session.State.ReadabilityAudit.IsStale
+            && _session.State.ReadabilityAudit.Snapshot is { } auditSnapshot)
         {
-            _demandSeriesNavigation = null;
-            await RefreshLatestDemandSeriesAndRenderAsync(
-                    _demandSeriesQuery,
-                    _demandSeriesQuery.Filter.SeriesId,
-                    cancellationToken)
+            _readabilityAuditQuery = CanonicalReadabilityAuditAutoRefreshQuery(auditSnapshot);
+        }
+
+        var desiredSeriesId = _demandSeriesNavigation?.SeriesId
+            ?? _session.State.DemandSeries.SelectedId
+            ?? _demandSeriesQuery.Filter.SeriesId;
+        if (_activePage == WatchWorkspacePage.DemandSeries
+            && !string.IsNullOrWhiteSpace(desiredSeriesId)
+            && _session.State.DemandSeries.Snapshot is { } visibleDemandSnapshot
+            && visibleDemandSnapshot.Items.Any(item => string.Equals(
+                item.SeriesId,
+                desiredSeriesId,
+                StringComparison.Ordinal)))
+        {
+            await SelectDemandSeriesAndRenderAsync(
+                    desiredSeriesId,
+                    demandAreaOperation,
+                    cancellationToken,
+                    manageAutoRefresh: false)
                 .ConfigureAwait(true);
+            if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken))
+            {
+                return;
+            }
+        }
+
+        RenderWorkspace();
+        switch (_activePage)
+        {
+            case WatchWorkspacePage.Overview:
+                _autoRefresh.ActivateOverview(_overviewQuery);
+                break;
+            case WatchWorkspacePage.DemandSeries:
+                _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
+                break;
+            case WatchWorkspacePage.ReadabilityAudit:
+                _autoRefresh.ActivateReadabilityAudit(_readabilityAuditQuery);
+                break;
         }
     }
 
@@ -286,6 +330,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             DemandSeriesNavigationTask = LoadDemandSeriesNavigationAsync(
                 intent.SeriesId,
+                _lifetimeCancellation.Token);
+        }
+        else if (_activePage == WatchWorkspacePage.ReadabilityAudit
+                 && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+        {
+            ReadabilityAuditNavigationTask = LoadReadabilityAuditNavigationAsync(
                 _lifetimeCancellation.Token);
         }
     }
@@ -628,26 +678,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 "The current DemandSeries result does not require an all-AREA confirmation.");
         }
 
-        _areaContext = WatchAreaDisplayContext.AllAreas;
-        _overviewQuery = new WatchOverviewQuery([]).NormalizeAndValidate();
-        _readabilityAuditQuery = _readabilityAuditQuery with
-        {
-            Filter = _readabilityAuditQuery.Filter with { MesAreas = [] },
-            PageNumber = 1,
-            SnapshotReference = null,
-            Cursor = null,
-        };
-        var targetSeriesId = _demandSeriesNavigation?.SeriesId
-            ?? _demandSeriesQuery.Filter.SeriesId;
-        var query = WatchDemandSeriesQueries.StartLatest(
-            _demandSeriesQuery.Filter with { MesAreas = [] },
-            _demandSeriesQuery.PageSize);
-        SyncDemandSeriesFilterControls(query);
-        await RefreshLatestDemandSeriesAndRenderAsync(
-                query,
-                targetSeriesId,
+        var applied = _areaProfileStore.ApplyAllAreas();
+        await ApplyAreaContextAsync(
+                applied.CurrentApplied.ToDisplayContext(),
                 cancellationToken)
             .ConfigureAwait(true);
+        RenderAreaProfiles();
     }
 
     private void SyncDemandSeriesFilterControls(DemandSeriesBrowseQuery query)
@@ -812,6 +848,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderRecentActivity(presentation);
         RenderHostFooter(state, presentation);
         RenderDemandSeries(state);
+        RenderReadabilityAudit(state);
     }
 
     private void RenderDemandSeries(WatchV2WorkspaceState state)
@@ -1181,6 +1218,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     },
                     PageNumber: intent.PageNumber,
                     Cursor: intent.Cursor).NormalizeAndValidate();
+                SyncReadabilityFilterControls(_readabilityAuditQuery);
                 NavigateTo(WatchWorkspacePage.ReadabilityAudit);
                 break;
             case OverviewNavigationTargets.ErrorSearch:
@@ -1629,14 +1667,30 @@ internal partial class WatchWorkspaceWindow : IDisposable
         await DemandSeriesNavigationTask.ConfigureAwait(true);
     }
 
-    private void OnReadabilityAuditNavigationClick(object sender, RoutedEventArgs e) =>
+    private async void OnReadabilityAuditNavigationClick(object sender, RoutedEventArgs e)
+    {
         NavigateTo(WatchWorkspacePage.ReadabilityAudit);
+        if (_session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
+        {
+            return;
+        }
+
+        ReadabilityAuditNavigationTask = LoadReadabilityAuditNavigationAsync(
+            _lifetimeCancellation.Token);
+        await ReadabilityAuditNavigationTask.ConfigureAwait(true);
+    }
 
     private void OnErrorSearchNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.ErrorSearch);
 
     private void OnAreaFilterNavigationClick(object sender, RoutedEventArgs e) =>
+        NavigateToAreaProfiles();
+
+    private void NavigateToAreaProfiles()
+    {
         NavigateTo(WatchWorkspacePage.AreaFilter);
+        RenderAreaProfiles();
+    }
 
     private void OnCurrentAttentionNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.CurrentAttention);
@@ -1668,9 +1722,54 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsRightColumn.Width = stackSettings ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
         SettingsVerticalGap.Height = stackSettings ? new GridLength(16) : new GridLength(0);
         SettingsBottomRow.Height = stackSettings ? GridLength.Auto : new GridLength(0);
+
+        ReflowMasterDetail(
+            contentWidth < (double)FindResource("ReadabilityMasterDetailStackBreakpoint"),
+            ReadabilityDetailCard,
+            ReadabilityMasterColumn,
+            ReadabilityBodyGapColumn,
+            ReadabilityDetailColumn,
+            ReadabilityBodyVerticalGap,
+            ReadabilityBodyBottomRow,
+            (GridLength)FindResource("ReadabilityMasterColumnWidth"));
+
+        ReflowMasterDetail(
+            contentWidth < (double)FindResource("AreaProfileMasterDetailStackBreakpoint"),
+            AreaProfileEditorCard,
+            AreaProfileMasterColumn,
+            AreaProfileGapColumn,
+            AreaProfileEditorColumn,
+            AreaProfileVerticalGap,
+            AreaProfileBottomRow,
+            (GridLength)FindResource("AreaProfileMasterColumnWidth"));
         WorkspaceContent.Margin = contentWidth < 760
             ? new Thickness(12)
             : new Thickness(24, 16, 24, 16);
+    }
+
+    private void ReflowMasterDetail(
+        bool stack,
+        UIElement detailCard,
+        ColumnDefinition masterColumn,
+        ColumnDefinition gapColumn,
+        ColumnDefinition detailColumn,
+        RowDefinition verticalGap,
+        RowDefinition bottomRow,
+        GridLength expandedMasterWidth)
+    {
+        var collapsed = (GridLength)FindResource("WatchCollapsedGridLength");
+        var gap = (GridLength)FindResource("WatchMasterDetailGapWidth");
+        Grid.SetColumn(detailCard, stack ? 0 : 2);
+        Grid.SetRow(detailCard, stack ? 2 : 0);
+        masterColumn.Width = stack
+            ? new GridLength(1, GridUnitType.Star)
+            : expandedMasterWidth;
+        gapColumn.Width = stack ? collapsed : gap;
+        detailColumn.Width = stack
+            ? collapsed
+            : new GridLength(1, GridUnitType.Star);
+        verticalGap.Height = stack ? gap : collapsed;
+        bottomRow.Height = stack ? GridLength.Auto : collapsed;
     }
 
     private void OnWindowTitleBarLoaded(object sender, RoutedEventArgs e)
@@ -1771,6 +1870,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         _disposed = true;
         Interlocked.Increment(ref _demandSeriesOperationGeneration);
+        Interlocked.Increment(ref _readabilityAuditOperationGeneration);
+        Interlocked.Increment(ref _areaProfileOperationGeneration);
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();

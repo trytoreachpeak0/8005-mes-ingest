@@ -416,6 +416,62 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Refreshes the requested audit page against the newest available
+    /// projection. Pages after one require a snapshot reference at the HTTP
+    /// boundary, so this method first acquires the newest page-one snapshot
+    /// and then opens the requested page inside that same frozen snapshot.
+    /// Only the final page is committed to the workspace.
+    /// </summary>
+    public async Task RefreshLatestReadabilityAuditPageAsync(
+        ReadabilityAuditQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.PageNumber < 1)
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                "PageNumber must be one or greater.");
+        }
+
+        if (query.Cursor is not null)
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.InvalidQuery,
+                "Latest page refresh does not accept a frozen-snapshot cursor.");
+        }
+
+        var firstPage = (query with
+        {
+            PageNumber = 1,
+            SnapshotReference = null,
+            Cursor = null,
+        }).NormalizeAndValidate();
+        var request = new ReadabilityAuditLatestPageRequest(
+            firstPage.Filter,
+            firstPage.PageSize,
+            query.PageNumber,
+            firstPage.Order);
+        await RefreshViewAsync(
+            RequestSlot.ReadabilityAudit,
+            WatchV2QueryKeys.LatestReadabilityAudit(request),
+            request,
+            state => state.ReadabilityAudit,
+            (state, view) => state with { ReadabilityAudit = view },
+            FetchLatestReadabilityAuditPageAsync,
+            static snapshot => snapshot.Snapshot.ContractVersion,
+            "/api/v2/readability-audit",
+            static (snapshot, selectedId) => snapshot.Items.Any(item =>
+                string.Equals(item.DemandId, selectedId, StringComparison.Ordinal)),
+            static (client, selectedId, snapshot, token) =>
+                client.FetchReadabilityAuditDetailAsync(
+                    selectedId,
+                    snapshot.SnapshotReference,
+                    token),
+            cancellationToken).ConfigureAwait(false);
+    }
+
     public async Task RefreshErrorSearchAsync(
         ErrorSearchQuery query,
         CancellationToken cancellationToken = default)
@@ -671,6 +727,43 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             .ConfigureAwait(false);
     }
 
+    private static async Task<ReadabilityAuditListSnapshot> FetchLatestReadabilityAuditPageAsync(
+        IWatchV2ApiClient client,
+        ReadabilityAuditLatestPageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var firstPage = await client.FetchReadabilityAuditAsync(
+                new ReadabilityAuditQuery(
+                    request.Filter,
+                    request.PageSize,
+                    PageNumber: 1,
+                    Order: request.Order),
+                cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        RequireSnapshotContract(
+            firstPage.Snapshot.ContractVersion,
+            "/api/v2/readability-audit");
+
+        var targetPage = firstPage.TotalPages <= 1
+            ? 1
+            : Math.Min(request.PageNumber, firstPage.TotalPages);
+        if (targetPage == 1)
+        {
+            return firstPage;
+        }
+
+        return await client.FetchReadabilityAuditAsync(
+                new ReadabilityAuditQuery(
+                    request.Filter,
+                    request.PageSize,
+                    targetPage,
+                    firstPage.SnapshotReference,
+                    Order: request.Order),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
     private void CommitConnectionIfCurrent(
         long generation,
         Func<WatchV2WorkspaceState, WatchV2WorkspaceState> update)
@@ -732,12 +825,16 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                 string? selectionNotice = null;
                 if (selectedId is not null && containsSelected is not null)
                 {
-                    if (!containsSelected(snapshot, selectedId))
+                    if (fetchDetail is null)
                     {
-                        selectedId = null;
-                        selectionNotice = WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot;
+                        if (!containsSelected(snapshot, selectedId))
+                        {
+                            selectedId = null;
+                            selectionNotice =
+                                WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot;
+                        }
                     }
-                    else if (fetchDetail is not null)
+                    else
                     {
                         try
                         {
@@ -757,6 +854,13 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                             getView))
                         {
                             continue;
+                        }
+                        catch (WatchHostQueryException exception) when (
+                            IsObjectNotInSnapshot(exception))
+                        {
+                            selectedId = null;
+                            selectionNotice =
+                                WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot;
                         }
                     }
                 }
@@ -1194,6 +1298,11 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             errorCode: NewMesIngestContractMismatchException.ErrorCode);
     }
 
+    private static bool IsObjectNotInSnapshot(WatchHostQueryException exception) =>
+        exception.ErrorCode is DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot
+            or ReadabilityAuditErrorCodes.ObjectNotInSnapshot
+            or ErrorSearchErrorCodes.ObjectNotInSnapshot;
+
     private static void CancelAndDispose(IEnumerable<CancellationTokenSource> cancellations)
     {
         foreach (var cancellation in cancellations)
@@ -1240,6 +1349,12 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         int PageSize,
         int PageNumber,
         string Order);
+
+    internal sealed record ReadabilityAuditLatestPageRequest(
+        ReadabilityAuditFilter Filter,
+        int PageSize,
+        int PageNumber,
+        string Order);
 }
 
 internal static class WatchV2SelectionNotices
@@ -1269,6 +1384,10 @@ internal static class WatchV2QueryKeys
 
     public static string ReadabilityAudit(ReadabilityAuditQuery query) =>
         Serialize("readability-audit", query);
+
+    public static string LatestReadabilityAudit(
+        WatchV2WorkspaceSession.ReadabilityAuditLatestPageRequest request) =>
+        Serialize("readability-audit-latest", request);
 
     public static string ErrorSearch(ErrorSearchQuery query) =>
         Serialize("error-search", query);

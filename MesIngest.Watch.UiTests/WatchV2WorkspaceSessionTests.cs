@@ -515,16 +515,22 @@ public sealed class WatchV2WorkspaceSessionTests
                 2 => DemandSeriesSnapshot("ds-2", query, "series-a"),
                 _ => DemandSeriesSnapshot("ds-3", query, "series-b"),
             }),
-            DemandSeriesDetail = (seriesId, snapshot, _) => Task.FromResult(
-                DemandSeriesDetail(snapshot, seriesId)),
+            DemandSeriesDetail = (seriesId, snapshot, _) => snapshot == "snapshot-ds-3"
+                ? Task.FromException<DemandSeriesDetailSnapshot>(ObjectNotInSnapshot(
+                    "/api/v2/demand-series/{seriesId}",
+                    DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot))
+                : Task.FromResult(DemandSeriesDetail(snapshot, seriesId)),
             Audit = (query, _) => Task.FromResult(++auditCalls switch
             {
                 1 => AuditSnapshot("audit-1", query, "demand-a"),
                 2 => AuditSnapshot("audit-2", query, "demand-a"),
                 _ => AuditSnapshot("audit-3", query, "demand-b"),
             }),
-            AuditDetail = (demandId, snapshot, _) => Task.FromResult(
-                AuditDetail(snapshot, demandId)),
+            AuditDetail = (demandId, snapshot, _) => snapshot == "snapshot-audit-3"
+                ? Task.FromException<ReadabilityAuditDetailSnapshot>(ObjectNotInSnapshot(
+                    "/api/v2/readability-audit/{demandId}",
+                    ReadabilityAuditErrorCodes.ObjectNotInSnapshot))
+                : Task.FromResult(AuditDetail(snapshot, demandId)),
         };
         using var session = new WatchV2WorkspaceSession(_ => client);
         await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
@@ -556,6 +562,85 @@ public sealed class WatchV2WorkspaceSessionTests
         Assert.Equal(
             WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot,
             session.State.ReadabilityAudit.SelectionNotice);
+    }
+
+    [Fact]
+    public async Task Audit_selection_is_retained_when_same_snapshot_detail_exists_outside_the_refreshed_page()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var auditCalls = 0;
+        var detailSnapshots = new List<string>();
+        var client = new DelegatingV2Client
+        {
+            Audit = (query, _) => Task.FromResult(++auditCalls == 1
+                ? AuditSnapshot("audit-1", query, "demand-selected")
+                : AuditSnapshot("audit-2", query, "demand-current-page")),
+            AuditDetail = (demandId, snapshot, _) =>
+            {
+                detailSnapshots.Add(snapshot);
+                return Task.FromResult(AuditDetail(snapshot, demandId));
+            },
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        var query = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
+        await session.RefreshReadabilityAuditAsync(query, testToken);
+        await session.SelectReadabilityDemandAsync("demand-selected", testToken);
+
+        await session.RefreshReadabilityAuditAsync(query, testToken);
+
+        var refreshed = Assert.IsType<ReadabilityAuditListSnapshot>(
+            session.State.ReadabilityAudit.Snapshot);
+        Assert.Equal("snapshot-audit-2", refreshed.SnapshotReference);
+        Assert.DoesNotContain(refreshed.Items, item => item.DemandId == "demand-selected");
+        Assert.Equal("demand-selected", session.State.ReadabilityAudit.SelectedId);
+        var detail = Assert.IsType<ReadabilityAuditDetailSnapshot>(
+            session.State.ReadabilityAudit.Detail);
+        Assert.Equal("demand-selected", detail.Demand.DemandId);
+        Assert.Equal(refreshed.SnapshotReference, detail.SnapshotReference);
+        Assert.Equal(["snapshot-audit-1", "snapshot-audit-2"], detailSnapshots);
+        Assert.Null(session.State.ReadabilityAudit.SelectionNotice);
+    }
+
+    [Fact]
+    public async Task Audit_refresh_retains_previous_snapshot_when_off_page_detail_fails_without_object_not_in_snapshot()
+    {
+        var testToken = TestContext.Current.CancellationToken;
+        var auditCalls = 0;
+        var client = new DelegatingV2Client
+        {
+            Audit = (query, _) => Task.FromResult(++auditCalls == 1
+                ? AuditSnapshot("audit-1", query, "demand-selected")
+                : AuditSnapshot("audit-2", query, "demand-current-page")),
+            AuditDetail = (demandId, snapshot, _) => snapshot == "snapshot-audit-2"
+                ? Task.FromException<ReadabilityAuditDetailSnapshot>(new WatchHostQueryException(
+                    WatchHostFailureKind.ServerQuery,
+                    "/api/v2/readability-audit/{demandId}",
+                    "audit-detail-failure",
+                    "The audit snapshot is no longer retained.",
+                    errorCode: ReadabilityAuditErrorCodes.SnapshotNotFound))
+                : Task.FromResult(AuditDetail(snapshot, demandId)),
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
+        var query = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
+        await session.RefreshReadabilityAuditAsync(query, testToken);
+        await session.SelectReadabilityDemandAsync("demand-selected", testToken);
+
+        await session.RefreshReadabilityAuditAsync(query, testToken);
+
+        Assert.True(session.State.ReadabilityAudit.IsStale);
+        Assert.Equal(
+            ReadabilityAuditErrorCodes.SnapshotNotFound,
+            session.State.ReadabilityAudit.FailureCode);
+        Assert.Equal(
+            "snapshot-audit-1",
+            session.State.ReadabilityAudit.Snapshot!.SnapshotReference);
+        Assert.Equal("demand-selected", session.State.ReadabilityAudit.SelectedId);
+        Assert.Equal(
+            "snapshot-audit-1",
+            session.State.ReadabilityAudit.Detail!.SnapshotReference);
+        Assert.Null(session.State.ReadabilityAudit.SelectionNotice);
     }
 
     [Fact]
@@ -841,6 +926,15 @@ public sealed class WatchV2WorkspaceSessionTests
         started.SetResult();
         return await release.Task.ConfigureAwait(false);
     }
+
+    private static WatchHostQueryException ObjectNotInSnapshot(
+        string endpoint,
+        string errorCode) => new(
+        WatchHostFailureKind.ServerQuery,
+        endpoint,
+        "object-not-in-snapshot",
+        "The selected object is not present in the frozen snapshot.",
+        errorCode: errorCode);
 
     private sealed class DelegatingV2Client : IWatchV2ApiClient
     {

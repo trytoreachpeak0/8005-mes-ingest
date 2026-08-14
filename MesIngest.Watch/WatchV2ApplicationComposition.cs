@@ -1,12 +1,13 @@
+using System.IO;
 using System.Windows.Interop;
 using System.Windows.Media;
 
 namespace MesIngest.Watch;
 
 /// <summary>
-/// Production composition root for the replacement Watch contract. The only
-/// replaceable boundary is the V2 Host client factory used by deterministic
-/// scripted-Host tests; the same session, presenter, and WPF window are used.
+/// Production composition root for the replacement Watch contract. Tests may
+/// replace the V2 Host client, clock, and per-user file locations while still
+/// exercising the same session, presenters, profile store, and WPF window.
 /// </summary>
 internal sealed class WatchV2ApplicationComposition : IDisposable
 {
@@ -14,6 +15,7 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
     private readonly Func<WatchHostSettings, IWatchV2ApiClient>? _clientFactory;
     private readonly string _connectionPreferencesPath;
     private readonly string _workspacePreferencesPath;
+    private readonly string _areaFilterProfilesDirectoryPath;
     private readonly TimeProvider? _timeProvider;
     private WatchWorkspaceWindow? _window;
     private bool _disposed;
@@ -23,7 +25,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
         Func<WatchHostSettings, IWatchV2ApiClient>? clientFactory,
         string? connectionPreferencesPath,
         string? workspacePreferencesPath,
-        TimeProvider? timeProvider)
+        TimeProvider? timeProvider,
+        string? areaFilterProfilesDirectoryPath)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _clientFactory = clientFactory;
@@ -31,6 +34,15 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             ?? WatchConnectionPreferencesStore.DefaultFilePath;
         _workspacePreferencesPath = workspacePreferencesPath
             ?? WatchV2PreferencesStore.DefaultFilePath;
+        _areaFilterProfilesDirectoryPath = areaFilterProfilesDirectoryPath
+            ?? (workspacePreferencesPath is null
+                ? WatchAreaFilterProfileStore.DefaultDirectoryPath
+                : Path.Combine(
+                    Path.GetDirectoryName(Path.GetFullPath(_workspacePreferencesPath))
+                        ?? throw new ArgumentException(
+                            "工作区首选项路径必须包含父目录。",
+                            nameof(workspacePreferencesPath)),
+                    "area-filters"));
         _timeProvider = timeProvider;
 
         if (_options.RenderingMode == WatchRenderingMode.SoftwareOnly)
@@ -44,13 +56,15 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
         Func<WatchHostSettings, IWatchV2ApiClient>? clientFactory = null,
         string? connectionPreferencesPath = null,
         string? workspacePreferencesPath = null,
-        TimeProvider? timeProvider = null) =>
+        TimeProvider? timeProvider = null,
+        string? areaFilterProfilesDirectoryPath = null) =>
         new(
             options,
             clientFactory,
             connectionPreferencesPath,
             workspacePreferencesPath,
-            timeProvider);
+            timeProvider,
+            areaFilterProfilesDirectoryPath);
 
     internal WatchWorkspaceWindow CreateMainWindow(bool initializeOnLoaded = true)
     {
@@ -75,7 +89,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             _workspacePreferencesPath,
             _clientFactory,
             _timeProvider,
-            initializeOnLoaded);
+            initializeOnLoaded,
+            _areaFilterProfilesDirectoryPath);
         return _window;
     }
 

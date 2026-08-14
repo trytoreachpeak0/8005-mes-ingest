@@ -143,6 +143,133 @@ public sealed class WatchV2AutoRefreshTests
     }
 
     [Fact]
+    public async Task Automatic_audit_refresh_retains_off_page_selection_and_clears_only_on_explicit_snapshot_absence()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var client = new RecordingV2Client();
+        client.ReadabilityAuditHandler = (query, _) => Task.FromResult(
+            ClientAuditResponse(query));
+        client.ReadabilityAuditDetailHandler = (demandId, snapshotReference, _) =>
+            snapshotReference == "snapshot-newer"
+                ? Task.FromException<ReadabilityAuditDetailSnapshot>(new WatchHostQueryException(
+                    WatchHostFailureKind.ServerQuery,
+                    "/api/v2/readability-audit/{demandId}",
+                    "audit-object-missing",
+                    "The selected Demand is not present in the audit snapshot.",
+                    errorCode: ReadabilityAuditErrorCodes.ObjectNotInSnapshot))
+                : Task.FromResult(RecordingV2Client.ReadabilityAuditDetailSnapshot(
+                    demandId,
+                    snapshotReference));
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        var activePage = new ReadabilityAuditQuery(
+            new ReadabilityAuditFilter
+            {
+                ReadabilityStates = [ExternalReadabilityStates.NotReadable],
+                MesAreas = ["A1-1"],
+            },
+            PageSize: 25,
+            PageNumber: 4,
+            SnapshotReference: "snapshot-old");
+        await session.RefreshReadabilityAuditAsync(activePage);
+        await session.SelectReadabilityDemandAsync("demand-a");
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+        coordinator.ActivateReadabilityAudit(activePage);
+
+        await AdvanceOneIntervalAsync(clock, coordinator);
+
+        Assert.Collection(
+            client.ReadabilityAuditQueries,
+            oldPage =>
+            {
+                Assert.Equal(4, oldPage.PageNumber);
+                Assert.Equal("snapshot-old", oldPage.SnapshotReference);
+            },
+            latestFirstPage =>
+            {
+                Assert.Equal(1, latestFirstPage.PageNumber);
+                Assert.Null(latestFirstPage.SnapshotReference);
+                Assert.Null(latestFirstPage.Cursor);
+                Assert.Equal(activePage.Filter.ReadabilityStates, latestFirstPage.Filter.ReadabilityStates);
+                Assert.Equal(activePage.Filter.MesAreas, latestFirstPage.Filter.MesAreas);
+                Assert.Equal(activePage.PageSize, latestFirstPage.PageSize);
+                Assert.Equal(activePage.Order, latestFirstPage.Order);
+            },
+            convergedPage =>
+            {
+                Assert.Equal(2, convergedPage.PageNumber);
+                Assert.Equal("snapshot-new", convergedPage.SnapshotReference);
+                Assert.Null(convergedPage.Cursor);
+            });
+        Assert.Equal(["snapshot-old", "snapshot-new"],
+            client.ReadabilityAuditDetailSnapshotReferences);
+
+        var committed = Assert.IsType<ReadabilityAuditListSnapshot>(
+            session.State.ReadabilityAudit.Snapshot);
+        var detail = Assert.IsType<ReadabilityAuditDetailSnapshot>(
+            session.State.ReadabilityAudit.Detail);
+        Assert.Equal("commit-new", committed.Snapshot.ProjectionCommitId);
+        Assert.Equal("snapshot-new", committed.SnapshotReference);
+        Assert.Equal(2, committed.PageNumber);
+        Assert.DoesNotContain(committed.Items, item => item.DemandId == "demand-a");
+        Assert.Equal("demand-a", session.State.ReadabilityAudit.SelectedId);
+        Assert.Equal(committed.SnapshotReference, detail.SnapshotReference);
+        Assert.Equal(
+            committed.Snapshot.ProjectionCommitId,
+            detail.Snapshot.ProjectionCommitId);
+
+        await AdvanceOneIntervalAsync(clock, coordinator);
+
+        Assert.Equal(4, client.ReadabilityAuditQueries.Count);
+        Assert.Equal(1, client.ReadabilityAuditQueries[3].PageNumber);
+        Assert.Null(client.ReadabilityAuditQueries[3].SnapshotReference);
+        Assert.Equal("commit-newer",
+            session.State.ReadabilityAudit.Snapshot!.Snapshot.ProjectionCommitId);
+        Assert.Null(session.State.ReadabilityAudit.SelectedId);
+        Assert.Null(session.State.ReadabilityAudit.Detail);
+        Assert.Equal(
+            ["snapshot-old", "snapshot-new", "snapshot-newer"],
+            client.ReadabilityAuditDetailSnapshotReferences);
+        Assert.Equal(
+            WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot,
+            session.State.ReadabilityAudit.SelectionNotice);
+
+        ReadabilityAuditListSnapshot ClientAuditResponse(ReadabilityAuditQuery query) =>
+            client.ReadabilityAuditQueries.Count switch
+            {
+                1 => RecordingV2Client.ReadabilityAuditSnapshot(
+                    query,
+                    "commit-old",
+                    "snapshot-old",
+                    totalPages: 4,
+                    demandId: "demand-a"),
+                2 => RecordingV2Client.ReadabilityAuditSnapshot(
+                    query,
+                    "commit-new",
+                    "snapshot-new",
+                    totalPages: 2,
+                    demandId: "demand-first-page"),
+                3 => RecordingV2Client.ReadabilityAuditSnapshot(
+                    query,
+                    "commit-new",
+                    "snapshot-new",
+                    totalPages: 2,
+                    demandId: "demand-converged-page"),
+                4 => RecordingV2Client.ReadabilityAuditSnapshot(
+                    query,
+                    "commit-newer",
+                    "snapshot-newer",
+                    totalPages: 1,
+                    demandId: "demand-b"),
+                _ => throw new InvalidOperationException("Unexpected ReadabilityAudit request."),
+            };
+    }
+
+    [Fact]
     public async Task Busy_due_tick_is_not_overlapped_or_queued_by_the_coordinator()
     {
         var clock = new ManualTimerTimeProvider(
@@ -528,6 +655,12 @@ public sealed class WatchV2AutoRefreshTests
         public Func<DemandSeriesBrowseQuery, CancellationToken, Task<DemandSeriesListSnapshot>>?
             DemandSeriesHandler { get; set; }
 
+        public Func<ReadabilityAuditQuery, CancellationToken, Task<ReadabilityAuditListSnapshot>>?
+            ReadabilityAuditHandler { get; set; }
+
+        public Func<string, string, CancellationToken, Task<ReadabilityAuditDetailSnapshot>>?
+            ReadabilityAuditDetailHandler { get; set; }
+
         public int OverviewCallCount { get; private set; }
 
         public int DemandSeriesCallCount { get; private set; }
@@ -535,6 +668,10 @@ public sealed class WatchV2AutoRefreshTests
         public List<DemandSeriesBrowseQuery> DemandSeriesQueries { get; } = [];
 
         public int ReadabilityAuditCallCount { get; private set; }
+
+        public List<ReadabilityAuditQuery> ReadabilityAuditQueries { get; } = [];
+
+        public List<string> ReadabilityAuditDetailSnapshotReferences { get; } = [];
 
         public int ErrorSearchCallCount { get; private set; }
 
@@ -640,31 +777,105 @@ public sealed class WatchV2AutoRefreshTests
             CancellationToken cancellationToken = default)
         {
             ReadabilityAuditCallCount++;
-            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
-            return Task.FromResult(new ReadabilityAuditListSnapshot(
-                new ReadabilityAuditSnapshotIdentity(
+            ReadabilityAuditQueries.Add(query);
+            return ReadabilityAuditHandler?.Invoke(query, cancellationToken)
+                ?? Task.FromResult(ReadabilityAuditSnapshot(
+                    query,
                     "commit-audit",
-                    1,
-                    at,
-                    "poll-audit",
-                    1),
-                "snapshot-audit",
-                query.Filter,
-                query.Order,
-                0,
-                new ReadabilityAuditFacets([], []),
-                query.PageSize,
-                query.PageNumber,
-                0,
-                [],
-                null,
-                false));
+                    "snapshot-audit",
+                    totalPages: 0));
         }
 
         public Task<ReadabilityAuditDetailSnapshot> FetchReadabilityAuditDetailAsync(
             string demandId,
             string snapshotReference,
-            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            ReadabilityAuditDetailSnapshotReferences.Add(snapshotReference);
+            return ReadabilityAuditDetailHandler?.Invoke(
+                    demandId,
+                    snapshotReference,
+                    cancellationToken)
+                ?? Task.FromException<ReadabilityAuditDetailSnapshot>(
+                    new NotSupportedException());
+        }
+
+        public static ReadabilityAuditListSnapshot ReadabilityAuditSnapshot(
+            ReadabilityAuditQuery query,
+            string projectionCommitId,
+            string snapshotReference,
+            int totalPages,
+            string? demandId = null)
+        {
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
+            var items = demandId is null
+                ? Array.Empty<ReadabilityAuditListItemSnapshot>()
+                :
+                [
+                    new ReadabilityAuditListItemSnapshot(
+                        demandId,
+                        "series-a",
+                        "WIRE_TO_NITROGEN",
+                        "SL-20",
+                        1,
+                        null,
+                        "ACTIVE",
+                        DemandSeriesLifecycleContract.Tracking,
+                        "VISIBLE",
+                        true,
+                        at,
+                        at,
+                        null,
+                        null,
+                        1,
+                        ExternalReadabilityStates.NotReadable,
+                        "DEMAND_GONE",
+                        ["DEMAND_GONE"],
+                        "poll-audit",
+                        projectionCommitId,
+                        at),
+                ];
+            return new ReadabilityAuditListSnapshot(
+                new ReadabilityAuditSnapshotIdentity(
+                    projectionCommitId,
+                    1,
+                    at,
+                    "poll-audit",
+                    1),
+                snapshotReference,
+                query.Filter,
+                query.Order,
+                items.Length,
+                new ReadabilityAuditFacets([], []),
+                query.PageSize,
+                query.PageNumber,
+                totalPages,
+                items,
+                null,
+                false);
+        }
+
+        public static ReadabilityAuditDetailSnapshot ReadabilityAuditDetailSnapshot(
+            string demandId,
+            string snapshotReference)
+        {
+            var commit = snapshotReference["snapshot-".Length..];
+            var list = ReadabilityAuditSnapshot(
+                new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
+                $"commit-{commit}",
+                snapshotReference,
+                totalPages: 1,
+                demandId: demandId);
+            return new ReadabilityAuditDetailSnapshot(
+                list.Snapshot,
+                snapshotReference,
+                list.Items.Single(),
+                null!,
+                [],
+                [],
+                [],
+                null!);
+        }
 
         public Task<ErrorSearchListSnapshot> FetchErrorSearchAsync(
             ErrorSearchQuery query,
