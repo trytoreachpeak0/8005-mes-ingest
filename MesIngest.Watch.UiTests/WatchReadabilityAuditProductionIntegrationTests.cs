@@ -390,6 +390,9 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal("Blocked", primaryBlockerCard.Tag);
                 Assert.Equal("Blocked", qualificationConclusionCard.Tag);
                 Assert.Equal(2, qualificationChecklist.Items.Count);
+                Assert.True(
+                    qualificationChecklist.IsVisible,
+                    $"Qualification checklist must be visible before capture; size={qualificationChecklist.ActualWidth:0.##}x{qualificationChecklist.ActualHeight:0.##}.");
                 Assert.Contains("NOT_READABLE", qualificationConclusion.Text, StringComparison.Ordinal);
                 Assert.Equal(3, liveMesFields.ColumnDefinitions.Count);
                 Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesAreaText").Text);

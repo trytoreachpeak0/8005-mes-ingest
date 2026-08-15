@@ -787,13 +787,13 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Navigate(window, "ReadabilityAuditNavigationItem", "ReadabilityAuditPage");
             var auditGrid = WaitForRows(window, "ReadabilityAuditGrid", "readability rows");
             auditGrid.Select(0);
-            var qualificationGrid = WaitForRows(
+            var qualificationChecklist = WaitForChildren(
                 window,
-                "ReadabilityQualificationGrid",
+                "ReadabilityQualificationChecklist",
                 "readability checks");
             EnsureVisibleIfOffscreen(
                 window,
-                qualificationGrid,
+                qualificationChecklist,
                 "readability qualification detail for the production candidate");
             Capture(evidence, process.MainWindowHandle, "04-readability-audit-detail");
 
@@ -2114,6 +2114,23 @@ public sealed class WatchWorkspaceProductionJourneyTests
             description,
             StepTimeout);
         return grid!;
+    }
+
+    private static AutomationElement WaitForChildren(
+        FlaUI.Core.AutomationElements.Window window,
+        string automationId,
+        string description)
+    {
+        AutomationElement? element = null;
+        WaitUntil(
+            () =>
+            {
+                element = FindById(window, automationId);
+                return element is not null && element.FindAllChildren().Length > 0;
+            },
+            description,
+            StepTimeout);
+        return element!;
     }
 
     private static AutomationElement FindRequiredById(
