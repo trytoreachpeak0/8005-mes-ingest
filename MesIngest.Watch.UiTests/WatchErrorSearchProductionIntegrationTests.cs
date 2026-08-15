@@ -6,6 +6,9 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -106,7 +109,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
     }
 
     [Fact]
-    public async Task Category_navigation_preserves_hidden_multi_selection_and_applies_host_exact_categories()
+    public async Task Category_navigation_renders_selected_accent_surface_preserves_hidden_multi_selection_and_applies_host_exact_categories()
     {
         var receivedQueries = new ConcurrentQueue<ErrorSearchQuery>();
         await using var host = await ScriptedFakeHost.StartV2Async(
@@ -172,6 +175,18 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 categories.SelectedItems.Add(completeness);
                 categories.SelectedItems.Add(format);
                 Assert.Equal(2, categories.SelectedItems.Count);
+
+                var focusedCategory = Assert.IsType<ListBoxItem>(
+                    categories.ItemContainerGenerator.ContainerFromItem(completeness));
+                Assert.True(focusedCategory.Focus());
+                Assert.True(focusedCategory.IsKeyboardFocusWithin);
+                var results = Find<DataGrid>(window, "ErrorSearchSeriesGrid");
+                Assert.True(results.Focus());
+                await window.Dispatcher.InvokeAsync(
+                    window.UpdateLayout,
+                    DispatcherPriority.ApplicationIdle);
+                Assert.Same(results, Keyboard.FocusedElement);
+                Assert.False(focusedCategory.IsKeyboardFocusWithin);
                 AssertSelectedCategorySurface(window, categories, completeness);
                 AssertSelectedCategorySurface(window, categories, format);
 
@@ -1308,8 +1323,91 @@ public sealed class WatchErrorSearchProductionIntegrationTests
         window.UpdateLayout();
         var container = Assert.IsType<ListBoxItem>(
             categories.ItemContainerGenerator.ContainerFromItem(item));
-        Assert.Same(window.FindResource("AccentFillColorDefaultBrush"), container.Background);
-        Assert.Same(window.FindResource("TextFillColorInverseBrush"), container.Foreground);
+        var selectedBackground = Assert.IsType<SolidColorBrush>(
+            window.FindResource("ListBoxItemSelectedBackgroundThemeBrush"));
+        var selectedForeground = Assert.IsType<SolidColorBrush>(
+            window.FindResource("ListBoxItemSelectedForegroundThemeBrush"));
+        Assert.Equal(Color.FromRgb(0x00, 0x67, 0xC0), selectedBackground.Color);
+        Assert.Equal(Colors.White, selectedForeground.Color);
+        Assert.True(
+            ContrastRatio(selectedBackground.Color, selectedForeground.Color) >= 4.5,
+            $"Selected category contrast was {ContrastRatio(selectedBackground.Color, selectedForeground.Color):F2}:1.");
+        Assert.Same(selectedBackground, container.Background);
+        Assert.Same(selectedForeground, container.Foreground);
+
+        var categoryText = VisualDescendants<Wpf.Ui.Controls.TextBlock>(container)
+            .Where(text => text.Name.StartsWith("ErrorSearchCategory", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Equal(4, categoryText.Length);
+        Assert.All(
+            categoryText,
+            text => Assert.Equal(
+                selectedForeground.Color,
+                Assert.IsType<SolidColorBrush>(text.Foreground).Color));
+
+        var surface = Assert.Single(
+            VisualDescendants<Border>(container),
+            border => string.Equals(
+                border.Name,
+                "ErrorSearchCategorySurface",
+                StringComparison.Ordinal));
+        Assert.Equal(
+            selectedBackground.Color,
+            Assert.IsType<SolidColorBrush>(surface.Background).Color);
+        Assert.InRange(surface.ActualWidth, container.ActualWidth - 8, container.ActualWidth);
+        Assert.InRange(surface.ActualHeight, container.ActualHeight - 8, container.ActualHeight);
+
+        var width = (int)Math.Round(surface.ActualWidth);
+        var height = (int)Math.Round(surface.ActualHeight);
+        Assert.True(width > 4 && height > 0, $"Selected category was not arranged: {width}x{height}.");
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(surface);
+        var pixel = new byte[4];
+        bitmap.CopyPixels(
+            new Int32Rect(2, height / 2, 1, 1),
+            pixel,
+            stride: 4,
+            offset: 0);
+        var renderedBackplate = Color.FromArgb(pixel[3], pixel[2], pixel[1], pixel[0]);
+        Assert.Equal(selectedBackground.Color, renderedBackplate);
+    }
+
+    private static double ContrastRatio(Color first, Color second)
+    {
+        var lighter = Math.Max(RelativeLuminance(first), RelativeLuminance(second));
+        var darker = Math.Min(RelativeLuminance(first), RelativeLuminance(second));
+        return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    private static double RelativeLuminance(Color color) =>
+        0.2126 * Linearize(color.R)
+        + 0.7152 * Linearize(color.G)
+        + 0.0722 * Linearize(color.B);
+
+    private static double Linearize(byte channel)
+    {
+        var value = channel / 255d;
+        return value <= 0.04045
+            ? value / 12.92
+            : Math.Pow((value + 0.055) / 1.055, 2.4);
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     internal static T Find<T>(FrameworkElement root, string name)

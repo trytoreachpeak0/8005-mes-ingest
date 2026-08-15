@@ -2216,69 +2216,77 @@
                                             <ListBox.ItemContainerStyle>
                                                 <Style TargetType="{x:Type ListBoxItem}">
                                                     <Setter Property="MinHeight" Value="54" />
-                                                    <Setter Property="Padding" Value="10,7" />
+                                                    <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Background" Value="Transparent" />
                                                     <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                                                    <Setter Property="VerticalContentAlignment" Value="Center" />
+                                                    <Setter Property="VerticalContentAlignment" Value="Stretch" />
                                                     <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
                                                     <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
                                                     <Style.Triggers>
                                                         <Trigger Property="IsSelected" Value="True">
-                                                            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-                                                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter Property="Background" Value="{DynamicResource ListBoxItemSelectedBackgroundThemeBrush}" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource ListBoxItemSelectedForegroundThemeBrush}" />
                                                         </Trigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </ListBox.ItemContainerStyle>
                                             <ListBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel VerticalAlignment="Center">
-                                                            <ui:TextBlock x:Name="ErrorSearchCategoryNameText"
-                                                                          Text="{Binding Category}"
-                                                                          Style="{StaticResource CodeText}"
-                                                                          FontWeight="SemiBold"
-                                                                          TextTrimming="CharacterEllipsis" />
-                                                            <ui:TextBlock x:Name="ErrorSearchCategoryCodesText"
-                                                                          Text="{Binding CodesSummary}"
-                                                                          Style="{StaticResource CaptionText}"
-                                                                          ToolTip="{Binding CodesSummary}"
-                                                                          TextTrimming="CharacterEllipsis" />
-                                                        </StackPanel>
-                                                        <StackPanel Grid.Column="1"
-                                                                    Margin="8,0,0,0"
-                                                                    HorizontalAlignment="Right"
-                                                                    VerticalAlignment="Center">
-                                                            <ui:TextBlock x:Name="ErrorSearchCategorySeriesCountText"
-                                                                          Text="{Binding SeriesCountText}"
-                                                                          Style="{StaticResource BodyStrong}"
-                                                                          HorizontalAlignment="Right" />
-                                                            <ui:TextBlock x:Name="ErrorSearchCategorySeriesCaptionText"
-                                                                          Text="{Binding SeriesCountCaption}"
-                                                                          Style="{StaticResource CaptionText}"
-                                                                          HorizontalAlignment="Right" />
-                                                        </StackPanel>
-                                                    </Grid>
+                                                    <Border x:Name="ErrorSearchCategorySurface"
+                                                            Padding="10,7"
+                                                            Background="Transparent"
+                                                            SnapsToDevicePixels="True">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel VerticalAlignment="Center">
+                                                                <ui:TextBlock x:Name="ErrorSearchCategoryNameText"
+                                                                              Text="{Binding Category}"
+                                                                              Style="{StaticResource CodeText}"
+                                                                              FontWeight="SemiBold"
+                                                                              TextTrimming="CharacterEllipsis" />
+                                                                <ui:TextBlock x:Name="ErrorSearchCategoryCodesText"
+                                                                              Text="{Binding CodesSummary}"
+                                                                              Style="{StaticResource CaptionText}"
+                                                                              ToolTip="{Binding CodesSummary}"
+                                                                              TextTrimming="CharacterEllipsis" />
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1"
+                                                                        Margin="8,0,0,0"
+                                                                        HorizontalAlignment="Right"
+                                                                        VerticalAlignment="Center">
+                                                                <ui:TextBlock x:Name="ErrorSearchCategorySeriesCountText"
+                                                                              Text="{Binding SeriesCountText}"
+                                                                              Style="{StaticResource BodyStrong}"
+                                                                              HorizontalAlignment="Right" />
+                                                                <ui:TextBlock x:Name="ErrorSearchCategorySeriesCaptionText"
+                                                                              Text="{Binding SeriesCountCaption}"
+                                                                              Style="{StaticResource CaptionText}"
+                                                                              HorizontalAlignment="Right" />
+                                                            </StackPanel>
+                                                        </Grid>
+                                                    </Border>
                                                     <DataTemplate.Triggers>
                                                         <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}}"
                                                                      Value="True">
+                                                            <Setter TargetName="ErrorSearchCategorySurface"
+                                                                    Property="Background"
+                                                                    Value="{DynamicResource ListBoxItemSelectedBackgroundThemeBrush}" />
                                                             <Setter TargetName="ErrorSearchCategoryNameText"
                                                                     Property="Foreground"
-                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                                    Value="{DynamicResource ListBoxItemSelectedForegroundThemeBrush}" />
                                                             <Setter TargetName="ErrorSearchCategoryCodesText"
                                                                     Property="Foreground"
-                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                                    Value="{DynamicResource ListBoxItemSelectedForegroundThemeBrush}" />
                                                             <Setter TargetName="ErrorSearchCategorySeriesCountText"
                                                                     Property="Foreground"
-                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                                    Value="{DynamicResource ListBoxItemSelectedForegroundThemeBrush}" />
                                                             <Setter TargetName="ErrorSearchCategorySeriesCaptionText"
                                                                     Property="Foreground"
-                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                                    Value="{DynamicResource ListBoxItemSelectedForegroundThemeBrush}" />
                                                         </DataTrigger>
                                                     </DataTemplate.Triggers>
                                                 </DataTemplate>
