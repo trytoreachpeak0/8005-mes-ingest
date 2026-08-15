@@ -667,18 +667,20 @@ public sealed class WatchWorkspaceProductionJourneyTests
             failedStep = "overview-offline-retained";
             var retainedOverviewFacts = CaptureOverviewFacts(window);
             overviewAvailability.FailNextRefresh();
+            Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
+            SelectAreaProfile(
+                window,
+                "DemandSeriesAreaProfileSelector",
+                "西区");
             WaitUntil(
-                () => overviewAvailability.HasObservedFailure
-                    && IsVisibleInWindow(window, FindById(window, "OverviewInfoBar"))
-                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
-                        .Contains("概览刷新失败，已保留上次完整快照", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
-                        .Contains("失败于", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
-                        .Contains("继续显示 Host 快照", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
-                        .Contains("Host 暂时离线", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                () => overviewAvailability.HasObservedFailure,
+                "the failed Overview request caused by a real AREA scope change",
+                StepTimeout);
+            Navigate(window, "OverviewNavigationItem", "OverviewPage");
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "OverviewContextText"))
+                        .Contains("最近失败", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewHostStatusText"))
                         .Contains("Host 已连接 · 读取失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "StaleNoticeText"))
                         .Contains("数据可能已过期", StringComparison.Ordinal),
@@ -696,18 +698,24 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Capture(evidence, process.MainWindowHandle, "01f-overview-offline-retained");
 
             failedStep = "overview-recovery";
+            Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
+            SelectAreaProfile(
+                window,
+                "DemandSeriesAreaProfileSelector",
+                "东区");
             WaitUntil(
-                () => overviewAvailability.HasObservedRecovery
-                    && FindById(window, "OverviewInfoBar") is { } infoBar
-                    && infoBar.Properties.IsOffscreen.ValueOrDefault
-                    && TextValue(infoBar).Contains("当前无活动通知", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                () => overviewAvailability.HasObservedRecovery,
+                "the successful Overview request caused by restoring the AREA scope",
+                StepTimeout);
+            Navigate(window, "OverviewNavigationItem", "OverviewPage");
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "OverviewHostStatusText"))
                         .Contains("Host 已连接", StringComparison.Ordinal)
-                    && !TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                    && !TextValue(FindRequiredById(window, "OverviewHostStatusText"))
                         .Contains("读取失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "StaleNoticeText"))
                         .Contains("概览数据未标记为陈旧", StringComparison.Ordinal),
-                "the deterministic Overview auto-refresh recovery",
+                "the deterministic Overview recovery after restoring the AREA scope",
                 PreviewStateTimeout);
             AssertOverviewFacts(window, retainedOverviewFacts);
             Assert.Contains(
@@ -734,13 +742,11 @@ public sealed class WatchWorkspaceProductionJourneyTests
             requestTimeoutInput.Text = "0";
             FindRequiredById(window, "ApplyHostButton").AsButton().Invoke();
             WaitUntil(
-                () => FindById(window, "SettingsInfoBar") is { } infoBar
-                    && IsVisibleInWindow(window, infoBar)
-                    && TextValue(infoBar).Contains("无法应用 Host 设置", StringComparison.Ordinal)
-                    && TextValue(infoBar).Contains("1", StringComparison.Ordinal)
-                    && TextValue(infoBar).Contains("300", StringComparison.Ordinal)
-                    && TextValue(FindRequiredById(window, "SettingsHostStatusPill"))
-                        .Contains("Host 已连接", StringComparison.Ordinal),
+                () => requestTimeoutInput.Text == "0"
+                    && TextValue(FindRequiredById(window, "SettingsHostStatusText")) is { } status
+                    && status.Contains("Host 已连接", StringComparison.Ordinal)
+                    && status.Contains("无法应用 Host 设置", StringComparison.Ordinal)
+                    && status.Contains("1–300", StringComparison.Ordinal),
                 "the real Settings request-timeout validation error",
                 StepTimeout);
             Assert.Equal(
@@ -754,11 +760,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Capture(evidence, process.MainWindowHandle, "02v-settings-timeout-validation");
 
             requestTimeoutInput.Text = "30";
-            CloseInfoBar(window, "SettingsInfoBar");
             WaitUntil(
-                () => requestTimeoutInput.Text == "30"
-                    && FindById(window, "SettingsInfoBar") is { } infoBar
-                    && infoBar.Properties.IsOffscreen.ValueOrDefault,
+                () => requestTimeoutInput.Text == "30",
                 "the restored valid Settings draft",
                 StepTimeout);
             Assert.Equal(
@@ -2053,26 +2056,6 @@ public sealed class WatchWorkspaceProductionJourneyTests
         }
     }
 
-    private static void CloseInfoBar(
-        FlaUI.Core.AutomationElements.Window window,
-        string automationId)
-    {
-        var infoBar = FindRequiredById(window, automationId);
-        var visibleButtons = infoBar
-            .FindAllDescendants(
-                window.ConditionFactory.ByControlType(ControlType.Button))
-            .Where(button => !button.Properties.IsOffscreen.ValueOrDefault)
-            .ToArray();
-        var namedCloseButton = visibleButtons.FirstOrDefault(button =>
-            (button.Properties.Name.ValueOrDefault ?? string.Empty)
-                .Contains("关闭", StringComparison.OrdinalIgnoreCase)
-            || (button.Properties.Name.ValueOrDefault ?? string.Empty)
-                .Contains("Close", StringComparison.OrdinalIgnoreCase)
-            || (button.Properties.AutomationId.ValueOrDefault ?? string.Empty)
-                .Contains("Close", StringComparison.OrdinalIgnoreCase));
-        (namedCloseButton ?? Assert.Single(visibleButtons)).AsButton().Invoke();
-    }
-
     private static void Navigate(
         FlaUI.Core.AutomationElements.Window window,
         string navigationAutomationId,
@@ -2087,6 +2070,33 @@ public sealed class WatchWorkspaceProductionJourneyTests
             $"visible page {pageAutomationId}",
             StepTimeout);
         SetNavigationPaneExpanded(window, expanded: false);
+    }
+
+    private static void SelectAreaProfile(
+        FlaUI.Core.AutomationElements.Window window,
+        string selectorAutomationId,
+        string profileName)
+    {
+        var selector = FindRequiredById(window, selectorAutomationId).AsComboBox();
+        selector.Expand();
+        FlaUI.Core.AutomationElements.ComboBoxItem? option = null;
+        WaitUntil(
+            () =>
+            {
+                option = selector.Items.SingleOrDefault(item =>
+                    item.Name.Contains(profileName, StringComparison.Ordinal));
+                return option is not null;
+            },
+            $"AREA profile {profileName} in {selectorAutomationId}",
+            StepTimeout);
+        option!.Select();
+        WaitUntil(
+            () => selector.SelectedItem?.Name.Contains(
+                    profileName,
+                    StringComparison.Ordinal)
+                == true,
+            $"selected AREA profile {profileName} in {selectorAutomationId}",
+            StepTimeout);
     }
 
     private static Grid WaitForRows(

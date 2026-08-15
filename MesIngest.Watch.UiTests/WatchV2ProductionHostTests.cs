@@ -23,6 +23,53 @@ public sealed class WatchV2ProductionHostCollection
 public sealed class WatchV2ProductionHostTests
 {
     [Fact]
+    public async Task Invalid_host_timeout_exposes_the_rendered_settings_error_through_the_visible_host_status_peer()
+    {
+        const string credential = "settings-validation-secret";
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("settings-validation-host", credential)
+            {
+                Overview = FakeHostReply.Return(
+                    CreateOverviewSnapshot("overview-settings-validation", ["A1-1"])),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl, credential),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(TestContext.Current.CancellationToken);
+                window.Show();
+                window.UpdateLayout();
+
+                Find<TextBox>(window, "RequestTimeoutInput").Text = "0";
+                Find<FluentButton>(window, "ApplyHostButton")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                var infoBar = Find<InfoBar>(window, "SettingsInfoBar");
+                Assert.True(infoBar.IsOpen);
+                Assert.Equal("无法应用 Host 设置", infoBar.Title);
+                Assert.Contains("1–300", infoBar.Message, StringComparison.Ordinal);
+
+                var status = Find<Wpf.Ui.Controls.TextBlock>(window, "SettingsHostStatusText");
+                var accessibleResult = AutomationProperties.GetHelpText(status);
+                Assert.Contains("无法应用 Host 设置", accessibleResult, StringComparison.Ordinal);
+                Assert.Contains("1–300", accessibleResult, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
     public async Task Production_composition_verifies_contract_then_loads_one_atomic_overview_into_the_shell()
     {
         const string credential = "production-host-secret";

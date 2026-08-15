@@ -1535,7 +1535,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var credential = string.IsNullOrWhiteSpace(HostCredentialInput.Password)
                 ? _currentHostSettings.Credential
                 : HostCredentialInput.Password;
-            if (!int.TryParse(RequestTimeoutInput.Text, out var timeoutSeconds))
+            if (!int.TryParse(RequestTimeoutInput.Text, out var timeoutSeconds)
+                || timeoutSeconds is < 1 or > 300)
             {
                 throw new ArgumentException("请求超时必须是 1–300 秒之间的整数。");
             }
@@ -1653,6 +1654,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsInfoBar.Message = message;
         SettingsInfoBar.IsOpen = true;
         AutomationProperties.SetName(SettingsInfoBar, $"{title}。{message}");
+        AutomationProperties.SetHelpText(SettingsHostStatusText, $"{title}。{message}");
     }
 
     private void OnOverviewIntentClick(object sender, RoutedEventArgs e)
