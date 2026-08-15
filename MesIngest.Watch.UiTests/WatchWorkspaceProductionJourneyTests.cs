@@ -889,7 +889,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             WaitUntil(() => drill.IsEnabled, "Series error drill command", StepTimeout);
             drill.Invoke();
             WaitUntil(
-                () => FindById(window, "ErrorSearchSeriesIdFilter") is { } filterText
+                () => FindById(window, "ErrorSearchCompactFactsText") is { } filterText
                     && !filterText.Properties.IsOffscreen.ValueOrDefault
                     && TextValue(filterText)
                         .Contains("SERIES-ATTENTION-22", StringComparison.Ordinal),
