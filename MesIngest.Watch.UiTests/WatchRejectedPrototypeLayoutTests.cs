@@ -12,6 +12,47 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchRejectedPrototypeLayoutTests
 {
     [Fact]
+    public async Task Overview_scope_accent_soft_is_exact_in_light_and_readable_in_dark_and_high_contrast()
+    {
+        using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
+
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                AssertScopeTheme(
+                    window,
+                    Wpf.Ui.Appearance.ApplicationTheme.Light,
+                    expectedLightColor: Color.FromRgb(0xE7, 0xF3, 0xFF));
+                AssertScopeTheme(
+                    window,
+                    Wpf.Ui.Appearance.ApplicationTheme.Dark,
+                    expectedLightColor: null);
+                AssertScopeTheme(
+                    window,
+                    Wpf.Ui.Appearance.ApplicationTheme.HighContrast,
+                    expectedLightColor: null);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
     public async Task Rejected_overview_settings_and_area_surfaces_restore_selected_wide_geometry()
     {
         using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
@@ -44,8 +85,11 @@ public sealed class WatchRejectedPrototypeLayoutTests
                     1,
                     24);
                 var scopeTint = Find<Border>(window, "OverviewScopeSurfaceTint");
-                Assert.Same(window.FindResource("AccentTextFillColorPrimaryBrush"), scopeTint.Background);
-                Assert.Equal(0.10, scopeTint.Opacity, precision: 2);
+                Assert.Same(window.FindResource("WatchAccentSoftBrush"), scopeTint.Background);
+                Assert.Equal(1, scopeTint.Opacity);
+                Assert.Equal(
+                    Color.FromRgb(0xE7, 0xF3, 0xFF),
+                    Assert.IsType<SolidColorBrush>(scopeTint.Background).Color);
 
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "SettingsNavigationItem"));
                 var settingsPage = Find<ScrollViewer>(window, "SettingsPage");
@@ -58,9 +102,13 @@ public sealed class WatchRejectedPrototypeLayoutTests
                 window.UpdateLayout();
                 Assert.InRange(settingsPage.ScrollableHeight, 0, 0.5);
                 AssertFullyWithin(
-                    Find<ButtonBase>(window, "SaveRefreshIntervalsButton"),
+                    Find<ButtonBase>(window, "RestoreDefaultLayoutButton"),
                     settingsPage,
-                    "Settings save command");
+                    "Settings layout reset command");
+                AssertFullyWithin(
+                    Find<Expander>(window, "AdvancedLocalPreferencesExpander"),
+                    settingsPage,
+                    "Settings advanced preferences entry");
 
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 window.UpdateLayout();
@@ -100,6 +148,71 @@ public sealed class WatchRejectedPrototypeLayoutTests
 
     private static void Click(ButtonBase button) => button.RaiseEvent(
         new RoutedEventArgs(ButtonBase.ClickEvent, button));
+
+    private static void AssertScopeTheme(
+        WatchWorkspaceWindow window,
+        Wpf.Ui.Appearance.ApplicationTheme theme,
+        Color? expectedLightColor)
+    {
+        window.ApplyWatchThemeResources(theme);
+        window.UpdateLayout();
+
+        var tint = Find<Border>(window, "OverviewScopeSurfaceTint");
+        var background = Assert.IsType<SolidColorBrush>(tint.Background);
+        if (expectedLightColor is { } lightColor)
+        {
+            Assert.Equal(lightColor, background.Color);
+        }
+        else
+        {
+            Assert.NotEqual(Color.FromRgb(0xE7, 0xF3, 0xFF), background.Color);
+            Assert.Same(
+                window.FindResource("ControlFillColorSecondaryBrush"),
+                tint.Background);
+        }
+
+        var applicationBackground = Assert.IsType<SolidColorBrush>(
+            window.FindResource("ApplicationBackgroundBrush"));
+        var primaryText = Assert.IsType<SolidColorBrush>(
+            window.FindResource("TextFillColorPrimaryBrush"));
+        var effectiveBackground = Composite(background.Color, applicationBackground.Color);
+        var effectiveForeground = Composite(primaryText.Color, effectiveBackground);
+        Assert.True(
+            ContrastRatio(effectiveForeground, effectiveBackground) >= 4.5,
+            $"{theme} scope text must retain 4.5:1 contrast.");
+    }
+
+    private static Color Composite(Color foreground, Color background)
+    {
+        var alpha = foreground.A / 255d;
+        return Color.FromRgb(
+            (byte)Math.Round(foreground.R * alpha + background.R * (1 - alpha)),
+            (byte)Math.Round(foreground.G * alpha + background.G * (1 - alpha)),
+            (byte)Math.Round(foreground.B * alpha + background.B * (1 - alpha)));
+    }
+
+    private static double ContrastRatio(Color first, Color second)
+    {
+        static double Luminance(Color color)
+        {
+            static double Linear(byte channel)
+            {
+                var value = channel / 255d;
+                return value <= 0.04045
+                    ? value / 12.92
+                    : Math.Pow((value + 0.055) / 1.055, 2.4);
+            }
+
+            return 0.2126 * Linear(color.R)
+                + 0.7152 * Linear(color.G)
+                + 0.0722 * Linear(color.B);
+        }
+
+        var firstLuminance = Luminance(first);
+        var secondLuminance = Luminance(second);
+        return (Math.Max(firstLuminance, secondLuminance) + 0.05)
+            / (Math.Min(firstLuminance, secondLuminance) + 0.05);
+    }
 
     private static void AssertFullyWithin(
         FrameworkElement child,

@@ -13,11 +13,187 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchReadabilityAuditProductionIntegrationTests
 {
     [Fact]
+    public async Task No_host_snapshot_reports_unavailable_blocker_facets_not_a_successful_zero()
+    {
+        using var files = new TemporaryWatchFiles();
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions("http://127.0.0.1:5088", "unused-readability-secret"),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                var compactFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText");
+                Assert.Contains("SnapshotReference 尚无快照", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("阻断原因精确分面：尚无快照", compactFacts.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("阻断原因精确分面：无命中", compactFacts.Text, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Failed_area_b_refresh_keeps_area_a_audit_snapshot_and_opens_the_global_status_before_master_at_wide_and_narrow_widths()
+    {
+        const string credential = "readability-retained-area-secret";
+        const string snapshotReference = "snapshot-audit-area-a";
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("readability-retained-area", credential)
+            {
+                Overview = FakeHostReply.Select<WatchOverviewQuery, WatchOverviewSnapshot>(query =>
+                    FakeHostReply.Return(CreateOverview(query.MesAreas ?? []))),
+                DemandSeries = FakeHostReply.Select<DemandSeriesBrowseQuery, DemandSeriesListSnapshot>(query =>
+                    FakeHostReply.Return(
+                        WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesList(
+                            query,
+                            "series-audit-support",
+                            "snapshot-demand-support"))),
+                ReadabilityAudit = FakeHostReply.Select<ReadabilityAuditQuery, ReadabilityAuditListSnapshot>(query =>
+                    query.Filter.MesAreas.SequenceEqual(["B2-2"], StringComparer.Ordinal)
+                        ? FakeHostReply.Fail<ReadabilityAuditListSnapshot>(
+                            WatchHostFailureKind.ServerQuery,
+                            "/api/v2/readability-audit",
+                            "AREA B audit projection is unavailable")
+                        : FakeHostReply.Return(CreateAuditList(query, snapshotReference))),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl, credential),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
+                await window.InitializeAsync(timeout.Token);
+                await window.ApplyAreaContextAsync(
+                    new WatchAreaDisplayContext(
+                        "AREA A 本机筛选",
+                        ["A1-1"],
+                        "本机已应用",
+                        DateTimeOffset.Parse("2026-08-14T05:05:00Z")),
+                    timeout.Token);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.ReadabilityAudit,
+                    PageNumber: 1,
+                    MesAreas: ["A1-1"],
+                    Cursor: null));
+                await window.ReadabilityAuditNavigationTask.WaitAsync(timeout.Token);
+
+                await window.ApplyAreaContextAsync(
+                    new WatchAreaDisplayContext(
+                        "AREA B 本机筛选",
+                        ["B2-2"],
+                        "本机已应用",
+                        DateTimeOffset.Parse("2026-08-14T05:10:00Z")),
+                    timeout.Token);
+                window.UpdateLayout();
+
+                var retained = Assert.IsType<ReadabilityAuditListSnapshot>(
+                    window.WorkspaceState.ReadabilityAudit.Snapshot);
+                Assert.True(window.WorkspaceState.ReadabilityAudit.IsStale);
+                Assert.Equal(snapshotReference, retained.SnapshotReference);
+                Assert.Equal(["A1-1"], retained.Filter.MesAreas);
+                Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
+                Assert.Contains(host.Timeline, entry =>
+                    entry.Operation == FakeHostOperation.ReadabilityAuditV2
+                    && entry.State == FakeHostRequestState.Failed
+                    && entry.Endpoint.Contains("area=B2-2", StringComparison.Ordinal));
+
+                var header = Find<TextBlock>(window, "ReadabilityHeaderFactsText");
+                Assert.True(header.IsVisible);
+                Assert.Equal(TextWrapping.NoWrap, header.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, header.TextTrimming);
+                Assert.Contains("本机 AREA B 本机筛选", header.Text, StringComparison.Ordinal);
+                Assert.Contains("Host A1-1", header.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("Host B2-2", header.Text, StringComparison.Ordinal);
+                var fullHeader = Assert.IsType<string>(header.ToolTip);
+                Assert.Contains("本机 AREA：AREA B 本机筛选", fullHeader, StringComparison.Ordinal);
+                Assert.Contains("Host 已提交范围：A1-1", fullHeader, StringComparison.Ordinal);
+                Assert.Equal(fullHeader, AutomationProperties.GetHelpText(header));
+                Assert.Contains(
+                    fullHeader,
+                    AutomationProperties.GetName(header),
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    snapshotReference,
+                    Find<TextBlock>(window, "ReadabilityCompactFactsText").Text,
+                    StringComparison.Ordinal);
+
+                var status = Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityAuditInfoBar");
+                var statusRegion = Find<StackPanel>(window, "ReadabilityGlobalStatusRegion");
+                var layout = Find<Grid>(window, "ReadabilityAuditLayoutGrid");
+                var page = Find<ScrollViewer>(window, "ReadabilityAuditPage");
+                var master = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
+                Assert.True(status.IsOpen);
+                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Warning, status.Severity);
+                Assert.Equal("资格审计刷新失败，已保留上次快照", status.Title);
+                Assert.Contains("继续显示 Host 快照", status.Message, StringComparison.Ordinal);
+                Assert.Contains("AREA B audit projection is unavailable", status.Message, StringComparison.Ordinal);
+                Assert.Equal(
+                    $"{status.Title}。{status.Message}",
+                    AutomationProperties.GetName(status));
+                Assert.Contains(status, statusRegion.Children.Cast<UIElement>());
+
+                AssertGlobalStatusPrecedesMaster("1440");
+                window.Width = 720;
+                await Dispatcher.Yield(DispatcherPriority.Loaded);
+                window.UpdateLayout();
+                AssertGlobalStatusPrecedesMaster("720");
+
+                void AssertGlobalStatusPrecedesMaster(string widthLabel)
+                {
+                    Assert.True(statusRegion.IsVisible);
+                    Assert.True(status.IsVisible);
+                    Assert.InRange(status.ActualHeight, 1, page.ActualHeight);
+                    Assert.InRange(
+                        Math.Abs(statusRegion.ActualWidth - layout.ActualWidth),
+                        0,
+                        1.5);
+                    var statusTop = status.TranslatePoint(new Point(), layout).Y;
+                    var statusBottom = statusTop + status.ActualHeight;
+                    var masterTop = master.TranslatePoint(new Point(), layout).Y;
+                    Assert.True(
+                        statusBottom <= masterTop + 0.5,
+                        $"At {widthLabel}px the global Audit status must precede master; statusBottom={statusBottom:0.##}, masterTop={masterTop:0.##}.");
+                    var viewportTop = status.TranslatePoint(new Point(), page).Y;
+                    Assert.InRange(viewportTop, 0, page.ActualHeight);
+                    Assert.True(
+                        viewportTop + status.ActualHeight <= page.ActualHeight + 0.5,
+                        $"At {widthLabel}px the global Audit status must be initially visible; statusBottom={viewportTop + status.ActualHeight:0.##}, viewportHeight={page.ActualHeight:0.##}.");
+                }
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
     public async Task Overview_drill_loads_host_exact_audit_facets_then_same_snapshot_detail()
     {
         const string credential = "readability-production-secret";
         const string demandId = "demand-audit-21";
         const string snapshotReference = "snapshot-audit-21";
+        const string zeroSnapshotReference = "snapshot-audit-zero-21";
         var queryReceived = new TaskCompletionSource<ReadabilityAuditQuery>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var detailReceived = new TaskCompletionSource<FakeHostV2DetailRequest>(
@@ -25,6 +201,8 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
         var multiFilterReceived = new TaskCompletionSource<ReadabilityAuditQuery>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var directPageReceived = new TaskCompletionSource<ReadabilityAuditQuery>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var successfulZeroReceived = new TaskCompletionSource<ReadabilityAuditQuery>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         await using var host = await ScriptedFakeHost.StartV2Async(
             new FakeHostV2Scenario("readability-production", credential)
@@ -35,6 +213,14 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                     FakeHostReply.Return(CreateEmptyDemandSeriesList(query))),
                 ReadabilityAudit = FakeHostReply.Select<ReadabilityAuditQuery, ReadabilityAuditListSnapshot>(query =>
                 {
+                    if (string.Equals(query.Filter.SublotContains, "NO_MATCH", StringComparison.Ordinal))
+                    {
+                        successfulZeroReceived.TrySetResult(query);
+                        return FakeHostReply.Return(CreateEmptyAuditList(
+                            query,
+                            zeroSnapshotReference));
+                    }
+
                     if (query.Filter.ReadabilityStates.Contains(
                             ExternalReadabilityStates.NotReadable,
                             StringComparer.Ordinal))
@@ -81,6 +267,9 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
                 await window.InitializeAsync(timeout.Token);
                 await window.ApplyAreaContextAsync(
                     new WatchAreaDisplayContext(
@@ -154,13 +343,81 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(2, checks.Items.Count);
                 Assert.Equal(2, blockers.Items.Count);
                 Assert.Equal(2, raw.Items.Count);
+
+                window.UpdateLayout();
+                var filterCard = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityFilterCard");
+                var filterTop = filterCard.TranslatePoint(new Point(), window).Y;
+                Assert.InRange(filterTop, 130, 140);
+                Assert.InRange(filterCard.ActualHeight, 80, 90);
+
+                var compactFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText");
+                Assert.Equal(Visibility.Visible, compactFacts.Visibility);
+                Assert.Equal(TextWrapping.NoWrap, compactFacts.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, compactFacts.TextTrimming);
+                Assert.Equal(compactFacts.Text, compactFacts.ToolTip);
+                Assert.Equal(
+                    compactFacts.Text,
+                    AutomationProperties.GetHelpText(compactFacts));
+                Assert.Contains("SnapshotReference snapshot-audit-21", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("Watch 最近成功", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("Host 固定排序", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("阻断原因精确分面", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("原因可重叠", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("不可见总数按 Demand 世代去重", compactFacts.Text, StringComparison.Ordinal);
+                var compactFactsBottom = compactFacts.TranslatePoint(
+                    new Point(0, compactFacts.ActualHeight),
+                    window).Y;
+                Assert.True(
+                    compactFactsBottom <= filterTop + 0.5,
+                    $"Persistent Audit facts must stay in the header before the 84px filter; factsBottom={compactFactsBottom:0.##}, filterTop={filterTop:0.##}.");
+                var filterPanel = Find<Grid>(window, "ReadabilityFilterPanel");
+                var filterHelp = AutomationProperties.GetHelpText(filterPanel);
+                Assert.Contains("Host 投影提交", filterHelp, StringComparison.Ordinal);
+                Assert.Contains("阻断原因精确分面", filterHelp, StringComparison.Ordinal);
+
+                var master = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
+                var status = Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityDetailInfoBar");
+                var noticeHost = Find<StackPanel>(window, "ReadabilityDetailNotices");
+                Assert.Contains(status, noticeHost.Children.Cast<UIElement>());
+                Assert.Equal(0, Panel.GetZIndex(status));
+                var masterTop = master.TranslatePoint(new Point(), window).Y;
+                var statusTop = status.TranslatePoint(new Point(), window).Y;
+                Assert.InRange(masterTop, 230, 244);
+                Assert.InRange(Math.Abs(masterTop - statusTop), 0, 1.5);
+
+                var detailCards = Find<Grid>(window, "ReadabilityDetailCardsGrid");
+                var detailBottom = detailCards.TranslatePoint(
+                    new Point(0, detailCards.ActualHeight),
+                    window).Y;
+                Assert.InRange(detailBottom, 820, 884);
+                Assert.True(
+                    checks.ActualHeight >= checks.ColumnHeaderHeight + (2 * checks.RowHeight),
+                    $"Audit qualifications must show two real rows; actual={checks.ActualHeight:0.##}.");
+                Assert.True(
+                    raw.ActualHeight >= raw.ColumnHeaderHeight + (2 * raw.RowHeight),
+                    $"Audit raw observations must show two real rows; actual={raw.ActualHeight:0.##}.");
                 Assert.Equal(
                     "Catalog Revision 7",
                     Find<TextBlock>(window, "ReadabilityCatalogRevisionText").Text);
+                var headerFacts = Find<TextBlock>(window, "ReadabilityHeaderFactsText");
                 Assert.Contains(
                     "更新于",
-                    Find<TextBlock>(window, "ReadabilityHeaderFactsText").Text,
+                    headerFacts.Text,
                     StringComparison.Ordinal);
+                Assert.Contains(
+                    "东区",
+                    headerFacts.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "Host A1-1",
+                    headerFacts.Text,
+                    StringComparison.Ordinal);
+                var headerFullFacts = Assert.IsType<string>(headerFacts.ToolTip);
+                Assert.Equal(
+                    headerFullFacts,
+                    AutomationProperties.GetHelpText(headerFacts));
+                Assert.Contains("Host 已提交范围", headerFullFacts, StringComparison.Ordinal);
+                Assert.Contains("audit-commit-21", headerFullFacts, StringComparison.Ordinal);
                 Assert.Contains(
                     "Host 投影提交",
                     Find<TextBlock>(window, "ReadabilityCompactFactsText").Text,
@@ -242,6 +499,37 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(multiFilter.Filter.WorkTypes, directPage.Filter.WorkTypes);
                 Assert.Equal(multiFilter.Filter.Blockers, directPage.Filter.Blockers);
                 Assert.Equal(multiFilter.Filter.MesAreas, directPage.Filter.MesAreas);
+
+                Find<TextBox>(window, "ReadabilitySublotFilter").Text = "NO_MATCH";
+                Find<Wpf.Ui.Controls.Button>(window, "ReadabilityApplyFilterButton")
+                    .RaiseEvent(new RoutedEventArgs(
+                        System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                var successfulZero = await successfulZeroReceived.Task.WaitAsync(timeout.Token);
+                Assert.Null(successfulZero.SnapshotReference);
+                Assert.Equal(1, successfulZero.PageNumber);
+                while (!string.Equals(
+                           window.WorkspaceState.ReadabilityAudit.Snapshot?.SnapshotReference,
+                           zeroSnapshotReference,
+                           StringComparison.Ordinal))
+                {
+                    timeout.Token.ThrowIfCancellationRequested();
+                    await Dispatcher.Yield(DispatcherPriority.Background);
+                }
+
+                var zeroFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText").Text;
+                Assert.Contains(
+                    $"SnapshotReference {zeroSnapshotReference}",
+                    zeroFacts,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "阻断原因精确分面：无命中",
+                    zeroFacts,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    "阻断原因精确分面：尚无快照",
+                    zeroFacts,
+                    StringComparison.Ordinal);
+                Assert.True(Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityEmptyInfoBar").IsOpen);
             }
             finally
             {
@@ -325,6 +613,20 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
             NextCursor: null,
             HasMore: false);
     }
+
+    private static ReadabilityAuditListSnapshot CreateEmptyAuditList(
+        ReadabilityAuditQuery query,
+        string snapshotReference) =>
+        CreateAuditList(query, snapshotReference) with
+        {
+            ExactTotalDemandCount = 0,
+            Facets = new ReadabilityAuditFacets([], []),
+            PageNumber = 1,
+            TotalPages = 0,
+            Items = [],
+            NextCursor = null,
+            HasMore = false,
+        };
 
     private static DemandSeriesListSnapshot CreateEmptyDemandSeriesList(
         DemandSeriesBrowseQuery query)

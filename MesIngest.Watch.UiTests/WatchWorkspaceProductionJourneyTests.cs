@@ -727,8 +727,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             failedStep = "settings";
             Navigate(window, "SettingsNavigationItem", "SettingsPage");
             WaitUntil(
-                () => FindById(window, "SaveRefreshIntervalsButton") is not null,
-                "production settings commands",
+                () => FindById(window, "AdvancedLocalPreferencesExpander") is not null,
+                "production settings and advanced-preferences entry",
                 StepTimeout);
             Capture(evidence, process.MainWindowHandle, "02-settings");
 
@@ -836,7 +836,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 StepTimeout);
             EnsureVisibleIfOffscreen(
                 window,
-                FindRequiredById(window, "AreaProfileNameInput"),
+                FindRequiredById(window, "AreaProfileEditor"),
                 "AREA editor for the production candidate");
             Capture(evidence, process.MainWindowHandle, "05-area-filter-profile");
 

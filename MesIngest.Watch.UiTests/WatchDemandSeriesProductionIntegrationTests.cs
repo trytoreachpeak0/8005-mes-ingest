@@ -13,6 +13,108 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchDemandSeriesProductionIntegrationTests
 {
     [Fact]
+    public async Task Failed_area_b_refresh_keeps_area_a_snapshot_while_the_demand_header_shows_local_b_and_host_a()
+    {
+        const string credential = "demand-series-retained-area-secret";
+        const string snapshotReference = "snapshot-demand-area-a";
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("demand-series-retained-area", credential)
+            {
+                Overview = FakeHostReply.Select<WatchOverviewQuery, WatchOverviewSnapshot>(query =>
+                    FakeHostReply.Return(CreateOverview(query.MesAreas ?? []))),
+                DemandSeries = FakeHostReply.Select<DemandSeriesBrowseQuery, DemandSeriesListSnapshot>(query =>
+                    query.Filter.MesAreas.SequenceEqual(["B2-2"], StringComparer.Ordinal)
+                        ? FakeHostReply.Fail<DemandSeriesListSnapshot>(
+                            WatchHostFailureKind.ServerQuery,
+                            "/api/v2/demand-series",
+                            "AREA B demand projection is unavailable")
+                        : FakeHostReply.Return(CreateDemandSeriesList(
+                            query,
+                            "series-retained-area-a",
+                            snapshotReference))),
+                ReadabilityAudit = FakeHostReply.Select<ReadabilityAuditQuery, ReadabilityAuditListSnapshot>(query =>
+                    FakeHostReply.Return(
+                        WatchReadabilityAuditProductionIntegrationTests.CreateAuditList(
+                            query,
+                            "snapshot-audit-support"))),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl, credential),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
+                await window.InitializeAsync(timeout.Token);
+                await window.ApplyAreaContextAsync(
+                    new WatchAreaDisplayContext(
+                        "AREA A 本机筛选",
+                        ["A1-1"],
+                        "本机已应用",
+                        DateTimeOffset.Parse("2026-08-14T05:05:00Z")),
+                    timeout.Token);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.DemandSeries,
+                    PageNumber: 1,
+                    MesAreas: ["A1-1"],
+                    Cursor: null));
+                await window.DemandSeriesNavigationTask.WaitAsync(timeout.Token);
+
+                await window.ApplyAreaContextAsync(
+                    new WatchAreaDisplayContext(
+                        "AREA B 本机筛选",
+                        ["B2-2"],
+                        "本机已应用",
+                        DateTimeOffset.Parse("2026-08-14T05:10:00Z")),
+                    timeout.Token);
+                window.UpdateLayout();
+
+                var retained = Assert.IsType<DemandSeriesListSnapshot>(
+                    window.WorkspaceState.DemandSeries.Snapshot);
+                Assert.True(window.WorkspaceState.DemandSeries.IsStale);
+                Assert.Equal(snapshotReference, retained.SnapshotReference);
+                Assert.Equal(["A1-1"], retained.Filter.MesAreas);
+                Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
+                Assert.Contains(host.Timeline, entry =>
+                    entry.Operation == FakeHostOperation.DemandSeriesV2
+                    && entry.State == FakeHostRequestState.Failed
+                    && entry.Endpoint.Contains("area=B2-2", StringComparison.Ordinal));
+
+                var context = Find<TextBlock>(window, "DemandSeriesContextText");
+                Assert.True(context.IsVisible);
+                Assert.Equal(TextWrapping.NoWrap, context.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, context.TextTrimming);
+                Assert.Contains("本机 AREA B 本机筛选", context.Text, StringComparison.Ordinal);
+                Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("Host B2-2", context.Text, StringComparison.Ordinal);
+                var fullContext = Assert.IsType<string>(context.ToolTip);
+                Assert.Contains("本机 AREA：AREA B 本机筛选", fullContext, StringComparison.Ordinal);
+                Assert.Contains("Host 已提交范围：A1-1", fullContext, StringComparison.Ordinal);
+                Assert.Equal(fullContext, AutomationProperties.GetHelpText(context));
+                Assert.Contains(
+                    fullContext,
+                    AutomationProperties.GetName(context),
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
     public async Task Overview_drill_loads_the_current_area_first_page_then_same_snapshot_detail_and_exposes_the_host_exact_total_to_uia()
     {
         const string credential = "demand-series-production-secret";
@@ -66,6 +168,9 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
                 await window.InitializeAsync(timeout.Token);
                 await window.ApplyAreaContextAsync(
                     new WatchAreaDisplayContext(
@@ -164,6 +269,61 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         milestone.Status,
                         detail.Series.CurrentDemand.ExternalReadabilityState,
                         StringComparison.Ordinal));
+
+                // The source-comparison notice belongs to the drill transition, while the
+                // selected prototype's 03 state is the settled page after that notice.
+                Find<Wpf.Ui.Controls.InfoBar>(window, "DemandSeriesInfoBar").IsOpen = false;
+                window.UpdateLayout();
+                var context = Find<TextBlock>(window, "DemandSeriesContextText");
+                Assert.Equal(TextWrapping.NoWrap, context.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, context.TextTrimming);
+                Assert.InRange(context.ActualHeight, 1, 22);
+                Assert.Contains("当前封装 AREA", context.Text, StringComparison.Ordinal);
+                Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
+                Assert.Contains("最近成功", context.Text, StringComparison.Ordinal);
+                Assert.Matches(@"自动刷新 \d+ 秒$", context.Text);
+                Assert.DoesNotContain("全部运输需求业务键", context.Text, StringComparison.Ordinal);
+                var fullContext = Assert.IsType<string>(context.ToolTip);
+                Assert.Equal(fullContext, AutomationProperties.GetHelpText(context));
+                Assert.Contains("Host 已提交范围", fullContext, StringComparison.Ordinal);
+                Assert.Contains("commit-demand-series-20", fullContext, StringComparison.Ordinal);
+
+                var master = Find<Border>(window, "DemandSeriesMasterPanel");
+                var detailPanel = Find<Border>(window, "DemandSeriesDetailPanel");
+                var masterTop = master.TranslatePoint(new Point(), window).Y;
+                var detailTop = detailPanel.TranslatePoint(new Point(), window).Y;
+                Assert.InRange(masterTop, 230, 244);
+                Assert.InRange(detailTop, 528, 548);
+
+                var detailFacts = Find<TextBlock>(window, "DemandSeriesDetailFactsText");
+                Assert.Equal(TextWrapping.NoWrap, detailFacts.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, detailFacts.TextTrimming);
+                Assert.Equal(Visibility.Collapsed, detailFacts.Visibility);
+                Assert.Equal(detailFacts.Text, detailFacts.ToolTip);
+                Assert.Equal(detailFacts.Text, AutomationProperties.GetHelpText(detailFacts));
+                var lifecyclePanel = Find<Grid>(window, "DemandSeriesLifecycleEvidencePanel");
+                Assert.Equal(detailFacts.Text, lifecyclePanel.ToolTip);
+                Assert.Equal(
+                    detailFacts.Text,
+                    AutomationProperties.GetHelpText(lifecyclePanel));
+
+                var generationGrid = Find<DataGrid>(window, "DemandSeriesGenerationGrid");
+                var eventGrid = Find<DataGrid>(window, "DemandSeriesEventGrid");
+                Assert.True(
+                    generationGrid.ActualHeight >= generationGrid.ColumnHeaderHeight
+                        + (2 * generationGrid.RowHeight),
+                    $"Demand generations must show two real rows; actual={generationGrid.ActualHeight:0.##}.");
+                Assert.True(
+                    eventGrid.ActualHeight >= eventGrid.ColumnHeaderHeight
+                        + (3 * eventGrid.RowHeight),
+                    $"Demand events must show three real rows; actual={eventGrid.ActualHeight:0.##}.");
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<Button>(window, "DemandSeriesCopyTimeButton").Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<Button>(window, "DemandSeriesCopyEvidenceButton").Visibility);
+
                 var liveMes = Find<TextBlock>(window, "DemandSeriesLiveMesFieldsText");
                 Assert.Contains("A1-1", liveMes.Text, StringComparison.Ordinal);
                 Assert.Contains("MesSourceDate", liveMes.Text, StringComparison.Ordinal);

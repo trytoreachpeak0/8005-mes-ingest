@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MesIngest.Watch;
 
 namespace MesIngest.Watch.UiTests;
@@ -16,7 +17,7 @@ public sealed class WatchSelectedPrototypeStructureTests
     {
         using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
 
-        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(() =>
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(async () =>
         {
             using var composition = WatchV2ApplicationComposition.Create(
                 CreateOptions(),
@@ -30,7 +31,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                     "WorkspaceNavigation");
                 Assert.Equal("LeftMinimal", navigation.PaneDisplayMode.ToString());
                 Assert.Equal(48, navigation.CompactPaneLength);
-                Assert.Equal(232, navigation.OpenPaneLength);
+                Assert.Equal(224, navigation.OpenPaneLength);
                 Assert.False(navigation.IsPaneOpen);
                 Assert.False(WatchV2DisplayPreferences.Default.IsNavigationPaneOpen);
 
@@ -47,11 +48,43 @@ public sealed class WatchSelectedPrototypeStructureTests
                     "展开或折叠主导航",
                     AutomationProperties.GetName(navigationToggle));
                 Assert.Equal(
-                    "在 48 epx 紧凑导航与 232 epx 展开导航之间切换",
+                    "在 48 epx 紧凑导航与 224 epx 展开导航之间切换",
                     AutomationProperties.GetHelpText(navigationToggle));
                 Assert.Equal(
                     "展开或折叠主导航",
                     ToolTipService.GetToolTip(navigationToggle));
+
+                navigation.IsPaneOpen = true;
+                // WPF UI starts a 160 ms pane-width transition. Let that clock
+                // reach its final fill, then re-apply the terminal state with
+                // transitions disabled so this test never samples an in-flight
+                // rail width.
+                await Task.Delay(250, TestContext.Current.CancellationToken);
+                await window.Dispatcher.InvokeAsync(
+                    window.UpdateLayout,
+                    DispatcherPriority.ApplicationIdle);
+                Assert.True(VisualStateManager.GoToState(
+                    navigation,
+                    "PaneOpen",
+                    useTransitions: false));
+                await window.Dispatcher.InvokeAsync(
+                    window.UpdateLayout,
+                    DispatcherPriority.ApplicationIdle);
+                var paneGrid = Assert.IsAssignableFrom<FrameworkElement>(
+                    FindVisualDescendant<FrameworkElement>(
+                        navigation,
+                        element => string.Equals(
+                            element.Name,
+                            "PaneGrid",
+                            StringComparison.Ordinal)));
+                Assert.InRange(paneGrid.ActualWidth, 223.5, 224.5);
+                var workspaceLeft = Find<Grid>(window, "WorkspaceContent")
+                    .TranslatePoint(new Point(), window)
+                    .X;
+                Assert.InRange(
+                    workspaceLeft,
+                    255.5,
+                    257.5);
 
                 var productionPageTitle = Assert.IsType<Style>(
                     window.FindResource("PageTitleText"));
@@ -139,7 +172,6 @@ public sealed class WatchSelectedPrototypeStructureTests
                 window.Dispose();
             }
 
-            return Task.CompletedTask;
         });
     }
 
@@ -216,6 +248,40 @@ public sealed class WatchSelectedPrototypeStructureTests
                 AssertStar(settingsColumns.ColumnDefinitions[0].Width, 1);
                 AssertPixel(settingsColumns.ColumnDefinitions[1].Width, 16);
                 AssertStar(settingsColumns.ColumnDefinitions[2].Width, 1);
+                var primaryRefreshRows = Find<StackPanel>(
+                    window,
+                    "PrimaryRefreshIntervalRows");
+                Assert.Equal(4, primaryRefreshRows.Children.OfType<Grid>().Count());
+                Assert.Equal(3, primaryRefreshRows.Children.OfType<Border>().Count());
+                var advancedSettings = Find<Expander>(
+                    window,
+                    "AdvancedLocalPreferencesExpander");
+                Assert.False(advancedSettings.IsExpanded);
+                Assert.True(IsDescendantOf(
+                    Find<ComboBox>(window, "CurrentAttentionIntervalInput"),
+                    advancedSettings));
+                Assert.True(IsDescendantOf(
+                    Find<Wpf.Ui.Controls.ToggleSwitch>(
+                        window,
+                        "KeepNavigationPaneOpenCheckBox"),
+                    advancedSettings));
+                var saveLocalPreferences = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "SaveRefreshIntervalsButton");
+                Assert.False(IsDescendantOf(saveLocalPreferences, advancedSettings));
+
+                var primaryDisplay = Find<Grid>(window, "PrimaryDisplayPreferences");
+                Assert.Single(primaryDisplay.Children.OfType<Wpf.Ui.Controls.ToggleSwitch>());
+                Assert.Contains(
+                    primaryDisplay.Children.OfType<Wpf.Ui.Controls.Button>(),
+                    button => string.Equals(
+                        button.Name,
+                        "RestoreDefaultLayoutButton",
+                        StringComparison.Ordinal));
+                Assert.Contains(
+                    saveLocalPreferences,
+                    primaryDisplay.Children.Cast<UIElement>());
+                Assert.Equal(4, Grid.GetRow(saveLocalPreferences));
 
                 var demand = Find<Grid>(window, "DemandSeriesLayoutGrid");
                 AssertSelectedPageRows(demand);
@@ -514,6 +580,19 @@ public sealed class WatchSelectedPrototypeStructureTests
         }
 
         return null;
+    }
+
+    private static bool IsDescendantOf(DependencyObject descendant, DependencyObject ancestor)
+    {
+        for (var current = descendant; current is not null; current = LogicalTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static T SetterValue<T>(Style style, DependencyProperty property)

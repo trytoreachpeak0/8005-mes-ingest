@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -22,6 +23,190 @@ public sealed class WatchV2ProductionHostCollection
 [Collection(WatchV2ProductionHostCollection.CollectionName)]
 public sealed class WatchV2ProductionHostTests
 {
+    [Fact]
+    public async Task Settings_primary_save_is_visible_and_preserves_unsaved_host_drafts()
+    {
+        using var files = new TemporaryWatchFiles();
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Find<NavigationViewItem>(window, "SettingsNavigationItem")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                window.UpdateLayout();
+
+                var advanced = Find<Expander>(window, "AdvancedLocalPreferencesExpander");
+                var save = Find<FluentButton>(window, "SaveRefreshIntervalsButton");
+                Assert.False(advanced.IsExpanded);
+                Assert.True(save.IsVisible);
+
+                var hostGeneration = window.WorkspaceState.HostGeneration;
+                var hostDraft = Find<TextBox>(window, "HostBaseUrlInput");
+                var credentialDraft = Find<PasswordBox>(window, "HostCredentialInput");
+                var timeoutDraft = Find<TextBox>(window, "RequestTimeoutInput");
+                hostDraft.Text = "http://127.0.0.1:5998";
+                credentialDraft.Password = "unsaved-settings-save-credential";
+                timeoutDraft.Text = "88";
+
+                SetRefreshIntervals(window, 10, 10, 10, 10, 30);
+                Find<Wpf.Ui.Controls.ToggleSwitch>(
+                    window,
+                    "RememberWindowSizeCheckBox").IsChecked = false;
+                Find<Wpf.Ui.Controls.ToggleSwitch>(
+                    window,
+                    "KeepNavigationPaneOpenCheckBox").IsChecked = true;
+
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                AssertSavedLocalPreferences(
+                    files.WorkspacePath,
+                    [10, 10, 10, 10, 30],
+                    rememberWindowSize: false,
+                    isNavigationPaneOpen: true);
+
+                SetRefreshIntervals(window, 10, 30, 60, 300, 10);
+                Find<Wpf.Ui.Controls.ToggleSwitch>(
+                    window,
+                    "RememberWindowSizeCheckBox").IsChecked = true;
+                Find<Wpf.Ui.Controls.ToggleSwitch>(
+                    window,
+                    "KeepNavigationPaneOpenCheckBox").IsChecked = false;
+
+                save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                AssertSavedLocalPreferences(
+                    files.WorkspacePath,
+                    [10, 30, 60, 300, 10],
+                    rememberWindowSize: true,
+                    isNavigationPaneOpen: false);
+                Assert.Equal(hostGeneration, window.WorkspaceState.HostGeneration);
+                Assert.Equal("http://127.0.0.1:5998", hostDraft.Text);
+                Assert.Equal("unsaved-settings-save-credential", credentialDraft.Password);
+                Assert.Equal("88", timeoutDraft.Text);
+                Assert.Equal(
+                    "本机设置已保存",
+                    Find<InfoBar>(window, "SettingsInfoBar").Title);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    private static void SetRefreshIntervals(
+        WatchWorkspaceWindow root,
+        int overview,
+        int demandSeries,
+        int readabilityAudit,
+        int errorSearch,
+        int currentAttention)
+    {
+        Find<ComboBox>(root, "OverviewIntervalInput").SelectedValue = overview;
+        Find<ComboBox>(root, "DemandSeriesIntervalInput").SelectedValue = demandSeries;
+        Find<ComboBox>(root, "ReadabilityAuditIntervalInput").SelectedValue = readabilityAudit;
+        Find<ComboBox>(root, "ErrorSearchIntervalInput").SelectedValue = errorSearch;
+        Find<ComboBox>(root, "CurrentAttentionIntervalInput").SelectedValue = currentAttention;
+    }
+
+    private static void AssertSavedLocalPreferences(
+        string path,
+        IReadOnlyList<int> expectedIntervals,
+        bool rememberWindowSize,
+        bool isNavigationPaneOpen)
+    {
+        var saved = WatchV2PreferencesStore.Load(path);
+        Assert.Equal(
+            expectedIntervals,
+            new[]
+            {
+                saved.RefreshIntervals.Overview.IntervalSeconds,
+                saved.RefreshIntervals.DemandSeries.IntervalSeconds,
+                saved.RefreshIntervals.ReadabilityAudit.IntervalSeconds,
+                saved.RefreshIntervals.ErrorSearch.IntervalSeconds,
+                saved.RefreshIntervals.CurrentIngestAttention.IntervalSeconds,
+            });
+        Assert.Equal(rememberWindowSize, saved.Display.RememberWindowSize);
+        Assert.Equal(isNavigationPaneOpen, saved.Display.IsNavigationPaneOpen);
+    }
+
+    [Fact]
+    public async Task Restore_default_layout_preserves_refresh_intervals_and_the_host_session()
+    {
+        using var files = new TemporaryWatchFiles();
+        var refresh = new WatchV2AutoRefreshSettings(
+            new WatchV2AutoRefreshSetting(30),
+            new WatchV2AutoRefreshSetting(60),
+            new WatchV2AutoRefreshSetting(300),
+            new WatchV2AutoRefreshSetting(30),
+            new WatchV2AutoRefreshSetting(60));
+        WatchV2PreferencesStore.Save(
+            files.WorkspacePath,
+            new WatchV2Preferences(
+                refresh,
+                new WatchV2DisplayPreferences(
+                    rememberWindowSize: false,
+                    windowWidth: 1000,
+                    windowHeight: 700,
+                    isNavigationPaneOpen: true)));
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                var hostGeneration = window.WorkspaceState.HostGeneration;
+                var hostDraft = Find<TextBox>(window, "HostBaseUrlInput");
+                var credentialDraft = Find<PasswordBox>(window, "HostCredentialInput");
+                var timeoutDraft = Find<TextBox>(window, "RequestTimeoutInput");
+                hostDraft.Text = "http://127.0.0.1:5999";
+                credentialDraft.Password = "unsaved-layout-test-credential";
+                timeoutDraft.Text = "77";
+
+                Find<FluentButton>(window, "RestoreDefaultLayoutButton")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                var saved = WatchV2PreferencesStore.Load(files.WorkspacePath);
+                Assert.Equal(refresh, saved.RefreshIntervals);
+                Assert.Equal(WatchV2DisplayPreferences.Default, saved.Display);
+                Assert.Equal(hostGeneration, window.WorkspaceState.HostGeneration);
+                Assert.Equal("http://127.0.0.1:5999", hostDraft.Text);
+                Assert.Equal("unsaved-layout-test-credential", credentialDraft.Password);
+                Assert.Equal("77", timeoutDraft.Text);
+                Assert.Equal(
+                    "已恢复默认布局",
+                    Find<InfoBar>(window, "SettingsInfoBar").Title);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
     [Fact]
     public async Task Invalid_host_timeout_exposes_the_rendered_settings_error_through_the_visible_host_status_peer()
     {
@@ -204,6 +389,72 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Single(host.Timeline, entry =>
                     entry.Operation == FakeHostOperation.OverviewV2
                     && entry.State == FakeHostRequestState.Completed);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Overview_recent_activity_uses_flat_divided_rows_without_nested_card_geometry()
+    {
+        const string credential = "overview-flat-row-secret";
+        var navigation = new OverviewNavigationIntent(
+            OverviewNavigationTargets.ErrorSearch,
+            PageNumber: 1,
+            Cursor: null);
+        var activity = new WatchOverviewActivitySnapshot(
+            "overview-flat-row-event",
+            CurrentIngestAttentionKinds.SeriesError,
+            "REQUIRED_MES_FIELD_MISSING",
+            CurrentIngestAttentionSeverities.Error,
+            DateTimeOffset.Parse("2026-08-14T05:06:07Z"),
+            "SERIES-22",
+            "WIRE_TO_GATE",
+            "poll-overview-flat-row",
+            "projection-overview-flat-row",
+            navigation);
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("overview-flat-row", credential)
+            {
+                Overview = FakeHostReply.Return(
+                    CreateOverviewSnapshot(
+                        "overview-flat-row",
+                        ["A1-1"],
+                        [activity])),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl, credential),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(TestContext.Current.CancellationToken);
+                window.Show();
+                window.UpdateLayout();
+
+                var activityItems = Find<StackPanel>(window, "RecentActivityItems");
+                var row = Assert.IsType<Border>(Assert.Single(activityItems.Children));
+                Assert.Equal(new Thickness(0, 1, 0, 0), row.BorderThickness);
+                Assert.Equal(new CornerRadius(0), row.CornerRadius);
+                Assert.Null(row.Effect);
+                var action = Assert.IsType<FluentButton>(row.Child);
+                Assert.Equal(new CornerRadius(0), action.CornerRadius);
+                Assert.Equal(new Thickness(0), action.BorderThickness);
+                Assert.Equal(Brushes.Transparent, action.Background);
+                Assert.Null(action.Effect);
+                Assert.Equal(navigation, action.Tag);
+                Assert.Equal(
+                    "打开重点动态 错误检索 · REQUIRED_MES_FIELD_MISSING",
+                    AutomationProperties.GetName(action));
             }
             finally
             {
@@ -466,7 +717,8 @@ public sealed class WatchV2ProductionHostTests
 
     private static WatchOverviewSnapshot CreateOverviewSnapshot(
         string projectionCommitId,
-        IReadOnlyList<string> areas)
+        IReadOnlyList<string> areas,
+        IReadOnlyList<WatchOverviewActivitySnapshot>? recentActivity = null)
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         var snapshot = new OperationalSnapshotIdentity(
@@ -538,9 +790,13 @@ public sealed class WatchV2ProductionHostTests
                         attentionNavigation),
                 ],
                 attentionNavigation),
-            [],
-            WatchOverviewRecentActivityStates.NoRecentHighlights,
-            WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
+            recentActivity ?? [],
+            recentActivity is { Count: > 0 }
+                ? WatchOverviewRecentActivityStates.HasRecentHighlights
+                : WatchOverviewRecentActivityStates.NoRecentHighlights,
+            recentActivity is { Count: > 0 }
+                ? null
+                : WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
     }
 
     private static int CountStartedContracts(ScriptedFakeHost host) => host.Timeline.Count(entry =>

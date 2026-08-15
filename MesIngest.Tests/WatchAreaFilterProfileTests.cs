@@ -219,7 +219,10 @@ public sealed class WatchAreaFilterProfileTests
         var replacementContent = "# 夜班更新\nB2-2\n";
 
         var first = store.Save("封装夜班", firstContent);
-        var replacement = store.Save("封装夜班", replacementContent);
+        var replacement = store.Save(
+            "封装夜班",
+            replacementContent,
+            first.Draft.FileFingerprint);
 
         var savedPath = Path.Combine(temporary.Path, "封装夜班.txt");
         var bytes = File.ReadAllBytes(savedPath);
@@ -261,6 +264,338 @@ public sealed class WatchAreaFilterProfileTests
     }
 
     [Fact]
+    public void Save_as_rejects_an_existing_target_without_overwriting_either_txt_file()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Save("source", "A1-1\n").Saved);
+        Assert.True(store.Save("target", "B2-2\n").Saved);
+
+        var result = store.SaveAs("target", "C3-3\n");
+        var renameConflict = store.Rename(
+            "source",
+            "target",
+            Fingerprint(store, "source"));
+
+        Assert.False(result.Saved);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
+            Assert.Single(result.Diagnostics).Code);
+        Assert.False(renameConflict.Renamed);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
+            Assert.Single(renameConflict.Diagnostics).Code);
+        Assert.Equal("A1-1\n", store.Load("source").Content);
+        Assert.Equal("B2-2\n", store.Load("target").Content);
+        Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void Rename_moves_the_txt_and_updates_an_applied_marker_without_changing_its_snapshot()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        var before = store.Apply("东区", "A1-1\nA1-2\n").CurrentApplied;
+
+        var result = store.Rename("东区", "生产东区", Fingerprint(store, "东区"));
+        var restored = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
+
+        Assert.True(result.Renamed);
+        Assert.True(result.Draft.IsValid);
+        Assert.Equal("生产东区", result.Draft.ProfileName);
+        Assert.Equal("A1-1\nA1-2\n", result.Draft.Content);
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "东区.txt")));
+        Assert.True(File.Exists(Path.Combine(temporary.Path, "生产东区.txt")));
+        Assert.Equal("生产东区", result.CurrentApplied.ProfileName);
+        Assert.Equal(before.MesAreas, result.CurrentApplied.MesAreas);
+        Assert.Equal(before.AppliedAt, result.CurrentApplied.AppliedAt);
+        Assert.Equal(result.CurrentApplied.ProfileName, restored.ProfileName);
+        Assert.Equal(result.CurrentApplied.MesAreas, restored.MesAreas);
+        Assert.Equal(result.CurrentApplied.AppliedAt, restored.AppliedAt);
+        Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void Rename_updates_the_applied_marker_after_an_external_case_only_filename_change()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("ActiveScope", "A1-1\n").Applied);
+        var originalPath = Path.Combine(temporary.Path, "ActiveScope.txt");
+        var transitPath = Path.Combine(temporary.Path, "case-change.tmp");
+        var externallyRenamedPath = Path.Combine(temporary.Path, "ACTIVESCOPE.txt");
+        File.Move(originalPath, transitPath);
+        File.Move(transitPath, externallyRenamedPath);
+
+        var result = store.Rename(
+            "ACTIVESCOPE",
+            "RenamedScope",
+            Fingerprint(store, "ACTIVESCOPE"));
+        var restored = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
+
+        Assert.True(result.Renamed);
+        Assert.Equal("RenamedScope", result.CurrentApplied.ProfileName);
+        Assert.Equal("RenamedScope", restored.ProfileName);
+        Assert.Equal(["A1-1"], restored.MesAreas);
+        Assert.False(File.Exists(externallyRenamedPath));
+        Assert.True(File.Exists(Path.Combine(temporary.Path, "RenamedScope.txt")));
+    }
+
+    [Fact]
+    public void Rename_rolls_the_txt_back_when_an_applied_marker_rewrite_fails()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("source", "A1-1\n").Applied);
+        var sourcePath = Path.Combine(temporary.Path, "source.txt");
+        var sourceFingerprint = Fingerprint(store, "source");
+        using var markerLock = new FileStream(
+            store.ActiveMarkerPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read);
+
+        Assert.ThrowsAny<IOException>(() => store.Rename(
+            "source",
+            "renamed",
+            sourceFingerprint));
+
+        Assert.True(File.Exists(sourcePath));
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "renamed.txt")));
+        Assert.Equal("A1-1\n", store.Load("source").Content);
+        Assert.Equal("source", store.LoadApplied().ProfileName);
+        Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void Delete_removes_the_txt_and_explicitly_falls_back_from_an_applied_profile_to_all_areas()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("东区", "A1-1\nA1-2\n").Applied);
+
+        var result = store.Delete("东区", Fingerprint(store, "东区"));
+        var restored = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
+
+        Assert.True(result.Deleted);
+        Assert.Equal("东区", result.ProfileName);
+        Assert.True(result.AppliedProfileWasDeleted);
+        Assert.Empty(result.Diagnostics);
+        Assert.True(result.CurrentApplied.IsAllAreas);
+        Assert.NotNull(result.CurrentApplied.AppliedAt);
+        Assert.Equal(result.CurrentApplied.ProfileName, restored.ProfileName);
+        Assert.Equal(result.CurrentApplied.MesAreas, restored.MesAreas);
+        Assert.Equal(result.CurrentApplied.AppliedAt, restored.AppliedAt);
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "东区.txt")));
+        Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
+    }
+
+    [Fact]
+    public void Delete_falls_back_when_an_externally_case_renamed_file_is_the_applied_profile()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("ActiveScope", "A1-1\n").Applied);
+        var originalPath = Path.Combine(temporary.Path, "ActiveScope.txt");
+        var transitPath = Path.Combine(temporary.Path, "case-change.tmp");
+        var externallyRenamedPath = Path.Combine(temporary.Path, "ACTIVESCOPE.txt");
+        File.Move(originalPath, transitPath);
+        File.Move(transitPath, externallyRenamedPath);
+
+        var result = store.Delete("ACTIVESCOPE", Fingerprint(store, "ACTIVESCOPE"));
+        var restored = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
+
+        Assert.True(result.Deleted);
+        Assert.True(result.AppliedProfileWasDeleted);
+        Assert.True(result.CurrentApplied.IsAllAreas);
+        Assert.True(restored.IsAllAreas);
+        Assert.False(File.Exists(externallyRenamedPath));
+    }
+
+    [Fact]
+    public void Delete_restores_the_txt_and_original_marker_when_tombstone_cleanup_fails()
+    {
+        using var temporary = new TemporaryDirectory();
+        var setup = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(setup.Apply("AppliedScope", "A1-1\nB2-2\n").Applied);
+        var fingerprint = Fingerprint(setup, "AppliedScope");
+        var originalMarker = File.ReadAllText(setup.ActiveMarkerPath, Encoding.UTF8);
+        var injectedDeleteReached = false;
+        var failingStore = new WatchAreaFilterProfileStore(
+            temporary.Path,
+            deleteProfileFile: path =>
+            {
+                Assert.EndsWith(".delete.tmp", path, StringComparison.Ordinal);
+                injectedDeleteReached = true;
+                throw new IOException("deterministic tombstone cleanup failure");
+            });
+
+        var failure = Assert.Throws<IOException>(() => failingStore.Delete(
+            "AppliedScope",
+            fingerprint));
+
+        Assert.True(injectedDeleteReached);
+        Assert.Contains("deterministic", failure.Message, StringComparison.Ordinal);
+        Assert.Equal("A1-1\nB2-2\n", setup.Load("AppliedScope").Content);
+        Assert.Equal(originalMarker, File.ReadAllText(setup.ActiveMarkerPath, Encoding.UTF8));
+        var restored = setup.LoadApplied();
+        Assert.Equal("AppliedScope", restored.ProfileName);
+        Assert.Equal(["A1-1", "B2-2"], restored.MesAreas);
+        Assert.Empty(Directory.EnumerateFiles(
+            temporary.Path,
+            "*.delete.tmp",
+            SearchOption.TopDirectoryOnly));
+    }
+
+    [Theory]
+    [InlineData("rename", "malformed")]
+    [InlineData("rename", "locked")]
+    [InlineData("delete", "malformed")]
+    [InlineData("delete", "locked")]
+    public void Destructive_operations_fail_closed_when_the_applied_marker_cannot_be_read(
+        string operation,
+        string markerFailure)
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("source", "A1-1\n").Applied);
+        var sourceFingerprint = Fingerprint(store, "source");
+        FileStream? markerLock = null;
+        if (markerFailure == "malformed")
+        {
+            File.WriteAllText(store.ActiveMarkerPath, "not json", new UTF8Encoding(false));
+        }
+        else
+        {
+            markerLock = new FileStream(
+                store.ActiveMarkerPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None);
+        }
+
+        try
+        {
+            IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics;
+            if (operation == "rename")
+            {
+                var result = store.Rename("source", "renamed", sourceFingerprint);
+                Assert.False(result.Renamed);
+                diagnostics = result.Diagnostics;
+            }
+            else
+            {
+                var result = store.Delete("source", sourceFingerprint);
+                Assert.False(result.Deleted);
+                diagnostics = result.Diagnostics;
+            }
+
+            var diagnostic = Assert.Single(diagnostics);
+            Assert.Equal(
+                WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker,
+                diagnostic.Code);
+            Assert.Contains("已取消", diagnostic.Message, StringComparison.Ordinal);
+            Assert.Contains("明确应用全部 AREA", diagnostic.Message, StringComparison.Ordinal);
+            Assert.True(File.Exists(Path.Combine(temporary.Path, "source.txt")));
+            Assert.False(File.Exists(Path.Combine(temporary.Path, "renamed.txt")));
+        }
+        finally
+        {
+            markerLock?.Dispose();
+        }
+    }
+
+    [Theory]
+    [InlineData("enumerate")]
+    [InlineData("load")]
+    [InlineData("save")]
+    [InlineData("save-as")]
+    [InlineData("apply")]
+    [InlineData("all")]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public async Task Every_profile_transaction_fails_busy_without_blocking_the_caller(
+        string operation)
+    {
+        using var temporary = new TemporaryDirectory();
+        var setup = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(setup.Apply("source", "A1-1\n").Applied);
+        Assert.True(setup.Save("other", "B2-2\n").Saved);
+        var concurrentStore = new WatchAreaFilterProfileStore(temporary.Path);
+        var sourceFingerprint = Fingerprint(setup, "source");
+        var lockPath = Path.Combine(temporary.Path, ".area-profiles.lock");
+        using var transactionLock = new FileStream(
+            lockPath,
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var operationTask = Task.Run(() => operation switch
+        {
+            "enumerate" => (object)concurrentStore.EnumerateProfiles(),
+            "load" => concurrentStore.Load("source"),
+            "save" => concurrentStore.Save("source", "C3-3\n"),
+            "save-as" => concurrentStore.SaveAs("created", "C3-3\n"),
+            "apply" => (object)concurrentStore.Apply("other"),
+            "all" => concurrentStore.ApplyAllAreas(),
+            "rename" => concurrentStore.Rename("source", "renamed", sourceFingerprint),
+            "delete" => concurrentStore.Delete("source", sourceFingerprint),
+            _ => throw new InvalidOperationException(operation),
+        });
+        var completed = await Task.WhenAny(operationTask, Task.Delay(500));
+        if (!ReferenceEquals(completed, operationTask))
+        {
+            transactionLock.Dispose();
+            await operationTask.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Fail("A busy AREA profile transaction must fail immediately instead of blocking the UI thread.");
+        }
+
+        var failure = await Assert.ThrowsAsync<IOException>(async () =>
+            await operationTask.ConfigureAwait(false));
+        Assert.Contains("另一进程", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("重试", failure.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Apply_read_and_destructive_writes_share_the_same_cross_instance_gate()
+    {
+        using var temporary = new TemporaryDirectory();
+        var setup = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(setup.Apply("source", "A1-1\n").Applied);
+        Assert.True(setup.Save("newer", "B2-2\n").Saved);
+        var firstStore = new WatchAreaFilterProfileStore(temporary.Path);
+        var secondStore = new WatchAreaFilterProfileStore(temporary.Path);
+        var sourceFingerprint = Fingerprint(setup, "source");
+        var lockPath = Path.Combine(temporary.Path, ".area-profiles.lock");
+        using var transactionLock = new FileStream(
+            lockPath,
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None);
+
+        var applyTask = Task.Run(() => firstStore.Apply("newer"));
+        var renameTask = Task.Run(() => secondStore.Rename(
+            "source",
+            "renamed",
+            sourceFingerprint));
+        var deleteTask = Task.Run(() => secondStore.Delete("source", sourceFingerprint));
+
+        foreach (var task in new Task[] { applyTask, renameTask, deleteTask })
+        {
+            var completed = await Task.WhenAny(task, Task.Delay(500));
+            Assert.Same(task, completed);
+            var failure = await Assert.ThrowsAsync<IOException>(async () =>
+                await task.ConfigureAwait(false));
+            Assert.Contains("另一进程", failure.Message, StringComparison.Ordinal);
+        }
+
+        transactionLock.Dispose();
+        Assert.Equal("source", setup.LoadApplied().ProfileName);
+        Assert.True(File.Exists(Path.Combine(temporary.Path, "source.txt")));
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "renamed.txt")));
+    }
+
+    [Fact]
     public void Save_cleans_its_temporary_file_when_the_atomic_directory_entry_switch_fails()
     {
         using var temporary = new TemporaryDirectory();
@@ -281,7 +616,10 @@ public sealed class WatchAreaFilterProfileTests
         Assert.True(store.Save("封装班次", "A1-1").Saved);
 
         var firstApply = store.Apply("封装班次");
-        var editOnly = store.Save("封装班次", "B2-2");
+        var editOnly = store.Save(
+            "封装班次",
+            "B2-2",
+            firstApply.Draft.FileFingerprint);
         var afterEditAndRestart = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
 
         Assert.True(firstApply.Applied);
@@ -412,6 +750,105 @@ public sealed class WatchAreaFilterProfileTests
         Assert.Empty(context.MesAreas);
         Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
     }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Save_and_save_and_apply_reject_a_stale_loaded_fingerprint(
+        bool saveAndApply)
+    {
+        using var temporary = new TemporaryDirectory();
+        var firstStore = new WatchAreaFilterProfileStore(temporary.Path);
+        var secondStore = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(firstStore.Save("AppliedScope", "A1-1\n").Saved);
+        Assert.True(firstStore.Save("EditableScope", "B2-2\n").Saved);
+        Assert.True(firstStore.Apply("AppliedScope").Applied);
+        var stale = firstStore.Load("EditableScope");
+        var concurrent = secondStore.Load("EditableScope");
+        Assert.NotNull(stale.FileFingerprint);
+        Assert.Equal(stale.FileFingerprint, concurrent.FileFingerprint);
+        Assert.True(secondStore.Save(
+            "EditableScope",
+            "C3-3\n",
+            concurrent.FileFingerprint!).Saved);
+
+        IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics;
+        if (saveAndApply)
+        {
+            var result = firstStore.SaveAndApply(
+                "EditableScope",
+                "D4-4\n",
+                stale.FileFingerprint!);
+            Assert.False(result.Saved);
+            Assert.False(result.Applied);
+            diagnostics = result.Diagnostics;
+        }
+        else
+        {
+            var result = firstStore.Save(
+                "EditableScope",
+                "D4-4\n",
+                stale.FileFingerprint!);
+            Assert.False(result.Saved);
+            diagnostics = result.Diagnostics;
+        }
+
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+            Assert.Single(diagnostics).Code);
+        Assert.Equal("C3-3\n", firstStore.Load("EditableScope").Content);
+        Assert.Equal("AppliedScope", firstStore.LoadApplied().ProfileName);
+    }
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public void Destructive_operations_reject_a_same_name_replacement_after_confirmation(
+        string operation)
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Save("AppliedScope", "A1-1\n").Saved);
+        Assert.True(store.Save("SourceScope", "B2-2\n").Saved);
+        Assert.True(store.Apply("AppliedScope").Applied);
+        var confirmed = store.Load("SourceScope");
+        Assert.NotNull(confirmed.FileFingerprint);
+        var sourcePath = Path.Combine(temporary.Path, "SourceScope.txt");
+        var movedPath = Path.Combine(temporary.Path, "original-source.txt");
+        File.Move(sourcePath, movedPath);
+        File.WriteAllText(sourcePath, "C3-3\n", new UTF8Encoding(false));
+
+        IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics;
+        if (operation == "rename")
+        {
+            var result = store.Rename(
+                "SourceScope",
+                "RenamedScope",
+                confirmed.FileFingerprint!);
+            Assert.False(result.Renamed);
+            diagnostics = result.Diagnostics;
+        }
+        else
+        {
+            var result = store.Delete("SourceScope", confirmed.FileFingerprint!);
+            Assert.False(result.Deleted);
+            diagnostics = result.Diagnostics;
+        }
+
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+            Assert.Single(diagnostics).Code);
+        Assert.Equal("C3-3\n", store.Load("SourceScope").Content);
+        Assert.Equal("B2-2\n", File.ReadAllText(movedPath, Encoding.UTF8));
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "RenamedScope.txt")));
+        Assert.Equal("AppliedScope", store.LoadApplied().ProfileName);
+    }
+
+    private static string Fingerprint(
+        WatchAreaFilterProfileStore store,
+        string profileName) => store.Load(profileName).FileFingerprint
+        ?? throw new InvalidOperationException(
+            $"{profileName}.txt must have a loaded fingerprint for this operation.");
 
     private sealed class TemporaryDirectory : IDisposable
     {

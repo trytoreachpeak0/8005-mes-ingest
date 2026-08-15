@@ -537,12 +537,22 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     4,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileAppliedCommandRow")));
 
-                var openFileDirectory = Find<ButtonBase>(window, "AreaProfileFileOpenDirectoryButton");
+                var saveAsFile = Find<ButtonBase>(window, "AreaProfileSaveAsButton");
+                var renameFile = Find<ButtonBase>(window, "AreaProfileRenameButton");
+                var deleteFile = Find<ButtonBase>(window, "AreaProfileDeleteButton");
                 var reloadFile = Find<ButtonBase>(window, "AreaProfileFileReloadButton");
                 AssertInteractiveAutomation(
-                    openFileDirectory,
-                    "AreaProfileFileOpenDirectoryButton",
-                    "打开当前 AREA TXT 所在目录");
+                    saveAsFile,
+                    "AreaProfileSaveAsButton",
+                    "另存当前 AREA TXT 配置");
+                AssertInteractiveAutomation(
+                    renameFile,
+                    "AreaProfileRenameButton",
+                    "重命名当前 AREA TXT 配置");
+                AssertInteractiveAutomation(
+                    deleteFile,
+                    "AreaProfileDeleteButton",
+                    "删除当前 AREA TXT 配置");
                 AssertInteractiveAutomation(
                     reloadFile,
                     "AreaProfileFileReloadButton",
@@ -632,6 +642,1113 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
     }
 
     [Fact]
+    public async Task Area_variant_a_real_window_exposes_real_file_commands_with_conflict_safety_and_delete_confirmation()
+    {
+        const string appliedContent = "A1-1\nA1-2\n";
+        using var files = new TemporaryWatchFiles("东区", appliedContent);
+        files.WriteProfile("西区", "B2-2\n");
+        files.WriteProfile("焊线区域", "C3-3\n");
+        files.WriteProfile("临时范围", "AREA-INVALID\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("东区").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                window.Width = 1440;
+                window.Height = 900;
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                window.UpdateLayout();
+
+                var master = Find<Wpf.Ui.Controls.Card>(window, "AreaProfileMasterCard");
+                var editor = Find<Wpf.Ui.Controls.Card>(window, "AreaProfileEditorCard");
+                var body = Find<Grid>(window, "AreaProfileBodyGrid");
+                Assert.Equal(318, master.ActualWidth, precision: 1);
+                Assert.Equal(0, Grid.GetColumn(master));
+                Assert.Equal(2, Grid.GetColumn(editor));
+                var masterOrigin = master.TranslatePoint(new Point(0, 0), body);
+                var editorOrigin = editor.TranslatePoint(new Point(0, 0), body);
+                Assert.Equal(16, editorOrigin.X - masterOrigin.X - master.ActualWidth, precision: 1);
+
+                var localScope = Find<TextBlock>(window, "AreaProfileLocalScopeText");
+                Assert.Equal("仅影响本机当前用户的显示", localScope.Text);
+                Assert.Equal(TextWrapping.NoWrap, localScope.TextWrapping);
+                var allAreas = Find<Wpf.Ui.Controls.Button>(window, "AreaApplyAllAreasButton");
+                Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Transparent, allAreas.Appearance);
+                Assert.True(allAreas.ActualWidth < master.ActualWidth / 2);
+
+                var saveAs = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileSaveAsButton");
+                var rename = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileRenameButton");
+                var delete = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileDeleteButton");
+                Assert.Equal("另存为", saveAs.Content);
+                Assert.Equal("重命名", rename.Content);
+                Assert.Equal("删除", delete.Content);
+                Assert.True(saveAs.IsEnabled);
+                Assert.True(rename.IsEnabled);
+                Assert.True(delete.IsEnabled);
+                var fileCommandLayer = Find<StackPanel>(
+                    window,
+                    "AreaProfileFileCommandLayer");
+                Assert.Equal(1, Grid.GetColumn(fileCommandLayer));
+                Assert.Equal(
+                    new UIElement[] { saveAs, rename, delete },
+                    fileCommandLayer.Children.Cast<UIElement>());
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<TextBox>(window, "AreaProfileNameInput").Visibility);
+
+                var reloadFromDisk = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "AreaProfileFileReloadButton");
+                var saveAndApply = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileApplyButton");
+                Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Transparent, reloadFromDisk.Appearance);
+                Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Secondary, saveAndApply.Appearance);
+                Assert.Equal(
+                    4,
+                    Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
+                var discard = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileDiscardButton");
+                var save = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileSaveButton");
+                var bottomCommandLayer = Assert.IsType<StackPanel>(discard.Parent);
+                Assert.Equal(
+                    new UIElement[] { discard, save },
+                    bottomCommandLayer.Children.Cast<UIElement>());
+
+                Click(saveAs);
+                var operationPanel = Find<FrameworkElement>(
+                    window,
+                    "AreaProfileFileOperationPanel");
+                var operationTarget = Find<TextBox>(window, "AreaProfileTargetNameInput");
+                var operationConfirm = Find<ButtonBase>(
+                    window,
+                    "AreaProfileFileOperationConfirmButton");
+                Assert.Equal(Visibility.Visible, operationPanel.Visibility);
+                Assert.Equal("另存为", Find<TextBlock>(
+                    window,
+                    "AreaProfileFileOperationPromptText").Text);
+
+                operationTarget.Text = "西区";
+                Click(operationConfirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                var conflictInfo = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Equal("无法完成 AREA 配置操作", conflictInfo.Title);
+                Assert.Contains(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
+                    conflictInfo.Message,
+                    StringComparison.Ordinal);
+                Assert.Equal("B2-2\n", store.Load("西区").Content);
+                Assert.Equal(Visibility.Visible, operationPanel.Visibility);
+
+                operationTarget.Text = "东区副本";
+                Click(operationConfirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(appliedContent, store.Load("东区副本").Content);
+                Assert.Equal("东区副本.txt", Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+                Assert.Equal(Visibility.Collapsed, operationPanel.Visibility);
+
+                Click(rename);
+                operationTarget.Text = "东区副本重命名";
+                Click(operationConfirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.False(File.Exists(Path.Combine(files.AreaProfilesPath, "东区副本.txt")));
+                Assert.Equal(appliedContent, store.Load("东区副本重命名").Content);
+                Assert.Equal(
+                    "东区副本重命名.txt",
+                    Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+
+                Click(delete);
+                Assert.True(File.Exists(Path.Combine(files.AreaProfilesPath, "东区副本重命名.txt")));
+                Assert.Equal(Visibility.Visible, operationPanel.Visibility);
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    operationTarget.Visibility);
+                Assert.Contains(
+                    "再次确认",
+                    Find<TextBlock>(window, "AreaProfileFileOperationPromptText").Text,
+                    StringComparison.Ordinal);
+
+                Click(operationConfirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.False(File.Exists(Path.Combine(files.AreaProfilesPath, "东区副本重命名.txt")));
+                Assert.Equal(Visibility.Collapsed, operationPanel.Visibility);
+                Assert.Equal("东区", store.LoadApplied().ProfileName);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Area_file_confirmation_freezes_its_source_and_closes_on_selector_draft_or_page_changes()
+    {
+        using var files = new TemporaryWatchFiles("ProfileA", "A1-1\n");
+        files.WriteProfile("ProfileB", "B2-2\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("ProfileA").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                profileList.SelectedItem = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+                    row => row.ProfileName == "ProfileA");
+
+                Click(Find<ButtonBase>(window, "AreaProfileRenameButton"));
+                var panel = Find<FrameworkElement>(window, "AreaProfileFileOperationPanel");
+                var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
+                var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
+                var confirm = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "AreaProfileFileOperationConfirmButton");
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+                Assert.Contains("ProfileA.txt", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    "ProfileA.txt",
+                    AutomationProperties.GetName(panel),
+                    StringComparison.Ordinal);
+                Assert.Equal(
+                    Wpf.Ui.Controls.ControlAppearance.Secondary,
+                    confirm.Appearance);
+                Assert.Equal(
+                    "确认重命名 ProfileA.txt",
+                    AutomationProperties.GetName(confirm));
+                target.Text = "RenamedA";
+
+                var demandSelector = Find<ComboBox>(
+                    window,
+                    "DemandSeriesAreaProfileSelector");
+                demandSelector.SelectedItem = Assert.Single(
+                    demandSelector.Items.Cast<WatchAreaProfileSelectorOption>(),
+                    option => option.ProfileName == "ProfileB");
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Click(confirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(Visibility.Collapsed, panel.Visibility);
+                Assert.True(File.Exists(Path.Combine(files.AreaProfilesPath, "ProfileA.txt")));
+                Assert.True(File.Exists(Path.Combine(files.AreaProfilesPath, "ProfileB.txt")));
+                Assert.False(File.Exists(Path.Combine(files.AreaProfilesPath, "RenamedA.txt")));
+
+                profileList.SelectedItem = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+                    row => row.ProfileName == "ProfileB");
+                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Assert.Contains("ProfileB.txt", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains("概览、需求系列和资格审计", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains("全部 AREA", prompt.Text, StringComparison.Ordinal);
+                Assert.Equal(
+                    "确认删除 ProfileB.txt",
+                    AutomationProperties.GetName(confirm));
+                Assert.Equal(prompt.Text, AutomationProperties.GetHelpText(confirm));
+
+                var editor = Find<TextBox>(window, "AreaProfileEditor");
+                editor.Text = "B2-2\nC3-3\n";
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                Assert.Equal(Visibility.Collapsed, panel.Visibility);
+                Assert.Equal(string.Empty, AutomationProperties.GetHelpText(confirm));
+                Click(confirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal("B2-2\n", store.Load("ProfileB").Content);
+                Assert.Equal("ProfileB", store.LoadApplied().ProfileName);
+
+                Click(Find<ButtonBase>(window, "AreaProfileDiscardButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+                var settingsNavigation = Find<Wpf.Ui.Controls.NavigationViewItem>(
+                    window,
+                    "SettingsNavigationItem");
+                settingsNavigation.Focus();
+                Click(settingsNavigation);
+                Assert.Equal(Visibility.Collapsed, panel.Visibility);
+                Click(confirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.True(File.Exists(Path.Combine(files.AreaProfilesPath, "ProfileB.txt")));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task External_case_only_profile_rename_keeps_the_actual_filename_selected_and_current()
+    {
+        using var files = new TemporaryWatchFiles("ActiveScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("ActiveScope").Applied);
+        var transitPath = Path.Combine(files.AreaProfilesPath, "case-change.tmp");
+        var actualPath = Path.Combine(files.AreaProfilesPath, "ACTIVESCOPE.txt");
+        File.Move(files.ProfilePath, transitPath);
+        File.Move(transitPath, actualPath);
+        var markerBefore = File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                window.UpdateLayout();
+
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                var row = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                Assert.Equal("ACTIVESCOPE", row.ProfileName);
+                Assert.True(row.IsApplied);
+                Assert.Equal(
+                    "ACTIVESCOPE",
+                    Assert.IsType<WatchAreaFilterProfilePresentationRow>(
+                        profileList.SelectedItem).ProfileName);
+                Assert.Equal(
+                    "ACTIVESCOPE.txt",
+                    Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+
+                var selector = Find<ComboBox>(window, "DemandSeriesAreaProfileSelector");
+                var current = Assert.Single(
+                    selector.Items.Cast<WatchAreaProfileSelectorOption>(),
+                    option => option.ProfileName == "ACTIVESCOPE");
+                Assert.Equal(
+                    "ACTIVESCOPE",
+                    Assert.IsType<WatchAreaProfileSelectorOption>(
+                        selector.SelectedItem).ProfileName);
+                selector.SelectedItem = null;
+                selector.SelectedItem = current;
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal(markerBefore, File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8));
+                Assert.Equal("ActiveScope", store.LoadApplied().ProfileName);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData("AreaProfileRenameButton")]
+    [InlineData("AreaProfileDeleteButton")]
+    public async Task Destructive_confirmation_refuses_an_unreadable_applied_marker(
+        string commandName)
+    {
+        using var files = new TemporaryWatchFiles("ProtectedScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("ProtectedScope").Applied);
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                File.WriteAllText(files.ActiveMarkerPath, "not json", new UTF8Encoding(false));
+
+                Click(Find<ButtonBase>(window, commandName));
+
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
+                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.True(info.IsOpen);
+                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, info.Severity);
+                Assert.Contains("无法确认", info.Title, StringComparison.Ordinal);
+                Assert.Contains("明确应用全部 AREA", info.Message, StringComparison.Ordinal);
+                Assert.True(File.Exists(files.ProfilePath));
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Inline_file_confirmation_restores_focus_after_cancel_and_success()
+    {
+        using var files = new TemporaryWatchFiles("FocusScope", "A1-1\n");
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                window.UpdateLayout();
+                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
+                var rename = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileRenameButton");
+                var cancel = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "AreaProfileFileOperationCancelButton");
+                var confirm = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "AreaProfileFileOperationConfirmButton");
+                var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
+
+                var create = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileNewButton");
+                create.Focus();
+                Click(create);
+                cancel.Focus();
+                Click(cancel);
+                Assert.Same(create, Keyboard.FocusedElement);
+
+                rename.Focus();
+                Click(rename);
+                cancel.Focus();
+                Click(cancel);
+                Assert.Same(rename, Keyboard.FocusedElement);
+
+                Click(rename);
+                target.Text = "RenamedFocusScope";
+                confirm.Focus();
+                Click(confirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Same(rename, Keyboard.FocusedElement);
+                Assert.True(File.Exists(Path.Combine(
+                    files.AreaProfilesPath,
+                    "RenamedFocusScope.txt")));
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Destructive_confirmation_reports_a_busy_profile_store_without_dispatcher_escape()
+    {
+        using var files = new TemporaryWatchFiles("BusyScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("BusyScope").Applied);
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                using var transactionLock = new FileStream(
+                    Path.Combine(files.AreaProfilesPath, ".area-profiles.lock"),
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+
+                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
+                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.True(info.IsOpen);
+                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, info.Severity);
+                Assert.Contains("稍后重试", info.Message, StringComparison.Ordinal);
+                Assert.True(File.Exists(files.ProfilePath));
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Delete_confirmation_discloses_and_honors_a_profile_applied_by_another_instance()
+    {
+        using var files = new TemporaryWatchFiles("DeleteTarget", "A1-1\n");
+        files.WriteProfile("InitiallyApplied", "B2-2\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("InitiallyApplied").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                var profiles = Find<ListBox>(window, "AreaProfileList");
+                profiles.SelectedItem = Assert.Single(
+                    profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+                    row => row.ProfileName == "DeleteTarget");
+                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
+                var confirm = Find<Wpf.Ui.Controls.Button>(
+                    window,
+                    "AreaProfileFileOperationConfirmButton");
+                Assert.Contains("若确认时", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains("概览、需求系列和资格审计", prompt.Text, StringComparison.Ordinal);
+                Assert.Equal(prompt.Text, AutomationProperties.GetHelpText(confirm));
+
+                Assert.True(new WatchAreaFilterProfileStore(files.AreaProfilesPath)
+                    .Apply("DeleteTarget")
+                    .Applied);
+                confirm.Focus();
+                Click(confirm);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.False(File.Exists(files.ProfilePath));
+                Assert.True(store.LoadApplied().IsAllAreas);
+                var focus = Assert.IsAssignableFrom<UIElement>(Keyboard.FocusedElement);
+                Assert.Same(Find<ListBox>(window, "AreaProfileList"), focus);
+                Assert.True(focus.IsVisible);
+                Assert.True(focus.IsEnabled);
+                Assert.Contains(
+                    "回退到全部 AREA",
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Message,
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task New_profile_remains_bound_and_retryable_when_marker_apply_fails_after_save()
+    {
+        using var files = new TemporaryWatchFiles("ExistingScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("ExistingScope").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                Click(Find<ButtonBase>(window, "AreaProfileNewButton"));
+                var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
+                target.Text = "RecoverableScope";
+                Click(Find<ButtonBase>(window, "AreaProfileFileOperationConfirmButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Find<TextBox>(window, "AreaProfileEditor").Text = "B2-2\n";
+
+                using (var markerLock = new FileStream(
+                           files.ActiveMarkerPath,
+                           FileMode.Open,
+                           FileAccess.Read,
+                           FileShare.Read))
+                {
+                    Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                    await window.AreaProfileOperationTask.WaitAsync(
+                        TimeSpan.FromSeconds(5),
+                        TestContext.Current.CancellationToken);
+                }
+
+                Assert.True(File.Exists(Path.Combine(
+                    files.AreaProfilesPath,
+                    "RecoverableScope.txt")));
+                Assert.Equal(
+                    "RecoverableScope.txt",
+                    Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+                Assert.Equal(
+                    "磁盘版本未变化",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Contains("已保存", failure.Message, StringComparison.Ordinal);
+                Assert.Contains("未应用", failure.Message, StringComparison.Ordinal);
+                Assert.Equal("ExistingScope", store.LoadApplied().ProfileName);
+
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal("RecoverableScope", store.LoadApplied().ProfileName);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Selected_profile_remains_clean_and_retryable_when_marker_apply_fails_after_save()
+    {
+        using var files = new TemporaryWatchFiles("AppliedScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Save("EditableScope", "B2-2\n").Saved);
+        Assert.True(store.Apply("AppliedScope").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                var profiles = Find<ListBox>(window, "AreaProfileList");
+                profiles.SelectedItem = Assert.Single(
+                    profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+                    row => row.ProfileName == "EditableScope");
+                Find<TextBox>(window, "AreaProfileEditor").Text = "C3-3\nC3-4\n";
+
+                using (var markerLock = new FileStream(
+                           files.ActiveMarkerPath,
+                           FileMode.Open,
+                           FileAccess.Read,
+                           FileShare.Read))
+                {
+                    Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                    await window.AreaProfileOperationTask.WaitAsync(
+                        TimeSpan.FromSeconds(5),
+                        TestContext.Current.CancellationToken);
+                }
+
+                Assert.Equal("C3-3\nC3-4\n", store.Load("EditableScope").Content);
+                Assert.Equal("AppliedScope", store.LoadApplied().ProfileName);
+                Assert.Equal(
+                    "EditableScope.txt",
+                    Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+                Assert.Equal(
+                    "磁盘版本未变化",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Equal("AREA 配置已保存但范围未应用", failure.Title);
+                Assert.Contains("EditableScope.txt 已保存", failure.Message, StringComparison.Ordinal);
+                Assert.Contains("范围未应用", failure.Message, StringComparison.Ordinal);
+                Assert.True(Find<ButtonBase>(window, "AreaProfileApplyButton").IsEnabled);
+
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal("EditableScope", store.LoadApplied().ProfileName);
+                Assert.Equal(
+                    "AREA 配置已应用",
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Title);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Two_windows_preserve_the_external_txt_and_dirty_draft_on_stale_save_or_apply(
+        bool saveAndApply)
+    {
+        using var files = new TemporaryWatchFiles("AppliedScope", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Save("EditableScope", "B2-2\n").Saved);
+        Assert.True(store.Apply("AppliedScope").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var firstComposition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            using var secondComposition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var firstWindow = firstComposition.CreateMainWindow(initializeOnLoaded: false);
+            var secondWindow = secondComposition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                firstWindow.Show();
+                secondWindow.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(
+                    firstWindow,
+                    "AreaFilterNavigationItem"));
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(
+                    secondWindow,
+                    "AreaFilterNavigationItem"));
+                SelectProfile(firstWindow, "EditableScope");
+                SelectProfile(secondWindow, "EditableScope");
+
+                Find<TextBox>(firstWindow, "AreaProfileEditor").Text = "D4-4\n";
+                Find<TextBox>(secondWindow, "AreaProfileEditor").Text = "C3-3\n";
+                Click(Find<ButtonBase>(secondWindow, "AreaProfileSaveButton"));
+                await secondWindow.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Click(Find<ButtonBase>(
+                    firstWindow,
+                    saveAndApply ? "AreaProfileApplyButton" : "AreaProfileSaveButton"));
+                await firstWindow.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal("C3-3\n", store.Load("EditableScope").Content);
+                Assert.Equal("AppliedScope", store.LoadApplied().ProfileName);
+                Assert.Equal(
+                    "D4-4\n",
+                    Find<TextBox>(firstWindow, "AreaProfileEditor").Text);
+                Assert.Equal(
+                    "草稿未保存",
+                    Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
+                Assert.True(Find<ButtonBase>(
+                    firstWindow,
+                    "AreaProfileDiscardButton").IsEnabled);
+                Assert.True(Find<ButtonBase>(
+                    firstWindow,
+                    "AreaProfileSaveAsButton").IsEnabled);
+                var failure = Find<Wpf.Ui.Controls.InfoBar>(
+                    firstWindow,
+                    "AreaProfileInfoBar");
+                Assert.Contains(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                    failure.Message,
+                    StringComparison.Ordinal);
+                Assert.Contains("磁盘", failure.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                secondWindow.Dispose();
+                firstWindow.Dispose();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public async Task File_confirmation_refuses_a_source_replaced_after_the_panel_opens(
+        string operation)
+    {
+        using var files = new TemporaryWatchFiles("AppliedScope", "A1-1\n");
+        var externalStore = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(externalStore.Save("SourceScope", "B2-2\n").Saved);
+        Assert.True(externalStore.Apply("AppliedScope").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                SelectProfile(window, "SourceScope");
+                Click(Find<ButtonBase>(
+                    window,
+                    operation == "rename"
+                        ? "AreaProfileRenameButton"
+                        : "AreaProfileDeleteButton"));
+                var panel = Find<FrameworkElement>(window, "AreaProfileFileOperationPanel");
+                Assert.Equal(Visibility.Visible, panel.Visibility);
+                if (operation == "rename")
+                {
+                    Find<TextBox>(window, "AreaProfileTargetNameInput").Text = "RenamedScope";
+                }
+
+                var loadedByExternalStore = externalStore.Load("SourceScope");
+                Assert.True(externalStore.Save(
+                    "SourceScope",
+                    "C3-3\n",
+                    loadedByExternalStore.FileFingerprint!).Saved);
+                Click(Find<ButtonBase>(window, "AreaProfileFileOperationConfirmButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal("C3-3\n", externalStore.Load("SourceScope").Content);
+                Assert.False(File.Exists(Path.Combine(
+                    files.AreaProfilesPath,
+                    "RenamedScope.txt")));
+                Assert.Equal("AppliedScope", externalStore.LoadApplied().ProfileName);
+                Assert.Equal(Visibility.Collapsed, panel.Visibility);
+                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Contains(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                    failure.Message,
+                    StringComparison.Ordinal);
+                Assert.Contains("重新选择", failure.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Theory]
+    [InlineData("rename")]
+    [InlineData("delete")]
+    public async Task File_confirmation_does_not_adopt_an_unseen_external_version_when_opening(
+        string operation)
+    {
+        using var files = new TemporaryWatchFiles("AppliedScope", "A1-1\n");
+        var externalStore = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(externalStore.Save("SourceScope", "B2-2\n").Saved);
+        Assert.True(externalStore.Apply("AppliedScope").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                SelectProfile(window, "SourceScope");
+                var loadedByExternalStore = externalStore.Load("SourceScope");
+                Assert.True(externalStore.Save(
+                    "SourceScope",
+                    "C3-3\n",
+                    loadedByExternalStore.FileFingerprint!).Saved);
+
+                Click(Find<ButtonBase>(
+                    window,
+                    operation == "rename"
+                        ? "AreaProfileRenameButton"
+                        : "AreaProfileDeleteButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal(
+                    Visibility.Collapsed,
+                    Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
+                Assert.Equal("C3-3\n", externalStore.Load("SourceScope").Content);
+                Assert.Equal("AppliedScope", externalStore.LoadApplied().ProfileName);
+                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Contains(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                    failure.Message,
+                    StringComparison.Ordinal);
+                Assert.Contains("重新加载", failure.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Late_area_apply_completion_cannot_replace_a_newer_all_areas_success_notice()
+    {
+        const string credential = "ticket-21-area-generation-secret";
+        var slowGate = new FakeHostGate();
+        var slowOverviewReceived = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allAreasDemandReceived = new TaskCompletionSource<DemandSeriesBrowseQuery>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-21-area-generation", credential)
+            {
+                Overview = FakeHostReply.Select<WatchOverviewQuery, WatchOverviewSnapshot>(query =>
+                {
+                    if (query.MesAreas is ["B2-2"])
+                    {
+                        slowOverviewReceived.TrySetResult();
+                        return FakeHostReply.After(
+                            slowGate,
+                            CreateOverview(query.MesAreas),
+                            completeAfterCancellation: true);
+                    }
+
+                    return FakeHostReply.Return(CreateOverview(query.MesAreas ?? []));
+                }),
+                DemandSeries = FakeHostReply.Select<DemandSeriesBrowseQuery, DemandSeriesListSnapshot>(
+                    query =>
+                    {
+                        if (query.Filter.MesAreas.Count == 0)
+                        {
+                            allAreasDemandReceived.TrySetResult(query);
+                        }
+
+                        return query.Filter.MesAreas is ["B2-2"]
+                            ? FakeHostReply.After(
+                                slowGate,
+                                CreateEmptyDemandSeries(query),
+                                completeAfterCancellation: true)
+                            : FakeHostReply.Return(CreateEmptyDemandSeries(query));
+                    }),
+                ReadabilityAudit = FakeHostReply.Select<ReadabilityAuditQuery, ReadabilityAuditListSnapshot>(
+                    query => query.Filter.MesAreas is ["B2-2"]
+                        ? FakeHostReply.After(
+                            slowGate,
+                            CreateEmptyReadabilityAudit(query),
+                            completeAfterCancellation: true)
+                        : FakeHostReply.Return(CreateEmptyReadabilityAudit(query))),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles("InitialScope", "A1-1\n");
+        files.WriteProfile("SlowScope", "B2-2\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("InitialScope").Applied);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl, credential),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(timeout.Token);
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                var profiles = Find<ListBox>(window, "AreaProfileList");
+                profiles.SelectedItem = Assert.Single(
+                    profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+                    row => row.ProfileName == "SlowScope");
+
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                var slowOperation = window.AreaProfileOperationTask;
+                await slowOverviewReceived.Task.WaitAsync(timeout.Token);
+
+                Click(Find<ButtonBase>(window, "AreaApplyAllAreasButton"));
+                var newerOperation = window.AreaProfileOperationTask;
+                Assert.Empty(window.AreaContext.MesAreas);
+                Assert.True(store.LoadApplied().IsAllAreas);
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(
+                    window,
+                    "DemandSeriesNavigationItem"));
+                var navigatedDemandQuery = await allAreasDemandReceived.Task.WaitAsync(timeout.Token);
+                Assert.Empty(navigatedDemandQuery.Filter.MesAreas);
+                await newerOperation.WaitAsync(timeout.Token);
+                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Equal("已应用全部 AREA", info.Title);
+                Assert.Empty(window.AreaContext.MesAreas);
+
+                slowGate.Release();
+                await slowOperation.WaitAsync(timeout.Token);
+
+                Assert.Equal("已应用全部 AREA", info.Title);
+                Assert.Empty(window.AreaContext.MesAreas);
+                Assert.True(store.LoadApplied().IsAllAreas);
+            }
+            finally
+            {
+                slowGate.Release();
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Late_all_areas_completion_cannot_replace_a_newer_profile_apply_success()
+    {
+        var client = new ReverseAreaGenerationClient();
+        using var files = new TemporaryWatchFiles("InitialScope", "A1-1\n");
+        files.WriteProfile("NewScope", "B2-2\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("InitialScope").Applied);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                clientFactory: _ => client,
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(timeout.Token);
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+
+                Click(Find<ButtonBase>(window, "AreaApplyAllAreasButton"));
+                var slowAllAreasOperation = window.AreaProfileOperationTask;
+                await client.AllAreasOverviewStarted.WaitAsync(timeout.Token);
+
+                SelectProfile(window, "NewScope");
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
+                var newerProfileOperation = window.AreaProfileOperationTask;
+                await newerProfileOperation.WaitAsync(timeout.Token);
+                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Equal("AREA 配置已应用", info.Title);
+                Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
+                Assert.Equal("NewScope", store.LoadApplied().ProfileName);
+                Assert.False(
+                    slowAllAreasOperation.IsCompleted,
+                    "The older all-areas operation must still be pending so its generation guard is observable.");
+
+                client.ReleaseAllAreas();
+                await slowAllAreasOperation.WaitAsync(timeout.Token);
+
+                Assert.Equal("AREA 配置已应用", info.Title);
+                Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
+                Assert.Equal("NewScope", store.LoadApplied().ProfileName);
+                Assert.Equal(
+                    "NewScope.txt",
+                    Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+            }
+            finally
+            {
+                client.ReleaseAllAreas();
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
     public async Task Applied_profile_that_is_now_invalid_keeps_critical_text_and_automation_when_selected()
     {
         using var files = new TemporaryWatchFiles("已损坏", "A1-1\n");
@@ -703,7 +1820,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
     [Fact]
     public async Task Readability_and_area_pages_expose_stable_automation_landmarks_and_stack_their_detail_work_below_master_at_720_epx()
     {
-        using var files = new TemporaryWatchFiles("窄屏配置", "A1-1\n");
+        var maximumLengthProfileName = new string('A', 80);
+        using var files = new TemporaryWatchFiles(maximumLengthProfileName, "A1-1\n");
 
         await RunInStaDispatcherAsync(() =>
         {
@@ -839,10 +1957,34 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.InRange(areaMaster.ActualWidth, 1, areaPage.ActualWidth);
                 Assert.InRange(areaEditor.ActualWidth, 1, areaPage.ActualWidth);
 
+                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
+                Click(Find<ButtonBase>(window, "AreaProfileRenameButton"));
+                window.UpdateLayout();
+                var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
+                var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
+                var confirm = Find<ButtonBase>(
+                    window,
+                    "AreaProfileFileOperationConfirmButton");
+                var cancel = Find<ButtonBase>(
+                    window,
+                    "AreaProfileFileOperationCancelButton");
+                Assert.Equal(TextTrimming.CharacterEllipsis, prompt.TextTrimming);
+                Assert.Contains(maximumLengthProfileName, prompt.ToolTip?.ToString(), StringComparison.Ordinal);
+                Assert.Equal(0, Grid.GetRow(prompt));
+                Assert.Equal(2, Grid.GetRow(target));
+                Assert.Equal(2, Grid.GetRow(confirm));
+                Assert.Equal(2, Grid.GetRow(cancel));
+                foreach (var control in new Control[] { target, confirm, cancel })
+                {
+                    AssertHorizontallyDiscoverable(control, areaPage);
+                    Assert.True(control.Focus());
+                    Assert.Same(control, Keyboard.FocusedElement);
+                }
+                Click(cancel);
+
                 var areaInputs = new (string Name, Type Type, string AutomationName)[]
                 {
                     ("AreaProfileList", typeof(ListBox), "本机命名 AREA 配置列表"),
-                    ("AreaProfileNameInput", typeof(TextBox), "AREA 配置名称"),
                     ("AreaProfileEditor", typeof(TextBox), "AREA 配置 TXT 内容编辑器"),
                     ("AreaProfileValidationGrid", typeof(DataGrid), "AREA 配置逐项校验"),
                 };
@@ -853,7 +1995,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     AssertInteractiveAutomation(control, name, automationName);
                 }
 
-                Find<TextBox>(window, "AreaProfileNameInput").Text = "窄屏配置";
+                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
                 Find<TextBox>(window, "AreaProfileEditor").Text = "A1-1\nB2-2\n";
                 window.UpdateLayout();
                 var areaCommands = new Dictionary<string, string>
@@ -979,6 +2121,14 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
     private static void Click(UIElement element) =>
         element.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
 
+    private static void SelectProfile(WatchWorkspaceWindow window, string profileName)
+    {
+        var profiles = Find<ListBox>(window, "AreaProfileList");
+        profiles.SelectedItem = Assert.Single(
+            profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+            row => row.ProfileName == profileName);
+    }
+
     private static void AssertAutomation(
         FrameworkElement element,
         string automationId,
@@ -1090,6 +2240,94 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         thread.SetApartmentState(ApartmentState.STA);
         thread.Start();
         return completion.Task;
+    }
+
+    private sealed class ReverseAreaGenerationClient : IWatchV2ApiClient
+    {
+        private readonly TaskCompletionSource _allAreasOverviewStarted = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseAllAreas = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task AllAreasOverviewStarted => _allAreasOverviewStarted.Task;
+
+        public void ReleaseAllAreas() => _releaseAllAreas.TrySetResult();
+
+        public Task VerifyContractAsync(CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public async Task<WatchOverviewSnapshot> FetchOverviewAsync(
+            WatchOverviewQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            var areas = query.MesAreas ?? [];
+            if (areas.Count == 0)
+            {
+                _allAreasOverviewStarted.TrySetResult();
+                await _releaseAllAreas.Task.ConfigureAwait(false);
+            }
+
+            return CreateOverview(areas);
+        }
+
+        public async Task<DemandSeriesListSnapshot> FetchDemandSeriesAsync(
+            DemandSeriesBrowseQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            if (query.Filter.MesAreas.Count == 0)
+            {
+                await _releaseAllAreas.Task.ConfigureAwait(false);
+            }
+
+            return CreateEmptyDemandSeries(query);
+        }
+
+        public async Task<ReadabilityAuditListSnapshot> FetchReadabilityAuditAsync(
+            ReadabilityAuditQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            if (query.Filter.MesAreas.Count == 0)
+            {
+                await _releaseAllAreas.Task.ConfigureAwait(false);
+            }
+
+            return CreateEmptyReadabilityAudit(query);
+        }
+
+        public Task<DemandSeriesDetailSnapshot> FetchDemandSeriesDetailAsync(
+            string seriesId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => Missing<DemandSeriesDetailSnapshot>();
+
+        public Task<ReadabilityAuditDetailSnapshot> FetchReadabilityAuditDetailAsync(
+            string demandId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => Missing<ReadabilityAuditDetailSnapshot>();
+
+        public Task<ErrorSearchListSnapshot> FetchErrorSearchAsync(
+            ErrorSearchQuery query,
+            CancellationToken cancellationToken = default) => Missing<ErrorSearchListSnapshot>();
+
+        public Task<ErrorSearchDetailSnapshot> FetchErrorSearchDetailAsync(
+            string seriesId,
+            string snapshotReference,
+            CancellationToken cancellationToken = default) => Missing<ErrorSearchDetailSnapshot>();
+
+        public Task<ErrorSearchRawEvidenceSnapshot> FetchErrorRawEvidenceAsync(
+            string seriesId,
+            string evidenceId,
+            string snapshotReference,
+            ErrorSearchRawEvidenceQuery query,
+            CancellationToken cancellationToken = default) => Missing<ErrorSearchRawEvidenceSnapshot>();
+
+        public Task<CurrentIngestAttentionSnapshot> FetchCurrentAttentionAsync(
+            CurrentIngestAttentionQuery query,
+            CancellationToken cancellationToken = default) => Missing<CurrentIngestAttentionSnapshot>();
+
+        public void Dispose() => ReleaseAllAreas();
+
+        private static Task<T> Missing<T>() =>
+            Task.FromException<T>(new NotSupportedException());
     }
 
     private sealed class RecordingAreaProfileDirectoryLauncher

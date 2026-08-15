@@ -103,6 +103,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
         }
+        Wpf.Ui.Appearance.ApplicationThemeManager.Changed += OnApplicationThemeChanged;
+        ApplyWatchThemeResources(
+            Wpf.Ui.Appearance.ApplicationThemeManager.GetAppTheme());
         InitializeIntervalInputs();
         ApplyDisplayPreferences(preferences.Display);
         PopulateSettingsInputs();
@@ -117,6 +120,26 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         NavigateTo(WatchWorkspacePage.Overview, activateRefresh: false);
         RenderWorkspace();
+    }
+
+    private void OnApplicationThemeChanged(
+        Wpf.Ui.Appearance.ApplicationTheme theme,
+        Color systemAccent)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        ApplyWatchThemeResources(theme);
+    }
+
+    internal void ApplyWatchThemeResources(Wpf.Ui.Appearance.ApplicationTheme theme)
+    {
+        Resources["WatchAccentSoftBrush"] = theme is Wpf.Ui.Appearance.ApplicationTheme.Dark
+            or Wpf.Ui.Appearance.ApplicationTheme.HighContrast
+                ? FindResource("ControlFillColorSecondaryBrush")
+                : FindResource("WatchAccentSoftLightBrush");
     }
 
     internal WatchV2WorkspaceState WorkspaceState => _session.State;
@@ -214,18 +237,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var demandAreaOperation = BeginDemandSeriesOperation();
-        var auditAreaOperation = BeginReadabilityAuditOperation();
-        _autoRefresh.Deactivate();
-        await _autoRefresh.WaitForIdleAsync()
-            .WaitAsync(cancellationToken)
-            .ConfigureAwait(true);
-        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken)
-            || !IsCurrentReadabilityAuditOperation(auditAreaOperation, cancellationToken))
-        {
-            return;
-        }
-
+        CloseAreaProfileFileOperation(restoreInvokerFocus: false);
         _areaContext = (context ?? throw new ArgumentNullException(nameof(context)))
             .NormalizeAndValidate();
         _overviewQuery = new WatchOverviewQuery(_areaContext.MesAreas).NormalizeAndValidate();
@@ -238,6 +250,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _readabilityAuditQuery.PageSize);
         SyncReadabilityFilterControls(_readabilityAuditQuery);
         RenderWorkspace();
+
+        var demandAreaOperation = BeginDemandSeriesOperation();
+        var auditAreaOperation = BeginReadabilityAuditOperation();
+        _autoRefresh.Deactivate();
+        await _autoRefresh.WaitForIdleAsync()
+            .WaitAsync(cancellationToken)
+            .ConfigureAwait(true);
+        if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken)
+            || !IsCurrentReadabilityAuditOperation(auditAreaOperation, cancellationToken))
+        {
+            return;
+        }
 
         if (_session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
         {
@@ -953,6 +977,27 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 ? emphasizedBrush
                 : "TextFillColorTertiaryBrush");
 
+    private static string FormatConciseHostAreaScope(
+        IReadOnlyList<string>? mesAreas,
+        bool hasSnapshot)
+    {
+        if (!hasSnapshot)
+        {
+            return "Host 尚无范围";
+        }
+
+        if (mesAreas is null || mesAreas.Count == 0)
+        {
+            return "Host 全部 AREA";
+        }
+
+        const int visibleAreaCount = 2;
+        var visibleAreas = string.Join('、', mesAreas.Take(visibleAreaCount));
+        return mesAreas.Count <= visibleAreaCount
+            ? $"Host {visibleAreas}"
+            : $"Host {visibleAreas} 等 {mesAreas.Count:N0} 个 AREA";
+    }
+
     private void RenderDemandSeries(WatchV2WorkspaceState state)
     {
         var presentation = WatchDemandSeriesPresentation.Project(
@@ -964,20 +1009,33 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _isRenderingDemandSeries = true;
         try
         {
-            DemandSeriesContextText.Text = string.Join(
+            var demandSeriesFullContext = string.Join(
                 " · ",
                 new[]
                 {
                     $"本机 AREA：{presentation.LocalAreaHeading}",
+                    presentation.LocalAreaDetail,
                     presentation.HostAreaScope,
                     presentation.SnapshotFacts,
                     presentation.ClientAttemptFacts,
                     $"自动刷新 {_preferences.RefreshIntervals.DemandSeries.IntervalSeconds} 秒",
                 }.Where(value => !string.IsNullOrWhiteSpace(value)));
+            var conciseHostAreaScope = FormatConciseHostAreaScope(
+                state.DemandSeries.Snapshot?.Filter.Normalize().MesAreas,
+                presentation.HasSnapshot);
+            var demandSeriesFreshness = state.DemandSeries.LastSuccessfulAt is { } lastSuccessfulAt
+                ? $"最近成功 {lastSuccessfulAt.ToLocalTime():HH:mm:ss}"
+                : "等待 Host 快照";
+            DemandSeriesContextText.Text =
+                $"本机 {presentation.LocalAreaHeading} · {conciseHostAreaScope} · {demandSeriesFreshness} · 自动刷新 {_preferences.RefreshIntervals.DemandSeries.IntervalSeconds} 秒";
+            DemandSeriesContextText.ToolTip = demandSeriesFullContext;
+            AutomationProperties.SetHelpText(
+                DemandSeriesContextText,
+                demandSeriesFullContext);
             AutomationProperties.SetName(
                 DemandSeriesContextText,
                 presentation.HasSnapshot
-                    ? $"需求系列快照与 AREA 范围：{DemandSeriesContextText.Text}"
+                    ? $"需求系列快照与 AREA 范围：{demandSeriesFullContext}"
                     : "需求系列快照与 AREA 范围");
             var demandFacets = state.DemandSeries.Snapshot?.Facets;
             DemandSeriesTrackingFacetText.Text = demandFacets is null
@@ -1072,6 +1130,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
             DemandSeriesDetailFactsText.Text = detail is null
                 ? "选择后显示 Series 生命周期时间与创建证据。"
                 : $"SeriesStartedAt {detail.StartedAt} · ArchivedAt {detail.ArchivedAt} · 创建 PollTrace {detail.CreatedPollTraceId} · 创建 ProjectionCommit {detail.CreatedProjectionCommitId} · 最近 PollTrace {detail.LatestPollTraceId} · 最近 ProjectionCommit {detail.LatestProjectionCommitId}";
+            AutomationProperties.SetHelpText(
+                DemandSeriesDetailFactsText,
+                DemandSeriesDetailFactsText.Text);
+            DemandSeriesLifecycleEvidencePanel.ToolTip = DemandSeriesDetailFactsText.Text;
+            AutomationProperties.SetHelpText(
+                DemandSeriesLifecycleEvidencePanel,
+                DemandSeriesDetailFactsText.Text);
             DemandSeriesGenerationGrid.ItemsSource = detail?.Generations;
             DemandSeriesLifecycleMilestones.ItemsSource = detail?.LifecycleMilestones;
             DemandSeriesRawObservationGrid.ItemsSource = detail?.RawObservations;
@@ -1240,6 +1305,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Padding = new Thickness(16, 13, 16, 13),
                 Appearance = ControlAppearance.Transparent,
+                Background = Brushes.Transparent,
+                BorderBrush = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(0),
             };
             AutomationProperties.SetName(action, $"打开重点动态 {activity.Heading}");
             action.Click += OnOverviewIntentClick;
@@ -1440,6 +1509,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchWorkspacePage page,
         bool activateRefresh = true)
     {
+        if (_activePage != page)
+        {
+            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
+        }
+
         _activePage = page;
         OverviewPage.Visibility = page == WatchWorkspacePage.Overview ? Visibility.Visible : Visibility.Collapsed;
         DemandSeriesPage.Visibility = page == WatchWorkspacePage.DemandSeries ? Visibility.Visible : Visibility.Collapsed;
@@ -1616,6 +1690,33 @@ internal partial class WatchWorkspaceWindow : IDisposable
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
             ShowSettingsInfo(InfoBarSeverity.Error, "无法保存本机设置", exception.Message);
+        }
+    }
+
+    private void OnRestoreDefaultLayoutClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var hostGeneration = _session.State.HostGeneration;
+            var defaultDisplay = WatchV2DisplayPreferences.Default;
+            ApplyLocalPreferences(_preferences.RefreshIntervals, defaultDisplay);
+            RememberWindowSizeCheckBox.IsChecked = defaultDisplay.RememberWindowSize;
+            KeepNavigationPaneOpenCheckBox.IsChecked = defaultDisplay.IsNavigationPaneOpen;
+            ApplyDisplayPreferences(defaultDisplay);
+            if (_session.State.HostGeneration != hostGeneration)
+            {
+                throw new InvalidOperationException(
+                    "Restoring the local layout must not replace the Host session.");
+            }
+
+            ShowSettingsInfo(
+                InfoBarSeverity.Success,
+                "已恢复默认布局",
+                "窗口恢复为 1440×900 和紧凑导航 rail；刷新间隔与 Host 会话保持不变。");
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            ShowSettingsInfo(InfoBarSeverity.Error, "无法恢复默认布局", exception.Message);
         }
     }
 
@@ -1813,6 +1914,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
         DemandSeriesFullEvidenceTabs.Visibility = showFullEvidence
             ? Visibility.Visible
             : Visibility.Collapsed;
+        DemandSeriesCopyTimeButton.Visibility = showFullEvidence
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DemandSeriesCopyEvidenceButton.Visibility = showFullEvidence
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         DemandSeriesFullEvidenceButton.Content = showFullEvidence
             ? "返回生命周期"
             : "完整证据";
@@ -1963,7 +2070,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         AutomationProperties.SetName(toggle, accessibleName);
         AutomationProperties.SetHelpText(
             toggle,
-            "在 48 epx 紧凑导航与 232 epx 展开导航之间切换");
+            "在 48 epx 紧凑导航与 224 epx 展开导航之间切换");
         ToolTipService.SetToolTip(toggle, accessibleName);
     }
 
@@ -2254,6 +2361,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Interlocked.Increment(ref _areaProfileOperationGeneration);
         Interlocked.Increment(ref _errorSearchOperationGeneration);
         Interlocked.Increment(ref _currentAttentionOperationGeneration);
+        Wpf.Ui.Appearance.ApplicationThemeManager.Changed -= OnApplicationThemeChanged;
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
         WorkspaceContent.SizeChanged -= OnWorkspaceContentSizeChanged;
         WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;

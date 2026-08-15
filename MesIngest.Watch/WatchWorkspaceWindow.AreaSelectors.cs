@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Automation;
+using System.Windows.Input;
 using MesIngest.Core.SeriesProjection;
 using ControlAppearance = Wpf.Ui.Controls.ControlAppearance;
 
@@ -90,7 +91,7 @@ internal partial class WatchWorkspaceWindow
                             : string.Equals(
                                 option.ProfileName,
                                 _areaContext.ProfileName,
-                                StringComparison.Ordinal),
+                                StringComparison.OrdinalIgnoreCase),
                     })
                     .ToArray();
             }
@@ -101,7 +102,7 @@ internal partial class WatchWorkspaceWindow
                         : string.Equals(
                             option.ProfileName,
                             _areaContext.ProfileName,
-                            StringComparison.Ordinal))
+                            StringComparison.OrdinalIgnoreCase))
                 ?? _dataPageAreaProfileOptions[0];
             DemandSeriesAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
             ReadabilityAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
@@ -153,7 +154,9 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
-        AreaProfileOperationTask = ApplyDataPageAreaProfileAsync(option);
+        var focusToPreserve = Keyboard.FocusedElement;
+        CloseAreaProfileFileOperation(restoreInvokerFocus: false);
+        AreaProfileOperationTask = ApplyDataPageAreaProfileAsync(option, focusToPreserve);
     }
 
     private bool IsCurrentAreaProfile(WatchAreaProfileSelectorOption option) =>
@@ -162,12 +165,14 @@ internal partial class WatchWorkspaceWindow
             : string.Equals(
                 option.ProfileName,
                 _areaContext.ProfileName,
-                StringComparison.Ordinal);
+                StringComparison.OrdinalIgnoreCase);
 
     private async Task ApplyDataPageAreaProfileAsync(
-        WatchAreaProfileSelectorOption option)
+        WatchAreaProfileSelectorOption option,
+        IInputElement? focusToPreserve)
     {
-        await RunAreaProfileUiActionAsync(async () =>
+        var renderedCurrentOperation = false;
+        await RunAreaProfileUiActionAsync(async operation =>
         {
             WatchAppliedAreaFilterProfile applied;
             if (option.ProfileName is null)
@@ -193,10 +198,25 @@ internal partial class WatchWorkspaceWindow
                     applied.ToDisplayContext(),
                     _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
+            if (!IsCurrentAreaProfileOperation(operation))
+            {
+                return;
+            }
+
             RenderAreaProfiles(reloadProfiles: true);
+            renderedCurrentOperation = true;
         }).ConfigureAwait(true);
 
-        RenderDataPageAreaProfileSelectors(reloadProfiles: true);
+        if (renderedCurrentOperation)
+        {
+            RenderDataPageAreaProfileSelectors(reloadProfiles: true);
+        }
+
+        if (focusToPreserve is UIElement { IsVisible: true, IsEnabled: true } element
+            && ReferenceEquals(Keyboard.FocusedElement, this))
+        {
+            element.Focus();
+        }
     }
 
     private IReadOnlyList<string> ReadReadabilityStateDraft() =>
@@ -253,17 +273,41 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(
             ReadabilityCatalogRevisionPill,
             $"Host {ReadabilityCatalogRevisionText.Text}");
-        ReadabilityHeaderFactsText.Text = snapshot is null
-            ? $"{presentation.LocalAreaHeading} · 尚无更新时间"
-            : $"{presentation.LocalAreaHeading} · 更新于 {WatchTimeDisplay.Format(snapshot.Snapshot.ProjectionCommittedAt)}";
+        var readabilityHeaderFullFacts = string.Join(
+            " · ",
+            new[]
+            {
+                $"本机 AREA：{presentation.LocalAreaHeading}",
+                presentation.LocalAreaDetail,
+                presentation.HostAreaScope,
+                presentation.SnapshotFacts,
+                presentation.ClientAttemptFacts,
+                presentation.OrderSummary,
+                presentation.HostFilterSummary,
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var conciseHostAreaScope = FormatConciseHostAreaScope(
+            snapshot?.Filter.Normalize().MesAreas,
+            presentation.HasSnapshot);
+        var readabilityFreshness = snapshot is null
+            ? "尚无更新时间"
+            : $"更新于 {snapshot.Snapshot.ProjectionCommittedAt.ToLocalTime():HH:mm:ss}";
+        ReadabilityHeaderFactsText.Text =
+            $"本机 {presentation.LocalAreaHeading} · {conciseHostAreaScope} · {readabilityFreshness}";
+        ReadabilityHeaderFactsText.ToolTip = readabilityHeaderFullFacts;
+        AutomationProperties.SetHelpText(
+            ReadabilityHeaderFactsText,
+            readabilityHeaderFullFacts);
         AutomationProperties.SetName(
             ReadabilityHeaderFactsText,
-            $"资格审计 AREA 与更新时间：{ReadabilityHeaderFactsText.Text}");
+            $"资格审计 AREA 与更新时间：{readabilityHeaderFullFacts}");
 
         var compactSnapshotFacts = string.Join(
             " · ",
             new[]
             {
+                snapshot is null
+                    ? "SnapshotReference 尚无快照"
+                    : $"SnapshotReference {snapshot.SnapshotReference}",
                 presentation.SnapshotFacts,
                 presentation.ClientAttemptFacts,
                 presentation.HostAreaScope,
@@ -296,22 +340,34 @@ internal partial class WatchWorkspaceWindow
         ReadabilityMasterHeadingText.Text =
             $"{presentation.LocalAreaHeading}范围内的 TransportDemand";
 
-        ReadabilityBlockerFacetSummaryText.Text = presentation.BlockerFacets.Count == 0
-            ? "阻断原因精确分面：无命中"
-            : "阻断原因精确分面：" + string.Join(
-                " · ",
-                presentation.BlockerFacets.Select(facet =>
-                    $"{facet.Code} {facet.DemandCount:N0}"));
+        ReadabilityBlockerFacetSummaryText.Text = snapshot is null
+            ? "阻断原因精确分面：尚无快照"
+            : presentation.BlockerFacets.Count == 0
+                ? "阻断原因精确分面：无命中"
+                : "阻断原因精确分面：" + string.Join(
+                    " · ",
+                    presentation.BlockerFacets.Select(facet =>
+                        $"{facet.Code} {facet.DemandCount:N0}"));
         ReadabilityCompactFactsText.Text = string.Join(
             " · ",
             new[]
             {
+                "原因可重叠；不可见总数按 Demand 世代去重",
                 compactSnapshotFacts,
                 ReadabilityBlockerFacetSummaryText.Text,
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
         AutomationProperties.SetName(
             ReadabilityCompactFactsText,
             $"资格审计紧凑快照事实：{ReadabilityCompactFactsText.Text}");
+        AutomationProperties.SetHelpText(
+            ReadabilityCompactFactsText,
+            ReadabilityCompactFactsText.Text);
+        AutomationProperties.SetHelpText(
+            ReadabilityFilterPanel,
+            ReadabilityCompactFactsText.Text);
+        ToolTipService.SetToolTip(
+            ReadabilityFilterPanel,
+            ReadabilityCompactFactsText.Text);
         AutomationProperties.SetName(
             ReadabilityBlockerFacetSummaryText,
             ReadabilityBlockerFacetSummaryText.Text);

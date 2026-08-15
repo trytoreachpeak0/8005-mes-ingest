@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -109,6 +110,7 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 var status = Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityAuditInfoBar");
                 status.Title = "资格审计刷新失败";
                 status.Message = "继续显示上一份成功快照；筛选、分页与详情仍绑定同一 SnapshotReference。";
+                status.Visibility = Visibility.Visible;
                 status.IsOpen = true;
                 window.UpdateLayout();
 
@@ -117,9 +119,16 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Equal(0, viewport.VerticalOffset);
 
                 var compactFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText");
+                Assert.Equal(Visibility.Visible, compactFacts.Visibility);
                 Assert.Equal(TextWrapping.NoWrap, compactFacts.TextWrapping);
                 Assert.Equal(TextTrimming.CharacterEllipsis, compactFacts.TextTrimming);
                 Assert.Equal(compactFacts.Text, compactFacts.ToolTip);
+                Assert.Equal(
+                    compactFacts.Text,
+                    AutomationProperties.GetHelpText(compactFacts));
+                Assert.Contains("SnapshotReference", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("Watch", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("Host 固定排序", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Contains("阻断原因精确分面", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Equal(
                     Visibility.Collapsed,
@@ -130,10 +139,48 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Equal(TextTrimming.CharacterEllipsis, detailFacts.TextTrimming);
                 Assert.Equal(detailFacts.Text, detailFacts.ToolTip);
 
+                var pageLayout = Find<Grid>(window, "ReadabilityAuditLayoutGrid");
+                var globalStatusRegion = Find<StackPanel>(
+                    window,
+                    "ReadabilityGlobalStatusRegion");
+                Assert.Contains(status, globalStatusRegion.Children.Cast<UIElement>());
+                Assert.DoesNotContain(
+                    status,
+                    Find<StackPanel>(window, "ReadabilityDetailNotices")
+                        .Children.Cast<UIElement>());
+                var filterCard = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityFilterCard");
+                var master = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
+                var detailConclusion = Find<Wpf.Ui.Controls.InfoBar>(
+                    window,
+                    "ReadabilityDetailInfoBar");
+                var statusTop = status.TranslatePoint(new Point(), pageLayout).Y;
+                var statusBottom = statusTop + status.ActualHeight;
+                var masterTop = master.TranslatePoint(new Point(), pageLayout).Y;
+                var detailConclusionTop = detailConclusion.TranslatePoint(
+                    new Point(),
+                    pageLayout).Y;
+                var compactFactsBottom = compactFacts.TranslatePoint(
+                    new Point(0, compactFacts.ActualHeight),
+                    pageLayout).Y;
+                var filterTop = filterCard.TranslatePoint(new Point(), pageLayout).Y;
+                Assert.InRange(filterCard.ActualHeight, 80, 90);
+                Assert.True(
+                    compactFactsBottom <= filterTop + 0.5,
+                    $"Persistent Audit facts must stay above the compact filter; factsBottom={compactFactsBottom:0.##}, filterTop={filterTop:0.##}.");
+                Assert.True(
+                    statusBottom <= masterTop + 0.5,
+                    $"Page status must finish before the Audit body; statusBottom={statusBottom:0.##}, masterTop={masterTop:0.##}.");
+                Assert.InRange(Math.Abs(masterTop - detailConclusionTop), 0, 1.5);
+                Assert.InRange(
+                    Math.Abs(status.ActualWidth - pageLayout.ActualWidth),
+                    0,
+                    1.5);
+
                 AssertFullyWithin(
                     Find<Wpf.Ui.Controls.TextBlock>(window, "ReadabilityHeaderFactsText"),
                     viewport,
                     "Audit header");
+                AssertFullyWithin(compactFacts, viewport, "Audit persistent facts");
                 AssertFullyWithin(
                     Find<ScrollViewer>(window, "ReadabilityFilterScroller"),
                     viewport,
@@ -449,11 +496,44 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     OverviewNavigationTargets.ReadabilityAudit,
                     PageNumber: 1,
                     Cursor: null));
+                var auditStatus = Find<Wpf.Ui.Controls.InfoBar>(
+                    window,
+                    "ReadabilityAuditInfoBar");
+                auditStatus.Title = "资格审计加载失败";
+                auditStatus.Message = "Host 暂不可用；请检查连接后重试。";
+                auditStatus.Visibility = Visibility.Visible;
+                auditStatus.IsOpen = true;
                 window.UpdateLayout();
                 Assert.Equal(
                     ScrollBarVisibility.Auto,
                     Find<ScrollViewer>(window, "ReadabilityAuditPage")
                         .VerticalScrollBarVisibility);
+                var auditRoot = Find<Grid>(window, "ReadabilityAuditLayoutGrid");
+                var auditCompactFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText");
+                var auditMaster = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
+                var auditFilter = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityFilterCard");
+                Assert.Equal(Visibility.Visible, auditCompactFacts.Visibility);
+                var auditCompactFactsBottom = auditCompactFacts.TranslatePoint(
+                    new Point(0, auditCompactFacts.ActualHeight),
+                    auditRoot).Y;
+                var auditFilterTop = auditFilter.TranslatePoint(new Point(), auditRoot).Y;
+                Assert.True(
+                    auditCompactFactsBottom <= auditFilterTop + 0.5,
+                    $"At 720px persistent Audit facts must precede the filter; factsBottom={auditCompactFactsBottom:0.##}, filterTop={auditFilterTop:0.##}.");
+                var auditStatusTop = auditStatus.TranslatePoint(new Point(), auditRoot).Y;
+                var auditStatusBottom = auditStatusTop + auditStatus.ActualHeight;
+                var auditMasterTop = auditMaster.TranslatePoint(new Point(), auditRoot).Y;
+                Assert.True(
+                    auditStatusBottom <= auditMasterTop + 0.5,
+                    $"At 720px the page status must precede the complete master; statusBottom={auditStatusBottom:0.##}, masterTop={auditMasterTop:0.##}.");
+                AssertFullyWithin(
+                    auditCompactFacts,
+                    Find<ScrollViewer>(window, "ReadabilityAuditPage"),
+                    "Audit persistent facts before filter");
+                AssertFullyWithin(
+                    auditStatus,
+                    Find<ScrollViewer>(window, "ReadabilityAuditPage"),
+                    "Audit page-level status before master");
                 Assert.Equal(
                     (0, 2),
                     (Grid.GetColumn(Find<Grid>(window, "ReadabilityDetailRegion")),
@@ -630,10 +710,19 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.True(detailRegion.RowDefinitions[0].Height.IsAuto);
                 AssertPixel(detailRegion.RowDefinitions[1].Height, 12);
                 AssertStar(detailRegion.RowDefinitions[2].Height, 1);
-                var conclusion = Find<Wpf.Ui.Controls.InfoBar>(
+                var globalNotices = Find<StackPanel>(
                     window,
-                    "ReadabilityDetailInfoBar");
-                Assert.Equal(0, Grid.GetRow(conclusion));
+                    "ReadabilityGlobalStatusRegion");
+                Assert.Contains(
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityAuditInfoBar"),
+                    globalNotices.Children.Cast<UIElement>());
+                var notices = Find<StackPanel>(window, "ReadabilityDetailNotices");
+                Assert.Contains(
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityDetailInfoBar"),
+                    notices.Children.Cast<UIElement>());
+                Assert.DoesNotContain(
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityAuditInfoBar"),
+                    notices.Children.Cast<UIElement>());
                 var detailCards = Find<Grid>(window, "ReadabilityDetailCardsGrid");
                 Assert.Equal(2, Grid.GetRow(detailCards));
                 Assert.Equal(3, detailCards.RowDefinitions.Count);

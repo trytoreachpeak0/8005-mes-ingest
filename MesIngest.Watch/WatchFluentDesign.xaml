@@ -25,6 +25,15 @@
     <CornerRadius x:Key="RadiusSurface">8</CornerRadius>
 
     <!--
+        The approved Overview Variant A uses one calm accent-soft surface to
+        identify the locally applied AREA scope. Keep the reviewed light-theme
+        value behind a semantic DynamicResource so high-contrast/theme hosts
+        can replace the brush without changing page structure.
+    -->
+    <SolidColorBrush x:Key="WatchAccentSoftLightBrush" Color="#E7F3FF" />
+    <SolidColorBrush x:Key="WatchAccentSoftBrush" Color="#E7F3FF" />
+
+    <!--
         All semantic text consumes WPF UI's FontTypography ramp. The selected
         prototype intentionally calibrates section headings to 18 epx,
         secondary text to 13 epx, and overview metrics to 30/25 epx because
