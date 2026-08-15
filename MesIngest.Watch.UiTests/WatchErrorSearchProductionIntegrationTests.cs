@@ -172,6 +172,19 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 categories.SelectedItems.Add(completeness);
                 categories.SelectedItems.Add(format);
                 Assert.Equal(2, categories.SelectedItems.Count);
+                AssertSelectedCategorySurface(window, categories, completeness);
+                AssertSelectedCategorySurface(window, categories, format);
+
+                var compactFacts = Find<TextBlock>(window, "ErrorSearchCompactFactsText");
+                Assert.Contains("Host 冻结快照", compactFacts.Text, StringComparison.Ordinal);
+                var fullFacts = Assert.IsType<string>(compactFacts.ToolTip);
+                Assert.Contains("ErrorSearchAsOf", fullFacts, StringComparison.Ordinal);
+                Assert.Contains("UTC 半开窗口", fullFacts, StringComparison.Ordinal);
+                Assert.Contains("Host 已提交条件", fullFacts, StringComparison.Ordinal);
+                Assert.Contains(
+                    "ErrorSearchAsOf",
+                    AutomationProperties.GetHelpText(compactFacts),
+                    StringComparison.Ordinal);
 
                 search.Text = "FORMAT";
                 window.UpdateLayout();
@@ -1285,6 +1298,18 @@ public sealed class WatchErrorSearchProductionIntegrationTests
         var automationId = AutomationProperties.GetAutomationId(container);
         Assert.StartsWith("ErrorSearchCategory_", automationId, StringComparison.Ordinal);
         return AutomationProperties.GetName(container);
+    }
+
+    private static void AssertSelectedCategorySurface(
+        FrameworkElement window,
+        ListBox categories,
+        object item)
+    {
+        window.UpdateLayout();
+        var container = Assert.IsType<ListBoxItem>(
+            categories.ItemContainerGenerator.ContainerFromItem(item));
+        Assert.Same(window.FindResource("AccentFillColorDefaultBrush"), container.Background);
+        Assert.Same(window.FindResource("TextFillColorInverseBrush"), container.Foreground);
     }
 
     internal static T Find<T>(FrameworkElement root, string name)

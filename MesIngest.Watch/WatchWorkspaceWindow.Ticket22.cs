@@ -910,6 +910,21 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchSnapshotText.Text = presentation.SnapshotFacts;
             ErrorSearchWindowText.Text = presentation.CommittedWindow;
             ErrorSearchNormalizedFilterText.Text = presentation.CommittedConditions;
+            var fullContractFacts = string.Join(
+                Environment.NewLine,
+                ErrorSearchScopeText.Text,
+                presentation.SnapshotFacts,
+                presentation.CommittedWindow,
+                presentation.CommittedConditions);
+            ErrorSearchCompactFactsText.Text = presentation.HasSnapshot
+                ? $"Host 冻结快照 · {presentation.SnapshotFacts}"
+                : "Host 尚无冻结快照 · 条件待提交";
+            ErrorSearchCompactFactsText.ToolTip = fullContractFacts;
+            SetTextAutomationName(
+                ErrorSearchCompactFactsText,
+                "错误检索 Host 冻结快照、窗口与已提交条件",
+                fullContractFacts);
+            AutomationProperties.SetHelpText(ErrorSearchCompactFactsText, fullContractFacts);
             ErrorSearchPageSummaryText.Text =
                 $"{presentation.PageSummary} · {presentation.OrderSummary}";
             ErrorSearchEmptyResultText.Text = presentation.EmptyResultMessage;

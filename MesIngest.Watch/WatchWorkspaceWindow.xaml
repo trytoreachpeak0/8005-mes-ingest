@@ -1853,15 +1853,25 @@
                                     Background="{DynamicResource ControlFillColorSecondaryBrush}"
                                     AutomationProperties.Name="错误检索 Host 冻结快照、窗口与已提交条件">
                                 <StackPanel>
+                                    <ui:TextBlock x:Name="ErrorSearchCompactFactsText"
+                                                  Text="Host 尚无冻结快照 · 条件待提交"
+                                                  Style="{StaticResource CaptionText}"
+                                                  TextWrapping="NoWrap"
+                                                  TextTrimming="CharacterEllipsis"
+                                                  ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
+                                                  AutomationProperties.Name="错误检索 Host 冻结快照、窗口与已提交条件"
+                                                  AutomationProperties.HelpText="尚无 Error Search Host 快照&#xA;UTC 半开窗口：尚无快照&#xA;Host 已提交条件：尚无快照" />
                                     <ui:TextBlock x:Name="ErrorSearchScopeText"
                                                   Text="按 Host 冻结快照检索真正命中的错误期间；本机 AREA 配置不参与条件、分面或分页。"
                                                   Style="{StaticResource CaptionText}"
+                                                  Visibility="Collapsed"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                   AutomationProperties.Name="错误检索范围：按 Host 冻结快照检索真正命中的错误期间；本机 AREA 配置不参与条件、分面或分页。" />
                                     <ui:TextBlock x:Name="ErrorSearchSnapshotText"
                                                   Text="尚无 Error Search Host 快照"
                                                   Style="{StaticResource CaptionText}"
+                                                  Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
@@ -1869,6 +1879,7 @@
                                     <ui:TextBlock x:Name="ErrorSearchWindowText"
                                                   Text="UTC 半开窗口：尚无快照"
                                                   Style="{StaticResource CaptionText}"
+                                                  Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
@@ -1876,6 +1887,7 @@
                                     <ui:TextBlock x:Name="ErrorSearchNormalizedFilterText"
                                                   Text="Host 已提交条件：尚无快照"
                                                   Style="{StaticResource CaptionText}"
+                                                  Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
@@ -1979,10 +1991,18 @@
                                                 <Style TargetType="{x:Type ListBoxItem}">
                                                     <Setter Property="MinHeight" Value="54" />
                                                     <Setter Property="Padding" Value="10,7" />
+                                                    <Setter Property="Background" Value="Transparent" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                                     <Setter Property="VerticalContentAlignment" Value="Center" />
                                                     <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
                                                     <Setter Property="AutomationProperties.AutomationId" Value="{Binding AutomationId}" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
                                                 </Style>
                                             </ListBox.ItemContainerStyle>
                                             <ListBox.ItemTemplate>
@@ -1993,11 +2013,13 @@
                                                             <ColumnDefinition Width="Auto" />
                                                         </Grid.ColumnDefinitions>
                                                         <StackPanel VerticalAlignment="Center">
-                                                            <ui:TextBlock Text="{Binding Category}"
+                                                            <ui:TextBlock x:Name="ErrorSearchCategoryNameText"
+                                                                          Text="{Binding Category}"
                                                                           Style="{StaticResource CodeText}"
                                                                           FontWeight="SemiBold"
                                                                           TextTrimming="CharacterEllipsis" />
-                                                            <ui:TextBlock Text="{Binding CodesSummary}"
+                                                            <ui:TextBlock x:Name="ErrorSearchCategoryCodesText"
+                                                                          Text="{Binding CodesSummary}"
                                                                           Style="{StaticResource CaptionText}"
                                                                           ToolTip="{Binding CodesSummary}"
                                                                           TextTrimming="CharacterEllipsis" />
@@ -2006,14 +2028,33 @@
                                                                     Margin="8,0,0,0"
                                                                     HorizontalAlignment="Right"
                                                                     VerticalAlignment="Center">
-                                                            <ui:TextBlock Text="{Binding SeriesCountText}"
+                                                            <ui:TextBlock x:Name="ErrorSearchCategorySeriesCountText"
+                                                                          Text="{Binding SeriesCountText}"
                                                                           Style="{StaticResource BodyStrong}"
                                                                           HorizontalAlignment="Right" />
-                                                            <ui:TextBlock Text="{Binding SeriesCountCaption}"
+                                                            <ui:TextBlock x:Name="ErrorSearchCategorySeriesCaptionText"
+                                                                          Text="{Binding SeriesCountCaption}"
                                                                           Style="{StaticResource CaptionText}"
                                                                           HorizontalAlignment="Right" />
                                                         </StackPanel>
                                                     </Grid>
+                                                    <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}}"
+                                                                     Value="True">
+                                                            <Setter TargetName="ErrorSearchCategoryNameText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="ErrorSearchCategoryCodesText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="ErrorSearchCategorySeriesCountText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="ErrorSearchCategorySeriesCaptionText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                        </DataTrigger>
+                                                    </DataTemplate.Triggers>
                                                 </DataTemplate>
                                             </ListBox.ItemTemplate>
                                         </ListBox>
