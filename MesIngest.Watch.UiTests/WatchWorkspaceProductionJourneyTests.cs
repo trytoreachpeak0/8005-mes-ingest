@@ -844,10 +844,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Navigate(
                 window,
                 "ErrorSearchNavigationItem",
-                "ErrorSearchNormalizedFilterText");
+                "ErrorSearchFreshnessText");
             AssertRepresentativeAnchorVisible(
                 window,
-                "ErrorSearchSnapshotText",
+                "ErrorSearchFreshnessText",
                 "Error Search immediately after navigation");
             var errorGrid = WaitForRows(window, "ErrorSearchSeriesGrid", "error Series rows");
             errorGrid.Select(0);
@@ -859,7 +859,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             WaitForRows(window, "ErrorSearchEvidenceGrid", "matched error evidence");
             PrepareRepresentativeFirstScreen(
                 window,
-                "ErrorSearchSnapshotText",
+                "ErrorSearchFreshnessText",
                 "ErrorSearchCategoryList",
                 "Error Search before the production candidate capture");
             Capture(evidence, process.MainWindowHandle, "06-error-search-variant-a");
@@ -889,7 +889,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             WaitUntil(() => drill.IsEnabled, "Series error drill command", StepTimeout);
             drill.Invoke();
             WaitUntil(
-                () => FindById(window, "ErrorSearchNormalizedFilterText") is { } filterText
+                () => FindById(window, "ErrorSearchSeriesIdFilter") is { } filterText
                     && !filterText.Properties.IsOffscreen.ValueOrDefault
                     && TextValue(filterText)
                         .Contains("SERIES-ATTENTION-22", StringComparison.Ordinal),
@@ -916,7 +916,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "drilled Error Search evidence");
             PrepareRepresentativeFirstScreen(
                 window,
-                "ErrorSearchSnapshotText",
+                "ErrorSearchFreshnessText",
                 "ErrorSearchCategoryList",
                 "drilled Error Search before the production candidate capture");
             Capture(evidence, process.MainWindowHandle, "08-current-attention-error-drill");
