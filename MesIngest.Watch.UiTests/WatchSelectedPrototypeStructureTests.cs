@@ -321,7 +321,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                     window,
                     "DemandSeriesFullEvidenceTabs");
                 Assert.Equal(Visibility.Collapsed, fullEvidence.Visibility);
-                Assert.Equal(2, fullEvidence.Items.Count);
+                Assert.Equal(3, fullEvidence.Items.Count);
                 var evidenceToggle = Find<Wpf.Ui.Controls.Button>(
                     window,
                     "DemandSeriesFullEvidenceButton");
@@ -388,6 +388,16 @@ public sealed class WatchSelectedPrototypeStructureTests
                 AssertStar(readabilityDetailCards.RowDefinitions[0].Height, 0.95);
                 AssertPixel(readabilityDetailCards.RowDefinitions[1].Height, 12);
                 AssertStar(readabilityDetailCards.RowDefinitions[2].Height, 1.05);
+                var liveMesFields = Find<Grid>(window, "ReadabilityLiveMesFieldsGrid");
+                Assert.Equal(3, liveMesFields.ColumnDefinitions.Count);
+                Assert.All(
+                    liveMesFields.ColumnDefinitions,
+                    column => AssertStar(column.Width, 1));
+                Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesAreaText"));
+                Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesEqpText"));
+                Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesStepText"));
+                Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesDateText"));
+                Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesPackageText"));
 
                 var areaRoot = Find<Grid>(window, "AreaFilterLayoutGrid");
                 AssertSelectedPageRows(areaRoot, secondGap: 12);

@@ -708,8 +708,14 @@ public sealed class WatchDemandSeriesPresentationTests
             focusedDemandId: null);
 
         var selected = Assert.IsType<WatchDemandSeriesDetailPresentation>(presentation.Detail);
-        Assert.Equal("SL-DETAIL · WIRE_TO_GATE", selected.SeriesHeading);
+        Assert.Equal("series-detail · WIRE_TO_GATE + SL-DETAIL", selected.SeriesHeading);
         Assert.Equal("TRACKING · VISIBLE · 最后序列 3", selected.LifecycleSummary);
+        Assert.Equal("Success", ProjectPresence("VISIBLE").CurrentPresenceSemanticState);
+        Assert.Equal("Caution", ProjectPresence("GONE").CurrentPresenceSemanticState);
+        Assert.Equal(
+            "Neutral",
+            ProjectPresence(DemandSeriesLifecycleContract.LongGoneButVisible)
+                .CurrentPresenceSemanticState);
         Assert.Equal(
             [
                 (1, "demand-generation-1", "—", "GONE"),
@@ -815,6 +821,27 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.Equal("{}", latestEvent.PayloadJson);
         Assert.Equal("poll-20-detail", selected.LatestPollTraceId);
         Assert.Equal("commit-20-detail", selected.LatestProjectionCommitId);
+
+        WatchDemandSeriesDetailPresentation ProjectPresence(string currentPresence)
+        {
+            var presenceState = state with
+            {
+                DemandSeries = state.DemandSeries with
+                {
+                    Detail = detail with
+                    {
+                        Series = detail.Series with { CurrentPresence = currentPresence },
+                    },
+                },
+            };
+            return Assert.IsType<WatchDemandSeriesDetailPresentation>(
+                WatchDemandSeriesPresentation.Project(
+                    presenceState,
+                    new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter()),
+                    WatchAreaDisplayContext.AllAreas,
+                    navigation: null,
+                    focusedDemandId: generation2.DemandId).Detail);
+        }
     }
 
     private static WatchV2WorkspaceState Workspace(

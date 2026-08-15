@@ -628,23 +628,93 @@ internal partial class WatchWorkspaceWindow
 
             var detail = presentation.Detail;
             ReadabilityDetailHeadingText.Text = detail?.Heading ?? "选择一个 Demand 世代";
-            ReadabilityDetailFactsText.Text = detail is null
+            var detailEvidence = detail is null
                 ? presentation.SelectionNotice
                     ?? "详情必须与当前列表使用同一个冻结 snapshotReference。"
                 : $"{detail.Facts} · 全部阻断 {detail.AllBlockersSummary}";
+            ReadabilityDetailFactsText.Text = detail?.BusinessIdentity ?? detailEvidence;
+            ReadabilityDetailFactsText.ToolTip = detailEvidence;
             ReadabilitySeriesFactsText.Text = detail?.SeriesFacts ?? "尚未选择 Series。";
             ReadabilityLiveMesFactsText.Text = detail is null
                 ? "选择后显示可信 LiveMesFieldSet，或保留全部原始观测冲突证据。"
+                : detail.LiveMesFields is null
+                    ? $"{detail.LiveMesFacts} {detail.ObservationSummary}"
+                    : detail.ObservationSummary;
+            var liveMesFields = detail?.LiveMesFields;
+            ReadabilityLiveMesAreaText.Text = liveMesFields?.Area ?? "—";
+            ReadabilityLiveMesEqpText.Text = liveMesFields?.Eqp ?? "—";
+            ReadabilityLiveMesStepText.Text = liveMesFields?.Step ?? "—";
+            ReadabilityLiveMesDateText.Text = liveMesFields?.MesSourceDate ?? "—";
+            ReadabilityLiveMesPackageText.Text = liveMesFields?.Package ?? "—";
+            var liveMesEvidence = detail is null
+                ? ReadabilityLiveMesFactsText.Text
                 : $"{detail.LiveMesFacts} · {detail.ObservationSummary} · {detail.PollTraceFacts}";
+            ReadabilityLiveMesFieldsGrid.ToolTip = liveMesEvidence;
+            AutomationProperties.SetName(
+                ReadabilityLiveMesFieldsGrid,
+                $"资格审计最后可信 MES 字段：AREA {ReadabilityLiveMesAreaText.Text}；EQP {ReadabilityLiveMesEqpText.Text}；STEP {ReadabilityLiveMesStepText.Text}；DATES {ReadabilityLiveMesDateText.Text}；PACKAGE {ReadabilityLiveMesPackageText.Text}");
+            AutomationProperties.SetHelpText(ReadabilityLiveMesFieldsGrid, liveMesEvidence);
+            AutomationProperties.SetName(
+                ReadabilityLiveMesAreaText,
+                $"资格审计 MES AREA {ReadabilityLiveMesAreaText.Text}");
+            AutomationProperties.SetName(
+                ReadabilityLiveMesEqpText,
+                $"资格审计 MES EQP {ReadabilityLiveMesEqpText.Text}");
+            AutomationProperties.SetName(
+                ReadabilityLiveMesStepText,
+                $"资格审计 MES STEP {ReadabilityLiveMesStepText.Text}");
+            AutomationProperties.SetName(
+                ReadabilityLiveMesDateText,
+                $"资格审计 MES DATES {ReadabilityLiveMesDateText.Text}");
+            AutomationProperties.SetName(
+                ReadabilityLiveMesPackageText,
+                $"资格审计 MES PACKAGE {ReadabilityLiveMesPackageText.Text}");
             AutomationProperties.SetName(
                 ReadabilityDetailFactsText,
-                $"资格审计详情快照事实：{ReadabilityDetailFactsText.Text}");
+                $"资格审计业务身份：{ReadabilityDetailFactsText.Text}");
+            AutomationProperties.SetHelpText(ReadabilityDetailFactsText, detailEvidence);
             AutomationProperties.SetName(
                 ReadabilitySeriesFactsText,
                 $"资格审计所属 Series 事实：{ReadabilitySeriesFactsText.Text}");
             AutomationProperties.SetName(
                 ReadabilityLiveMesFactsText,
-                $"资格审计可信 MES 字段或原始观测冲突：{ReadabilityLiveMesFactsText.Text}");
+                $"资格审计 MES 观测说明：{ReadabilityLiveMesFactsText.Text}");
+            AutomationProperties.SetHelpText(ReadabilityLiveMesFactsText, liveMesEvidence);
+            var primaryBlocker = detail?.PrimaryBlockerEvidence;
+            var readabilitySemanticState = detail?.SemanticState ?? "Neutral";
+            ReadabilityPrimaryBlockerCard.Tag = readabilitySemanticState;
+            ReadabilityPrimaryBlockerCodeText.Text = detail is null
+                ? "尚无阻断"
+                : detail.LeadReadabilityBlocker ?? "当前无阻断";
+            ReadabilityPrimaryBlockerEvidenceText.Text = primaryBlocker is null
+                ? detail is null
+                    ? "选择后显示首要阻断证据。"
+                    : string.IsNullOrWhiteSpace(detail.LeadReadabilityBlocker)
+                        ? "当前资格检查未返回阻断证据。"
+                        : "Host 未返回首要阻断的结构化证据。"
+                : $"{primaryBlocker.SubjectKind} · 观测值 {primaryBlocker.ObservedValue} · {primaryBlocker.ObservedAt}";
+            ReadabilityPrimaryBlockerRuleText.Text = primaryBlocker is null
+                ? string.Empty
+                : $"规则：{primaryBlocker.ExpectedRule}";
+            AutomationProperties.SetName(
+                ReadabilityPrimaryBlockerCard,
+                $"首要阻断：{ReadabilityPrimaryBlockerCodeText.Text}；{ReadabilityPrimaryBlockerEvidenceText.Text}；{ReadabilityPrimaryBlockerRuleText.Text}");
+            ReadabilityQualificationChecklist.ItemsSource = detail?.QualificationChecks;
+            ReadabilityQualificationConclusionCard.Tag = readabilitySemanticState;
+            ReadabilityQualificationConclusionText.Text = detail is null
+                ? "结论：尚未选择 Demand"
+                : $"结论：{detail.ExternalReadabilityState}";
+            var revisionEvidence = detail is null
+                ? "选择 Demand 后显示完整 Catalog 修订与冻结快照链。"
+                : $"Catalog Revision {detail.CatalogRevision:N0} · Snapshot {detail.SnapshotReference} · Projection {detail.ProjectionSequence:N0} · {detail.ProjectionCommitId} · PollTrace {detail.PollTraceId}";
+            ReadabilityRevisionFactsText.Text = detail is null
+                ? "Catalog Revision —"
+                : $"Catalog Revision {detail.CatalogRevision:N0}";
+            ReadabilityRevisionFactsText.ToolTip = revisionEvidence;
+            AutomationProperties.SetName(
+                ReadabilityRevisionFactsText,
+                $"资格审计修订目录事实：{ReadabilityRevisionFactsText.Text}");
+            AutomationProperties.SetHelpText(ReadabilityRevisionFactsText, revisionEvidence);
             ReadabilityQualificationGrid.ItemsSource = detail?.QualificationChecks;
             ReadabilityBlockerEvidenceGrid.ItemsSource = detail?.BlockerEvidence;
             ReadabilityRawObservationGrid.ItemsSource = detail?.RawObservations;

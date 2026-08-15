@@ -132,7 +132,16 @@ internal sealed record WatchDemandSeriesEventPresentation(
     string PollTraceId,
     string ProjectionCommitId,
     int PayloadVersion,
-    string PayloadJson);
+    string PayloadJson)
+{
+    public string DemandId => string.Equals(SubjectKind, "Demand", StringComparison.OrdinalIgnoreCase)
+        ? SubjectId
+        : "—";
+
+    public string Summary => string.IsNullOrWhiteSpace(PayloadJson)
+        ? $"{SubjectKind} {SubjectId}"
+        : PayloadJson;
+}
 
 internal sealed record WatchDemandLifecycleMilestonePresentation(
     string Label,
@@ -153,6 +162,8 @@ internal sealed record WatchDemandLifecycleMilestonePresentation(
 
 internal sealed record WatchDemandSeriesDetailPresentation(
     string SeriesHeading,
+    string Lifecycle,
+    string CurrentPresence,
     string LifecycleSummary,
     string StartedAt,
     string ArchivedAt,
@@ -171,7 +182,15 @@ internal sealed record WatchDemandSeriesDetailPresentation(
     IReadOnlyList<WatchDemandErrorPeriodPresentation> ErrorPeriods,
     IReadOnlyList<WatchDemandSeriesEventPresentation> Events,
     string LatestPollTraceId,
-    string LatestProjectionCommitId);
+    string LatestProjectionCommitId)
+{
+    public string CurrentPresenceSemanticState => CurrentPresence switch
+    {
+        DemandSeriesLifecycleContract.Visible => "Success",
+        DemandSeriesLifecycleContract.Gone => "Caution",
+        _ => "Neutral",
+    };
+}
 
 internal sealed record WatchDemandSeriesPresentation(
     bool HasSnapshot,
@@ -669,7 +688,9 @@ internal sealed record WatchDemandSeriesPresentation(
             .Select(ProjectGeneration)
             .ToArray();
         return new WatchDemandSeriesDetailPresentation(
-            $"{series.Sublot} · {series.WorkType}",
+            $"{series.SeriesId} · {series.WorkType} + {series.Sublot}",
+            series.Lifecycle,
+            series.CurrentPresence,
             $"{series.Lifecycle} · {series.CurrentPresence} · 最后序列 {series.LastSeriesSequence:N0}",
             ProjectTime(series.StartedAt),
             ProjectTime(series.ArchivedAt),

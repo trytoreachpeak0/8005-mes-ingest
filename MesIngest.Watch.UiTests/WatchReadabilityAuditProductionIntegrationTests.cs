@@ -321,6 +321,12 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(demandId, detailRequest.ObjectId);
                 Assert.Equal(snapshotReference, detailRequest.SnapshotReference);
 
+                // The detail render invalidates layout synchronously, while measure/arrange is
+                // queued at a lower Dispatcher priority. Drain that queue before reading geometry
+                // so this real-window assertion is isolated from preceding suite load.
+                await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                window.UpdateLayout();
+
                 var detail = Assert.IsType<ReadabilityAuditDetailSnapshot>(
                     window.WorkspaceState.ReadabilityAudit.Detail);
                 Assert.Equal(snapshotReference, detail.SnapshotReference);
@@ -332,17 +338,82 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(2, detail.Blockers.Count);
 
                 var heading = Find<TextBlock>(window, "ReadabilityDetailHeadingText");
-                Assert.Contains(demandId, heading.Text, StringComparison.Ordinal);
+                Assert.Equal($"{demandId} · WIRE_TO_GATE", heading.Text);
                 var facts = Find<TextBlock>(window, "ReadabilityDetailFactsText");
-                Assert.Contains("CatalogRevision 7", facts.Text, StringComparison.Ordinal);
-                Assert.Contains("audit-poll-21", facts.Text, StringComparison.Ordinal);
-                Assert.Contains("audit-commit-21", facts.Text, StringComparison.Ordinal);
+                Assert.Equal(
+                    $"SL-AUDIT-21 · series-audit-21 · Demand Generation 2 · 最后看见 {WatchTimeDisplay.Format(DateTimeOffset.Parse("2026-08-14T05:06:07Z"))}",
+                    facts.Text);
+                Assert.DoesNotContain("Snapshot", facts.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("PollTrace", facts.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("CatalogRevision", facts.Text, StringComparison.Ordinal);
+                var detailSnapshotEvidence = Assert.IsType<string>(facts.ToolTip);
+                Assert.Contains("CatalogRevision 7", detailSnapshotEvidence, StringComparison.Ordinal);
+                Assert.Contains("audit-poll-21", detailSnapshotEvidence, StringComparison.Ordinal);
+                Assert.Contains("audit-commit-21", detailSnapshotEvidence, StringComparison.Ordinal);
+                Assert.Equal(
+                    detailSnapshotEvidence,
+                    AutomationProperties.GetHelpText(facts));
                 var checks = Find<DataGrid>(window, "ReadabilityQualificationGrid");
                 var blockers = Find<DataGrid>(window, "ReadabilityBlockerEvidenceGrid");
                 var raw = Find<DataGrid>(window, "ReadabilityRawObservationGrid");
                 Assert.Equal(2, checks.Items.Count);
                 Assert.Equal(2, blockers.Items.Count);
                 Assert.Equal(2, raw.Items.Count);
+
+                var primaryBlockerCard = Find<Border>(
+                    window,
+                    "ReadabilityPrimaryBlockerCard");
+                var primaryBlockerCode = Find<TextBlock>(
+                    window,
+                    "ReadabilityPrimaryBlockerCodeText");
+                var qualificationChecklist = Find<ItemsControl>(
+                    window,
+                    "ReadabilityQualificationChecklist");
+                var qualificationConclusion = Find<TextBlock>(
+                    window,
+                    "ReadabilityQualificationConclusionText");
+                var qualificationConclusionCard = Find<Border>(
+                    window,
+                    "ReadabilityQualificationConclusionCard");
+                var liveMesFields = Find<Grid>(window, "ReadabilityLiveMesFieldsGrid");
+                var liveMesFacts = Find<TextBlock>(window, "ReadabilityLiveMesFactsText");
+                var revisionFacts = Find<TextBlock>(
+                    window,
+                    "ReadabilityRevisionFactsText");
+                var deepEvidence = Find<Expander>(
+                    window,
+                    "ReadabilityDeepEvidenceExpander");
+                Assert.True(
+                    primaryBlockerCard.IsVisible,
+                    $"Primary blocker must be visible; visibility={primaryBlockerCard.Visibility}, size={primaryBlockerCard.ActualWidth:0.##}x{primaryBlockerCard.ActualHeight:0.##}, detail-size={Find<Wpf.Ui.Controls.Card>(window, "ReadabilityDetailCard").ActualWidth:0.##}x{Find<Wpf.Ui.Controls.Card>(window, "ReadabilityDetailCard").ActualHeight:0.##}.");
+                Assert.Equal("INVALID_MES_FIELD_FORMAT", primaryBlockerCode.Text);
+                Assert.Equal("Blocked", primaryBlockerCard.Tag);
+                Assert.Equal("Blocked", qualificationConclusionCard.Tag);
+                Assert.Equal(2, qualificationChecklist.Items.Count);
+                Assert.Contains("NOT_READABLE", qualificationConclusion.Text, StringComparison.Ordinal);
+                Assert.Equal(3, liveMesFields.ColumnDefinitions.Count);
+                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesAreaText").Text);
+                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesEqpText").Text);
+                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesStepText").Text);
+                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesDateText").Text);
+                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesPackageText").Text);
+                Assert.DoesNotContain("PollTrace", liveMesFacts.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    "PollTrace audit-poll-21",
+                    AutomationProperties.GetHelpText(liveMesFields),
+                    StringComparison.Ordinal);
+                Assert.Equal("Catalog Revision 7", revisionFacts.Text);
+                var revisionEvidence = Assert.IsType<string>(revisionFacts.ToolTip);
+                Assert.Contains("Snapshot snapshot-audit-21", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("Projection 211", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("audit-commit-21", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("PollTrace audit-poll-21", revisionEvidence, StringComparison.Ordinal);
+                Assert.Equal(revisionEvidence, AutomationProperties.GetHelpText(revisionFacts));
+                Assert.Equal("查看完整结构化证据", deepEvidence.Header);
+                Assert.False(deepEvidence.IsExpanded);
+                Assert.False(checks.IsVisible);
+                Assert.False(blockers.IsVisible);
+                Assert.False(raw.IsVisible);
 
                 window.UpdateLayout();
                 var filterCard = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityFilterCard");
@@ -386,16 +457,31 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.InRange(Math.Abs(masterTop - statusTop), 0, 1.5);
 
                 var detailCards = Find<Grid>(window, "ReadabilityDetailCardsGrid");
+                var detailCard = Find<Wpf.Ui.Controls.Card>(
+                    window,
+                    "ReadabilityDetailCard");
+                var summaryCard = Find<Wpf.Ui.Controls.Card>(
+                    window,
+                    "ReadabilityAuditSummaryCard");
+                Assert.Equal(VerticalAlignment.Stretch, detailCard.VerticalAlignment);
+                Assert.Equal(VerticalAlignment.Stretch, summaryCard.VerticalAlignment);
+                Assert.Equal(12, detailCards.RowDefinitions[1].Height.Value);
+                var detailCardBottom = detailCard.TranslatePoint(
+                    new Point(0, detailCard.ActualHeight),
+                    window).Y;
+                var summaryCardTop = summaryCard.TranslatePoint(new Point(), window).Y;
+                Assert.InRange(Math.Abs(summaryCardTop - detailCardBottom - 12), 0, 1.5);
                 var detailBottom = detailCards.TranslatePoint(
                     new Point(0, detailCards.ActualHeight),
                     window).Y;
-                Assert.InRange(detailBottom, 820, 884);
-                Assert.True(
-                    checks.ActualHeight >= checks.ColumnHeaderHeight + (2 * checks.RowHeight),
-                    $"Audit qualifications must show two real rows; actual={checks.ActualHeight:0.##}.");
-                Assert.True(
-                    raw.ActualHeight >= raw.ColumnHeaderHeight + (2 * raw.RowHeight),
-                    $"Audit raw observations must show two real rows; actual={raw.ActualHeight:0.##}.");
+                var masterBottom = master.TranslatePoint(
+                    new Point(0, master.ActualHeight),
+                    window).Y;
+                var summaryBottom = summaryCard.TranslatePoint(
+                    new Point(0, summaryCard.ActualHeight),
+                    window).Y;
+                Assert.InRange(Math.Abs(masterBottom - detailBottom), 0, 1.5);
+                Assert.InRange(Math.Abs(masterBottom - summaryBottom), 0, 1.5);
                 Assert.Equal(
                     "Catalog Revision 7",
                     Find<TextBlock>(window, "ReadabilityCatalogRevisionText").Text);
@@ -739,7 +825,8 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
         LiveMesFields: null,
         CurrentRawObservationCount: 2,
         ExternalReadabilityState: ExternalReadabilityStates.NotReadable,
-        LeadReadabilityBlocker: "REQUIRED_MES_FIELD_MISSING",
+        // Host lead authority deliberately differs from the numeric evidence order.
+        LeadReadabilityBlocker: "INVALID_MES_FIELD_FORMAT",
         ReadabilityBlockers:
         [
             "REQUIRED_MES_FIELD_MISSING",

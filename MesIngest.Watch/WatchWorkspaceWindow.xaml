@@ -661,7 +661,9 @@
                                                 <RowDefinition Height="40" />
                                             </Grid.RowDefinitions>
                                             <StackPanel Margin="16,12">
-                                                <ui:TextBlock Text="当前范围内的 DemandSeries" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesMasterHeadingText"
+                                                              Text="当前范围内的 DemandSeries"
+                                                              Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="DemandSeriesOrderText"
                                                               Text="Host 固定排序：开始时间降序、SeriesId 升序；坏数据仍保留在运维列表中。"
                                                               Style="{StaticResource SecondaryText}"
@@ -676,11 +678,10 @@
                                                          AutomationProperties.Name="需求系列列表"
                                                          AutomationProperties.AutomationId="DemandSeriesGrid">
                                                 <DataGrid.Columns>
-                                                    <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                    <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                     <DataGridTextColumn Header="开始时间" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                     <DataGridTemplateColumn Header="生命周期 / 当前出现" SortMemberPath="LifecycleAndPresence" Width="{StaticResource DemandSeriesColumn210}">
+                                                    <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="105" />
+                                                    <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="165" />
+                                                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="125" />
+                                                     <DataGridTemplateColumn Header="生命周期 / 当前出现" SortMemberPath="LifecycleAndPresence" Width="180">
                                                          <DataGridTemplateColumn.CellTemplate>
                                                              <DataTemplate>
                                                                  <StackPanel Orientation="Horizontal" AutomationProperties.Name="{Binding LifecycleAndPresence}">
@@ -692,29 +693,14 @@
                                                              </DataTemplate>
                                                          </DataGridTemplateColumn.CellTemplate>
                                                      </DataGridTemplateColumn>
-                                                     <DataGridTextColumn Header="当前 Demand" Binding="{Binding CurrentDemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                     <DataGridTextColumn Header="世代" Binding="{Binding CurrentGeneration}" Width="{StaticResource DemandSeriesColumn65}" />
-                                                     <DataGridTextColumn Header="Demand 状态" Binding="{Binding CurrentDemandStatus}" Width="{StaticResource DemandSeriesColumn110}" />
-                                                     <DataGridTextColumn Header="DemandLastSeenAt" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                     <DataGridTextColumn Header="GoneConfirmedAt" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                     <DataGridTextColumn Header="ArchivedAt" Binding="{Binding ArchivedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                     <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="{StaticResource DemandSeriesColumn120}" />
-                                                     <DataGridTextColumn Header="最后序列" Binding="{Binding LastSeriesSequence}" Width="{StaticResource DemandSeriesColumn90}" />
-                                                     <DataGridTemplateColumn Header="相关关注" SortMemberPath="Attention" Width="{StaticResource DemandSeriesColumn260}">
-                                                         <DataGridTemplateColumn.CellTemplate>
-                                                             <DataTemplate>
-                                                                 <StackPanel Orientation="Horizontal" AutomationProperties.Name="{Binding Attention}">
-                                                                     <ui:SymbolIcon Symbol="Alert24" Margin="{StaticResource DemandSeriesCommandTrailingMargin}" />
-                                                                     <ui:TextBlock Text="{Binding Attention}"
-                                                                                   FontTypography="Body"
-                                                                                   TextWrapping="Wrap"
-                                                                                   VerticalAlignment="Center" />
-                                                                 </StackPanel>
-                                                             </DataTemplate>
-                                                         </DataGridTemplateColumn.CellTemplate>
-                                                     </DataGridTemplateColumn>
-                                                     <DataGridTextColumn Header="PollTrace" Binding="{Binding LatestPollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                     <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding LatestProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
+                                                     <DataGridTextColumn Header="当前 AREA" Binding="{Binding LiveMesFields.Area}" Width="85" />
+                                                     <DataGridTextColumn Header="当前 Demand" Binding="{Binding CurrentDemandId}" Width="110" />
+                                                     <DataGridTextColumn Header="世代" Binding="{Binding CurrentGeneration}" Width="55" />
+                                                     <DataGridTextColumn Header="事件" Binding="{Binding LastSeriesSequence}" Width="55" />
+                                                     <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="105" />
+                                                     <DataGridTextColumn Header="LAST SEEN" Binding="{Binding DemandLastSeenAt}" Width="105" />
+                                                     <DataGridTextColumn Header="GONE SINCE" Binding="{Binding GoneConfirmedAt}" Width="95" />
+                                                     <DataGridTextColumn Header="ARCHIVED" Binding="{Binding ArchivedAt}" Width="95" />
                                                  </DataGrid.Columns>
                                              </DataGrid>
                                                 <ui:InfoBar x:Name="DemandSeriesEmptyState"
@@ -799,6 +785,7 @@
                                     <Border x:Name="DemandSeriesDetailPanel"
                                             Grid.Row="2"
                                             Style="{StaticResource SurfaceCard}"
+                                            Padding="0"
                                             AutomationProperties.Name="需求系列详情与证据">
                                         <Grid>
                                             <Grid.RowDefinitions>
@@ -812,11 +799,43 @@
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel>
-                                                    <ui:TextBlock x:Name="DemandSeriesDetailHeadingText"
-                                                                  Text="选择一个需求系列以查看详情"
-                                                                  Style="{StaticResource SectionTitleText}"
-                                                                  AutomationProperties.Name="选中需求系列详情" />
-                                                    <ui:TextBlock Text="详情与列表绑定同一 SnapshotReference；新轮次不会改写当前证据。"
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <ui:TextBlock x:Name="DemandSeriesDetailHeadingText"
+                                                                      Text="选择一个需求系列以查看详情"
+                                                                      Style="{StaticResource SectionTitleText}"
+                                                                      AutomationProperties.Name="选中需求系列详情" />
+                                                        <Border x:Name="DemandSeriesDetailPresencePill"
+                                                                Margin="12,0,0,0"
+                                                                VerticalAlignment="Center"
+                                                                Tag="Neutral"
+                                                                Visibility="Collapsed">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border"
+                                                                       BasedOn="{StaticResource StatusPill}">
+                                                                    <Style.Triggers>
+                                                                        <Trigger Property="Tag" Value="Success">
+                                                                            <Setter Property="Background"
+                                                                                    Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}" />
+                                                                            <Setter Property="TextElement.Foreground"
+                                                                                    Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                                                        </Trigger>
+                                                                        <Trigger Property="Tag" Value="Caution">
+                                                                            <Setter Property="Background"
+                                                                                    Value="{DynamicResource SystemFillColorCautionBackgroundBrush}" />
+                                                                            <Setter Property="TextElement.Foreground"
+                                                                                    Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                                                        </Trigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                            <ui:TextBlock x:Name="DemandSeriesDetailPresenceText"
+                                                                          Text="当前 —"
+                                                                          FontTypography="Caption"
+                                                                          FontWeight="SemiBold" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <ui:TextBlock x:Name="DemandSeriesDetailSummaryText"
+                                                                  Text="详情与列表绑定同一 SnapshotReference；新轮次不会改写当前证据。"
                                                                   Style="{StaticResource SecondaryText}"
                                                                   Margin="0,3,0,0" />
                                                 </StackPanel>
@@ -932,21 +951,11 @@
                                                                       AutomationProperties.Name="Demand 世代关系"
                                                                       AutomationProperties.AutomationId="DemandSeriesGenerationGrid">
                                                                 <DataGrid.Columns>
-                                                                    <DataGridTextColumn Header="代" Binding="{Binding Generation}" Width="{StaticResource DemandSeriesColumn55}" />
-                                                                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                    <DataGridTextColumn Header="Predecessor" Binding="{Binding PredecessorDemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="{StaticResource DemandSeriesColumn90}" />
-                                                                    <DataGridTextColumn Header="创建" Binding="{Binding CreatedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                    <DataGridTextColumn Header="DemandLastSeenAt" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                    <DataGridTextColumn Header="GoneConfirmedAt" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                    <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="{StaticResource DemandSeriesColumn120}" />
-                                                                    <DataGridTextColumn Header="资格阻断" Binding="{Binding ReadabilitySummary}" Width="{StaticResource DemandSeriesColumn240}" />
-                                                                    <DataGridTextColumn Header="可信 MES" Binding="{Binding LiveMesSummary}" Width="{StaticResource DemandSeriesColumn330}" />
-                                                                    <DataGridTextColumn Header="创建 PollTrace" Binding="{Binding CreatedPollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                    <DataGridTextColumn Header="创建 ProjectionCommit" Binding="{Binding CreatedProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                    <DataGridTextColumn Header="最近观测" Binding="{Binding LatestObservationAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                    <DataGridTextColumn Header="观测 PollTrace" Binding="{Binding LatestObservationPollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                    <DataGridTextColumn Header="观测 ProjectionCommit" Binding="{Binding LatestObservationProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
+                                                                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="105" />
+                                                                    <DataGridTextColumn Header="代" Binding="{Binding Generation}" Width="42" />
+                                                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70" />
+                                                                    <DataGridTextColumn Header="创建" Binding="{Binding CreatedAt}" Width="118" />
+                                                                    <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="80" />
                                                                 </DataGrid.Columns>
                                                             </DataGrid>
                                                         </Grid>
@@ -970,14 +979,11 @@
                                                                       AutomationProperties.Name="需求系列永久事件与轮次证据"
                                                                       AutomationProperties.AutomationId="DemandSeriesEventGrid">
                                                                 <DataGrid.Columns>
-                                                                    <DataGridTextColumn Header="SEQ" Binding="{Binding SeriesSequence}" Width="{StaticResource DemandSeriesColumn65}" />
-                                                                    <DataGridTextColumn Header="事件" Binding="{Binding EventType}" Width="{StaticResource DemandSeriesColumn210}" />
-                                                                    <DataGridTextColumn Header="发生时间" Binding="{Binding OccurredAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                    <DataGridTextColumn Header="主体类型" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                                    <DataGridTextColumn Header="主体 ID" Binding="{Binding SubjectId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                    <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                    <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                    <DataGridTextColumn Header="Payload" Binding="{Binding PayloadJson}" Width="{StaticResource DemandSeriesColumn300}" />
+                                                                    <DataGridTextColumn Header="SEQ" Binding="{Binding SeriesSequence}" Width="48" />
+                                                                    <DataGridTextColumn Header="EVENT KIND" Binding="{Binding EventType}" Width="245" />
+                                                                    <DataGridTextColumn Header="OBSERVED" Binding="{Binding OccurredAt}" Width="110" />
+                                                                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="100" />
+                                                                    <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="*" />
                                                                 </DataGrid.Columns>
                                                             </DataGrid>
                                                         </Grid>
@@ -1118,6 +1124,58 @@
                                                              </DataGrid.Columns>
                                                          </DataGrid>
                                                      </Grid>
+                                                </TabItem>
+                                                <TabItem Header="世代与事件完整字段"
+                                                         AutomationProperties.Name="Demand 世代与事件完整字段">
+                                                    <Grid Margin="{StaticResource DemandSeriesContentMargin}">
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="*" />
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="*" />
+                                                        </Grid.RowDefinitions>
+                                                        <ui:TextBlock Text="Demand 世代完整字段" Style="{StaticResource FieldLabel}" />
+                                                        <DataGrid x:Name="DemandSeriesGenerationEvidenceGrid"
+                                                                  Grid.Row="1"
+                                                                  Margin="0,6,0,10"
+                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                                  AutomationProperties.Name="Demand 世代完整字段">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTextColumn Header="代" Binding="{Binding Generation}" Width="55" />
+                                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" />
+                                                                <DataGridTextColumn Header="Predecessor" Binding="{Binding PredecessorDemandId}" Width="180" />
+                                                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
+                                                                <DataGridTextColumn Header="创建" Binding="{Binding CreatedAt}" Width="170" />
+                                                                <DataGridTextColumn Header="DemandLastSeenAt" Binding="{Binding DemandLastSeenAt}" Width="170" />
+                                                                <DataGridTextColumn Header="GoneConfirmedAt" Binding="{Binding GoneConfirmedAt}" Width="170" />
+                                                                <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="120" />
+                                                                <DataGridTextColumn Header="资格阻断" Binding="{Binding ReadabilitySummary}" Width="240" />
+                                                                <DataGridTextColumn Header="可信 MES" Binding="{Binding LiveMesSummary}" Width="330" />
+                                                                <DataGridTextColumn Header="创建 PollTrace" Binding="{Binding CreatedPollTraceId}" Width="160" />
+                                                                <DataGridTextColumn Header="创建 ProjectionCommit" Binding="{Binding CreatedProjectionCommitId}" Width="180" />
+                                                                <DataGridTextColumn Header="最近观测" Binding="{Binding LatestObservationAt}" Width="170" />
+                                                                <DataGridTextColumn Header="观测 PollTrace" Binding="{Binding LatestObservationPollTraceId}" Width="160" />
+                                                                <DataGridTextColumn Header="观测 ProjectionCommit" Binding="{Binding LatestObservationProjectionCommitId}" Width="180" />
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                        <ui:TextBlock Grid.Row="2" Text="DemandSeriesEvent 完整字段" Style="{StaticResource FieldLabel}" />
+                                                        <DataGrid x:Name="DemandSeriesEventEvidenceGrid"
+                                                                  Grid.Row="3"
+                                                                  Margin="0,6,0,0"
+                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                                  AutomationProperties.Name="DemandSeriesEvent 完整字段">
+                                                            <DataGrid.Columns>
+                                                                <DataGridTextColumn Header="SEQ" Binding="{Binding SeriesSequence}" Width="65" />
+                                                                <DataGridTextColumn Header="事件" Binding="{Binding EventType}" Width="210" />
+                                                                <DataGridTextColumn Header="发生时间" Binding="{Binding OccurredAt}" Width="170" />
+                                                                <DataGridTextColumn Header="主体类型" Binding="{Binding SubjectKind}" Width="150" />
+                                                                <DataGridTextColumn Header="主体 ID" Binding="{Binding SubjectId}" Width="180" />
+                                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="160" />
+                                                                <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="180" />
+                                                                <DataGridTextColumn Header="Payload" Binding="{Binding PayloadJson}" Width="300" />
+                                                            </DataGrid.Columns>
+                                                        </DataGrid>
+                                                    </Grid>
                                                 </TabItem>
                                                 </TabControl>
                                             </Grid>
@@ -1648,6 +1706,7 @@
                                              Padding="0"
                                              HorizontalContentAlignment="Stretch"
                                              VerticalContentAlignment="Stretch"
+                                             VerticalAlignment="Stretch"
                                              AutomationProperties.Name="资格审计详情与证据"
                                              AutomationProperties.AutomationId="ReadabilityDetailCard">
                                         <Grid>
@@ -1673,7 +1732,7 @@
                                                                   TextWrapping="NoWrap"
                                                                   TextTrimming="CharacterEllipsis"
                                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                                  AutomationProperties.Name="资格审计详情快照事实" />
+                                                                  AutomationProperties.Name="资格审计业务身份" />
                                                 </StackPanel>
                                                 <ui:Button x:Name="ReadabilityOpenSeriesButton"
                                                            Grid.Column="1"
@@ -1694,11 +1753,69 @@
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel>
                                                     <ui:TextBlock Text="最后可信 MES 观测" Style="{StaticResource BodyStrong}" />
+                                                    <Grid x:Name="ReadabilityLiveMesFieldsGrid"
+                                                          Margin="0,8,12,0"
+                                                          AutomationProperties.Name="资格审计最后可信 MES 字段">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.RowDefinitions>
+                                                            <RowDefinition Height="Auto" />
+                                                            <RowDefinition Height="Auto" />
+                                                        </Grid.RowDefinitions>
+                                                        <StackPanel>
+                                                            <ui:TextBlock Text="AREA" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityLiveMesAreaText"
+                                                                          Text="—"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextTrimming="CharacterEllipsis"
+                                                                          AutomationProperties.Name="资格审计 MES AREA" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="1" Margin="0,8,0,0">
+                                                            <ui:TextBlock Text="DATES" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityLiveMesDateText"
+                                                                          Text="—"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextTrimming="CharacterEllipsis"
+                                                                          AutomationProperties.Name="资格审计 MES DATES" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1">
+                                                            <ui:TextBlock Text="EQP" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityLiveMesEqpText"
+                                                                          Text="—"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextTrimming="CharacterEllipsis"
+                                                                          AutomationProperties.Name="资格审计 MES EQP" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0">
+                                                            <ui:TextBlock Text="PACKAGE" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityLiveMesPackageText"
+                                                                          Text="—"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextTrimming="CharacterEllipsis"
+                                                                          AutomationProperties.Name="资格审计 MES PACKAGE" />
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2">
+                                                            <ui:TextBlock Text="STEP" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityLiveMesStepText"
+                                                                          Text="—"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextTrimming="CharacterEllipsis"
+                                                                          AutomationProperties.Name="资格审计 MES STEP" />
+                                                        </StackPanel>
+                                                    </Grid>
                                                     <ui:TextBlock x:Name="ReadabilityLiveMesFactsText"
                                                                   Text="尚无可信 MES 字段或原始观测冲突"
                                                                   Style="{StaticResource SecondaryText}"
-                                                                  Margin="0,10,12,0"
-                                                                  TextWrapping="NoWrap"
+                                                                  Margin="0,8,12,0"
+                                                                  TextWrapping="Wrap"
                                                                   TextTrimming="CharacterEllipsis"
                                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                                   AutomationProperties.Name="资格审计可信 MES 字段或原始观测冲突" />
@@ -1710,32 +1827,58 @@
                                                         <RowDefinition Height="*" />
                                                     </Grid.RowDefinitions>
                                                     <ui:TextBlock Text="当前阻断条件" Style="{StaticResource BodyStrong}" />
-                                                    <DataGrid x:Name="ReadabilityBlockerEvidenceGrid"
-                                                              Grid.Row="1"
-                                                              Margin="0,8,0,0"
-                                                              KeyboardNavigation.IsTabStop="True"
-                                                              Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                              AutomationProperties.Name="资格审计全部阻断证据"
-                                                              AutomationProperties.AutomationId="ReadabilityBlockerEvidenceGrid">
-                                                        <DataGrid.Columns>
-                                                            <DataGridTextColumn Header="阻断" Binding="{Binding Code}" Width="{StaticResource ReadabilityColumn220}" />
-                                                            <DataGridTextColumn Header="优先级" Binding="{Binding Priority}" Width="{StaticResource ReadabilityColumn80}" />
-                                                            <DataGridTextColumn Header="主体" Binding="{Binding SubjectKind}" Width="{StaticResource ReadabilityColumn120}" />
-                                                            <DataGridTextColumn Header="观测值" Binding="{Binding ObservedValue}" Width="{StaticResource ReadabilityColumn180}" />
-                                                            <DataGridTextColumn Header="规则" Binding="{Binding ExpectedRule}" Width="{StaticResource ReadabilityColumn240}" />
-                                                            <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
-                                                            <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
-                                                        </DataGrid.Columns>
-                                                    </DataGrid>
+                                                    <Border x:Name="ReadabilityPrimaryBlockerCard"
+                                                            Grid.Row="1"
+                                                            Margin="0,8,0,0"
+                                                            Padding="10"
+                                                            CornerRadius="4"
+                                                            Tag="Neutral"
+                                                            AutomationProperties.Name="资格审计首要阻断条件">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="{DynamicResource SystemFillColorNeutralBackgroundBrush}" />
+                                                                <Setter Property="TextElement.Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                                <Style.Triggers>
+                                                                    <Trigger Property="Tag" Value="Blocked">
+                                                                        <Setter Property="Background" Value="{DynamicResource SystemFillColorCautionBackgroundBrush}" />
+                                                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                                                    </Trigger>
+                                                                    <Trigger Property="Tag" Value="Readable">
+                                                                        <Setter Property="Background" Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}" />
+                                                                        <Setter Property="TextElement.Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                                                    </Trigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <StackPanel>
+                                                            <ui:TextBlock x:Name="ReadabilityPrimaryBlockerCodeText"
+                                                                          Text="尚无阻断"
+                                                                          FontTypography="Caption"
+                                                                          FontWeight="SemiBold" />
+                                                            <ui:TextBlock x:Name="ReadabilityPrimaryBlockerEvidenceText"
+                                                                          Text="选择后显示首要阻断证据。"
+                                                                          Style="{StaticResource SecondaryText}"
+                                                                          Margin="0,5,0,0"
+                                                                          TextWrapping="Wrap" />
+                                                            <ui:TextBlock x:Name="ReadabilityPrimaryBlockerRuleText"
+                                                                          Text=""
+                                                                          Style="{StaticResource SecondaryText}"
+                                                                          Margin="0,3,0,0"
+                                                                          TextWrapping="Wrap" />
+                                                        </StackPanel>
+                                                    </Border>
                                                 </Grid>
                                             </Grid>
                                         </Grid>
                                     </ui:Card>
 
-                                    <ui:Card Grid.Row="2"
+                                    <ui:Card x:Name="ReadabilityAuditSummaryCard"
+                                             Grid.Row="2"
                                              Padding="16"
                                              HorizontalContentAlignment="Stretch"
-                                             VerticalContentAlignment="Stretch">
+                                             VerticalContentAlignment="Stretch"
+                                             VerticalAlignment="Stretch"
+                                             AutomationProperties.Name="资格结论与修订目录事实">
                                         <Grid>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="1.1*" />
@@ -1747,6 +1890,7 @@
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="*" />
+                                                    <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
                                                 <ui:TextBlock Text="外部可见资格" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilitySeriesFactsText"
@@ -1758,49 +1902,131 @@
                                                               TextTrimming="CharacterEllipsis"
                                                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                               AutomationProperties.Name="资格审计所属 Series 事实" />
-                                                <DataGrid x:Name="ReadabilityQualificationGrid"
-                                                          Grid.Row="2"
-                                                          KeyboardNavigation.IsTabStop="True"
-                                                          Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                          AutomationProperties.Name="资格审计全部资格检查"
-                                                          AutomationProperties.AutomationId="ReadabilityQualificationGrid">
-                                                    <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="检查" Binding="{Binding Code}" Width="*" />
-                                                        <DataGridTextColumn Header="阻断码" Binding="{Binding BlockingCode}" Width="{StaticResource ReadabilityColumn240}" />
-                                                        <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="{StaticResource ReadabilityColumn120}" />
-                                                    </DataGrid.Columns>
-                                                </DataGrid>
+                                                <ItemsControl x:Name="ReadabilityQualificationChecklist"
+                                                              Grid.Row="2"
+                                                              AutomationProperties.Name="资格审计检查清单">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Margin="0,0,0,6"
+                                                                  AutomationProperties.Name="{Binding Meaning}">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <ui:TextBlock Text="{Binding Result}"
+                                                                              FontTypography="Caption"
+                                                                              FontWeight="SemiBold"
+                                                                              Margin="0,0,8,0" />
+                                                                <ui:TextBlock Grid.Column="1"
+                                                                              Text="{Binding Meaning}"
+                                                                              Style="{StaticResource SecondaryText}"
+                                                                              TextWrapping="Wrap" />
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <Border x:Name="ReadabilityQualificationConclusionCard"
+                                                        Grid.Row="3"
+                                                        Padding="10,7"
+                                                        CornerRadius="4"
+                                                        Tag="Neutral">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{DynamicResource SystemFillColorNeutralBackgroundBrush}" />
+                                                            <Style.Triggers>
+                                                                <Trigger Property="Tag" Value="Blocked">
+                                                                    <Setter Property="Background" Value="{DynamicResource SystemFillColorCautionBackgroundBrush}" />
+                                                                </Trigger>
+                                                                <Trigger Property="Tag" Value="Readable">
+                                                                    <Setter Property="Background" Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}" />
+                                                                </Trigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <ui:TextBlock x:Name="ReadabilityQualificationConclusionText"
+                                                                  Text="结论：尚未选择 Demand"
+                                                                  FontTypography="BodyStrong" />
+                                                </Border>
                                             </Grid>
                                             <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
                                             <Grid Grid.Column="2" Margin="18,0,0,0">
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="*" />
                                                 </Grid.RowDefinitions>
-                                                <ui:TextBlock Text="修订目录与原始观测" Style="{StaticResource SectionTitleText}" />
-                                                <ui:TextBlock Grid.Row="1"
+                                                <ui:TextBlock Text="修订目录事实" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="ReadabilityRevisionFactsText"
+                                                              Grid.Row="1"
+                                                              Text="Catalog Revision —"
+                                                              Style="{StaticResource BodyStrong}"
+                                                              Margin="0,5,0,4"
+                                                              TextWrapping="Wrap"
+                                                              AutomationProperties.Name="资格审计修订目录事实" />
+                                                <ui:TextBlock Grid.Row="2"
                                                               Text="可信事实与原始行保持分离；AREA 只参与范围，不改写资格。"
                                                               Style="{StaticResource SecondaryText}"
-                                                              Margin="0,5,0,10"
+                                                              Margin="0,0,0,8"
                                                               TextWrapping="Wrap" />
-                                                <DataGrid x:Name="ReadabilityRawObservationGrid"
-                                                          Grid.Row="2"
-                                                          KeyboardNavigation.IsTabStop="True"
-                                                          Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                          AutomationProperties.Name="资格审计全部原始观测"
-                                                          AutomationProperties.AutomationId="ReadabilityRawObservationGrid">
-                                                    <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource ReadabilityColumn45}" />
-                                                        <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="{StaticResource ReadabilityColumn100}" />
-                                                        <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="{StaticResource ReadabilityColumn120}" />
-                                                        <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="{StaticResource ReadabilityColumn120}" />
-                                                        <DataGridTextColumn Header="MesSourceDate" Binding="{Binding MesSourceDate}" Width="{StaticResource ReadabilityColumn170}" />
-                                                        <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="{StaticResource ReadabilityColumn120}" />
-                                                        <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
-                                                        <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
-                                                    </DataGrid.Columns>
-                                                </DataGrid>
+                                                <Expander x:Name="ReadabilityDeepEvidenceExpander"
+                                                          Grid.Row="3"
+                                                          Header="查看完整结构化证据"
+                                                          IsExpanded="False"
+                                                          AutomationProperties.Name="查看完整结构化资格证据">
+                                                    <TabControl x:Name="ReadabilityDeepEvidenceTabs"
+                                                                Margin="0,6,0,0"
+                                                                Height="150">
+                                                        <TabItem Header="资格检查">
+                                                            <DataGrid x:Name="ReadabilityQualificationGrid"
+                                                                      KeyboardNavigation.IsTabStop="True"
+                                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                                      AutomationProperties.Name="资格审计全部资格检查"
+                                                                      AutomationProperties.AutomationId="ReadabilityQualificationGrid">
+                                                                <DataGrid.Columns>
+                                                                    <DataGridTextColumn Header="检查" Binding="{Binding Code}" Width="*" />
+                                                                    <DataGridTextColumn Header="阻断码" Binding="{Binding BlockingCode}" Width="{StaticResource ReadabilityColumn240}" />
+                                                                    <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                </DataGrid.Columns>
+                                                            </DataGrid>
+                                                        </TabItem>
+                                                        <TabItem Header="阻断证据">
+                                                            <DataGrid x:Name="ReadabilityBlockerEvidenceGrid"
+                                                                      KeyboardNavigation.IsTabStop="True"
+                                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                                      AutomationProperties.Name="资格审计全部阻断证据"
+                                                                      AutomationProperties.AutomationId="ReadabilityBlockerEvidenceGrid">
+                                                                <DataGrid.Columns>
+                                                                    <DataGridTextColumn Header="阻断" Binding="{Binding Code}" Width="{StaticResource ReadabilityColumn220}" />
+                                                                    <DataGridTextColumn Header="优先级" Binding="{Binding Priority}" Width="{StaticResource ReadabilityColumn80}" />
+                                                                    <DataGridTextColumn Header="主体" Binding="{Binding SubjectKind}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="观测值" Binding="{Binding ObservedValue}" Width="{StaticResource ReadabilityColumn180}" />
+                                                                    <DataGridTextColumn Header="规则" Binding="{Binding ExpectedRule}" Width="{StaticResource ReadabilityColumn240}" />
+                                                                    <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                                </DataGrid.Columns>
+                                                            </DataGrid>
+                                                        </TabItem>
+                                                        <TabItem Header="原始观测">
+                                                            <DataGrid x:Name="ReadabilityRawObservationGrid"
+                                                                      KeyboardNavigation.IsTabStop="True"
+                                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
+                                                                      AutomationProperties.Name="资格审计全部原始观测"
+                                                                      AutomationProperties.AutomationId="ReadabilityRawObservationGrid">
+                                                                <DataGrid.Columns>
+                                                                    <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource ReadabilityColumn45}" />
+                                                                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="{StaticResource ReadabilityColumn100}" />
+                                                                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="MesSourceDate" Binding="{Binding MesSourceDate}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                                </DataGrid.Columns>
+                                                            </DataGrid>
+                                                        </TabItem>
+                                                    </TabControl>
+                                                </Expander>
                                             </Grid>
                                         </Grid>
                                     </ui:Card>

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -247,6 +248,15 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     detailHeading.Text,
                     AutomationProperties.GetName(detailHeading),
                     StringComparison.Ordinal);
+                var presencePill = Find<Border>(
+                    window,
+                    "DemandSeriesDetailPresencePill");
+                Assert.Equal(Visibility.Visible, presencePill.Visibility);
+                Assert.Equal("Success", presencePill.Tag);
+                Assert.Equal(
+                    Assert.IsType<SolidColorBrush>(
+                        window.FindResource("SystemFillColorSuccessBackgroundBrush")).Color,
+                    Assert.IsType<SolidColorBrush>(presencePill.Background).Color);
                 Assert.Equal(
                     "Tracking 1",
                     Find<TextBlock>(window, "DemandSeriesTrackingFacetText").Text);
@@ -295,6 +305,36 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.InRange(masterTop, 230, 244);
                 Assert.InRange(detailTop, 528, 548);
 
+                var masterHeading = Find<TextBlock>(window, "DemandSeriesMasterHeadingText");
+                Assert.True(
+                    masterHeading.FontSize >= 18,
+                    $"Demand master heading must retain the selected section hierarchy; actual={masterHeading.FontSize:0.##}.");
+                Assert.Equal(masterHeading.FontSize, detailHeading.FontSize);
+                Assert.Equal(masterHeading.FontWeight, detailHeading.FontWeight);
+                var masterHeadingX = masterHeading.TranslatePoint(new Point(), window).X;
+                var detailHeadingX = detailHeading.TranslatePoint(new Point(), window).X;
+                Assert.InRange(Math.Abs(masterHeadingX - detailHeadingX), 0, 1.5);
+
+                Assert.Equal(
+                    [
+                        "SeriesId",
+                        "WorkType",
+                        "SUBLOT",
+                        "生命周期 / 当前出现",
+                        "当前 AREA",
+                        "当前 Demand",
+                        "世代",
+                        "事件",
+                        "开始",
+                        "LAST SEEN",
+                        "GONE SINCE",
+                        "ARCHIVED",
+                    ],
+                    grid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
+                AssertNoSignificantHorizontalScroll(
+                    grid,
+                    "Demand master must expose its last summary column in the initial 1440 viewport");
+
                 var detailFacts = Find<TextBlock>(window, "DemandSeriesDetailFactsText");
                 Assert.Equal(TextWrapping.NoWrap, detailFacts.TextWrapping);
                 Assert.Equal(TextTrimming.CharacterEllipsis, detailFacts.TextTrimming);
@@ -309,6 +349,18 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
                 var generationGrid = Find<DataGrid>(window, "DemandSeriesGenerationGrid");
                 var eventGrid = Find<DataGrid>(window, "DemandSeriesEventGrid");
+                Assert.Equal(
+                    ["DemandId", "代", "状态", "创建", "外部可读"],
+                    generationGrid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
+                Assert.Equal(
+                    ["SEQ", "EVENT KIND", "OBSERVED", "DemandId", "摘要"],
+                    eventGrid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
+                AssertNoSignificantHorizontalScroll(
+                    generationGrid,
+                    "Demand generation identity and predecessor fields must be scannable initially");
+                Assert.Equal(
+                    ScrollBarVisibility.Auto,
+                    ScrollViewer.GetHorizontalScrollBarVisibility(eventGrid));
                 Assert.True(
                     generationGrid.ActualHeight >= generationGrid.ColumnHeaderHeight
                         + (2 * generationGrid.RowHeight),
@@ -1147,6 +1199,40 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
     private static T Find<T>(WatchWorkspaceWindow window, string name)
         where T : class => Assert.IsAssignableFrom<T>(window.FindName(name));
+
+    private static void AssertNoSignificantHorizontalScroll(DataGrid grid, string message)
+    {
+        grid.ApplyTemplate();
+        grid.UpdateLayout();
+        var scrollViewer = FindVisualChild<ScrollViewer>(grid);
+        Assert.True(
+            scrollViewer.ScrollableWidth <= 24,
+            $"{message}; scrollableWidth={scrollViewer.ScrollableWidth:0.##}, viewportWidth={scrollViewer.ViewportWidth:0.##}, extentWidth={scrollViewer.ExtentWidth:0.##}.");
+    }
+
+    private static T FindVisualChild<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            try
+            {
+                return FindVisualChild<T>(child);
+            }
+            catch (Xunit.Sdk.XunitException)
+            {
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException(
+            $"Could not find visual child {typeof(T).Name} under {root.GetType().Name}.");
+    }
 
     private sealed class IgnoringCancellationDemandClient : IWatchV2ApiClient
     {

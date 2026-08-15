@@ -251,7 +251,15 @@ public sealed class WatchReadabilityAuditPresentationTests
             WatchAreaDisplayContext.AllAreas);
 
         var selected = Assert.IsType<WatchReadabilityAuditDetailPresentation>(presentation.Detail);
-        Assert.Equal("demand-conflict · NOT_READABLE", selected.Heading);
+        Assert.Equal("demand-conflict · WIRE_TO_GATE", selected.Heading);
+        Assert.Equal(
+            $"SL-demand-conflict · series-demand-conflict · Demand Generation 2 · 最后看见 {WatchTimeDisplay.Format(at)}",
+            selected.BusinessIdentity);
+        Assert.Equal("DUPLICATE_TRANSPORT_DEMAND_KEY", selected.LeadReadabilityBlocker);
+        Assert.Equal("Blocked", selected.SemanticState);
+        Assert.Equal(
+            "DUPLICATE_TRANSPORT_DEMAND_KEY",
+            selected.PrimaryBlockerEvidence?.Code);
         Assert.Contains("snapshot-audit-21", selected.Facts, StringComparison.Ordinal);
         Assert.Contains("commit-audit-21", selected.Facts, StringComparison.Ordinal);
         Assert.Contains("序列 321", selected.Facts, StringComparison.Ordinal);
@@ -321,6 +329,17 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Equal(snapshot.Snapshot.ProjectionSequence, selected.ProjectionSequence);
         Assert.Equal(snapshot.Snapshot.PollTraceId, selected.PollTraceId);
         Assert.Equal(snapshot.Snapshot.CatalogRevision, selected.CatalogRevision);
+
+        var withoutEvidence = WatchReadabilityAuditPresentation.Project(
+            Workspace(snapshot, at, detail with { Blockers = [] }),
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
+            WatchAreaDisplayContext.AllAreas);
+        var selectedWithoutEvidence = Assert.IsType<WatchReadabilityAuditDetailPresentation>(
+            withoutEvidence.Detail);
+        Assert.Equal(ExternalReadabilityStates.NotReadable, selectedWithoutEvidence.ExternalReadabilityState);
+        Assert.Equal("DUPLICATE_TRANSPORT_DEMAND_KEY", selectedWithoutEvidence.LeadReadabilityBlocker);
+        Assert.Equal("Blocked", selectedWithoutEvidence.SemanticState);
+        Assert.Null(selectedWithoutEvidence.PrimaryBlockerEvidence);
     }
 
     [Fact]

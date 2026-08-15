@@ -195,9 +195,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     "Audit detail cards");
                 AssertFullyWithin(status, viewport, "Audit status InfoBar");
                 AssertFullyWithin(
-                    Find<DataGrid>(window, "ReadabilityRawObservationGrid"),
+                    Find<Expander>(window, "ReadabilityDeepEvidenceExpander"),
                     viewport,
-                    "Audit raw-observation evidence");
+                    "Audit full-evidence disclosure");
             }
             finally
             {
@@ -340,8 +340,8 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 AssertWideScrollablePageReaches(
                     window,
                     Find<ScrollViewer>(window, "ReadabilityAuditPage"),
-                    Find<DataGrid>(window, "ReadabilityRawObservationGrid"),
-                    "Audit raw-observation evidence");
+                    Find<Expander>(window, "ReadabilityDeepEvidenceExpander"),
+                    "Audit full-evidence disclosure");
                 Assert.Equal(
                     (2, 0),
                     (Grid.GetColumn(Find<Grid>(window, "ReadabilityDetailRegion")),

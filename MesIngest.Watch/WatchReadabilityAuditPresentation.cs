@@ -83,7 +83,9 @@ internal sealed record WatchReadabilityRawObservationPresentation(
 internal sealed record WatchReadabilityAuditDetailPresentation(
     string DemandId,
     string ExternalReadabilityState,
+    string? LeadReadabilityBlocker,
     string Heading,
+    string BusinessIdentity,
     string Facts,
     string SeriesFacts,
     string LiveMesFacts,
@@ -98,7 +100,23 @@ internal sealed record WatchReadabilityAuditDetailPresentation(
     string ProjectionCommitId,
     long ProjectionSequence,
     string PollTraceId,
-    long CatalogRevision);
+    long CatalogRevision)
+{
+    public string SemanticState => ExternalReadabilityState switch
+    {
+        ExternalReadabilityStates.Readable => "Readable",
+        ExternalReadabilityStates.NotReadable => "Blocked",
+        _ => "Neutral",
+    };
+
+    public WatchReadabilityBlockerEvidencePresentation? PrimaryBlockerEvidence =>
+        string.IsNullOrWhiteSpace(LeadReadabilityBlocker)
+            ? null
+            : BlockerEvidence.FirstOrDefault(blocker => string.Equals(
+                blocker.Code,
+                LeadReadabilityBlocker,
+                StringComparison.Ordinal));
+}
 
 internal sealed record WatchReadabilityAuditPresentation(
     bool HasSnapshot,
@@ -316,7 +334,9 @@ internal sealed record WatchReadabilityAuditPresentation(
         return new WatchReadabilityAuditDetailPresentation(
             demand.DemandId,
             demand.ExternalReadabilityState,
-            $"{demand.DemandId} · {demand.ExternalReadabilityState}",
+            demand.LeadReadabilityBlocker,
+            $"{demand.DemandId} · {demand.WorkType}",
+            $"{ProjectText(demand.Sublot)} · {ProjectText(demand.SeriesId)} · Demand Generation {demand.Generation:N0} · 最后看见 {ProjectTime(demand.DemandLastSeenAt)}",
             $"审计快照 {detail.SnapshotReference} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId} · CatalogRevision {identity.CatalogRevision:N0} · Demand 最新观测 PollTrace {demand.LatestObservationPollTraceId} · ProjectionCommit {demand.LatestObservationProjectionCommitId}",
             $"Series {detail.Series.SeriesId} · {detail.Series.WorkType} · SUBLOT {detail.Series.Sublot} · {detail.Series.Lifecycle} · {detail.Series.CurrentPresence} · 当前 Demand {detail.Series.CurrentDemandId} · 开始 {ProjectTime(detail.Series.StartedAt)} · 归档 {ProjectTime(detail.Series.ArchivedAt)}",
             liveMes is null

@@ -481,11 +481,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesGenerationGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesGenerationEvidenceGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesRawObservationGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesConditionGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesErrorPeriodGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesErrorEvidenceGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesEventGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(DemandSeriesEventEvidenceGrid, preserveSelectionUnit: true);
         DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(
@@ -1121,7 +1123,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var detail = presentation.Detail;
             DemandSeriesDetailHeadingText.Text = detail is null
                 ? "选择一个需求系列以查看详情"
-                : $"{detail.SeriesHeading} · {detail.LifecycleSummary}";
+                : detail.SeriesHeading;
+            DemandSeriesDetailSummaryText.Text = detail is null
+                ? "详情与列表绑定同一 SnapshotReference；新轮次不会改写当前证据。"
+                : $"{detail.Lifecycle} · 当前 Demand {detail.FocusedDemandId} · {detail.Generations.Count:N0} 个 Demand 世代 · {detail.Events.Count:N0} 个事件";
+            DemandSeriesDetailPresenceText.Text = detail is null
+                ? "当前 —"
+                : $"当前 {detail.CurrentPresence}";
+            DemandSeriesDetailPresencePill.Tag =
+                detail?.CurrentPresenceSemanticState ?? "Neutral";
+            DemandSeriesDetailPresencePill.Visibility = detail is null
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             AutomationProperties.SetName(
                 DemandSeriesDetailHeadingText,
                 detail is null
@@ -1138,6 +1151,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 DemandSeriesLifecycleEvidencePanel,
                 DemandSeriesDetailFactsText.Text);
             DemandSeriesGenerationGrid.ItemsSource = detail?.Generations;
+            DemandSeriesGenerationEvidenceGrid.ItemsSource = detail?.Generations;
             DemandSeriesLifecycleMilestones.ItemsSource = detail?.LifecycleMilestones;
             DemandSeriesRawObservationGrid.ItemsSource = detail?.RawObservations;
             var liveMes = detail?.FocusedLiveMesFields;
@@ -1175,6 +1189,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             DemandSeriesErrorPeriodGrid.SelectedItem = selectedPeriod;
             DemandSeriesErrorEvidenceGrid.ItemsSource = selectedPeriod?.Evidence;
             DemandSeriesEventGrid.ItemsSource = detail?.Events;
+            DemandSeriesEventEvidenceGrid.ItemsSource = detail?.Events;
             DemandSeriesGenerationGrid.SelectedItem = detail?.Generations.FirstOrDefault(row =>
                 string.Equals(row.DemandId, detail.FocusedDemandId, StringComparison.Ordinal));
             DemandSeriesCopyTimeButton.IsEnabled = detail is not null;
