@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
@@ -35,21 +37,24 @@ public sealed class WatchErrorFilterLabelLayoutTests
                     PageNumber: 1,
                     Cursor: null));
                 window.Show();
+                SetClientSizeInEpx(window, 1440, 900);
                 window.UpdateLayout();
                 var navigation = Find<Wpf.Ui.Controls.NavigationView>(
                     window,
                     "WorkspaceNavigation");
                 Assert.False(navigation.IsPaneOpen);
-                Assert.True(VisualStateManager.GoToState(
-                    navigation,
-                    "PaneCompact",
-                    useTransitions: false));
-                await window.Dispatcher.InvokeAsync(
-                    window.UpdateLayout,
-                    DispatcherPriority.ApplicationIdle);
+                var paneGrid = Assert.IsAssignableFrom<FrameworkElement>(
+                    FindVisualDescendant<FrameworkElement>(
+                        navigation,
+                        element => string.Equals(
+                            element.Name,
+                            "PaneGrid",
+                            StringComparison.Ordinal)));
+                await WaitForWidthAsync(window, paneGrid, 39.5, 40.5);
 
-                Assert.InRange(window.ActualWidth, 1439.5, 1440.5);
-                Assert.InRange(window.ActualHeight, 899.5, 900.5);
+                var windowRoot = Find<Grid>(window, "WindowRoot");
+                Assert.InRange(windowRoot.ActualWidth, 1439.5, 1440.5);
+                Assert.InRange(windowRoot.ActualHeight, 899.5, 900.5);
 
                 var seriesIdInput = Find<TextBox>(window, "ErrorSearchSeriesIdFilter");
                 var field = Assert.IsType<StackPanel>(seriesIdInput.Parent);
@@ -113,7 +118,7 @@ public sealed class WatchErrorFilterLabelLayoutTests
                 Assert.Equal(new GridLength(12), errorBody.ColumnDefinitions[3].Width);
                 Assert.Equal(new GridLength(370), errorBody.ColumnDefinitions[4].Width);
 
-                window.Width = 1390;
+                SetClientSizeInEpx(window, 1390, 900);
                 window.UpdateLayout();
                 await window.Dispatcher.InvokeAsync(
                     window.UpdateLayout,
@@ -143,4 +148,61 @@ public sealed class WatchErrorFilterLabelLayoutTests
 
     private static T Find<T>(FrameworkElement root, string name)
         where T : class => WatchErrorSearchProductionIntegrationTests.Find<T>(root, name);
+
+    private static T? FindVisualDescendant<T>(
+        DependencyObject root,
+        Predicate<T> predicate)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T candidate && predicate(candidate))
+            {
+                return candidate;
+            }
+
+            var descendant = FindVisualDescendant(child, predicate);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
+    private static async Task WaitForWidthAsync(
+        Window window,
+        FrameworkElement element,
+        double minimum,
+        double maximum)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(2))
+        {
+            await window.Dispatcher.InvokeAsync(
+                window.UpdateLayout,
+                DispatcherPriority.ApplicationIdle);
+            if (element.ActualWidth >= minimum && element.ActualWidth <= maximum)
+            {
+                return;
+            }
+
+            await Task.Delay(16, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Fail(
+            $"The compact navigation pane did not settle within two seconds; "
+            + $"actual width={element.ActualWidth:F2} epx.");
+    }
+
+    private static void SetClientSizeInEpx(Window window, int width, int height)
+    {
+        var dpi = VisualTreeHelper.GetDpi(window);
+        WatchWindowNative.SetClientSize(
+            new WindowInteropHelper(window).Handle,
+            checked((int)Math.Round(width * dpi.DpiScaleX)),
+            checked((int)Math.Round(height * dpi.DpiScaleY)));
+    }
 }
