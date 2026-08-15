@@ -120,6 +120,42 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                 Assert.Equal(2, Find<DataGrid>(window, "CurrentAttentionSeverityFacetGrid").Items.Count);
                 var grid = Find<DataGrid>(window, "CurrentAttentionGrid");
                 Assert.Equal(4, grid.Items.Count);
+                var renderedRows = grid.Items
+                    .Cast<WatchCurrentIngestAttentionRowPresentation>()
+                    .ToArray();
+                Assert.Equal(
+                    CurrentIngestAttentionKinds.All.Order(StringComparer.Ordinal),
+                    renderedRows.Select(row => row.Kind).Order(StringComparer.Ordinal));
+                Assert.All(renderedRows, row =>
+                {
+                    Assert.False(string.IsNullOrWhiteSpace(row.SubjectSummary));
+                    Assert.False(string.IsNullOrWhiteSpace(row.KindLabel));
+                    Assert.True(
+                        row.Severity is CurrentIngestAttentionSeverities.Error
+                            or CurrentIngestAttentionSeverities.Warning);
+                    Assert.False(string.IsNullOrWhiteSpace(row.OccurredAt));
+                    Assert.False(string.IsNullOrWhiteSpace(row.StableIdentity));
+                });
+                Assert.Contains(
+                    renderedRows,
+                    row => row.Kind == CurrentIngestAttentionKinds.SeriesError
+                        && row.SubjectSummary.Contains(SeriesId, StringComparison.Ordinal)
+                        && row.StableIdentity == StableSeriesErrorIdentity);
+                Assert.Contains(
+                    renderedRows,
+                    row => row.Kind == CurrentIngestAttentionKinds.PollRunFailure
+                        && row.SubjectSummary.Contains("attention-poll-failed-22", StringComparison.Ordinal)
+                        && row.Severity == CurrentIngestAttentionSeverities.Error);
+                Assert.Contains(
+                    renderedRows,
+                    row => row.Kind == CurrentIngestAttentionKinds.TaskTypeProtection
+                        && row.SubjectSummary.Contains("WORK-UNSUPPORTED-22", StringComparison.Ordinal)
+                        && row.Severity == CurrentIngestAttentionSeverities.Warning);
+                Assert.Contains(
+                    renderedRows,
+                    row => row.Kind == CurrentIngestAttentionKinds.UnassignedMesObservation
+                        && row.SubjectSummary.Contains("观测序号 7", StringComparison.Ordinal)
+                        && row.Severity == CurrentIngestAttentionSeverities.Warning);
                 Assert.Contains(
                     "精确 8",
                     Find<TextBlock>(window, "CurrentAttentionPageSummaryText").Text,
@@ -232,7 +268,9 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                 await window.InitializeAsync(timeout.Token);
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "ErrorSearchNavigationItem"));
                 await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);
-                Find<ComboBox>(window, "ErrorSearchCategoryFilter").Text = SeriesErrorCategory;
+                WatchErrorSearchProductionIntegrationTests.SelectErrorCategories(
+                    window,
+                    SeriesErrorCategory);
                 Find<TextBox>(window, "ErrorSearchSeriesIdFilter").Text = SeriesId;
                 Click(Find<ButtonBase>(window, "ErrorSearchApplyFilterButton"));
                 await window.ErrorSearchOperationTask.WaitAsync(timeout.Token);
@@ -261,14 +299,17 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                 Assert.True(await window.ApplyHostAsync(
                     new WatchHostSettings(hostB.BaseUrl, credentialB, 30),
                     timeout.Token));
+                Assert.Empty(Find<ListBox>(window, "ErrorSearchCategoryList").SelectedItems);
                 Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "ErrorSearchCategoryFilter").Text));
+                    Find<TextBox>(window, "ErrorSearchCategorySearchInput").Text));
                 Assert.True(string.IsNullOrWhiteSpace(
                     Find<TextBox>(window, "ErrorSearchSeriesIdFilter").Text));
-                Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "CurrentAttentionKindFilter").Text));
-                Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "CurrentAttentionSeverityFilter").Text));
+                Assert.Equal(
+                    "全部类型",
+                    Find<ComboBox>(window, "CurrentAttentionKindFilter").Text);
+                Assert.Equal(
+                    "全部严重度",
+                    Find<ComboBox>(window, "CurrentAttentionSeverityFilter").Text);
 
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "ErrorSearchNavigationItem"));
                 await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);

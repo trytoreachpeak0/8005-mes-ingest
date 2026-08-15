@@ -32,6 +32,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private const string ErrorSnapshotReference = "error-search-snapshot-22";
     private const string PreviewErrorSeriesId = "SERIES-ATTENTION-22";
     private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan PreviewStateTimeout = TimeSpan.FromSeconds(35);
     private static readonly DateTimeOffset PreviewErrorAsOf =
         DateTimeOffset.Parse("2026-08-14T07:08:10Z", CultureInfo.InvariantCulture);
 
@@ -337,6 +338,218 @@ public sealed class WatchWorkspaceProductionJourneyTests
     }
 
     [Fact]
+    public void Area_preview_profiles_are_real_txt_inputs_for_the_selected_variant_states()
+    {
+        var localAppData = Path.Combine(
+            Path.GetTempPath(),
+            "MesIngest.Watch.UiTests",
+            Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture));
+        try
+        {
+            PrepareAreaProfiles(localAppData);
+            var profileDirectory = Path.Combine(
+                localAppData,
+                "MesIngest.Watch",
+                "area-filters");
+            var store = new WatchAreaFilterProfileStore(profileDirectory);
+
+            var summaries = store.EnumerateProfiles();
+            Assert.Equal(4, summaries.Count);
+            Assert.Equal(
+                ["东区", "临时范围", "焊线区域", "西区"],
+                summaries.Select(summary => summary.ProfileName));
+            Assert.Equal("东区", Assert.Single(summaries, summary => summary.IsApplied).ProfileName);
+
+            var applied = store.Load("东区");
+            Assert.True(applied.IsValid);
+            Assert.Equal(12, applied.MesAreas.Count);
+            Assert.Equal(9, store.Load("西区").MesAreas.Count);
+            Assert.Equal(24, store.Load("焊线区域").MesAreas.Count);
+
+            var invalid = store.Load("临时范围");
+            Assert.False(invalid.IsValid);
+            var diagnostic = Assert.Single(invalid.Diagnostics);
+            Assert.Equal(WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea, diagnostic.Code);
+            Assert.Equal(3, diagnostic.LineNumber);
+            Assert.Equal("AREA-INVALID", diagnostic.Value);
+
+            var appliedState = store.LoadApplied();
+            Assert.Equal("东区", appliedState.ProfileName);
+            Assert.Equal(applied.MesAreas, appliedState.MesAreas);
+            Assert.Equal(
+                DateTimeOffset.Parse("2026-08-14T05:00:00Z", CultureInfo.InvariantCulture),
+                appliedState.AppliedAt);
+        }
+        finally
+        {
+            if (Directory.Exists(localAppData))
+            {
+                Directory.Delete(localAppData, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void Overview_preview_reconciles_the_same_page_fixtures_and_keeps_review_density()
+    {
+        string[] mesAreas =
+        [
+            "A1-1", "A1-2", "A2-1", "A2-2",
+            "B1-1", "B1-2", "B2-1", "B2-2",
+            "C1-1", "C1-2", "C2-1", "C2-2",
+        ];
+        var demand = CreateJourneyDemandSeriesList(
+            new DemandSeriesBrowseQuery(
+                new DemandSeriesBrowseFilter { MesAreas = mesAreas }));
+        var demandDetail = CreateJourneyDemandSeriesDetail(
+            DemandSeriesId,
+            DemandSnapshotReference);
+        var audit = CreateJourneyAuditList(
+            new ReadabilityAuditQuery(
+                new ReadabilityAuditFilter { MesAreas = mesAreas }));
+        var errors = CreateJourneyErrorPage(
+            new ErrorSearchQuery(
+                new ErrorSearchFilter(),
+                ErrorSearchWindowSelection.Last7Days));
+        var attention = WatchCurrentAttentionProductionIntegrationTests
+            .CreateAttentionSnapshot(new CurrentIngestAttentionQuery());
+
+        var overview = CreateJourneyOverview(mesAreas);
+
+        Assert.Equal(demand.ExactTotalCount, demand.Items.Count);
+        Assert.InRange(demand.Items.Count, 5, 10);
+        Assert.InRange(demandDetail.Series.Demands.Count, 2, 5);
+        Assert.InRange(demandDetail.Series.Events.Count, 3, 8);
+        Assert.Equal(
+            demand.Items.LongCount(item => item.Lifecycle == DemandSeriesLifecycleContract.Tracking),
+            demand.Facets.TrackingCount);
+        Assert.Equal(
+            demand.Items.LongCount(item => item.Lifecycle == DemandSeriesLifecycleContract.Archived),
+            demand.Facets.ArchivedCount);
+        Assert.Equal(
+            demand.Items.LongCount(item => item.CurrentPresence == DemandSeriesLifecycleContract.Visible),
+            demand.Facets.VisibleCount);
+        Assert.Equal(
+            demand.Items.LongCount(item => item.CurrentPresence == DemandSeriesLifecycleContract.Gone),
+            demand.Facets.GoneCount);
+        Assert.Equal(
+            demand.Items.LongCount(item =>
+                item.CurrentPresence == DemandSeriesLifecycleContract.LongGoneButVisible),
+            demand.Facets.LongGoneButVisibleCount);
+        Assert.Equal(DemandSeriesId, demand.Items[0].SeriesId);
+        Assert.Equal(DemandSeriesId, demandDetail.Series.SeriesId);
+        Assert.Contains(
+            demandDetail.Series.Demands,
+            item => item.DemandId == demandDetail.Series.CurrentDemand.DemandId);
+        Assert.All(
+            demandDetail.Series.Events,
+            item => Assert.Equal(DemandSeriesId, item.SeriesId));
+        Assert.Equal(
+            demandDetail.Series.Events.Count,
+            demandDetail.Series.Events.Select(item => item.SeriesSequence).Distinct().Count());
+        Assert.Equal(audit.ExactTotalDemandCount, audit.Items.Count);
+        Assert.InRange(audit.Items.Count, 5, 10);
+        Assert.All(
+            audit.Facets.ReadabilityStates,
+            facet => Assert.Equal(
+                audit.Items.LongCount(item => item.ExternalReadabilityState == facet.State),
+                facet.DemandCount));
+        Assert.All(
+            audit.Facets.Blockers,
+            facet => Assert.Equal(
+                audit.Items.LongCount(item => item.ReadabilityBlockers.Contains(
+                    facet.Code,
+                    StringComparer.Ordinal)),
+                facet.DemandCount));
+
+        Assert.Equal(mesAreas, overview.MesAreas);
+        Assert.Equal(demand.ExactTotalCount, overview.Series.ExactTotalSeriesCount);
+        Assert.Equal(demand.Facets.TrackingCount, overview.Series.TrackingCount);
+        Assert.Equal(demand.Facets.ArchivedCount, overview.Series.ArchivedCount);
+        Assert.Equal(demand.Facets.GoneCount, overview.Series.GoneCount);
+        Assert.Equal(
+            demand.Facets.LongGoneButVisibleCount,
+            overview.Series.LongGoneButVisibleCount);
+
+        Assert.Equal(
+            audit.ExactTotalDemandCount,
+            overview.Readability.ExactTotalDemandGenerationCount);
+        Assert.Equal(
+            Assert.Single(
+                audit.Facets.ReadabilityStates,
+                facet => facet.State == ExternalReadabilityStates.Readable).DemandCount,
+            overview.Readability.ReadableCount);
+        Assert.Equal(
+            Assert.Single(
+                audit.Facets.ReadabilityStates,
+                facet => facet.State == ExternalReadabilityStates.NotReadable).DemandCount,
+            overview.Readability.NotReadableCount);
+
+        Assert.Equal(
+            errors.Items.LongCount(item => item.ActivityState == ErrorSearchActivityStates.Active),
+            overview.Errors.ActiveSeriesCount);
+        Assert.Equal(errors.TotalSeriesCount, overview.Errors.Prior7DaysSeriesCount);
+        Assert.Equal(attention.ExactTotalItemCount, overview.Attention.ExactTotalItemCount);
+        Assert.Equal(
+            attention.Facets.Types.Select(facet => (facet.Value, facet.ItemCount)),
+            overview.Attention.Types.Select(facet => (facet.Value, facet.Count)));
+        Assert.Equal(
+            attention.Facets.Severities.Select(facet => (facet.Value, facet.ItemCount)),
+            overview.Attention.Severities.Select(facet => (facet.Value, facet.Count)));
+        Assert.All(
+            new[]
+            {
+                overview.Series.ExactTotalSeriesCount,
+                overview.Readability.ExactTotalDemandGenerationCount,
+                overview.Errors.ActiveSeriesCount,
+                overview.Attention.ExactTotalItemCount,
+            },
+            count => Assert.True(count > 0, "Every overview summary card needs real fixture density."));
+
+        Assert.Equal(WatchOverviewRecentActivityStates.HasRecentHighlights, overview.RecentActivityState);
+        Assert.Null(overview.EmptyStateMessage);
+        Assert.Equal(5, overview.RecentActivity.Count);
+        Assert.Contains(
+            overview.RecentActivity,
+            activity => activity.SeriesId == DemandSeriesId
+                && activity.Navigation.Target == OverviewNavigationTargets.DemandSeriesDetail);
+        Assert.Contains(
+            overview.RecentActivity,
+            activity => activity.SeriesId == PreviewErrorSeriesId
+                && activity.Navigation.Target == OverviewNavigationTargets.ErrorSearch);
+        Assert.All(overview.RecentActivity, activity => Assert.Null(activity.Navigation.Cursor));
+    }
+
+    [Fact]
+    public void Overview_preview_script_fails_exactly_one_refresh_then_recovers()
+    {
+        var availability = new JourneyOverviewAvailability();
+        var scenario = CreateScenario(_ => { }, availability);
+        var query = new WatchOverviewQuery(["A1-1", "A1-2"]);
+
+        var first = scenario.Overview!.Next(query);
+        availability.FailNextRefresh();
+        var failure = scenario.Overview.Next(query);
+        var recovery = scenario.Overview.Next(query);
+        var steady = scenario.Overview.Next(query);
+
+        Assert.Equal(FakeHostFailureShape.None, first.FailureShape);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, failure.StatusCode);
+        Assert.Equal(FakeHostFailureShape.Query, failure.FailureShape);
+        Assert.Equal(FakeHostFailureShape.None, recovery.FailureShape);
+        Assert.Equal(FakeHostFailureShape.None, steady.FailureShape);
+        Assert.Equal(
+            first.Value.Snapshot.ProjectionCommitId,
+            recovery.Value.Snapshot.ProjectionCommitId);
+        Assert.Equal(first.Value.MesAreas, recovery.Value.MesAreas);
+        Assert.True(availability.HasObservedFailure);
+        Assert.True(availability.HasObservedRecovery);
+        Assert.Equal(
+            availability.FailureRequestNumber + 1,
+            availability.RecoveryRequestNumber);
+    }
+
+    [Fact]
     [Trait("Category", "watch-ui-journeys")]
     public async Task Operator_reviews_the_complete_production_workspace_and_records_the_shared_preview()
     {
@@ -349,7 +562,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
         var cancellationToken = TestContext.Current.CancellationToken;
         ErrorSearchQuery? latestErrorQuery = null;
-        var scenario = CreateScenario(query => latestErrorQuery = query);
+        var overviewAvailability = new JourneyOverviewAvailability();
+        var scenario = CreateScenario(
+            query => latestErrorQuery = query,
+            overviewAvailability);
         await using var host = await ScriptedFakeHost.StartV2Async(scenario, cancellationToken);
 
         var artifactRoot = WatchWindowJourneyTests.ResolveArtifactRoot();
@@ -358,7 +574,18 @@ public sealed class WatchWorkspaceProductionJourneyTests
         var logDirectory = Path.Combine(runtimeRoot, "logs");
         var localAppData = Path.Combine(runtimeRoot, "local-app-data");
         Directory.CreateDirectory(logDirectory);
-        PrepareAreaProfile(localAppData);
+        PrepareAreaProfiles(localAppData);
+        var connectionPreferencesPath = Path.Combine(
+            localAppData,
+            "MesIngest.Watch",
+            "connection-preferences.json");
+        WatchConnectionPreferencesStore.Save(
+            connectionPreferencesPath,
+            new WatchConnectionPreferences(
+                host.BaseUrl,
+                RequestTimeoutSeconds: 30,
+                WatchCredentialReference.ExternalConfiguration));
+        var validConnectionPreferences = File.ReadAllBytes(connectionPreferencesPath);
 
         var evidence = new WatchJourneyEvidence(
             artifactRoot,
@@ -418,6 +645,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     is not "" and not "—",
                 "the first committed production overview",
                 StepTimeout);
+            SetNavigationPaneExpanded(window, expanded: false);
             Capture(evidence, process.MainWindowHandle, "01-overview");
 
             failedStep = "fluent-window-chrome";
@@ -428,6 +656,66 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 process.MainWindowHandle);
             WatchWindowNative.SetClientSize(process.MainWindowHandle, 1440, 900);
 
+            failedStep = "overview-navigation-expanded";
+            SetNavigationPaneExpanded(window, expanded: true);
+            Capture(
+                evidence,
+                process.MainWindowHandle,
+                "01e-overview-navigation-expanded");
+            SetNavigationPaneExpanded(window, expanded: false);
+
+            failedStep = "overview-offline-retained";
+            var retainedOverviewFacts = CaptureOverviewFacts(window);
+            overviewAvailability.FailNextRefresh();
+            WaitUntil(
+                () => overviewAvailability.HasObservedFailure
+                    && IsVisibleInWindow(window, FindById(window, "OverviewInfoBar"))
+                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
+                        .Contains("概览刷新失败，已保留上次完整快照", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
+                        .Contains("失败于", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
+                        .Contains("继续显示 Host 快照", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewInfoBar"))
+                        .Contains("Host 暂时离线", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                        .Contains("Host 已连接 · 读取失败", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "StaleNoticeText"))
+                        .Contains("数据可能已过期", StringComparison.Ordinal),
+                "the real Host refresh failure with retained Overview facts",
+                PreviewStateTimeout);
+            AssertOverviewFacts(window, retainedOverviewFacts);
+            Assert.Contains(
+                host.Timeline,
+                entry => entry.Operation == FakeHostOperation.OverviewV2
+                    && entry.State == FakeHostRequestState.Failed);
+            var failedOverviewTimelineSequence = host.Timeline
+                .Where(entry => entry.Operation == FakeHostOperation.OverviewV2
+                    && entry.State == FakeHostRequestState.Failed)
+                .Max(entry => entry.Sequence);
+            Capture(evidence, process.MainWindowHandle, "01f-overview-offline-retained");
+
+            failedStep = "overview-recovery";
+            WaitUntil(
+                () => overviewAvailability.HasObservedRecovery
+                    && FindById(window, "OverviewInfoBar") is { } infoBar
+                    && infoBar.Properties.IsOffscreen.ValueOrDefault
+                    && TextValue(infoBar).Contains("当前无活动通知", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                        .Contains("Host 已连接", StringComparison.Ordinal)
+                    && !TextValue(FindRequiredById(window, "OverviewHostStatusPill"))
+                        .Contains("读取失败", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "StaleNoticeText"))
+                        .Contains("概览数据未标记为陈旧", StringComparison.Ordinal),
+                "the deterministic Overview auto-refresh recovery",
+                PreviewStateTimeout);
+            AssertOverviewFacts(window, retainedOverviewFacts);
+            Assert.Contains(
+                host.Timeline,
+                entry => entry.Operation == FakeHostOperation.OverviewV2
+                    && entry.State == FakeHostRequestState.Completed
+                    && entry.Sequence > failedOverviewTimelineSequence);
+
             failedStep = "settings";
             Navigate(window, "SettingsNavigationItem", "SettingsPage");
             WaitUntil(
@@ -435,6 +723,47 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "production settings commands",
                 StepTimeout);
             Capture(evidence, process.MainWindowHandle, "02-settings");
+
+            failedStep = "settings-timeout-validation";
+            var contractRequestsBeforeInvalidTimeout = host.Timeline.Count(entry =>
+                entry.Operation == FakeHostOperation.ContractV2
+                && entry.State == FakeHostRequestState.Started);
+            var requestTimeoutInput = FindRequiredById(window, "RequestTimeoutInput")
+                .AsTextBox();
+            Assert.Equal("30", requestTimeoutInput.Text);
+            requestTimeoutInput.Text = "0";
+            FindRequiredById(window, "ApplyHostButton").AsButton().Invoke();
+            WaitUntil(
+                () => FindById(window, "SettingsInfoBar") is { } infoBar
+                    && IsVisibleInWindow(window, infoBar)
+                    && TextValue(infoBar).Contains("无法应用 Host 设置", StringComparison.Ordinal)
+                    && TextValue(infoBar).Contains("1", StringComparison.Ordinal)
+                    && TextValue(infoBar).Contains("300", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "SettingsHostStatusPill"))
+                        .Contains("Host 已连接", StringComparison.Ordinal),
+                "the real Settings request-timeout validation error",
+                StepTimeout);
+            Assert.Equal(
+                contractRequestsBeforeInvalidTimeout,
+                host.Timeline.Count(entry =>
+                    entry.Operation == FakeHostOperation.ContractV2
+                    && entry.State == FakeHostRequestState.Started));
+            Assert.Equal(
+                validConnectionPreferences,
+                File.ReadAllBytes(connectionPreferencesPath));
+            Capture(evidence, process.MainWindowHandle, "02v-settings-timeout-validation");
+
+            requestTimeoutInput.Text = "30";
+            CloseInfoBar(window, "SettingsInfoBar");
+            WaitUntil(
+                () => requestTimeoutInput.Text == "30"
+                    && FindById(window, "SettingsInfoBar") is { } infoBar
+                    && infoBar.Properties.IsOffscreen.ValueOrDefault,
+                "the restored valid Settings draft",
+                StepTimeout);
+            Assert.Equal(
+                validConnectionPreferences,
+                File.ReadAllBytes(connectionPreferencesPath));
 
             failedStep = "demand-series";
             Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
@@ -455,22 +784,57 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Navigate(window, "ReadabilityAuditNavigationItem", "ReadabilityAuditPage");
             var auditGrid = WaitForRows(window, "ReadabilityAuditGrid", "readability rows");
             auditGrid.Select(0);
-            WaitForRows(window, "ReadabilityQualificationGrid", "readability checks");
+            var qualificationGrid = WaitForRows(
+                window,
+                "ReadabilityQualificationGrid",
+                "readability checks");
+            EnsureVisibleIfOffscreen(
+                window,
+                qualificationGrid,
+                "readability qualification detail for the production candidate");
             Capture(evidence, process.MainWindowHandle, "04-readability-audit-detail");
 
             failedStep = "area-filter";
             Navigate(window, "AreaFilterNavigationItem", "AreaFilterPage");
             var profileList = FindRequiredById(window, "AreaProfileList").AsListBox();
             WaitUntil(
-                () => profileList.Items.Length > 0,
-                "the local AREA profile list",
+                () => profileList.Items.Length == 4,
+                "the four local AREA TXT profiles",
                 StepTimeout);
-            profileList.Select(0);
+            var invalidProfile = Assert.Single(
+                profileList.Items,
+                item => TextValue(item).Contains("临时范围", StringComparison.Ordinal));
+            invalidProfile.Select();
             WaitUntil(
-                () => TextValue(FindRequiredById(window, "AreaProfileAppliedStateText"))
-                    .Contains("Factory-East", StringComparison.Ordinal),
+                () => TextValue(FindRequiredById(window, "AreaProfileValidationSummaryText"))
+                    .Contains("1 项问题", StringComparison.Ordinal),
+                "the invalid AREA TXT profile parsed by production",
+                StepTimeout);
+            var validationToggle = FindRequiredButtonByName(window, "查看逐项校验");
+            validationToggle.Toggle();
+            Assert.Single(
+                WaitForRows(
+                    window,
+                    "AreaProfileValidationGrid",
+                    "the invalid AREA TXT diagnostic")
+                    .Rows);
+            validationToggle.Toggle();
+
+            var appliedProfile = Assert.Single(
+                profileList.Items,
+                item => TextValue(item).Contains("东区", StringComparison.Ordinal));
+            appliedProfile.Select();
+            WaitUntil(
+                    () => TextValue(FindRequiredById(window, "AreaProfileAppliedStateText"))
+                        .Contains("东区", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "AreaProfileValidCountText"))
+                        .Contains("12 个有效 AREA", StringComparison.Ordinal),
                 "the applied AREA profile state",
                 StepTimeout);
+            EnsureVisibleIfOffscreen(
+                window,
+                FindRequiredById(window, "AreaProfileNameInput"),
+                "AREA editor for the production candidate");
             Capture(evidence, process.MainWindowHandle, "05-area-filter-profile");
 
             failedStep = "error-search";
@@ -478,6 +842,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 "ErrorSearchNavigationItem",
                 "ErrorSearchNormalizedFilterText");
+            AssertRepresentativeAnchorVisible(
+                window,
+                "ErrorSearchSnapshotText",
+                "Error Search immediately after navigation");
             var errorGrid = WaitForRows(window, "ErrorSearchSeriesGrid", "error Series rows");
             errorGrid.Select(0);
             var periodGrid = WaitForRows(
@@ -486,16 +854,30 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "matched error periods");
             periodGrid.Select(0);
             WaitForRows(window, "ErrorSearchEvidenceGrid", "matched error evidence");
+            PrepareRepresentativeFirstScreen(
+                window,
+                "ErrorSearchSnapshotText",
+                "ErrorSearchCategoryList",
+                "Error Search before the production candidate capture");
             Capture(evidence, process.MainWindowHandle, "06-error-search-variant-a");
 
             failedStep = "current-attention";
             Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");
+            AssertRepresentativeAnchorVisible(
+                window,
+                "CurrentAttentionSnapshotText",
+                "Current Attention immediately after navigation");
             var attentionGrid = WaitForRows(
                 window,
                 "CurrentAttentionGrid",
                 "current ingest attention rows");
             attentionGrid.Select(0);
             WaitForRows(window, "CurrentAttentionEvidenceGrid", "current attention evidence");
+            PrepareRepresentativeFirstScreen(
+                window,
+                "CurrentAttentionSnapshotText",
+                "CurrentAttentionKindFilter",
+                "Current Attention before the production candidate capture");
             Capture(evidence, process.MainWindowHandle, "07-current-ingest-attention");
 
             failedStep = "current-attention-error-drill";
@@ -529,6 +911,11 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 "ErrorSearchEvidenceGrid",
                 "drilled Error Search evidence");
+            PrepareRepresentativeFirstScreen(
+                window,
+                "ErrorSearchSnapshotText",
+                "ErrorSearchCategoryList",
+                "drilled Error Search before the production candidate capture");
             Capture(evidence, process.MainWindowHandle, "08-current-attention-error-drill");
             Capture(evidence, process.MainWindowHandle, "final");
 
@@ -651,36 +1038,519 @@ public sealed class WatchWorkspaceProductionJourneyTests
         }
     }
 
-    private static FakeHostV2Scenario CreateScenario(
-        Action<ErrorSearchQuery> rememberErrorQuery)
+    internal static DemandSeriesListSnapshot CreateJourneyDemandSeriesList(
+        DemandSeriesBrowseQuery query)
     {
+        var normalized = query.NormalizeAndValidate();
+        var snapshot = WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesList(
+            normalized,
+            DemandSeriesId,
+            DemandSnapshotReference);
+        var at = snapshot.Snapshot.ProjectionCommittedAt;
+        var baseItem = Assert.Single(snapshot.Items) with
+        {
+            StartedAt = at.AddMinutes(-20),
+            DemandLastSeenAt = at.AddMinutes(-1),
+        };
+        var areas = normalized.Filter.MesAreas.Count == 0
+            ? ["A1-1", "A1-2", "A2-1", "B1-1", "B2-1", "C1-1"]
+            : normalized.Filter.MesAreas;
+
+        LiveMesFieldSetSnapshot Fields(int ordinal) => new(
+            areas[(ordinal - 1) % areas.Count],
+            $"EQP-{ordinal:00}",
+            $"STEP-{ordinal:00}",
+            at.AddDays(-ordinal),
+            $"PKG-{ordinal:00}");
+
+        var items = new DemandSeriesListItemSnapshot[]
+        {
+            baseItem with { LiveMesFields = Fields(1) },
+            baseItem with
+            {
+                SeriesId = "SERIES-PREVIEW-20-B",
+                WorkType = "WIRE_TO_NITROGEN",
+                Sublot = "SL-PREVIEW-B",
+                StartedAt = at.AddHours(-1),
+                CurrentDemandId = "demand-preview-20-b",
+                CurrentGeneration = 1,
+                DemandLastSeenAt = at.AddMinutes(-4),
+                LiveMesFields = Fields(2),
+                LastSeriesSequence = 4,
+                LatestPollTraceId = "poll-demand-preview-20-b",
+                LatestProjectionCommitId = "commit-demand-preview-20-b",
+            },
+            baseItem with
+            {
+                SeriesId = "SERIES-PREVIEW-20-C",
+                WorkType = "WIRE_TO_BUFFER",
+                Sublot = "SL-PREVIEW-C",
+                CurrentPresence = DemandSeriesLifecycleContract.Gone,
+                StartedAt = at.AddHours(-3),
+                CurrentDemandId = "demand-preview-20-c",
+                CurrentGeneration = 3,
+                CurrentDemandStatus = DemandSeriesLifecycleContract.Gone,
+                DemandLastSeenAt = at.AddMinutes(-18),
+                GoneConfirmedAt = at.AddMinutes(-15),
+                LiveMesFields = null,
+                ExternalReadabilityState = ExternalReadabilityStates.NotReadable,
+                ReadabilityBlockers = ["DEMAND_GONE"],
+                LastSeriesSequence = 11,
+                LatestPollTraceId = "poll-demand-preview-20-c",
+                LatestProjectionCommitId = "commit-demand-preview-20-c",
+            },
+            baseItem with
+            {
+                SeriesId = "SERIES-PREVIEW-20-D",
+                WorkType = "WIRE_TO_GATE",
+                Sublot = "SL-PREVIEW-D",
+                Lifecycle = DemandSeriesLifecycleContract.Archived,
+                CurrentPresence = DemandSeriesLifecycleContract.Gone,
+                StartedAt = at.AddHours(-8),
+                ArchivedAt = at.AddHours(-1),
+                CurrentDemandId = "demand-preview-20-d",
+                CurrentGeneration = 2,
+                CurrentDemandStatus = DemandSeriesLifecycleContract.Gone,
+                DemandLastSeenAt = at.AddHours(-2),
+                GoneConfirmedAt = at.AddHours(-1.5),
+                LiveMesFields = null,
+                ExternalReadabilityState = ExternalReadabilityStates.NotReadable,
+                ReadabilityBlockers = ["SERIES_ARCHIVED", "DEMAND_GONE"],
+                LastSeriesSequence = 9,
+                LatestPollTraceId = "poll-demand-preview-20-d",
+                LatestProjectionCommitId = "commit-demand-preview-20-d",
+            },
+            baseItem with
+            {
+                SeriesId = "SERIES-PREVIEW-20-E",
+                WorkType = "WIRE_TO_STORAGE",
+                Sublot = "SL-PREVIEW-E",
+                Lifecycle = DemandSeriesLifecycleContract.Archived,
+                CurrentPresence = DemandSeriesLifecycleContract.LongGoneButVisible,
+                StartedAt = at.AddHours(-12),
+                ArchivedAt = at.AddHours(-2),
+                CurrentDemandId = "demand-preview-20-e",
+                CurrentGeneration = 4,
+                DemandLastSeenAt = at.AddMinutes(-7),
+                GoneConfirmedAt = null,
+                LiveMesFields = Fields(5),
+                ExternalReadabilityState = ExternalReadabilityStates.NotReadable,
+                ReadabilityBlockers = ["LONG_GONE_BUT_VISIBLE", "SERIES_ARCHIVED"],
+                LastSeriesSequence = 14,
+                LatestPollTraceId = "poll-demand-preview-20-e",
+                LatestProjectionCommitId = "commit-demand-preview-20-e",
+            },
+            baseItem with
+            {
+                SeriesId = "SERIES-PREVIEW-20-F",
+                WorkType = "WIRE_TO_GATE",
+                Sublot = "SL-PREVIEW-F",
+                StartedAt = at.AddHours(-16),
+                CurrentDemandId = "demand-preview-20-f",
+                CurrentGeneration = 1,
+                DemandLastSeenAt = at.AddMinutes(-9),
+                LiveMesFields = Fields(6),
+                LastSeriesSequence = 3,
+                LatestPollTraceId = "poll-demand-preview-20-f",
+                LatestProjectionCommitId = "commit-demand-preview-20-f",
+            },
+        };
+
+        return snapshot with
+        {
+            ExactTotalCount = items.LongLength,
+            Facets = new DemandSeriesFacets(
+                TrackingCount: 4,
+                ArchivedCount: 2,
+                VisibleCount: 3,
+                GoneCount: 2,
+                LongGoneButVisibleCount: 1),
+            Items = items,
+        };
+    }
+
+    internal static DemandSeriesDetailSnapshot CreateJourneyDemandSeriesDetail(
+        string seriesId,
+        string snapshotReference)
+    {
+        var detail = WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesDetail(
+            seriesId,
+            snapshotReference);
+        var series = detail.Series;
+        var current = series.CurrentDemand;
+        var prior = current with
+        {
+            DemandId = "demand-preview-20-generation-1",
+            Generation = 1,
+            PredecessorDemandId = null,
+            Status = DemandSeriesLifecycleContract.Gone,
+            CreatedAt = current.CreatedAt.AddHours(-6),
+            DemandLastSeenAt = current.CreatedAt.AddHours(-2),
+            GoneConfirmedAt = current.CreatedAt.AddHours(-1.9),
+            CreatedPollTraceId = "poll-demand-preview-generation-1",
+            CreatedProjectionCommitId = "commit-demand-preview-generation-1",
+            LatestProjectionCommitId = "commit-demand-preview-generation-1-gone",
+            LiveMesFields = null,
+            ExternalReadabilityState = ExternalReadabilityStates.NotReadable,
+            ReadabilityBlockers = ["DEMAND_GONE"],
+            LatestObservationPollTraceId = "poll-demand-preview-generation-1",
+            LatestObservationProjectionCommitId = "commit-demand-preview-generation-1-gone",
+            LatestObservationAt = current.CreatedAt.AddHours(-2),
+        };
+        var observed = Assert.Single(series.Events);
+        DemandSeriesEventSnapshot Event(
+            long sequence,
+            string eventType,
+            DateTimeOffset occurredAt,
+            string subjectId,
+            string pollTraceId) => new(
+                $"event-preview-20-{sequence}",
+                seriesId,
+                sequence,
+                eventType,
+                occurredAt,
+                "DEMAND",
+                subjectId,
+                pollTraceId,
+                $"commit-preview-20-{sequence}",
+                1,
+                "{}");
+        var events = new[]
+        {
+            Event(1, "DEMAND_CREATED", prior.CreatedAt, prior.DemandId, prior.CreatedPollTraceId),
+            Event(2, "DEMAND_GONE_CONFIRMED", prior.GoneConfirmedAt!.Value, prior.DemandId,
+                "poll-demand-preview-generation-1-gone"),
+            Event(3, "DEMAND_REAPPEARED", current.CreatedAt.AddMinutes(-1), current.DemandId,
+                current.CreatedPollTraceId),
+            Event(4, "DEMAND_CREATED", current.CreatedAt, current.DemandId,
+                current.CreatedPollTraceId),
+            observed with { EventId = "event-preview-20-5", SeriesSequence = 5 },
+        };
+
+        return detail with
+        {
+            Series = series with
+            {
+                CurrentDemand = current,
+                Demands = [current, prior],
+                Events = events,
+                LastSeriesSequence = 5,
+            },
+        };
+    }
+
+    internal static ReadabilityAuditListSnapshot CreateJourneyAuditList(
+        ReadabilityAuditQuery query)
+    {
+        var normalized = query.NormalizeAndValidate();
+        var snapshot = WatchReadabilityAuditProductionIntegrationTests.CreateAuditList(
+            normalized,
+            AuditSnapshotReference);
+        var at = snapshot.Snapshot.ProjectionCommittedAt;
+        var baseItem = Assert.Single(snapshot.Items);
+        var areas = normalized.Filter.MesAreas.Count == 0
+            ? ["A1-1", "A1-2", "A2-1", "B1-1", "B2-1"]
+            : normalized.Filter.MesAreas;
+
+        LiveMesFieldSetSnapshot Fields(int ordinal) => new(
+            areas[(ordinal - 1) % areas.Count],
+            $"EQP-AUDIT-{ordinal:00}",
+            $"STEP-AUDIT-{ordinal:00}",
+            at.AddDays(-ordinal),
+            $"PKG-AUDIT-{ordinal:00}");
+
+        var items = new ReadabilityAuditListItemSnapshot[]
+        {
+            baseItem,
+            baseItem with
+            {
+                DemandId = "demand-audit-format-22",
+                SeriesId = "series-audit-format-22",
+                WorkType = "WIRE_TO_NITROGEN",
+                Sublot = "SL-AUDIT-FORMAT",
+                Generation = 1,
+                PredecessorDemandId = null,
+                DemandCreatedAt = at.AddHours(-2),
+                DemandLastSeenAt = at.AddMinutes(-3),
+                LiveMesFields = Fields(2),
+                CurrentRawObservationCount = 1,
+                LeadReadabilityBlocker = "INVALID_MES_FIELD_FORMAT",
+                ReadabilityBlockers = ["INVALID_MES_FIELD_FORMAT"],
+                LatestObservationPollTraceId = "audit-poll-format-22",
+                LatestObservationProjectionCommitId = "audit-commit-format-22",
+                LatestObservationAt = at.AddMinutes(-3),
+            },
+            baseItem with
+            {
+                DemandId = "demand-audit-gone-22",
+                SeriesId = "series-audit-gone-22",
+                WorkType = "WIRE_TO_BUFFER",
+                Sublot = "SL-AUDIT-GONE",
+                Generation = 3,
+                DemandStatus = DemandSeriesLifecycleContract.Gone,
+                SeriesCurrentPresence = DemandSeriesLifecycleContract.Gone,
+                DemandCreatedAt = at.AddHours(-6),
+                DemandLastSeenAt = at.AddMinutes(-20),
+                GoneConfirmedAt = at.AddMinutes(-18),
+                LiveMesFields = null,
+                CurrentRawObservationCount = 0,
+                LeadReadabilityBlocker = "DEMAND_GONE",
+                ReadabilityBlockers = ["DEMAND_GONE"],
+                LatestObservationPollTraceId = "audit-poll-gone-22",
+                LatestObservationProjectionCommitId = "audit-commit-gone-22",
+                LatestObservationAt = at.AddMinutes(-20),
+            },
+            baseItem with
+            {
+                DemandId = "demand-audit-readable-22",
+                SeriesId = "series-audit-readable-22",
+                WorkType = "WIRE_TO_STORAGE",
+                Sublot = "SL-AUDIT-READABLE",
+                Generation = 1,
+                PredecessorDemandId = null,
+                DemandCreatedAt = at.AddHours(-4),
+                DemandLastSeenAt = at.AddMinutes(-5),
+                LiveMesFields = Fields(4),
+                CurrentRawObservationCount = 1,
+                ExternalReadabilityState = ExternalReadabilityStates.Readable,
+                LeadReadabilityBlocker = null,
+                ReadabilityBlockers = [],
+                LatestObservationPollTraceId = "audit-poll-readable-22",
+                LatestObservationProjectionCommitId = "audit-commit-readable-22",
+                LatestObservationAt = at.AddMinutes(-5),
+            },
+            baseItem with
+            {
+                DemandId = "demand-audit-readable-23",
+                SeriesId = "series-audit-readable-23",
+                WorkType = "WIRE_TO_GATE",
+                Sublot = "SL-AUDIT-READABLE-2",
+                Generation = 2,
+                PredecessorDemandId = "demand-audit-readable-22-prior",
+                DemandCreatedAt = at.AddHours(-10),
+                DemandLastSeenAt = at.AddMinutes(-12),
+                LiveMesFields = Fields(5),
+                CurrentRawObservationCount = 1,
+                ExternalReadabilityState = ExternalReadabilityStates.Readable,
+                LeadReadabilityBlocker = null,
+                ReadabilityBlockers = [],
+                LatestObservationPollTraceId = "audit-poll-readable-23",
+                LatestObservationProjectionCommitId = "audit-commit-readable-23",
+                LatestObservationAt = at.AddMinutes(-12),
+            },
+        };
+
+        return snapshot with
+        {
+            ExactTotalDemandCount = items.LongLength,
+            Facets = new ReadabilityAuditFacets(
+                [
+                    new ReadabilityStateFacetSnapshot(ExternalReadabilityStates.Readable, 2),
+                    new ReadabilityStateFacetSnapshot(ExternalReadabilityStates.NotReadable, 3),
+                ],
+                [
+                    new ReadabilityBlockerFacetSnapshot("REQUIRED_MES_FIELD_MISSING", 1),
+                    new ReadabilityBlockerFacetSnapshot("INVALID_MES_FIELD_FORMAT", 2),
+                    new ReadabilityBlockerFacetSnapshot("DEMAND_GONE", 1),
+                ]),
+            Items = items,
+        };
+    }
+
+    internal static WatchOverviewSnapshot CreateJourneyOverview(
+        IReadOnlyList<string> mesAreas)
+    {
+        var normalizedAreas = new WatchOverviewQuery(mesAreas)
+            .NormalizeAndValidate()
+            .MesAreas
+            ?? [];
+        var demand = CreateJourneyDemandSeriesList(
+            new DemandSeriesBrowseQuery(
+                new DemandSeriesBrowseFilter { MesAreas = normalizedAreas }));
+        var demandDetail = CreateJourneyDemandSeriesDetail(
+            DemandSeriesId,
+            DemandSnapshotReference);
+        var audit = CreateJourneyAuditList(
+            new ReadabilityAuditQuery(
+                new ReadabilityAuditFilter { MesAreas = normalizedAreas }));
+        var errors = CreateJourneyErrorPage(
+            new ErrorSearchQuery(
+                new ErrorSearchFilter(),
+                ErrorSearchWindowSelection.Last7Days));
+        var attention = WatchCurrentAttentionProductionIntegrationTests
+            .CreateAttentionSnapshot(new CurrentIngestAttentionQuery());
+
+        var seriesNavigation = new OverviewNavigationIntent(
+            OverviewNavigationTargets.DemandSeries,
+            MesAreas: normalizedAreas,
+            Cursor: null);
+        var trackingNavigation = seriesNavigation with
+        {
+            Lifecycles = [DemandSeriesLifecycleContract.Tracking],
+        };
+        var archivedNavigation = seriesNavigation with
+        {
+            Lifecycles = [DemandSeriesLifecycleContract.Archived],
+        };
+        var goneNavigation = seriesNavigation with
+        {
+            CurrentPresences = [DemandSeriesLifecycleContract.Gone],
+        };
+        var longGoneNavigation = seriesNavigation with
+        {
+            CurrentPresences = [DemandSeriesLifecycleContract.LongGoneButVisible],
+        };
+        var auditNavigation = new OverviewNavigationIntent(
+            OverviewNavigationTargets.ReadabilityAudit,
+            MesAreas: normalizedAreas,
+            Cursor: null);
+        var readableNavigation = auditNavigation with
+        {
+            ReadabilityStates = [ExternalReadabilityStates.Readable],
+        };
+        var notReadableNavigation = auditNavigation with
+        {
+            ReadabilityStates = [ExternalReadabilityStates.NotReadable],
+        };
+        var errorNavigation = new OverviewNavigationIntent(
+            OverviewNavigationTargets.ErrorSearch,
+            ErrorWindow: ErrorSearchWindowKinds.Last7Days,
+            Cursor: null);
+        var activeErrorNavigation = errorNavigation with
+        {
+            ErrorActivityStates = [ErrorSearchActivityStates.Active],
+        };
+        var attentionNavigation = new OverviewNavigationIntent(
+            OverviewNavigationTargets.CurrentIngestAttention,
+            Cursor: null);
+
+        var readableCount = audit.Facets.ReadabilityStates
+            .Single(facet => facet.State == ExternalReadabilityStates.Readable)
+            .DemandCount;
+        var notReadableCount = audit.Facets.ReadabilityStates
+            .Single(facet => facet.State == ExternalReadabilityStates.NotReadable)
+            .DemandCount;
+        var attentionTypes = attention.Facets.Types
+            .Select(facet => new OverviewFacetSnapshot(
+                facet.Value,
+                facet.ItemCount,
+                attentionNavigation with { AttentionKinds = [facet.Value] }))
+            .ToArray();
+        var attentionSeverities = attention.Facets.Severities
+            .Select(facet => new OverviewFacetSnapshot(
+                facet.Value,
+                facet.ItemCount,
+                attentionNavigation with { AttentionSeverities = [facet.Value] }))
+            .ToArray();
+
+        var demandEvent = demandDetail.Series.Events
+            .OrderByDescending(item => item.OccurredAt)
+            .ThenBy(item => item.EventId, StringComparer.Ordinal)
+            .First();
+        var recentActivity = attention.Items
+            .Select(item => new WatchOverviewActivitySnapshot(
+                item.StableIdentity,
+                item.Kind,
+                item.ErrorCode ?? item.Kind,
+                item.Severity,
+                item.OccurredAt,
+                item.SeriesId,
+                item.WorkType,
+                item.Evidence.PollTraceId,
+                item.Evidence.ProjectionCommitId,
+                item.Navigation))
+            .Append(new WatchOverviewActivitySnapshot(
+                demandEvent.EventId,
+                "SERIES_LIFECYCLE",
+                demandEvent.EventType,
+                CurrentIngestAttentionSeverities.Warning,
+                demandEvent.OccurredAt,
+                demandEvent.SeriesId,
+                demandDetail.Series.WorkType,
+                demandEvent.PollTraceId,
+                demandEvent.ProjectionCommitId,
+                new OverviewNavigationIntent(
+                    OverviewNavigationTargets.DemandSeriesDetail,
+                    MesAreas: normalizedAreas,
+                    SeriesId: demandEvent.SeriesId,
+                    Cursor: null)))
+            .OrderByDescending(activity => activity.OccurredAt)
+            .ThenBy(activity => activity.EventId, StringComparer.Ordinal)
+            .Take(5)
+            .ToArray();
+
+        return new WatchOverviewSnapshot(
+            new OperationalSnapshotIdentity(
+                "overview-preview-commit-19-22",
+                232,
+                PreviewErrorAsOf,
+                "overview-preview-poll-19-22",
+                232,
+                22,
+                PreviewErrorAsOf),
+            normalizedAreas,
+            new WatchOverviewSeriesSummary(
+                demand.ExactTotalCount,
+                demand.Facets.TrackingCount,
+                demand.Facets.ArchivedCount,
+                demand.Facets.GoneCount,
+                demand.Facets.LongGoneButVisibleCount,
+                seriesNavigation,
+                trackingNavigation,
+                archivedNavigation,
+                goneNavigation,
+                longGoneNavigation),
+            new WatchOverviewReadabilitySummary(
+                audit.ExactTotalDemandCount,
+                readableCount,
+                notReadableCount,
+                auditNavigation,
+                readableNavigation,
+                notReadableNavigation),
+            new WatchOverviewErrorSummary(
+                errors.Items.LongCount(item =>
+                    item.ActivityState == ErrorSearchActivityStates.Active),
+                errors.TotalSeriesCount,
+                errorNavigation,
+                activeErrorNavigation,
+                errorNavigation),
+            new WatchOverviewAttentionSummary(
+                attention.ExactTotalItemCount,
+                attentionTypes,
+                attentionSeverities,
+                attentionNavigation),
+            recentActivity,
+            WatchOverviewRecentActivityStates.HasRecentHighlights,
+            EmptyStateMessage: null);
+    }
+
+    private static FakeHostV2Scenario CreateScenario(
+        Action<ErrorSearchQuery> rememberErrorQuery,
+        JourneyOverviewAvailability? overviewAvailability = null)
+    {
+        var availability = overviewAvailability ?? new JourneyOverviewAvailability();
         var errorBindings = new ConcurrentDictionary<
             string,
             JourneyErrorSnapshotBinding>(StringComparer.Ordinal);
         var errorSnapshotSequence = 0;
         return new("production-preview-19-22", Credential)
         {
-            Overview = FakeHostReply.Return(
-                WatchErrorSearchProductionIntegrationTests.CreateOverview()),
+            Overview = FakeHostReply.Select<WatchOverviewQuery, WatchOverviewSnapshot>(query =>
+                availability.Next(query)),
             DemandSeries = FakeHostReply.Select<
                 DemandSeriesBrowseQuery,
                 DemandSeriesListSnapshot>(query => FakeHostReply.Return(
-                    WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesList(
-                        query,
-                        DemandSeriesId,
-                        DemandSnapshotReference))),
+                    CreateJourneyDemandSeriesList(query))),
             DemandSeriesDetail = FakeHostReply.Select<
                 FakeHostV2DetailRequest,
                 DemandSeriesDetailSnapshot>(request => FakeHostReply.Return(
-                    WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesDetail(
+                    CreateJourneyDemandSeriesDetail(
                         request.ObjectId,
                         request.SnapshotReference))),
             ReadabilityAudit = FakeHostReply.Select<
                 ReadabilityAuditQuery,
                 ReadabilityAuditListSnapshot>(query => FakeHostReply.Return(
-                    WatchReadabilityAuditProductionIntegrationTests.CreateAuditList(
-                        query,
-                        AuditSnapshotReference))),
+                    CreateJourneyAuditList(query))),
             ReadabilityAuditDetail = FakeHostReply.Select<
                 FakeHostV2DetailRequest,
                 ReadabilityAuditDetailSnapshot>(request => FakeHostReply.Return(
@@ -722,6 +1592,104 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(
                         query))),
         };
+    }
+
+    private sealed class JourneyOverviewAvailability
+    {
+        private readonly object _sync = new();
+        private bool _failNextRefresh;
+        private bool _awaitingRecovery;
+        private int _requestNumber;
+        private int? _failureRequestNumber;
+        private int? _recoveryRequestNumber;
+
+        public bool HasObservedFailure
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _failureRequestNumber is not null;
+                }
+            }
+        }
+
+        public bool HasObservedRecovery
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _recoveryRequestNumber is not null;
+                }
+            }
+        }
+
+        public int FailureRequestNumber
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _failureRequestNumber ?? 0;
+                }
+            }
+        }
+
+        public int RecoveryRequestNumber
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _recoveryRequestNumber ?? 0;
+                }
+            }
+        }
+
+        public void FailNextRefresh()
+        {
+            lock (_sync)
+            {
+                if (_failNextRefresh || _awaitingRecovery)
+                {
+                    throw new InvalidOperationException(
+                        "An Overview preview failure is already armed or awaiting recovery.");
+                }
+
+                _failNextRefresh = true;
+                _failureRequestNumber = null;
+                _recoveryRequestNumber = null;
+            }
+        }
+
+        public FakeHostReply<WatchOverviewSnapshot> Next(WatchOverviewQuery query)
+        {
+            bool fail;
+            lock (_sync)
+            {
+                _requestNumber++;
+                fail = _failNextRefresh;
+                if (fail)
+                {
+                    _failNextRefresh = false;
+                    _awaitingRecovery = true;
+                    _failureRequestNumber = _requestNumber;
+                }
+                else if (_awaitingRecovery)
+                {
+                    _awaitingRecovery = false;
+                    _recoveryRequestNumber = _requestNumber;
+                }
+            }
+
+            return fail
+                ? FakeHostReply.HttpFailure<WatchOverviewSnapshot>(
+                    HttpStatusCode.ServiceUnavailable,
+                    "HOST_UNAVAILABLE",
+                    "Host 暂时离线；自动刷新会继续重试。")
+                : FakeHostReply.Return(CreateJourneyOverview(query.MesAreas ?? []));
+        }
     }
 
     private sealed record JourneyErrorSnapshotBinding(
@@ -1061,6 +2029,50 @@ public sealed class WatchWorkspaceProductionJourneyTests
                         || item.Name.Contains("Restore", StringComparison.OrdinalIgnoreCase)
                         || item.Name.Contains("Close", StringComparison.OrdinalIgnoreCase)));
 
+    private static IReadOnlyDictionary<string, string> CaptureOverviewFacts(
+        FlaUI.Core.AutomationElements.Window window) =>
+        new[]
+        {
+            "SeriesSummaryValue",
+            "ReadabilitySummaryValue",
+            "ErrorsSummaryValue",
+            "AttentionSummaryValue",
+            "HostAreaScopeText",
+        }.ToDictionary(
+            automationId => automationId,
+            automationId => TextValue(FindRequiredById(window, automationId)),
+            StringComparer.Ordinal);
+
+    private static void AssertOverviewFacts(
+        FlaUI.Core.AutomationElements.Window window,
+        IReadOnlyDictionary<string, string> expected)
+    {
+        foreach (var (automationId, expectedValue) in expected)
+        {
+            Assert.Equal(expectedValue, TextValue(FindRequiredById(window, automationId)));
+        }
+    }
+
+    private static void CloseInfoBar(
+        FlaUI.Core.AutomationElements.Window window,
+        string automationId)
+    {
+        var infoBar = FindRequiredById(window, automationId);
+        var visibleButtons = infoBar
+            .FindAllDescendants(
+                window.ConditionFactory.ByControlType(ControlType.Button))
+            .Where(button => !button.Properties.IsOffscreen.ValueOrDefault)
+            .ToArray();
+        var namedCloseButton = visibleButtons.FirstOrDefault(button =>
+            (button.Properties.Name.ValueOrDefault ?? string.Empty)
+                .Contains("关闭", StringComparison.OrdinalIgnoreCase)
+            || (button.Properties.Name.ValueOrDefault ?? string.Empty)
+                .Contains("Close", StringComparison.OrdinalIgnoreCase)
+            || (button.Properties.AutomationId.ValueOrDefault ?? string.Empty)
+                .Contains("Close", StringComparison.OrdinalIgnoreCase));
+        (namedCloseButton ?? Assert.Single(visibleButtons)).AsButton().Invoke();
+    }
+
     private static void Navigate(
         FlaUI.Core.AutomationElements.Window window,
         string navigationAutomationId,
@@ -1074,6 +2086,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 && !page.Properties.IsOffscreen.ValueOrDefault,
             $"visible page {pageAutomationId}",
             StepTimeout);
+        SetNavigationPaneExpanded(window, expanded: false);
     }
 
     private static Grid WaitForRows(
@@ -1104,11 +2117,170 @@ public sealed class WatchWorkspaceProductionJourneyTests
         string automationId) =>
         window.FindFirstDescendant(window.ConditionFactory.ByAutomationId(automationId));
 
+    private static void AssertRepresentativeAnchorVisible(
+        FlaUI.Core.AutomationElements.Window window,
+        string automationId,
+        string context)
+    {
+        var anchor = FindRequiredById(window, automationId);
+        var anchorBounds = anchor.BoundingRectangle;
+        var windowBounds = window.BoundingRectangle;
+        var intersectsWindow = anchorBounds.Width > 0
+            && anchorBounds.Height > 0
+            && anchorBounds.Right > windowBounds.Left
+            && anchorBounds.Left < windowBounds.Right
+            && anchorBounds.Bottom > windowBounds.Top
+            && anchorBounds.Top < windowBounds.Bottom;
+        var isInRepresentativeTopRegion = anchorBounds.Top
+            < windowBounds.Top + (windowBounds.Height * 0.4);
+        Assert.False(
+            anchor.Properties.IsOffscreen.ValueOrDefault
+                || !intersectsWindow
+                || !isInRepresentativeTopRegion,
+            $"{context}: {automationId} is not in the representative top region. "
+            + $"anchor={anchorBounds}; window={windowBounds}; "
+            + DescribeScrollAncestors(anchor));
+    }
+
+    private static string DescribeScrollAncestors(AutomationElement element)
+    {
+        var descriptions = new List<string>();
+        for (var current = element.Parent; current is not null; current = current.Parent)
+        {
+            if (!current.Patterns.Scroll.IsSupported)
+            {
+                continue;
+            }
+
+            var scroll = current.Patterns.Scroll.PatternOrDefault;
+            if (scroll is null)
+            {
+                continue;
+            }
+
+            var automationId = current.Properties.AutomationId.ValueOrDefault;
+            descriptions.Add(
+                $"scrollAncestor={automationId ?? "<none>"} "
+                + $"vertical={scroll.VerticalScrollPercent.ValueOrDefault:0.##} "
+                + $"view={scroll.VerticalViewSize.ValueOrDefault:0.##} "
+                + $"scrollable={scroll.VerticallyScrollable.ValueOrDefault}");
+        }
+
+        return descriptions.Count == 0
+            ? "No UIA ScrollPattern ancestor was exposed."
+            : string.Join("; ", descriptions);
+    }
+
+    private static void PrepareRepresentativeFirstScreen(
+        FlaUI.Core.AutomationElements.Window window,
+        string pageAnchorAutomationId,
+        string firstContentAutomationId,
+        string context)
+    {
+        ResetVisibleVerticalScrollBars(window);
+        WaitUntil(
+            () => IsVisibleInWindow(
+                window,
+                FindById(window, firstContentAutomationId)),
+            $"{context}: visible first content {firstContentAutomationId}",
+            StepTimeout);
+        AssertRepresentativeAnchorVisible(window, pageAnchorAutomationId, context);
+    }
+
+    private static void EnsureVisibleIfOffscreen(
+        FlaUI.Core.AutomationElements.Window window,
+        AutomationElement element,
+        string context)
+    {
+        if (IsVisibleInWindow(window, element))
+        {
+            return;
+        }
+
+        element.Focus();
+        WaitUntil(
+            () => IsVisibleInWindow(window, element),
+            context,
+            StepTimeout);
+    }
+
+    private static bool IsVisibleInWindow(
+        FlaUI.Core.AutomationElements.Window window,
+        AutomationElement? element)
+    {
+        if (element is null || element.Properties.IsOffscreen.ValueOrDefault)
+        {
+            return false;
+        }
+
+        var bounds = element.BoundingRectangle;
+        var windowBounds = window.BoundingRectangle;
+        return bounds.Width > 0
+            && bounds.Height > 0
+            && bounds.Right > windowBounds.Left
+            && bounds.Left < windowBounds.Right
+            && bounds.Bottom > windowBounds.Top
+            && bounds.Top < windowBounds.Bottom;
+    }
+
+    private static void ResetVisibleVerticalScrollBars(
+        FlaUI.Core.AutomationElements.Window window)
+    {
+        var scrollBars = window.FindAllDescendants(
+            window.ConditionFactory.ByControlType(ControlType.ScrollBar));
+        foreach (var scrollBar in scrollBars)
+        {
+            var bounds = scrollBar.BoundingRectangle;
+            if (scrollBar.Properties.IsOffscreen.ValueOrDefault
+                || bounds.Height <= bounds.Width
+                || !scrollBar.Patterns.RangeValue.IsSupported)
+            {
+                continue;
+            }
+
+            var range = scrollBar.Patterns.RangeValue.PatternOrDefault;
+            if (range is not null && !range.IsReadOnly.ValueOrDefault)
+            {
+                range.SetValue(range.Minimum.ValueOrDefault);
+            }
+        }
+    }
+
+    private static void SetNavigationPaneExpanded(
+        FlaUI.Core.AutomationElements.Window window,
+        bool expanded)
+    {
+        var navigationItem = FindRequiredById(window, "OverviewNavigationItem");
+        bool IsExpanded() => navigationItem.BoundingRectangle.Width >= 120;
+        if (IsExpanded() == expanded)
+        {
+            return;
+        }
+
+        FindRequiredById(window, "NavigationToggleButton").AsButton().Invoke();
+        WaitUntil(
+            () => IsExpanded() == expanded,
+            expanded
+                ? "the expanded production navigation pane"
+                : "the compact production navigation pane",
+            StepTimeout);
+    }
+
     private static AutomationElement FindRequiredByName(
         FlaUI.Core.AutomationElements.Window window,
         string automationName) =>
         window.FindFirstDescendant(window.ConditionFactory.ByName(automationName))
         ?? throw new Xunit.Sdk.XunitException($"UIA element not found by name: {automationName}");
+
+    private static FlaUI.Core.AutomationElements.ToggleButton FindRequiredButtonByName(
+        FlaUI.Core.AutomationElements.Window window,
+        string automationName) =>
+        window.FindFirstDescendant(
+                window.ConditionFactory.ByControlType(ControlType.Button)
+                    .And(window.ConditionFactory.ByName(automationName)))
+            ?.AsToggleButton()
+        ?? throw new Xunit.Sdk.XunitException(
+            $"UIA button not found by name: {automationName}");
 
     private static string TextValue(AutomationElement element) => string.Join(
         Environment.NewLine,
@@ -1207,20 +2379,63 @@ public sealed class WatchWorkspaceProductionJourneyTests
         }
     }
 
-    private static void PrepareAreaProfile(string localAppData)
+    private static void PrepareAreaProfiles(string localAppData)
     {
         var directory = Path.Combine(localAppData, "MesIngest.Watch", "area-filters");
         Directory.CreateDirectory(directory);
-        File.WriteAllText(
-            Path.Combine(directory, "Factory-East.txt"),
-            "# Shared preview\nA1-1\n",
-            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        WriteAreaProfile(
+            directory,
+            "东区",
+            "# 东区生产范围\n"
+            + "A1-1\nA1-2\nA2-1\nA2-2\n"
+            + "B1-1\nB1-2\nB2-1\nB2-2\n"
+            + "C1-1\nC1-2\nC2-1\nC2-2\n",
+            "2026-08-14T05:02:00Z");
+        WriteAreaProfile(
+            directory,
+            "西区",
+            "# 西区生产范围\nD1-1\nD1-2\nD1-3\nD2-1\nD2-2\nD2-3\nD3-1\nD3-2\nD3-3\n",
+            "2026-08-13T09:30:00Z");
+        WriteAreaProfile(
+            directory,
+            "焊线区域",
+            "# 焊线区域\n"
+            + "W1-1\nW1-2\nW1-3\nW1-4\nW1-5\nW1-6\nW1-7\nW1-8\n"
+            + "W2-1\nW2-2\nW2-3\nW2-4\nW2-5\nW2-6\nW2-7\nW2-8\n"
+            + "W3-1\nW3-2\nW3-3\nW3-4\nW3-5\nW3-6\nW3-7\nW3-8\n",
+            "2026-08-10T00:15:00Z");
+        WriteAreaProfile(
+            directory,
+            "临时范围",
+            "# 待修复的临时范围\nA1-1\nAREA-INVALID\n",
+            "2026-08-14T04:58:00Z");
+
         File.WriteAllText(
             Path.Combine(directory, ".active-profile"),
-            "{\"version\":1,\"profileName\":\"Factory-East\","
-            + "\"mesAreas\":[\"A1-1\"],"
+            "{\"version\":1,\"profileName\":\"东区\","
+            + "\"mesAreas\":["
+            + "\"A1-1\",\"A1-2\",\"A2-1\",\"A2-2\","
+            + "\"B1-1\",\"B1-2\",\"B2-1\",\"B2-2\","
+            + "\"C1-1\",\"C1-2\",\"C2-1\",\"C2-2\"],"
             + "\"appliedAt\":\"2026-08-14T05:00:00+00:00\"}",
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+    }
+
+    private static void WriteAreaProfile(
+        string directory,
+        string profileName,
+        string content,
+        string lastModifiedAt)
+    {
+        var path = Path.Combine(directory, $"{profileName}.txt");
+        File.WriteAllText(
+            path,
+            content,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.SetLastWriteTimeUtc(
+            path,
+            DateTimeOffset.Parse(lastModifiedAt, CultureInfo.InvariantCulture).UtcDateTime);
     }
 
     internal static IReadOnlyList<string> FormatTimeline(

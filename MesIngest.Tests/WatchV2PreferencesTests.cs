@@ -20,12 +20,15 @@ public sealed class WatchV2PreferencesTests
         Assert.True(preferences.Display.RememberWindowSize);
         Assert.Equal(1440, preferences.Display.WindowWidth);
         Assert.Equal(900, preferences.Display.WindowHeight);
-        Assert.True(preferences.Display.IsNavigationPaneOpen);
+        Assert.False(preferences.Display.IsNavigationPaneOpen);
         Assert.Equal(720, WatchV2DisplayPreferences.MinimumWindowWidth);
     }
 
-    [Fact]
-    public void Explicit_path_round_trips_each_interval_and_allowed_local_display_preference()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Explicit_path_round_trips_each_interval_and_allowed_local_display_preference(
+        bool isNavigationPaneOpen)
     {
         var directory = NewTempDirectory();
         var path = Path.Combine(directory, "nested", "watch-v2-preferences.json");
@@ -40,7 +43,7 @@ public sealed class WatchV2PreferencesTests
                 rememberWindowSize: false,
                 windowWidth: 1680,
                 windowHeight: 1050,
-                isNavigationPaneOpen: false));
+                isNavigationPaneOpen));
 
         try
         {

@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -58,27 +59,30 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Equal("41 / 47", Find<TextBlock>(window, "ReadabilitySummaryValue").Text);
                 Assert.Equal("7", Find<TextBlock>(window, "ErrorsSummaryValue").Text);
                 Assert.Equal("13", Find<TextBlock>(window, "AttentionSummaryValue").Text);
+                window.Show();
+                window.UpdateLayout();
+                var seriesSummaryDetail = Find<TextBlock>(window, "SeriesSummaryDetail");
                 Assert.Contains(
                     "2 归档后仍可见",
-                    Find<TextBlock>(window, "SeriesSummaryDetail").Text,
+                    seriesSummaryDetail.Text,
                     StringComparison.Ordinal);
+                Assert.InRange(
+                    seriesSummaryDetail.ActualHeight,
+                    1,
+                    (seriesSummaryDetail.FontFamily.LineSpacing * seriesSummaryDetail.FontSize * 2) + 2);
                 Assert.Equal(
                     "Host 已提交范围：A1-1",
                     Find<TextBlock>(window, "HostAreaScopeText").Text);
                 Assert.Equal(
                     WatchOverviewRecentActivityStates.NoRecentHighlightsMessage,
                     Find<TextBlock>(window, "RecentActivityHeadingText").Text);
+                var overviewContext = Find<TextBlock>(window, "OverviewContextText");
+                Assert.Contains("Host 快照", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("Watch 最近成功", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("自动刷新 10 秒", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains(
-                    Find<TextBlock>(window, "SnapshotFactsText").Text,
-                    AutomationProperties.GetName(Find<TextBlock>(window, "SnapshotFactsText")),
-                    StringComparison.Ordinal);
-                Assert.Contains(
-                    Find<TextBlock>(window, "ClientAttemptFactsText").Text,
-                    AutomationProperties.GetName(Find<TextBlock>(window, "ClientAttemptFactsText")),
-                    StringComparison.Ordinal);
-                Assert.Contains(
-                    Find<TextBlock>(window, "SnapshotFactsText").Text,
-                    AutomationProperties.GetName(Find<TextBlock>(window, "OverviewContextText")),
+                    overviewContext.Text,
+                    AutomationProperties.GetName(overviewContext),
                     StringComparison.Ordinal);
                 Assert.Contains(
                     "不是健康结论",
@@ -86,17 +90,12 @@ public sealed class WatchV2ProductionHostTests
                         Find<StackPanel>(window, "RecentActivityItems").Children[0]).Text,
                     StringComparison.Ordinal);
                 Assert.Same(
-                    committed.Series.TrackingNavigation,
-                    Find<FluentButton>(window, "SeriesTrackingAction").Tag);
-                Assert.Same(
-                    committed.Series.ArchivedNavigation,
-                    Find<FluentButton>(window, "SeriesArchivedAction").Tag);
-                Assert.Same(
-                    committed.Series.GoneNavigation,
-                    Find<FluentButton>(window, "SeriesGoneAction").Tag);
-                Assert.Same(
-                    committed.Series.LongGoneButVisibleNavigation,
-                    Find<FluentButton>(window, "SeriesLongGoneVisibleAction").Tag);
+                    committed.Series.Navigation,
+                    Find<FluentButton>(window, "SeriesSummaryAction").Tag);
+                Assert.Null(window.FindName("SeriesTrackingAction"));
+                Assert.Null(window.FindName("SeriesArchivedAction"));
+                Assert.Null(window.FindName("SeriesGoneAction"));
+                Assert.Null(window.FindName("SeriesLongGoneVisibleAction"));
                 Assert.Same(
                     committed.Readability.ReadableNavigation,
                     Find<FluentButton>(window, "ReadableSummaryAction").Tag);
@@ -109,13 +108,14 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Same(
                     committed.Errors.Prior7DaysNavigation,
                     Find<FluentButton>(window, "PriorErrorsSummaryAction").Tag);
+                var attentionFacetSummary = Find<Wpf.Ui.Controls.TextBlock>(
+                    window,
+                    "AttentionSummaryFacetText");
+                Assert.Equal("3 ERROR · 10 WARNING", attentionFacetSummary.Text);
                 Assert.Equal(
-                    ["Series 错误 · 13", "ERROR · 3", "WARNING · 10"],
-                    Find<WrapPanel>(window, "AttentionSummaryActions").Children
-                        .OfType<FluentButton>()
-                        .Skip(1)
-                        .Select(button => button.Content?.ToString() ?? string.Empty)
-                        .ToArray());
+                    "接入告警严重度精确分面：3 ERROR · 10 WARNING",
+                    AutomationProperties.GetName(attentionFacetSummary));
+                Assert.Null(window.FindName("AttentionSummaryActions"));
 
                 var hostFooter = Find<NavigationViewItem>(window, "HostNavigationItem");
                 Assert.Equal("Host 已连接", hostFooter.Content?.ToString());
@@ -127,6 +127,21 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Equal(
                     SymbolRegular.CloudCheckmark24,
                     Find<SymbolIcon>(window, "HostNavigationIcon").Symbol);
+                Find<ScrollViewer>(window, "SettingsPage").Visibility = Visibility.Visible;
+                window.Show();
+                window.UpdateLayout();
+                var settingsHostIconSurface = Find<Border>(
+                    window,
+                    "SettingsHostStatusIconSurface");
+                Assert.NotNull(settingsHostIconSurface.Background);
+                Assert.Equal(
+                    window.FindResource("SystemFillColorSuccessBackgroundBrush").ToString(),
+                    settingsHostIconSurface.Background.ToString());
+                var settingsHostIcon = Find<SymbolIcon>(window, "SettingsHostStatusIcon");
+                Assert.NotNull(settingsHostIcon.Foreground);
+                Assert.Equal(
+                    window.FindResource("SystemFillColorSuccessBrush").ToString(),
+                    settingsHostIcon.Foreground.ToString());
 
                 var completed = host.Timeline
                     .Where(entry => entry.State == FakeHostRequestState.Completed

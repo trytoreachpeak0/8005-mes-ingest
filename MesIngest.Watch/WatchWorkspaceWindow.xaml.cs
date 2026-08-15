@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using MesIngest.Core.SeriesProjection;
 using InfoBarSeverity = Wpf.Ui.Controls.InfoBarSeverity;
 using ControlAppearance = Wpf.Ui.Controls.ControlAppearance;
@@ -53,6 +54,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private CurrentIngestAttentionQuery _currentAttentionQuery = new();
     private WatchDemandSeriesNavigationContext? _demandSeriesNavigation;
     private string? _focusedDemandId;
+    private string? _demandSeriesLifecycleDraft;
     private WatchWorkspacePage _activePage = WatchWorkspacePage.Overview;
     private bool _isRenderingDemandSeries;
     private long _demandSeriesOperationGeneration;
@@ -68,7 +70,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Func<WatchHostSettings, IWatchV2ApiClient>? clientFactory = null,
         TimeProvider? timeProvider = null,
         bool initializeOnLoaded = true,
-        string? areaFilterProfilesDirectoryPath = null)
+        string? areaFilterProfilesDirectoryPath = null,
+        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -80,11 +83,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _session,
             preferences.RefreshIntervals,
             timeProvider);
-        InitializeAreaFilterProfiles(areaFilterProfilesDirectoryPath, timeProvider);
+        InitializeAreaFilterProfiles(
+            areaFilterProfilesDirectoryPath,
+            timeProvider,
+            areaProfileDirectoryLauncher);
 
         InitializeComponent();
         InitializeDemandSeriesPage();
         InitializeReadabilityAuditAndAreaProfiles();
+        InitializeDataPageAreaProfileSelectors();
         InitializeTicket22Pages();
         if (Application.Current is null)
         {
@@ -312,6 +319,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _preferences = new WatchV2Preferences(_autoRefresh.Settings, display);
         WatchV2PreferencesStore.Save(_workspacePreferencesPath, _preferences);
         ApplyDisplayPreferences(display, restoreGeometry: false);
+        RenderWorkspace();
     }
 
     internal void NavigateFromOverview(OverviewNavigationIntent intent)
@@ -448,7 +456,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchGridClipboardBehavior.Attach(DemandSeriesErrorPeriodGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesErrorEvidenceGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesEventGrid, preserveSelectionUnit: true);
-        DemandSeriesLifecycleFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(
@@ -648,7 +655,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private DemandSeriesBrowseFilter ReadDemandSeriesFilter() => new()
     {
-        Lifecycles = ReadDemandSeriesChoice(DemandSeriesLifecycleFilter),
+        Lifecycles = string.IsNullOrWhiteSpace(_demandSeriesLifecycleDraft)
+            ? []
+            : [_demandSeriesLifecycleDraft],
         CurrentPresences = ReadDemandSeriesChoice(DemandSeriesPresenceFilter),
         WorkTypes = ReadDemandSeriesChoice(DemandSeriesWorkTypeFilter),
         SublotContains = ReadDemandSeriesText(DemandSeriesSublotFilter.Text),
@@ -708,12 +717,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 applied.CurrentApplied.ToDisplayContext(),
                 cancellationToken)
             .ConfigureAwait(true);
-        RenderAreaProfiles();
+        RenderAreaProfiles(reloadProfiles: true);
     }
 
     private void SyncDemandSeriesFilterControls(DemandSeriesBrowseQuery query)
     {
-        SelectDemandSeriesChoice(DemandSeriesLifecycleFilter, query.Filter.Lifecycles.SingleOrDefault());
+        SetDemandSeriesLifecycleDraft(query.Filter.Lifecycles.SingleOrDefault());
         SelectDemandSeriesChoice(DemandSeriesPresenceFilter, query.Filter.CurrentPresences.SingleOrDefault());
         SelectDemandSeriesChoice(DemandSeriesWorkTypeFilter, query.Filter.WorkTypes.SingleOrDefault());
         DemandSeriesSublotFilter.Text = query.Filter.SublotContains ?? string.Empty;
@@ -749,6 +758,50 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void OnDemandSeriesFilterDraftChanged(object sender, SelectionChangedEventArgs e) =>
         UpdateDemandSeriesClearFiltersState();
 
+    private void OnDemandSeriesLifecycleSegmentClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is Wpf.Ui.Controls.Button { Tag: string value })
+        {
+            SetDemandSeriesLifecycleDraft(value);
+            UpdateDemandSeriesClearFiltersState();
+        }
+    }
+
+    private void SetDemandSeriesLifecycleDraft(string? value)
+    {
+        _demandSeriesLifecycleDraft = string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+        var allSelected = _demandSeriesLifecycleDraft is null;
+        var trackingSelected = string.Equals(
+            _demandSeriesLifecycleDraft,
+            DemandSeriesLifecycleContract.Tracking,
+            StringComparison.Ordinal);
+        var archivedSelected = string.Equals(
+            _demandSeriesLifecycleDraft,
+            DemandSeriesLifecycleContract.Archived,
+            StringComparison.Ordinal);
+        DemandSeriesLifecycleAllButton.Appearance = allSelected
+            ? ControlAppearance.Primary
+            : ControlAppearance.Transparent;
+        DemandSeriesLifecycleTrackingButton.Appearance = trackingSelected
+                ? ControlAppearance.Primary
+                : ControlAppearance.Transparent;
+        DemandSeriesLifecycleArchivedButton.Appearance = archivedSelected
+                ? ControlAppearance.Primary
+                : ControlAppearance.Transparent;
+        SetSegmentSelectionStatus(DemandSeriesLifecycleAllButton, allSelected);
+        SetSegmentSelectionStatus(DemandSeriesLifecycleTrackingButton, trackingSelected);
+        SetSegmentSelectionStatus(DemandSeriesLifecycleArchivedButton, archivedSelected);
+    }
+
+    private static void SetSegmentSelectionStatus(
+        Wpf.Ui.Controls.Button button,
+        bool isSelected) =>
+        AutomationProperties.SetItemStatus(
+            button,
+            isSelected ? "已选择" : "未选择");
+
     private void OnDemandSeriesFilterDraftTextChanged(object sender, TextChangedEventArgs e) =>
         UpdateDemandSeriesClearFiltersState();
 
@@ -759,7 +812,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        var hasChoice = DemandSeriesLifecycleFilter.SelectedIndex > 0
+        var hasChoice = _demandSeriesLifecycleDraft is not null
             || DemandSeriesPresenceFilter.SelectedIndex > 0
             || ReadDemandSeriesChoice(DemandSeriesWorkTypeFilter).Count > 0;
         var hasText = ReadDemandSeriesText(DemandSeriesSublotFilter.Text) is not null
@@ -814,7 +867,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         var state = _session.State;
         var presentation = WatchOverviewPresentation.Project(state, _areaContext);
-        OverviewContextText.Text = $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts}";
+        OverviewContextText.Text =
+            $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts} · 自动刷新 {_preferences.RefreshIntervals.Overview.IntervalSeconds} 秒";
         OverviewInfoBar.IsOpen = presentation.IsInfoOpen;
         OverviewInfoBar.Severity = ToInfoBarSeverity(presentation.InfoSeverity);
         OverviewInfoBar.Title = presentation.InfoTitle;
@@ -827,21 +881,24 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ErrorsSummaryDetail.Text = presentation.ErrorsDetail;
         AttentionSummaryValue.Text = presentation.AttentionValue;
         AttentionSummaryDetail.Text = presentation.AttentionDetail;
+        var overviewSnapshot = state.Overview.Snapshot;
+        SetOverviewMetricState(
+            ErrorsSummaryValue,
+            overviewSnapshot?.Errors.ActiveSeriesCount > 0);
+        SetOverviewMetricState(
+            AttentionSummaryValue,
+            overviewSnapshot?.Attention.ExactTotalItemCount > 0);
+        SetOverviewSubsummaryState(
+            NotReadableSummaryAction,
+            overviewSnapshot?.Readability.NotReadableCount > 0,
+            "SystemFillColorCriticalBrush");
         LocalAreaHeadingText.Text = presentation.LocalAreaHeading;
         LocalAreaDetailText.Text = presentation.LocalAreaDetail;
         HostAreaScopeText.Text = presentation.HostAreaScope;
         RecentActivityHeadingText.Text = presentation.RecentActivityHeading;
-        SnapshotFactsText.Text = presentation.SnapshotFacts;
-        ClientAttemptFactsText.Text = presentation.ClientAttemptFacts;
         AutomationProperties.SetName(
             OverviewContextText,
-            $"概览快照与客户端读取时间：{OverviewContextText.Text}");
-        AutomationProperties.SetName(
-            SnapshotFactsText,
-            $"Host 快照事实：{SnapshotFactsText.Text}");
-        AutomationProperties.SetName(
-            ClientAttemptFactsText,
-            $"Watch 客户端读取事实：{ClientAttemptFactsText.Text}");
+            $"概览快照、客户端读取时间与自动刷新策略：{OverviewContextText.Text}");
         AutomationProperties.SetName(
             OverviewInfoBar,
             presentation.IsInfoOpen
@@ -857,26 +914,38 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SetNavigationAction(ReadabilitySummaryAction, presentation.ReadabilityNavigation);
         SetNavigationAction(ErrorsSummaryAction, presentation.ErrorsNavigation);
         SetNavigationAction(AttentionSummaryAction, presentation.AttentionNavigation);
-        SetNavigationAction(SeriesTrackingAction, state.Overview.Snapshot?.Series.TrackingNavigation);
-        SetNavigationAction(SeriesArchivedAction, state.Overview.Snapshot?.Series.ArchivedNavigation);
-        SetNavigationAction(SeriesGoneAction, state.Overview.Snapshot?.Series.GoneNavigation);
-        SetNavigationAction(
-            SeriesLongGoneVisibleAction,
-            state.Overview.Snapshot?.Series.LongGoneButVisibleNavigation);
         SetNavigationAction(ReadableSummaryAction, state.Overview.Snapshot?.Readability.ReadableNavigation);
         SetNavigationAction(
             NotReadableSummaryAction,
             state.Overview.Snapshot?.Readability.NotReadableNavigation);
         SetNavigationAction(ActiveErrorsSummaryAction, state.Overview.Snapshot?.Errors.ActiveNavigation);
         SetNavigationAction(PriorErrorsSummaryAction, state.Overview.Snapshot?.Errors.Prior7DaysNavigation);
-        RenderAttentionFacetActions(state.Overview.Snapshot?.Attention);
+        RenderAttentionFacetSummary(state.Overview.Snapshot?.Attention);
         RenderRecentActivity(presentation);
         RenderHostFooter(state, presentation);
+        RenderDataPageAreaProfileSelectors();
         RenderDemandSeries(state);
         RenderReadabilityAudit(state);
         RenderErrorSearch(state);
         RenderCurrentAttention(state);
     }
+
+    private static void SetOverviewMetricState(TextBlock metric, bool isCritical) =>
+        metric.SetResourceReference(
+            TextBlock.ForegroundProperty,
+            isCritical
+                ? "SystemFillColorCriticalBrush"
+                : "TextFillColorPrimaryBrush");
+
+    private static void SetOverviewSubsummaryState(
+        Control action,
+        bool isEmphasized,
+        string emphasizedBrush) =>
+        action.SetResourceReference(
+            Control.ForegroundProperty,
+            isEmphasized
+                ? emphasizedBrush
+                : "TextFillColorTertiaryBrush");
 
     private void RenderDemandSeries(WatchV2WorkspaceState state)
     {
@@ -904,6 +973,19 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 presentation.HasSnapshot
                     ? $"需求系列快照与 AREA 范围：{DemandSeriesContextText.Text}"
                     : "需求系列快照与 AREA 范围");
+            var demandFacets = state.DemandSeries.Snapshot?.Facets;
+            DemandSeriesTrackingFacetText.Text = demandFacets is null
+                ? "Tracking —"
+                : $"Tracking {demandFacets.TrackingCount:N0}";
+            DemandSeriesArchivedFacetText.Text = demandFacets is null
+                ? "Archived —"
+                : $"Archived {demandFacets.ArchivedCount:N0}";
+            AutomationProperties.SetName(
+                DemandSeriesTrackingFacetPill,
+                $"Host 精确分面：{DemandSeriesTrackingFacetText.Text}");
+            AutomationProperties.SetName(
+                DemandSeriesArchivedFacetPill,
+                $"Host 精确分面：{DemandSeriesArchivedFacetText.Text}");
 
             var showSource = presentation.SourceComparison
                 != WatchDemandSeriesSourceComparison.None;
@@ -985,6 +1067,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 ? "选择后显示 Series 生命周期时间与创建证据。"
                 : $"SeriesStartedAt {detail.StartedAt} · ArchivedAt {detail.ArchivedAt} · 创建 PollTrace {detail.CreatedPollTraceId} · 创建 ProjectionCommit {detail.CreatedProjectionCommitId} · 最近 PollTrace {detail.LatestPollTraceId} · 最近 ProjectionCommit {detail.LatestProjectionCommitId}";
             DemandSeriesGenerationGrid.ItemsSource = detail?.Generations;
+            DemandSeriesLifecycleMilestones.ItemsSource = detail?.LifecycleMilestones;
             DemandSeriesRawObservationGrid.ItemsSource = detail?.RawObservations;
             var liveMes = detail?.FocusedLiveMesFields;
             DemandSeriesLiveMesFieldsText.Text = detail is null
@@ -1052,33 +1135,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
-    private void RenderAttentionFacetActions(WatchOverviewAttentionSummary? attention)
+    private void RenderAttentionFacetSummary(WatchOverviewAttentionSummary? attention)
     {
-        while (AttentionSummaryActions.Children.Count > 1)
-        {
-            AttentionSummaryActions.Children.RemoveAt(1);
-        }
-
-        if (attention is null)
-        {
-            return;
-        }
-
-        foreach (var facet in attention.Types.Concat(attention.Severities))
-        {
-            var action = new Wpf.Ui.Controls.Button
-            {
-                Content = $"{AttentionFacetLabel(facet.Value)} · {facet.Count:N0}",
-                Tag = facet.Navigation,
-                Margin = new Thickness(0, 0, 8, 8),
-                Appearance = ControlAppearance.Secondary,
-            };
-            AutomationProperties.SetName(
-                action,
-                $"查看接入告警 {AttentionFacetLabel(facet.Value)} {facet.Count:N0} 项第一页");
-            action.Click += OnOverviewIntentClick;
-            AttentionSummaryActions.Children.Add(action);
-        }
+        var summary = attention is null
+            ? "等待严重度分面"
+            : attention.Severities.Count == 0
+                ? "Host 未返回严重度分面"
+                : string.Join(
+                    " · ",
+                    attention.Severities.Select(facet =>
+                        $"{facet.Count:N0} {AttentionFacetLabel(facet.Value)}"));
+        AttentionSummaryFacetText.Text = summary;
+        AutomationProperties.SetName(
+            AttentionSummaryFacetText,
+            $"接入告警严重度精确分面：{summary}");
     }
 
     private void RenderRecentActivity(WatchOverviewPresentation presentation)
@@ -1086,31 +1156,50 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RecentActivityItems.Children.Clear();
         if (!presentation.HasSnapshot)
         {
-            RecentActivityItems.Children.Add(new Wpf.Ui.Controls.TextBlock
+            var waiting = new Wpf.Ui.Controls.TextBlock
             {
                 Text = "等待 Host 概览快照。",
                 FontTypography = Wpf.Ui.Controls.FontTypography.Body,
                 TextWrapping = TextWrapping.Wrap,
-            });
+                Margin = new Thickness(16, 13, 16, 0),
+            };
+            RecentActivityItems.Children.Add(waiting);
             return;
         }
 
         if (presentation.RecentActivity.Count == 0)
         {
-            RecentActivityItems.Children.Add(new Wpf.Ui.Controls.TextBlock
+            var empty = new Wpf.Ui.Controls.TextBlock
             {
                 Text = "Host 在该快照窗口内没有报告重点转换；这不是健康结论。",
                 FontTypography = Wpf.Ui.Controls.FontTypography.Body,
                 TextWrapping = TextWrapping.Wrap,
-            });
+                Margin = new Thickness(16, 13, 16, 0),
+            };
+            RecentActivityItems.Children.Add(empty);
             return;
         }
 
         foreach (var activity in presentation.RecentActivity)
         {
-            var content = new Grid { Margin = new Thickness(0, 8, 0, 8) };
+            var content = new Grid();
+            content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
             content.ColumnDefinitions.Add(new ColumnDefinition());
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var icon = new Wpf.Ui.Controls.SymbolIcon
+            {
+                Symbol = ActivitySymbol(activity.Navigation.Target),
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            icon.SetResourceReference(
+                Wpf.Ui.Controls.IconElement.ForegroundProperty,
+                activity.Severity switch
+                {
+                    WatchPresentationSeverity.Error => "SystemFillColorCriticalBrush",
+                    WatchPresentationSeverity.Warning => "SystemFillColorCautionBrush",
+                    _ => "AccentTextFillColorPrimaryBrush",
+                });
+            content.Children.Add(icon);
             var text = new StackPanel();
             text.Children.Add(new Wpf.Ui.Controls.TextBlock
             {
@@ -1121,21 +1210,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var detail = new Wpf.Ui.Controls.TextBlock
             {
                 Text = activity.Detail,
-                FontTypography = Wpf.Ui.Controls.FontTypography.Caption,
+                Style = (Style)FindResource("CaptionText"),
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 8, 8, 0),
+                Margin = new Thickness(0, 4, 8, 0),
             };
-            detail.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
             text.Children.Add(detail);
+            Grid.SetColumn(text, 1);
             content.Children.Add(text);
             var occurredAt = new Wpf.Ui.Controls.TextBlock
             {
                 Text = activity.OccurredAt,
-                FontTypography = Wpf.Ui.Controls.FontTypography.Caption,
+                Style = (Style)FindResource("CaptionText"),
                 VerticalAlignment = VerticalAlignment.Top,
             };
-            occurredAt.SetResourceReference(TextBlock.ForegroundProperty, "TextFillColorSecondaryBrush");
-            Grid.SetColumn(occurredAt, 1);
+            Grid.SetColumn(occurredAt, 2);
             content.Children.Add(occurredAt);
 
             var action = new Wpf.Ui.Controls.Button
@@ -1144,15 +1232,29 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 Tag = activity.Navigation,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                Margin = new Thickness(0, 0, 0, 8),
-                Padding = new Thickness(12),
-                Appearance = ControlAppearance.Secondary,
+                Padding = new Thickness(16, 13, 16, 13),
+                Appearance = ControlAppearance.Transparent,
             };
             AutomationProperties.SetName(action, $"打开重点动态 {activity.Heading}");
             action.Click += OnOverviewIntentClick;
-            RecentActivityItems.Children.Add(action);
+            var row = new Border
+            {
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                Child = action,
+            };
+            row.SetResourceReference(Border.BorderBrushProperty, "DividerStrokeColorDefaultBrush");
+            RecentActivityItems.Children.Add(row);
         }
     }
+
+    private static SymbolRegular ActivitySymbol(string target) => target switch
+    {
+        OverviewNavigationTargets.ErrorSearch => SymbolRegular.Warning24,
+        OverviewNavigationTargets.ReadabilityAudit => SymbolRegular.DocumentBulletList24,
+        OverviewNavigationTargets.DemandSeries or OverviewNavigationTargets.DemandSeriesDetail =>
+            SymbolRegular.Timeline24,
+        _ => SymbolRegular.Alert24,
+    };
 
     private void RenderHostFooter(
         WatchV2WorkspaceState state,
@@ -1187,6 +1289,41 @@ internal partial class WatchWorkspaceWindow : IDisposable
             WatchHostConnectionStatus.Failed => SymbolRegular.CloudDismiss24,
             _ => SymbolRegular.CloudOff24,
         };
+        OverviewHostStatusText.Text = HostNavigationItem.Content?.ToString() ?? "Host 未连接";
+        OverviewHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
+        var hostStatusStyleKey = state.ConnectionStatus switch
+        {
+            WatchHostConnectionStatus.Connected when hasViewFailure => "StatusPillCaution",
+            WatchHostConnectionStatus.Connected => "StatusPillSuccess",
+            WatchHostConnectionStatus.Connecting => "StatusPillAccent",
+            WatchHostConnectionStatus.Failed => "StatusPillCritical",
+            _ => "StatusPill",
+        };
+        OverviewHostStatusPill.Style = (Style)FindResource(hostStatusStyleKey);
+        SettingsHostStatusPill.Style = (Style)FindResource(hostStatusStyleKey);
+        SettingsHostStatusText.Text = OverviewHostStatusText.Text;
+        SettingsHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
+        var (settingsIconBackground, settingsIconForeground) = state.ConnectionStatus switch
+        {
+            WatchHostConnectionStatus.Connected when hasViewFailure =>
+                ("SystemFillColorCautionBackgroundBrush", "SystemFillColorCautionBrush"),
+            WatchHostConnectionStatus.Connected =>
+                ("SystemFillColorSuccessBackgroundBrush", "SystemFillColorSuccessBrush"),
+            WatchHostConnectionStatus.Connecting =>
+                ("AccentFillColorTertiaryBrush", "AccentTextFillColorPrimaryBrush"),
+            WatchHostConnectionStatus.Failed =>
+                ("SystemFillColorCriticalBackgroundBrush", "SystemFillColorCriticalBrush"),
+            _ => ("ControlFillColorSecondaryBrush", "TextFillColorSecondaryBrush"),
+        };
+        SettingsHostStatusIconSurface.SetResourceReference(
+            Border.BackgroundProperty,
+            settingsIconBackground);
+        SettingsHostStatusIcon.SetResourceReference(
+            Wpf.Ui.Controls.IconElement.ForegroundProperty,
+            settingsIconForeground);
+        AutomationProperties.SetName(
+            OverviewHostStatusPill,
+            $"概览 Host 状态：{OverviewHostStatusText.Text}");
         AutomationProperties.SetName(
             HostNavigationItem,
             $"Host 状态：{HostNavigationItem.Content}；打开连接设置");
@@ -1194,6 +1331,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ? $"{overview.HostDetail} · 最近页面读取失败 {latestViewFailure:yyyy-MM-dd HH:mm:ss}"
             : overview.HostDetail;
         SettingsHostStateText.Text = $"{HostNavigationItem.Content} · {overview.HostDetail}";
+        AutomationProperties.SetName(
+            SettingsHostStatusPill,
+            $"设置 Host 状态：{SettingsHostStatusText.Text}");
     }
 
     private static void SetNavigationAction(
@@ -1472,6 +1612,32 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
+    private void OnRestoreDefaultSettingsClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var defaults = WatchV2Preferences.Default;
+            var hostGeneration = _session.State.HostGeneration;
+            ApplyLocalPreferences(defaults.RefreshIntervals, defaults.Display);
+            InitializeIntervalInputs();
+            PopulateSettingsInputs();
+            ApplyDisplayPreferences(defaults.Display);
+            if (_session.State.HostGeneration != hostGeneration)
+            {
+                throw new InvalidOperationException("Restoring local defaults must not replace the Host session.");
+            }
+
+            ShowSettingsInfo(
+                InfoBarSeverity.Success,
+                "已恢复默认设置",
+                "窗口恢复为 1440×900、紧凑导航 rail；五个数据视图保持 10 秒自动刷新。Host 会话未重建。");
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            ShowSettingsInfo(InfoBarSeverity.Error, "无法恢复默认设置", exception.Message);
+        }
+    }
+
     private static WatchV2AutoRefreshSetting ReadInterval(ComboBox comboBox) =>
         comboBox.SelectedValue is int seconds
             ? new WatchV2AutoRefreshSetting(seconds)
@@ -1515,7 +1681,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private async void OnDemandSeriesClearFiltersClick(object sender, RoutedEventArgs e) =>
         await RunDemandSeriesUiActionAsync(async () =>
         {
-            DemandSeriesLifecycleFilter.SelectedIndex = 0;
+            SetDemandSeriesLifecycleDraft(null);
             DemandSeriesPresenceFilter.SelectedIndex = 0;
             DemandSeriesWorkTypeFilter.SelectedIndex = 0;
             DemandSeriesSublotFilter.Clear();
@@ -1630,6 +1796,23 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 as WatchDemandErrorPeriodPresentation)?.Evidence;
     }
 
+    private void OnDemandSeriesFullEvidenceClick(object sender, RoutedEventArgs e)
+    {
+        var showFullEvidence = DemandSeriesFullEvidenceTabs.Visibility != Visibility.Visible;
+        DemandSeriesLifecycleEvidencePanel.Visibility = showFullEvidence
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        DemandSeriesFullEvidenceTabs.Visibility = showFullEvidence
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DemandSeriesFullEvidenceButton.Content = showFullEvidence
+            ? "返回生命周期"
+            : "完整证据";
+        AutomationProperties.SetName(
+            DemandSeriesFullEvidenceButton,
+            showFullEvidence ? "返回需求系列生命周期" : "显示完整需求系列证据");
+    }
+
     private void OnDemandSeriesCopyTimeClick(object sender, RoutedEventArgs e)
     {
         if (_session.State.DemandSeries.Detail?.Series is not { } series)
@@ -1729,7 +1912,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void NavigateToAreaProfiles()
     {
         NavigateTo(WatchWorkspacePage.AreaFilter);
-        RenderAreaProfiles();
+        RenderAreaProfiles(reloadProfiles: true);
     }
 
     private void OnCurrentAttentionNavigationClick(object sender, RoutedEventArgs e)
@@ -1749,6 +1932,56 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void OnSettingsNavigationClick(object sender, RoutedEventArgs e) =>
         NavigateTo(WatchWorkspacePage.Settings);
 
+    private void OnWorkspaceNavigationLoaded(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Wpf.Ui.Controls.NavigationView navigation)
+        {
+            return;
+        }
+
+        navigation.ApplyTemplate();
+        var toggle = FindVisualDescendant<FrameworkElement>(
+            navigation,
+            element => string.Equals(
+                AutomationProperties.GetAutomationId(element),
+                "NavigationToggleButton",
+                StringComparison.Ordinal));
+        if (toggle is null)
+        {
+            return;
+        }
+
+        const string accessibleName = "展开或折叠主导航";
+        AutomationProperties.SetName(toggle, accessibleName);
+        AutomationProperties.SetHelpText(
+            toggle,
+            "在 48 epx 紧凑导航与 232 epx 展开导航之间切换");
+        ToolTipService.SetToolTip(toggle, accessibleName);
+    }
+
+    private static T? FindVisualDescendant<T>(
+        DependencyObject root,
+        Predicate<T> predicate)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T candidate && predicate(candidate))
+            {
+                return candidate;
+            }
+
+            var descendant = FindVisualDescendant(child, predicate);
+            if (descendant is not null)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
     private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
     {
         if (ActualWidth < 900 && WorkspaceNavigation.IsPaneOpen)
@@ -1758,6 +1991,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         var contentWidth = Math.Max(0, ActualWidth - (WorkspaceNavigation.IsPaneOpen ? 232 : 48) - 48);
         OverviewSummaryCards.Columns = contentWidth >= 1160 ? 5 : contentWidth >= 760 ? 3 : 2;
+        OverviewSummaryRow.Height = contentWidth >= 1160
+            ? new GridLength(174)
+            : GridLength.Auto;
         var stackBody = contentWidth < 900;
         Grid.SetColumn(OverviewFactsCard, stackBody ? 0 : 2);
         Grid.SetRow(OverviewFactsCard, stackBody ? 2 : 0);
@@ -1776,7 +2012,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         ReflowMasterDetail(
             contentWidth < (double)FindResource("ReadabilityMasterDetailStackBreakpoint"),
-            ReadabilityDetailCard,
+            ReadabilityDetailRegion,
             ReadabilityMasterColumn,
             ReadabilityBodyGapColumn,
             ReadabilityDetailColumn,

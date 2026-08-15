@@ -5,6 +5,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -14,6 +15,56 @@ namespace MesIngest.Watch.UiTests;
 [Collection(WatchV2ProductionHostCollection.CollectionName)]
 public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 {
+    [Fact]
+    public void Area_directory_launcher_creates_only_the_requested_directory_and_suppresses_shell_in_ui_test_mode()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"watch-ticket-21-directory-launcher-{Guid.NewGuid():N}");
+        var directory = Path.Combine(root, "exact-area-filters");
+        var shellStartCount = 0;
+        try
+        {
+            var launcher = new WatchAreaProfileDirectoryLauncher(
+                variable => variable == "MESINGEST_WATCH_UI_TEST_MODE" ? "1" : null,
+                _ => shellStartCount++);
+
+            var disposition = launcher.Open(directory);
+
+            Assert.Equal(
+                WatchAreaProfileDirectoryOpenDisposition.SuppressedForUiTest,
+                disposition);
+            Assert.True(Directory.Exists(directory));
+            Assert.Equal(0, shellStartCount);
+            Assert.Single(Directory.GetDirectories(root));
+            Assert.Equal(
+                Path.GetFullPath(directory),
+                Path.GetFullPath(Directory.GetDirectories(root)[0]));
+            Assert.Equal(
+                $"1{Environment.NewLine}2{Environment.NewLine}3",
+                WatchWorkspaceWindow.FormatAreaProfileLineNumbers("A1-1\r\nA1-2\rA1-3"));
+
+            System.Diagnostics.ProcessStartInfo? startInfo = null;
+            var platformDirectory = Path.Combine(root, "platform-shell-area-filters");
+            var platformLauncher = new WatchAreaProfileDirectoryLauncher(
+                _ => null,
+                requestedStartInfo => startInfo = requestedStartInfo);
+            Assert.Equal(
+                WatchAreaProfileDirectoryOpenDisposition.Opened,
+                platformLauncher.Open(platformDirectory));
+            Assert.NotNull(startInfo);
+            Assert.Equal(Path.GetFullPath(platformDirectory), startInfo.FileName);
+            Assert.True(startInfo.UseShellExecute);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     [Fact]
     public async Task Corrupt_applied_marker_falls_back_with_an_accessible_warning_instead_of_silent_scope_widening()
     {
@@ -116,6 +167,15 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     ["A1-1"],
                     (await initialOverviewReceived.Task.WaitAsync(timeout.Token)).MesAreas);
+                var demandAreaSelector = Find<ComboBox>(
+                    window,
+                    "DemandSeriesAreaProfileSelector");
+                var auditAreaSelector = Find<ComboBox>(
+                    window,
+                    "ReadabilityAreaProfileSelector");
+                Assert.Same(demandAreaSelector.ItemsSource, auditAreaSelector.ItemsSource);
+                Assert.Equal(1, demandAreaSelector.SelectedIndex);
+                Assert.Equal(1, auditAreaSelector.SelectedIndex);
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
 
                 var profiles = Find<ListBox>(window, "AreaProfileList");
@@ -210,10 +270,330 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<TextBlock>(window, "AreaProfileValidationSummaryText").Text,
                     StringComparison.Ordinal);
                 Assert.Equal(["B2-2", "C3-3"], window.AreaContext.MesAreas);
+
+                var beforeSelectorApply = host.Timeline.Count;
+                demandAreaSelector.SelectedIndex = 0;
+                await window.AreaProfileOperationTask.WaitAsync(timeout.Token);
+
+                Assert.Empty(window.AreaContext.MesAreas);
+                Assert.Equal("全部 AREA", window.AreaContext.ProfileName);
+                Assert.Equal(0, demandAreaSelector.SelectedIndex);
+                Assert.Equal(0, auditAreaSelector.SelectedIndex);
+                Assert.Empty(
+                    new WatchAreaFilterProfileStore(files.AreaProfilesPath)
+                        .LoadApplied()
+                        .MesAreas);
+                var selectorTimeline = host.Timeline.Skip(beforeSelectorApply).ToArray();
+                foreach (var operation in new[]
+                         {
+                             FakeHostOperation.OverviewV2,
+                             FakeHostOperation.DemandSeriesV2,
+                             FakeHostOperation.ReadabilityAuditV2,
+                         })
+                {
+                    Assert.Single(selectorTimeline, entry =>
+                        entry.Operation == operation
+                        && entry.State == FakeHostRequestState.Started);
+                    Assert.Single(selectorTimeline, entry =>
+                        entry.Operation == operation
+                        && entry.State == FakeHostRequestState.Completed);
+                }
+
+                Assert.DoesNotContain(selectorTimeline, entry =>
+                    entry.Operation is FakeHostOperation.ErrorSearchV2
+                        or FakeHostOperation.CurrentAttentionV2);
             }
             finally
             {
                 window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Area_variant_a_commands_search_real_profile_rows_and_preserve_the_selected_draft_on_reload()
+    {
+        var weldingAreas = string.Join(
+            '\n',
+            Enumerable.Range(1, 24).Select(index =>
+                $"W{((index - 1) / 8) + 1}-{((index - 1) % 8) + 1}"));
+        using var files = new TemporaryWatchFiles("东区", "A1-1\nA1-2");
+        files.WriteProfile("西区", "D1-1");
+        files.WriteProfile("焊线区域", weldingAreas);
+        files.WriteProfile("临时范围", "A1-1\nAREA-INVALID");
+        Assert.True(new WatchAreaFilterProfileStore(files.AreaProfilesPath)
+            .Apply("东区")
+            .Applied);
+        var directoryLauncher = new RecordingAreaProfileDirectoryLauncher();
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath,
+                areaProfileDirectoryLauncher: directoryLauncher);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                var rows = profileList.Items
+                    .Cast<WatchAreaFilterProfilePresentationRow>()
+                    .ToArray();
+                Assert.Equal(4, rows.Length);
+                Assert.Contains(
+                    "4 个文件 · 1 个需要修复",
+                    Find<TextBlock>(window, "AreaProfileListSummaryText").Text,
+                    StringComparison.Ordinal);
+
+                var east = Assert.Single(rows, row => row.ProfileName == "东区");
+                Assert.Equal(2, east.MesAreaCount);
+                Assert.True(east.IsValid);
+                Assert.True(east.IsApplied);
+                Assert.Equal("当前应用", east.StatusText);
+                Assert.NotEqual(default, east.LastModifiedAt);
+                Assert.Contains("2 个 AREA", east.MetadataText, StringComparison.Ordinal);
+
+                var west = Assert.Single(rows, row => row.ProfileName == "西区");
+                Assert.Equal(1, west.MesAreaCount);
+                Assert.True(west.IsValid);
+                Assert.False(west.IsApplied);
+                Assert.Equal("有效", west.StatusText);
+
+                var invalid = Assert.Single(rows, row => row.ProfileName == "临时范围");
+                Assert.Equal(1, invalid.MesAreaCount);
+                Assert.Equal(1, invalid.DiagnosticCount);
+                Assert.False(invalid.IsValid);
+                Assert.False(invalid.IsApplied);
+                Assert.Equal("无效", invalid.StatusText);
+
+                var welding = Assert.Single(rows, row => row.ProfileName == "焊线区域");
+                Assert.Equal(24, welding.MesAreaCount);
+                profileList.SelectedItem = welding;
+                var expectedLineNumbers = string.Join(
+                    Environment.NewLine,
+                    Enumerable.Range(1, 24));
+                Assert.Equal(
+                    expectedLineNumbers,
+                    Find<TextBlock>(window, "AreaProfileLineNumbersText").Text);
+
+                var editor = Find<TextBox>(window, "AreaProfileEditor");
+                editor.Text += "\n# 未保存的本机草稿";
+                var unsavedDraft = editor.Text;
+                Assert.Equal(
+                    "草稿未保存",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+
+                var search = Find<TextBox>(window, "AreaProfileSearchInput");
+                search.Text = "西区";
+                var searchedValid = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                Assert.Equal("西区", searchedValid.ProfileName);
+                Assert.True(searchedValid.IsValid);
+                Assert.Equal(unsavedDraft, editor.Text);
+
+                search.Text = "临时";
+                var searchedInvalid = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                Assert.Equal("临时范围", searchedInvalid.ProfileName);
+                Assert.False(searchedInvalid.IsValid);
+                Assert.Equal(unsavedDraft, editor.Text);
+
+                files.WriteProfile("西区", "D1-1\nD1-2");
+                Click(Find<ButtonBase>(window, "AreaProfileReloadButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(unsavedDraft, editor.Text);
+                Assert.Equal(
+                    "AREA 配置已重新加载",
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Title);
+
+                search.Clear();
+                rows = profileList.Items
+                    .Cast<WatchAreaFilterProfilePresentationRow>()
+                    .ToArray();
+                Assert.Equal(4, rows.Length);
+                Assert.Equal(
+                    "焊线区域",
+                    Assert.IsType<WatchAreaFilterProfilePresentationRow>(
+                        profileList.SelectedItem).ProfileName);
+                Assert.Equal(2, Assert.Single(rows, row => row.ProfileName == "西区").MesAreaCount);
+                Assert.Equal(unsavedDraft, editor.Text);
+
+                Click(Find<ButtonBase>(window, "AreaProfileOpenDirectoryButton"));
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(
+                    [Path.GetFullPath(files.AreaProfilesPath)],
+                    directoryLauncher.RequestedDirectories);
+                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                Assert.Equal("AREA 配置目录已准备", info.Title);
+                Assert.Contains("未启动文件管理器", info.Message, StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Area_variant_a_real_window_restores_editor_hierarchy_and_discards_only_the_unsaved_draft()
+    {
+        const string appliedContent = "A1-1\nA1-2\n";
+        const string savedOtherContent = "B2-2\n";
+        using var files = new TemporaryWatchFiles("东区", appliedContent);
+        files.WriteProfile("西区", savedOtherContent);
+        files.WriteProfile("临时范围", "AREA-INVALID\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("东区").Applied);
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                window.UpdateLayout();
+
+                Assert.Equal(new Thickness(0), Find<Grid>(window, "AreaFilterLayoutGrid").Margin);
+                Assert.Equal("东区.txt", Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+                Assert.Contains(
+                    "UTF-8",
+                    Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "每行一个",
+                    Find<TextBlock>(window, "AreaProfileRulesText").Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "2 个有效 AREA",
+                    Find<TextBlock>(window, "AreaProfileValidCountText").Text,
+                    StringComparison.Ordinal);
+                Assert.Same(
+                    window.FindResource("StatusPillSuccess"),
+                    Find<Border>(window, "AreaProfileValidCountPill").Style);
+                Assert.Same(
+                    window.FindResource("CaptionText"),
+                    Find<Wpf.Ui.Controls.TextBlock>(window, "AreaProfileDirectoryText").Style);
+                Assert.Equal(
+                    2,
+                    Grid.GetRow(Find<Border>(window, "AreaProfileEditorFrame")));
+                Assert.Equal(
+                    4,
+                    Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
+                Assert.Equal(
+                    4,
+                    Grid.GetRow(Find<Grid>(window, "AreaProfileAppliedCommandRow")));
+
+                var openFileDirectory = Find<ButtonBase>(window, "AreaProfileFileOpenDirectoryButton");
+                var reloadFile = Find<ButtonBase>(window, "AreaProfileFileReloadButton");
+                AssertInteractiveAutomation(
+                    openFileDirectory,
+                    "AreaProfileFileOpenDirectoryButton",
+                    "打开当前 AREA TXT 所在目录");
+                AssertInteractiveAutomation(
+                    reloadFile,
+                    "AreaProfileFileReloadButton",
+                    "从磁盘重新加载当前 AREA TXT");
+
+                var discard = Find<ButtonBase>(window, "AreaProfileDiscardButton");
+                var save = Find<ButtonBase>(window, "AreaProfileSaveButton");
+                var apply = Find<ButtonBase>(window, "AreaProfileApplyButton");
+                Assert.False(discard.IsEnabled);
+                Assert.False(save.IsEnabled);
+                Assert.False(apply.IsEnabled);
+
+                var rows = Find<ListBox>(window, "AreaProfileList")
+                    .Items
+                    .Cast<WatchAreaFilterProfilePresentationRow>()
+                    .ToArray();
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                var appliedRow = Assert.Single(rows, row => row.ProfileName == "东区");
+                var invalidRow = Assert.Single(rows, row => row.ProfileName == "临时范围");
+                var appliedContainer = Assert.IsType<ListBoxItem>(
+                    profileList.ItemContainerGenerator.ContainerFromItem(appliedRow));
+                var invalidContainer = Assert.IsType<ListBoxItem>(
+                    profileList.ItemContainerGenerator.ContainerFromItem(invalidRow));
+                Assert.NotNull(FindVisualDescendant<Border>(
+                    appliedContainer,
+                    border => border.Visibility == Visibility.Visible
+                        && ReferenceEquals(
+                            border.Style,
+                            window.FindResource("StatusPillAccent"))));
+                Assert.NotNull(FindVisualDescendant<Border>(
+                    invalidContainer,
+                    border => border.Visibility == Visibility.Visible
+                        && ReferenceEquals(
+                            border.Style,
+                            window.FindResource("StatusPillCritical"))));
+                Assert.NotNull(FindVisualDescendant<Wpf.Ui.Controls.TextBlock>(
+                    appliedContainer,
+                    text => ReferenceEquals(
+                            text.Style,
+                            window.FindResource("CaptionText"))
+                        && text.Text.Contains("AREA", StringComparison.Ordinal)));
+                profileList.SelectedItem = Assert.Single(
+                    rows,
+                    row => row.ProfileName == "西区");
+                Assert.Equal("西区.txt", Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
+                Assert.False(discard.IsEnabled);
+                Assert.False(save.IsEnabled);
+                Assert.True(apply.IsEnabled);
+
+                var editor = Find<TextBox>(window, "AreaProfileEditor");
+                editor.Text = "C3-3\n";
+                Assert.True(discard.IsEnabled);
+                Assert.True(save.IsEnabled);
+                Assert.True(apply.IsEnabled);
+                Assert.Equal("草稿未保存", Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+
+                var markerBeforeDiscard = File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8);
+                Click(discard);
+                await window.AreaProfileOperationTask.WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken);
+
+                Assert.Equal(savedOtherContent, editor.Text);
+                Assert.Equal(markerBeforeDiscard, File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8));
+                Assert.Equal("东区", store.LoadApplied().ProfileName);
+                Assert.False(discard.IsEnabled);
+                Assert.False(save.IsEnabled);
+                Assert.True(apply.IsEnabled);
+
+                editor.Text = "AREA-INVALID\n";
+                Assert.True(discard.IsEnabled);
+                Assert.False(save.IsEnabled);
+                Assert.False(apply.IsEnabled);
+                Assert.Same(
+                    window.FindResource("StatusPillCritical"),
+                    Find<Border>(window, "AreaProfileValidCountPill").Style);
+                Assert.Contains(
+                    "无效",
+                    Find<TextBlock>(window, "AreaProfileValidCountText").Text,
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Close();
             }
         });
     }
@@ -257,6 +637,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var readabilityMaster = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
                 var readabilityDetail = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityDetailCard");
+                var readabilityDetailRegion = Find<Grid>(window, "ReadabilityDetailRegion");
                 AssertAutomation(
                     readabilityMaster,
                     "ReadabilityMasterCard",
@@ -267,8 +648,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "资格审计详情与证据");
                 Assert.Equal(0, Grid.GetColumn(readabilityMaster));
                 Assert.Equal(0, Grid.GetRow(readabilityMaster));
-                Assert.Equal(0, Grid.GetColumn(readabilityDetail));
-                Assert.Equal(2, Grid.GetRow(readabilityDetail));
+                Assert.Equal(0, Grid.GetColumn(readabilityDetailRegion));
+                Assert.Equal(2, Grid.GetRow(readabilityDetailRegion));
                 Assert.True(Find<RowDefinition>(window, "ReadabilityBodyBottomRow").Height.IsAuto);
                 Assert.Equal(0, Find<ColumnDefinition>(window, "ReadabilityDetailColumn").Width.Value);
                 Assert.InRange(readabilityMaster.ActualWidth, 1, readabilityPage.ActualWidth);
@@ -276,7 +657,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var readabilityInputs = new (string Name, Type Type, string AutomationName)[]
                 {
-                    ("ReadabilityStateFilter", typeof(ComboBox), "资格状态筛选"),
+                    ("ReadabilityStateAllButton", typeof(Wpf.Ui.Controls.Button), "资格：全部"),
+                    ("ReadabilityStateReadableButton", typeof(Wpf.Ui.Controls.Button), "资格：外部可见"),
+                    ("ReadabilityStateNotReadableButton", typeof(Wpf.Ui.Controls.Button), "资格：外部不可见"),
                     ("ReadabilityWorkTypeFilter", typeof(ComboBox), "资格审计 WorkType 筛选"),
                     ("ReadabilityBlockerFilter", typeof(ComboBox), "资格阻断原因筛选"),
                     ("ReadabilityDemandIdFilter", typeof(TextBox), "资格审计 DemandId 精确筛选"),
@@ -522,6 +905,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         Assert.True(element.IsVisible, $"{element.Name} must remain visible at 720 epx");
         Assert.True(element.ActualWidth > 0, $"{element.Name} must be measured at 720 epx");
         var origin = element.TranslatePoint(new Point(0, 0), page);
+        if (origin.X < -0.5 || origin.X + element.ActualWidth > page.ActualWidth + 0.5)
+        {
+            element.BringIntoView();
+            page.UpdateLayout();
+            origin = element.TranslatePoint(new Point(0, 0), page);
+        }
+
         Assert.True(origin.X >= -0.5, $"{element.Name} starts outside the page at {origin.X}");
         Assert.True(
             origin.X + element.ActualWidth <= page.ActualWidth + 0.5,
@@ -530,6 +920,28 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
     private static T Find<T>(FrameworkElement root, string name)
         where T : class => Assert.IsAssignableFrom<T>(root.FindName(name));
+
+    private static T? FindVisualDescendant<T>(
+        DependencyObject root,
+        Func<T, bool> predicate)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match && predicate(match))
+            {
+                return match;
+            }
+
+            if (FindVisualDescendant<T>(child, predicate) is { } descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
 
     private static Task RunInStaDispatcherAsync(Func<Task> action)
     {
@@ -578,6 +990,18 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         return completion.Task;
     }
 
+    private sealed class RecordingAreaProfileDirectoryLauncher
+        : IWatchAreaProfileDirectoryLauncher
+    {
+        public List<string> RequestedDirectories { get; } = [];
+
+        public WatchAreaProfileDirectoryOpenDisposition Open(string directoryPath)
+        {
+            RequestedDirectories.Add(Path.GetFullPath(directoryPath));
+            return WatchAreaProfileDirectoryOpenDisposition.SuppressedForUiTest;
+        }
+    }
+
     private sealed class TemporaryWatchFiles : IDisposable
     {
         public TemporaryWatchFiles(string profileName, string profileContent)
@@ -589,7 +1013,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             ProfilePath = Path.Combine(AreaProfilesPath, $"{profileName}.txt");
             ActiveMarkerPath = Path.Combine(AreaProfilesPath, ".active-profile");
             Directory.CreateDirectory(AreaProfilesPath);
-            File.WriteAllText(ProfilePath, profileContent, new UTF8Encoding(false));
+            WriteProfile(profileName, profileContent);
         }
 
         public string Root { get; }
@@ -603,6 +1027,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         public string ProfilePath { get; }
 
         public string ActiveMarkerPath { get; }
+
+        public string WriteProfile(string profileName, string profileContent)
+        {
+            var path = Path.Combine(AreaProfilesPath, $"{profileName}.txt");
+            File.WriteAllText(path, profileContent, new UTF8Encoding(false));
+            return path;
+        }
 
         public void Dispose()
         {

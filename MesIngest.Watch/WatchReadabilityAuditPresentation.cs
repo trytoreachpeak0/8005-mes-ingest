@@ -81,6 +81,8 @@ internal sealed record WatchReadabilityRawObservationPresentation(
     string MesSourceDateRaw);
 
 internal sealed record WatchReadabilityAuditDetailPresentation(
+    string DemandId,
+    string ExternalReadabilityState,
     string Heading,
     string Facts,
     string SeriesFacts,
@@ -312,6 +314,8 @@ internal sealed record WatchReadabilityAuditPresentation(
 
         var pollTrace = detail.LatestObservationPollTrace;
         return new WatchReadabilityAuditDetailPresentation(
+            demand.DemandId,
+            demand.ExternalReadabilityState,
             $"{demand.DemandId} · {demand.ExternalReadabilityState}",
             $"审计快照 {detail.SnapshotReference} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId} · CatalogRevision {identity.CatalogRevision:N0} · Demand 最新观测 PollTrace {demand.LatestObservationPollTraceId} · ProjectionCommit {demand.LatestObservationProjectionCommitId}",
             $"Series {detail.Series.SeriesId} · {detail.Series.WorkType} · SUBLOT {detail.Series.Sublot} · {detail.Series.Lifecycle} · {detail.Series.CurrentPresence} · 当前 Demand {detail.Series.CurrentDemandId} · 开始 {ProjectTime(detail.Series.StartedAt)} · 归档 {ProjectTime(detail.Series.ArchivedAt)}",

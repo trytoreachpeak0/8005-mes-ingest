@@ -1,18 +1,109 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
+using System.Text;
+using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 using MesIngest.Core.SeriesProjection;
 using InfoBarSeverity = Wpf.Ui.Controls.InfoBarSeverity;
 
 namespace MesIngest.Watch;
 
+internal enum WatchAreaProfileDirectoryOpenDisposition
+{
+    Opened,
+    SuppressedForUiTest,
+}
+
+internal interface IWatchAreaProfileDirectoryLauncher
+{
+    WatchAreaProfileDirectoryOpenDisposition Open(string directoryPath);
+}
+
+internal sealed class WatchAreaProfileDirectoryLauncher : IWatchAreaProfileDirectoryLauncher
+{
+    private const string UiTestModeVariable = "MESINGEST_WATCH_UI_TEST_MODE";
+    private readonly Func<string, string?> _readEnvironmentVariable;
+    private readonly Action<ProcessStartInfo> _startShell;
+
+    public WatchAreaProfileDirectoryLauncher(
+        Func<string, string?>? readEnvironmentVariable = null,
+        Action<ProcessStartInfo>? startShell = null)
+    {
+        _readEnvironmentVariable = readEnvironmentVariable
+            ?? Environment.GetEnvironmentVariable;
+        _startShell = startShell ?? (startInfo => Process.Start(startInfo));
+    }
+
+    public WatchAreaProfileDirectoryOpenDisposition Open(string directoryPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
+        var directory = Path.GetFullPath(directoryPath);
+        Directory.CreateDirectory(directory);
+        if (string.Equals(
+                _readEnvironmentVariable(UiTestModeVariable),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return WatchAreaProfileDirectoryOpenDisposition.SuppressedForUiTest;
+        }
+
+        try
+        {
+            _startShell(new ProcessStartInfo
+            {
+                FileName = directory,
+                UseShellExecute = true,
+            });
+        }
+        catch (Win32Exception exception)
+        {
+            throw new InvalidOperationException(
+                "无法通过平台文件管理器打开 AREA 配置目录。",
+                exception);
+        }
+
+        return WatchAreaProfileDirectoryOpenDisposition.Opened;
+    }
+}
+
+internal sealed record WatchAreaFilterProfilePresentationRow(
+    string ProfileName,
+    int MesAreaCount,
+    int DiagnosticCount,
+    bool IsValid,
+    bool IsApplied,
+    DateTimeOffset LastModifiedAt)
+{
+    public string LastModifiedText => WatchTimeDisplay.Format(LastModifiedAt);
+
+    public string StatusText => IsApplied
+        ? "当前应用"
+        : IsValid
+            ? "有效"
+            : "无效";
+
+    public string MetadataText =>
+        $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
+
+    public string DisplaySummary => $"{ProfileName} · {StatusText}";
+
+    public string AutomationName =>
+        $"{ProfileName}；{MesAreaCount:N0} 个 AREA；{StatusText}；{LastModifiedText} 修改";
+}
+
 internal partial class WatchWorkspaceWindow
 {
     private WatchAreaFilterProfileStore _areaProfileStore = null!;
+    private IWatchAreaProfileDirectoryLauncher _areaProfileDirectoryLauncher = null!;
+    private IReadOnlyList<WatchAreaFilterProfilePresentationRow> _areaProfileRows = [];
     private WatchAreaFilterProfile? _areaProfileDraft;
     private string? _selectedAreaProfileName;
     private string? _areaProfileStartupError;
     private bool _areaProfileDraftIsDirty;
+    private bool _areaProfileRowsLoaded;
     private bool _isRenderingAreaProfiles;
     private bool _isRenderingReadabilityAudit;
     private long _areaProfileOperationGeneration;
@@ -24,11 +115,14 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeAreaFilterProfiles(
         string? areaFilterProfilesDirectoryPath,
-        TimeProvider? timeProvider)
+        TimeProvider? timeProvider,
+        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher)
     {
         _areaProfileStore = new WatchAreaFilterProfileStore(
             areaFilterProfilesDirectoryPath,
             timeProvider);
+        _areaProfileDirectoryLauncher = areaProfileDirectoryLauncher
+            ?? new WatchAreaProfileDirectoryLauncher();
         try
         {
             var appliedState = _areaProfileStore.LoadAppliedState();
@@ -85,7 +179,10 @@ internal partial class WatchWorkspaceWindow
         ReadabilityWorkTypeFilter.SelectedIndex = 0;
         ReadabilityBlockerFilter.SelectedIndex = 0;
         SyncReadabilityFilterControls(_readabilityAuditQuery);
-        RenderAreaProfiles();
+        AreaProfileEditor.AddHandler(
+            ScrollViewer.ScrollChangedEvent,
+            new ScrollChangedEventHandler(OnAreaProfileEditorScrollChanged));
+        RenderAreaProfiles(reloadProfiles: true);
         if (_areaProfileStartupError is not null)
         {
             ShowAreaProfileInfo(
@@ -275,7 +372,7 @@ internal partial class WatchWorkspaceWindow
 
     private ReadabilityAuditFilter ReadReadabilityAuditFilter()
     {
-        var readabilityStates = ReadReadabilityChoices(ReadabilityStateFilter);
+        var readabilityStates = ReadReadabilityStateDraft();
         if (readabilityStates.Any(state => state is not ExternalReadabilityStates.Readable
                 and not ExternalReadabilityStates.NotReadable))
         {
@@ -345,7 +442,7 @@ internal partial class WatchWorkspaceWindow
         _isRenderingReadabilityAudit = true;
         try
         {
-            SelectReadabilityChoice(ReadabilityStateFilter, query.Filter.ReadabilityStates);
+            SetReadabilityStateDraft(query.Filter.ReadabilityStates);
             SelectReadabilityChoice(ReadabilityWorkTypeFilter, query.Filter.WorkTypes);
             SelectReadabilityChoice(ReadabilityBlockerFilter, query.Filter.Blockers);
             ReadabilityDemandIdFilter.Text = query.Filter.DemandId ?? string.Empty;
@@ -548,6 +645,7 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetName(
                 ReadabilityDetailInfoBar,
                 $"{ReadabilityDetailInfoBar.Title}。{ReadabilityDetailInfoBar.Message}");
+            RenderSelectedReadabilityAudit(presentation, state);
         }
         finally
         {
@@ -696,7 +794,7 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
-    private void RenderAreaProfiles()
+    private void RenderAreaProfiles(bool reloadProfiles = false)
     {
         if (AreaProfileList is null || _areaProfileStore is null)
         {
@@ -706,13 +804,15 @@ internal partial class WatchWorkspaceWindow
         _isRenderingAreaProfiles = true;
         try
         {
-            IReadOnlyList<WatchAreaFilterProfileSummary> profiles;
             WatchAppliedAreaFilterProfile applied;
             try
             {
-                profiles = _areaProfileStore.EnumerateProfiles();
                 var appliedState = _areaProfileStore.LoadAppliedState();
                 applied = appliedState.CurrentApplied;
+                if (reloadProfiles || !_areaProfileRowsLoaded)
+                {
+                    ReloadAreaProfileRows(applied);
+                }
                 if (appliedState.Diagnostic is { } diagnostic)
                 {
                     _areaProfileStartupError = diagnostic.Message;
@@ -726,7 +826,10 @@ internal partial class WatchWorkspaceWindow
                 or UnauthorizedAccessException
                 or ArgumentException)
             {
-                profiles = [];
+                if (!_areaProfileRowsLoaded)
+                {
+                    _areaProfileRows = [];
+                }
                 applied = new WatchAppliedAreaFilterProfile(
                     _areaContext.MesAreas.Count == 0 ? null : _areaContext.ProfileName,
                     _areaContext.MesAreas,
@@ -738,13 +841,34 @@ internal partial class WatchWorkspaceWindow
                     $"当前已应用显示范围保持不变。{exception.Message}");
             }
 
-            AreaProfileDirectoryText.Text = _areaProfileStore.DirectoryPath;
-            AreaProfileListSummaryText.Text =
-                $"{profiles.Count:N0} 个本机 TXT 配置 · 选择不等于应用";
+            _areaProfileRows = _areaProfileRows
+                .Select(row => row with
+                {
+                    IsApplied = string.Equals(
+                        row.ProfileName,
+                        applied.ProfileName,
+                        StringComparison.Ordinal),
+                })
+                .ToArray();
+            var searchText = AreaProfileSearchInput.Text.Trim();
+            var visibleRows = _areaProfileRows
+                .Where(row => searchText.Length == 0
+                    || row.ProfileName.Contains(
+                        searchText,
+                        StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
+
+            AreaProfileDirectoryText.Text = $"{_areaProfileStore.DirectoryPath} · UTF-8";
+            AreaProfileListSummaryText.Text = searchText.Length == 0
+                ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
+                : $"显示 {visibleRows.Length:N0} / {_areaProfileRows.Count:N0} 个文件"
+                    + $" · {invalidCount:N0} 个需要修复";
             if (_selectedAreaProfileName is null
+                && !_areaProfileDraftIsDirty
                 && applied.ProfileName is { } appliedProfileName
-                && profiles.Any(profile => string.Equals(
-                    profile.ProfileName,
+                && _areaProfileRows.Any(row => string.Equals(
+                    row.ProfileName,
                     appliedProfileName,
                     StringComparison.Ordinal)))
             {
@@ -774,9 +898,9 @@ internal partial class WatchWorkspaceWindow
                 applied.MesAreas.Count == 0
                     ? AreaProfileAppliedStateText.Text
                     : $"{AreaProfileAppliedStateText.Text}；AREA {string.Join('、', applied.MesAreas)}");
-            AreaProfileList.ItemsSource = profiles;
-            AreaProfileList.SelectedItem = profiles.FirstOrDefault(profile => string.Equals(
-                profile.ProfileName,
+            AreaProfileList.ItemsSource = visibleRows;
+            AreaProfileList.SelectedItem = visibleRows.FirstOrDefault(row => string.Equals(
+                row.ProfileName,
                 _selectedAreaProfileName,
                 StringComparison.Ordinal));
 
@@ -790,30 +914,203 @@ internal partial class WatchWorkspaceWindow
             if (!string.Equals(AreaProfileEditor.Text, _areaProfileDraft.Content, StringComparison.Ordinal))
             {
                 AreaProfileEditor.Text = _areaProfileDraft.Content;
+                AreaProfileEditor.ScrollToHome();
+                AreaProfileLineNumbersText.RenderTransform = new TranslateTransform();
             }
+            UpdateAreaProfileLineNumbers(AreaProfileEditor.Text);
 
             AreaProfileValidationGrid.ItemsSource = _areaProfileDraft.Diagnostics;
+            var contentByteCount = Encoding.UTF8.GetByteCount(_areaProfileDraft.Content);
+            AreaProfileFileTitleText.Text = string.IsNullOrWhiteSpace(_areaProfileDraft.ProfileName)
+                ? "新建 AREA 配置"
+                : $"{_areaProfileDraft.ProfileName}.txt";
+            AreaProfileValidCountText.Text = _areaProfileDraft.IsValid
+                ? $"✓ {_areaProfileDraft.MesAreas.Count:N0} 个有效 AREA"
+                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 无效";
+            AreaProfileValidCountPill.SetResourceReference(
+                FrameworkElement.StyleProperty,
+                _areaProfileDraft.IsValid
+                    ? "StatusPillSuccess"
+                    : "StatusPillCritical");
             AreaProfileValidationSummaryText.Text = _areaProfileDraft.IsValid
-                ? $"{_areaProfileDraft.MesAreas.Count:N0} 个合法 AREA · 可保存并应用"
-                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法草稿不可应用";
+                ? $"✓ 格式有效 · {contentByteCount:N0} B"
+                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法草稿不可应用或保存";
             AreaProfileDiskStateText.Text = _areaProfileDraftIsDirty
                 ? "草稿未保存"
                 : _selectedAreaProfileName is null
                     ? "尚未保存"
-                    : "已从 TXT 读取";
-            AreaProfileSaveButton.IsEnabled = _areaProfileDraft.IsValid;
-            AreaProfileApplyButton.IsEnabled = _areaProfileDraft.IsValid;
+                    : "磁盘版本未变化";
+            AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+            var isNewProfile = _selectedAreaProfileName is null;
+            var isSelectedProfileApplied = !isNewProfile
+                && string.Equals(
+                    _selectedAreaProfileName,
+                    applied.ProfileName,
+                    StringComparison.Ordinal)
+                && applied.MesAreas.SequenceEqual(
+                    _areaProfileDraft.MesAreas,
+                    StringComparer.Ordinal);
+            AreaProfileDiscardButton.IsEnabled = _areaProfileDraftIsDirty;
+            AreaProfileSaveButton.IsEnabled = _areaProfileDraft.IsValid
+                && (isNewProfile || _areaProfileDraftIsDirty);
+            AreaProfileApplyButton.IsEnabled = _areaProfileDraft.IsValid
+                && (isNewProfile || _areaProfileDraftIsDirty || !isSelectedProfileApplied);
+            AutomationProperties.SetName(
+                AreaProfileFileTitleText,
+                $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
+            AutomationProperties.SetName(
+                AreaProfileValidCountText,
+                $"AREA 配置有效数量：{AreaProfileValidCountText.Text}");
             AutomationProperties.SetName(
                 AreaProfileValidationSummaryText,
                 $"AREA 配置校验：{AreaProfileValidationSummaryText.Text}");
             AutomationProperties.SetName(
                 AreaProfileDiskStateText,
                 $"AREA 配置保存状态：{AreaProfileDiskStateText.Text}");
+            RenderDataPageAreaProfileSelectors(reloadProfiles);
         }
         finally
         {
             _isRenderingAreaProfiles = false;
         }
+    }
+
+    private void ReloadAreaProfileRows(WatchAppliedAreaFilterProfile applied)
+    {
+        var rows = _areaProfileStore
+            .EnumerateProfiles()
+            .Select(summary =>
+            {
+                var parsed = _areaProfileStore.Load(summary.ProfileName);
+                return new WatchAreaFilterProfilePresentationRow(
+                    summary.ProfileName,
+                    parsed.MesAreas.Count,
+                    parsed.Diagnostics.Count,
+                    parsed.IsValid,
+                    summary.IsApplied,
+                    summary.LastModifiedAt);
+            })
+            .ToArray();
+
+        if (_selectedAreaProfileName is { } selectedName)
+        {
+            if (rows.Any(row => string.Equals(
+                    row.ProfileName,
+                    selectedName,
+                    StringComparison.Ordinal)))
+            {
+                if (!_areaProfileDraftIsDirty)
+                {
+                    _areaProfileDraft = _areaProfileStore.Load(selectedName);
+                }
+            }
+            else
+            {
+                _selectedAreaProfileName = null;
+                if (!_areaProfileDraftIsDirty)
+                {
+                    _areaProfileDraft = null;
+                }
+            }
+        }
+
+        if (_selectedAreaProfileName is null
+            && !_areaProfileDraftIsDirty
+            && applied.ProfileName is { } appliedProfileName
+            && rows.Any(row => string.Equals(
+                row.ProfileName,
+                appliedProfileName,
+                StringComparison.Ordinal)))
+        {
+            _selectedAreaProfileName = appliedProfileName;
+            _areaProfileDraft = _areaProfileStore.Load(appliedProfileName);
+        }
+
+        _areaProfileRows = rows;
+        _areaProfileRowsLoaded = true;
+    }
+
+    private void OnAreaProfileOpenDirectoryClick(object sender, RoutedEventArgs e)
+    {
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            var directory = _areaProfileStore.DirectoryPath;
+            Directory.CreateDirectory(directory);
+            var disposition = _areaProfileDirectoryLauncher.Open(directory);
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Informational,
+                disposition == WatchAreaProfileDirectoryOpenDisposition.Opened
+                    ? "AREA 配置目录已打开"
+                    : "AREA 配置目录已准备",
+                disposition == WatchAreaProfileDirectoryOpenDisposition.Opened
+                    ? $"已通过平台文件管理器打开 {directory}。"
+                    : $"已确认 {directory} 存在；UI 测试模式未启动文件管理器。");
+            return Task.CompletedTask;
+        });
+    }
+
+    private void OnAreaProfileReloadClick(object sender, RoutedEventArgs e)
+    {
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            var applied = _areaProfileStore.LoadAppliedState().CurrentApplied;
+            ReloadAreaProfileRows(applied);
+            RenderAreaProfiles();
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Success,
+                "AREA 配置已重新加载",
+                $"已从本机 TXT 重新读取 {_areaProfileRows.Count:N0} 个配置；当前选择和未保存草稿已保留。数据库显示范围未改变。");
+            return Task.CompletedTask;
+        });
+    }
+
+    private void OnAreaProfileSearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_isRenderingAreaProfiles)
+        {
+            RenderAreaProfiles();
+        }
+    }
+
+    private void OnAreaProfileEditorScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (AreaProfileLineNumbersText.RenderTransform is not TranslateTransform transform)
+        {
+            transform = new TranslateTransform();
+            AreaProfileLineNumbersText.RenderTransform = transform;
+        }
+
+        transform.Y = -e.VerticalOffset;
+    }
+
+    private void UpdateAreaProfileLineNumbers(string content) =>
+        AreaProfileLineNumbersText.Text = FormatAreaProfileLineNumbers(content);
+
+    internal static string FormatAreaProfileLineNumbers(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var lineCount = 1;
+        for (var index = 0; index < content.Length; index++)
+        {
+            if (content[index] == '\r')
+            {
+                lineCount++;
+                if (index + 1 < content.Length && content[index + 1] == '\n')
+                {
+                    index++;
+                }
+            }
+            else if (content[index] == '\n')
+            {
+                lineCount++;
+            }
+        }
+
+        return string.Join(
+            Environment.NewLine,
+            Enumerable.Range(1, lineCount));
     }
 
     private void OnAreaProfileNewClick(object sender, RoutedEventArgs e)
@@ -829,15 +1126,15 @@ internal partial class WatchWorkspaceWindow
     private void OnAreaProfileSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isRenderingAreaProfiles
-            || AreaProfileList.SelectedItem is not WatchAreaFilterProfileSummary summary)
+            || AreaProfileList.SelectedItem is not WatchAreaFilterProfilePresentationRow row)
         {
             return;
         }
 
         try
         {
-            _selectedAreaProfileName = summary.ProfileName;
-            _areaProfileDraft = _areaProfileStore.Load(summary.ProfileName);
+            _selectedAreaProfileName = row.ProfileName;
+            _areaProfileDraft = _areaProfileStore.Load(row.ProfileName);
             _areaProfileDraftIsDirty = false;
             RenderAreaProfiles();
         }
@@ -862,16 +1159,64 @@ internal partial class WatchWorkspaceWindow
         _areaProfileDraft = WatchAreaFilterProfileParser.Parse(
             AreaProfileNameInput.Text,
             AreaProfileEditor.Text);
-        if (_selectedAreaProfileName is not null
-            && !string.Equals(
-                _selectedAreaProfileName,
-                _areaProfileDraft.ProfileName,
-                StringComparison.Ordinal))
-        {
-            _selectedAreaProfileName = null;
-        }
         _areaProfileDraftIsDirty = true;
         RenderAreaProfiles();
+    }
+
+    private void OnAreaProfileDiscardClick(object sender, RoutedEventArgs e)
+    {
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            ReloadSelectedAreaProfileDraft();
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Informational,
+                "已放弃 AREA 草稿修改",
+                "编辑器已恢复为所选 TXT 的磁盘内容；当前应用范围没有改变。");
+            return Task.CompletedTask;
+        });
+    }
+
+    private void OnAreaProfileFileReloadClick(object sender, RoutedEventArgs e)
+    {
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            ReloadSelectedAreaProfileDraft();
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Success,
+                "AREA TXT 已从磁盘加载",
+                "编辑器已读取所选 TXT 的当前磁盘内容；当前应用范围没有改变。");
+            return Task.CompletedTask;
+        });
+    }
+
+    private void ReloadSelectedAreaProfileDraft()
+    {
+        if (_selectedAreaProfileName is { } selectedName)
+        {
+            _areaProfileDraft = _areaProfileStore.Load(selectedName);
+            _areaProfileDraftIsDirty = false;
+            RenderAreaProfiles(reloadProfiles: true);
+            return;
+        }
+
+        var applied = _areaProfileStore.LoadAppliedState().CurrentApplied;
+        if (applied.ProfileName is { } appliedName
+            && _areaProfileStore.EnumerateProfiles().Any(summary => string.Equals(
+                summary.ProfileName,
+                appliedName,
+                StringComparison.Ordinal)))
+        {
+            _selectedAreaProfileName = appliedName;
+            _areaProfileDraft = _areaProfileStore.Load(appliedName);
+        }
+        else
+        {
+            _selectedAreaProfileName = null;
+            _areaProfileDraft = WatchAreaFilterProfileParser.Parse(string.Empty, string.Empty);
+        }
+
+        _areaProfileDraftIsDirty = false;
+        RenderAreaProfiles(reloadProfiles: true);
     }
 
     private void OnAreaProfileSaveClick(object sender, RoutedEventArgs e)
@@ -892,7 +1237,7 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Success,
                 "AREA 配置已保存",
                 $"{result.Draft.ProfileName}.txt 已以 UTF-8 原子写入；当前应用范围未静默改变。");
-            RenderAreaProfiles();
+            RenderAreaProfiles(reloadProfiles: true);
             return Task.CompletedTask;
         });
     }
@@ -919,7 +1264,7 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Success,
                 "AREA 配置已应用",
                 "概览、需求系列和资格审计已清除冻结游标并从第一页重新读取；错误检索与接入告警未改变。");
-            RenderAreaProfiles();
+            RenderAreaProfiles(reloadProfiles: true);
         });
     }
 
@@ -936,7 +1281,7 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Success,
                 "已应用全部 AREA",
                 "本机范围标记已持久化；三个 AREA 相关只读视图已从第一页重新读取。");
-            RenderAreaProfiles();
+            RenderAreaProfiles(reloadProfiles: true);
         });
     }
 

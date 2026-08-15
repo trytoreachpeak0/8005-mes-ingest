@@ -116,7 +116,7 @@ public sealed class WatchV2ProductionShellTests
                 Grid.GetRow(Assert.IsType<Border>(window.FindName("OverviewFactsCard"))));
             Assert.Equal(
                 2,
-                Grid.GetRow(Assert.IsType<Border>(window.FindName("RefreshSettingsCard"))));
+                Grid.GetRow(Assert.IsType<StackPanel>(window.FindName("RefreshSettingsCard"))));
             Assert.Equal("Segoe UI Variable, Microsoft YaHei UI", window.FontFamily.Source);
 
             window.Close();
@@ -161,12 +161,15 @@ public sealed class WatchV2ProductionShellTests
 
             var filters = new (string Name, Type Type, string AutomationName)[]
             {
-                ("DemandSeriesLifecycleFilter", typeof(ComboBox), "生命周期筛选"),
+                ("DemandSeriesLifecycleAllButton", typeof(Wpf.Ui.Controls.Button), "生命周期：全部"),
+                ("DemandSeriesLifecycleTrackingButton", typeof(Wpf.Ui.Controls.Button), "生命周期：Tracking"),
+                ("DemandSeriesLifecycleArchivedButton", typeof(Wpf.Ui.Controls.Button), "生命周期：Archived"),
                 ("DemandSeriesPresenceFilter", typeof(ComboBox), "当前出现状态筛选"),
                 ("DemandSeriesWorkTypeFilter", typeof(ComboBox), "WorkType 筛选"),
                 ("DemandSeriesSublotFilter", typeof(TextBox), "SUBLOT 筛选"),
                 ("DemandSeriesSeriesIdFilter", typeof(TextBox), "SeriesId 筛选"),
                 ("DemandSeriesDemandIdFilter", typeof(TextBox), "DemandId 筛选"),
+                ("DemandSeriesAreaProfileSelector", typeof(ComboBox), "需求系列 AREA 配置选择器"),
                 ("DemandSeriesPageSizeFilter", typeof(ComboBox), "每页数量"),
             };
             foreach (var (name, type, automationName) in filters)
@@ -189,6 +192,7 @@ public sealed class WatchV2ProductionShellTests
                 ["DemandSeriesNextButton"] = "需求系列下一页",
                 ["DemandSeriesGoToPageButton"] = "跳转到需求系列页码",
                 ["DemandSeriesAllAreasConfirmButton"] = "确认切换到全部 AREA",
+                ["DemandSeriesFullEvidenceButton"] = "显示完整需求系列证据",
                 ["DemandSeriesCopyTimeButton"] = "复制需求系列时间",
                 ["DemandSeriesCopyEvidenceButton"] = "复制需求系列证据",
             };
@@ -286,14 +290,30 @@ public sealed class WatchV2ProductionShellTests
                 window.FindName("DemandSeriesDetailHeadingText"));
             Assert.Equal("选中需求系列详情", AutomationProperties.GetName(detailHeading));
             Assert.Contains("选择", detailHeading.Text, StringComparison.Ordinal);
-            var evidenceTabs = Assert.IsType<TabControl>(
-                window.FindName("DemandSeriesEvidenceTabs"));
-            Assert.Equal("需求系列详情证据类别", AutomationProperties.GetName(evidenceTabs));
+            var lifecycleEvidence = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesLifecycleEvidencePanel"));
             Assert.Equal(
-                "DemandSeriesEvidenceTabs",
-                AutomationProperties.GetAutomationId(evidenceTabs));
-            Assert.True(evidenceTabs.Focusable);
-            Assert.True(KeyboardNavigation.GetIsTabStop(evidenceTabs));
+                "Demand 世代生命周期与永久事件",
+                AutomationProperties.GetName(lifecycleEvidence));
+            Assert.Equal(
+                "DemandSeriesLifecycleEvidencePanel",
+                AutomationProperties.GetAutomationId(lifecycleEvidence));
+            Assert.Equal(Visibility.Visible, lifecycleEvidence.Visibility);
+            var fullEvidence = Assert.IsType<TabControl>(
+                window.FindName("DemandSeriesFullEvidenceTabs"));
+            Assert.Equal("完整需求系列证据类别", AutomationProperties.GetName(fullEvidence));
+            Assert.Equal(
+                "DemandSeriesFullEvidenceTabs",
+                AutomationProperties.GetAutomationId(fullEvidence));
+            Assert.True(fullEvidence.Focusable);
+            Assert.True(KeyboardNavigation.GetIsTabStop(fullEvidence));
+            Assert.Equal(Visibility.Collapsed, fullEvidence.Visibility);
+            var fullEvidenceButton = Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesFullEvidenceButton"));
+            Assert.Equal("完整证据", fullEvidenceButton.Content);
+            Assert.Equal(
+                "DemandSeriesFullEvidenceButton",
+                AutomationProperties.GetAutomationId(fullEvidenceButton));
 
             var evidenceGrids = new Dictionary<string, string>
             {

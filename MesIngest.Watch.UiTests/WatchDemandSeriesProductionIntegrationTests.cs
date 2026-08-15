@@ -142,6 +142,28 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     detailHeading.Text,
                     AutomationProperties.GetName(detailHeading),
                     StringComparison.Ordinal);
+                Assert.Equal(
+                    "Tracking 1",
+                    Find<TextBlock>(window, "DemandSeriesTrackingFacetText").Text);
+                Assert.Equal(
+                    "Archived 0",
+                    Find<TextBlock>(window, "DemandSeriesArchivedFacetText").Text);
+                var milestones = Find<ItemsControl>(
+                        window,
+                        "DemandSeriesLifecycleMilestones")
+                    .Items
+                    .Cast<WatchDemandLifecycleMilestonePresentation>()
+                    .ToArray();
+                Assert.Equal(4, milestones.Length);
+                Assert.Equal(
+                    WatchTimeDisplay.Format(detail.Series.StartedAt),
+                    milestones[0].Value);
+                Assert.Contains(
+                    milestones,
+                    milestone => string.Equals(
+                        milestone.Status,
+                        detail.Series.CurrentDemand.ExternalReadabilityState,
+                        StringComparison.Ordinal));
                 var liveMes = Find<TextBlock>(window, "DemandSeriesLiveMesFieldsText");
                 Assert.Contains("A1-1", liveMes.Text, StringComparison.Ordinal);
                 Assert.Contains("MesSourceDate", liveMes.Text, StringComparison.Ordinal);
@@ -356,13 +378,24 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 await window.DemandSeriesNavigationTask.WaitAsync(timeout.Token);
                 await initialQueryReceived.Task.WaitAsync(timeout.Token);
 
-                var lifecycle = Find<ComboBox>(window, "DemandSeriesLifecycleFilter");
-                lifecycle.SelectedItem = lifecycle.Items
-                    .OfType<ComboBoxItem>()
-                    .Single(item => string.Equals(
-                        item.Content?.ToString(),
-                        DemandSeriesLifecycleContract.Archived,
-                        StringComparison.Ordinal));
+                var lifecycleAll = Find<ButtonBase>(
+                    window,
+                    "DemandSeriesLifecycleAllButton");
+                var lifecycleTracking = Find<ButtonBase>(
+                    window,
+                    "DemandSeriesLifecycleTrackingButton");
+                var lifecycleArchived = Find<ButtonBase>(
+                    window,
+                    "DemandSeriesLifecycleArchivedButton");
+                Assert.Equal("已选择", AutomationProperties.GetItemStatus(lifecycleAll));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(lifecycleTracking));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(lifecycleArchived));
+
+                lifecycleArchived.RaiseEvent(
+                    new RoutedEventArgs(ButtonBase.ClickEvent));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(lifecycleAll));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(lifecycleTracking));
+                Assert.Equal("已选择", AutomationProperties.GetItemStatus(lifecycleArchived));
                 Find<TextBox>(window, "DemandSeriesSublotFilter").Text = "SL-FILTER";
                 var workType = Find<ComboBox>(window, "DemandSeriesWorkTypeFilter");
                 workType.SelectedIndex = -1;

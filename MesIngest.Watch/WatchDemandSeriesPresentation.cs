@@ -134,6 +134,23 @@ internal sealed record WatchDemandSeriesEventPresentation(
     int PayloadVersion,
     string PayloadJson);
 
+internal sealed record WatchDemandLifecycleMilestonePresentation(
+    string Label,
+    DateTimeOffset? OccurredAt,
+    string Status,
+    WatchPresentationSeverity SemanticSeverity)
+{
+    public string Value => OccurredAt is null
+        ? "—"
+        : WatchTimeDisplay.Format(OccurredAt.Value);
+
+    public string SemanticState => SemanticSeverity is WatchPresentationSeverity.None
+        ? "Neutral"
+        : SemanticSeverity.ToString();
+
+    public string AutomationName => $"{Label}；{Status}；{Value}";
+}
+
 internal sealed record WatchDemandSeriesDetailPresentation(
     string SeriesHeading,
     string LifecycleSummary,
@@ -142,6 +159,7 @@ internal sealed record WatchDemandSeriesDetailPresentation(
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     long LastSeriesSequence,
+    IReadOnlyList<WatchDemandLifecycleMilestonePresentation> LifecycleMilestones,
     IReadOnlyList<WatchDemandGenerationPresentation> Generations,
     string FocusedDemandId,
     WatchLiveMesFieldSetPresentation? FocusedLiveMesFields,
@@ -644,6 +662,12 @@ internal sealed record WatchDemandSeriesPresentation(
                 ? "—（重复观测下没有可信单值）"
                 : "—";
 
+        var orderedDemands = series.Demands
+            .OrderBy(demand => demand.Generation)
+            .ToArray();
+        var generations = orderedDemands
+            .Select(ProjectGeneration)
+            .ToArray();
         return new WatchDemandSeriesDetailPresentation(
             $"{series.Sublot} · {series.WorkType}",
             $"{series.Lifecycle} · {series.CurrentPresence} · 最后序列 {series.LastSeriesSequence:N0}",
@@ -652,10 +676,11 @@ internal sealed record WatchDemandSeriesPresentation(
             series.CreatedPollTraceId,
             series.CreatedProjectionCommitId,
             series.LastSeriesSequence,
-            series.Demands
-                .OrderBy(demand => demand.Generation)
-                .Select(ProjectGeneration)
-                .ToArray(),
+            ProjectLifecycleMilestones(
+                series.StartedAt,
+                orderedDemands,
+                focused.DemandId),
+            generations,
             focused.DemandId,
             ProjectLiveMesFields(focused.LiveMesFields),
             observationSummary,
@@ -718,6 +743,60 @@ internal sealed record WatchDemandSeriesPresentation(
             focused.LatestObservationPollTraceId
                 ?? focused.CreatedPollTraceId,
             series.LatestProjectionCommitId);
+    }
+
+    private static IReadOnlyList<WatchDemandLifecycleMilestonePresentation>
+        ProjectLifecycleMilestones(
+            DateTimeOffset seriesStartedAt,
+            IReadOnlyList<TransportDemandSnapshot> generations,
+            string focusedDemandId)
+    {
+        var firstGone = generations.FirstOrDefault(generation =>
+            generation.GoneConfirmedAt is not null);
+        var focused = generations.FirstOrDefault(generation => string.Equals(
+                generation.DemandId,
+                focusedDemandId,
+                StringComparison.Ordinal))
+            ?? generations.LastOrDefault();
+        DateTimeOffset? currentOccurredAt = focused is null
+            ? null
+            : focused.LatestObservationAt ?? focused.DemandLastSeenAt;
+        var readable = string.Equals(
+            focused?.ExternalReadabilityState,
+            ExternalReadabilityStates.Readable,
+            StringComparison.Ordinal);
+
+        return
+        [
+            new WatchDemandLifecycleMilestonePresentation(
+                "首次发现",
+                seriesStartedAt,
+                "SERIES_STARTED",
+                WatchPresentationSeverity.Informational),
+            new WatchDemandLifecycleMilestonePresentation(
+                firstGone is null ? "GONE 尚未确认" : $"第 {firstGone.Generation:N0} 代 GONE",
+                firstGone?.GoneConfirmedAt,
+                firstGone is null ? "未发生" : "GONE_CONFIRMED",
+                firstGone is null
+                    ? WatchPresentationSeverity.None
+                    : WatchPresentationSeverity.Warning),
+            new WatchDemandLifecycleMilestonePresentation(
+                focused is null
+                    ? "当前 Demand"
+                    : $"第 {focused.Generation:N0} 代 · {focused.Status}",
+                focused?.CreatedAt,
+                focused?.Status ?? "尚无 Demand",
+                WatchPresentationSeverity.Informational),
+            new WatchDemandLifecycleMilestonePresentation(
+                readable ? "当前外部可读" : "当前外部不可读",
+                currentOccurredAt,
+                focused?.ExternalReadabilityState ?? "尚无资格结论",
+                focused is null
+                    ? WatchPresentationSeverity.None
+                    : readable
+                        ? WatchPresentationSeverity.Success
+                        : WatchPresentationSeverity.Warning),
+        ];
     }
 
     private static WatchDemandGenerationPresentation ProjectGeneration(

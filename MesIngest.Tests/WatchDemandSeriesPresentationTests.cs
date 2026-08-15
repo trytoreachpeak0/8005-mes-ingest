@@ -421,6 +421,160 @@ public sealed class WatchDemandSeriesPresentationTests
     }
 
     [Fact]
+    public void Lifecycle_milestones_keep_typed_date_presence_separate_from_display_text()
+    {
+        var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
+        var list = EmptyListSnapshot(
+            "commit-milestone-presence",
+            projectionSequence: 24,
+            at,
+            "poll-milestone-presence",
+            []) with
+        {
+            ExactTotalCount = 1,
+            TotalPages = 1,
+            Items =
+            [
+                Item(
+                    "series-milestone-presence",
+                    DemandSeriesLifecycleContract.Tracking,
+                    DemandSeriesLifecycleContract.Visible,
+                    ExternalReadabilityStates.Readable,
+                    []),
+            ],
+        };
+        var gone = new TransportDemandSnapshot(
+            "demand-milestone-gone",
+            "series-milestone-presence",
+            1,
+            PredecessorDemandId: null,
+            Status: DemandSeriesLifecycleContract.Gone,
+            CreatedAt: at.AddHours(-3),
+            DemandLastSeenAt: at.AddHours(-2),
+            GoneConfirmedAt: at.AddHours(-1),
+            CreatedPollTraceId: "poll-milestone-gone",
+            CreatedProjectionCommitId: "commit-milestone-gone",
+            LatestProjectionCommitId: "commit-milestone-gone",
+            LiveMesFields: null,
+            ExternalReadabilityState: ExternalReadabilityStates.NotReadable,
+            ReadabilityBlockers: ["DEMAND_GONE"]);
+        var current = new TransportDemandSnapshot(
+            "demand-milestone-current",
+            "series-milestone-presence",
+            2,
+            PredecessorDemandId: gone.DemandId,
+            Status: DemandSeriesLifecycleContract.Visible,
+            CreatedAt: at.AddMinutes(-30),
+            DemandLastSeenAt: at.AddMinutes(-1),
+            GoneConfirmedAt: null,
+            CreatedPollTraceId: "poll-milestone-current",
+            CreatedProjectionCommitId: "commit-milestone-current",
+            LatestProjectionCommitId: "commit-milestone-presence",
+            LiveMesFields: new LiveMesFieldSetSnapshot(
+                "A1-1",
+                "EQP-MILESTONE",
+                "STEP-MILESTONE",
+                at,
+                "PKG-MILESTONE"),
+            ExternalReadabilityState: ExternalReadabilityStates.Readable,
+            ReadabilityBlockers: [],
+            LatestObservationPollTraceId: "poll-milestone-current",
+            LatestObservationProjectionCommitId: "commit-milestone-presence",
+            LatestObservationAt: at);
+        var detail = new DemandSeriesDetailSnapshot(
+            list.Snapshot,
+            list.SnapshotReference,
+            new DemandSeriesSnapshot(
+                "series-milestone-presence",
+                "WIRE_TO_GATE",
+                "SL-MILESTONE",
+                DemandSeriesLifecycleContract.Tracking,
+                DemandSeriesLifecycleContract.Visible,
+                at.AddHours(-3),
+                "poll-milestone-gone",
+                "commit-milestone-gone",
+                "commit-milestone-presence",
+                current,
+                [gone, current],
+                RawObservations: [],
+                Events: [],
+                CurrentConditions: [],
+                ErrorPeriods: [],
+                ArchivedAt: null,
+                LastSeriesSequence: 3));
+        var view = WatchV2ViewState<DemandSeriesListSnapshot, DemandSeriesDetailSnapshot>
+            .Empty(4) with
+        {
+            Snapshot = list,
+            Detail = detail,
+            SelectedId = detail.Series.SeriesId,
+            CommittedQueryKey = "milestone-presence",
+            PendingQueryKey = "milestone-presence",
+            LastSuccessfulAt = at,
+        };
+
+        var presentation = WatchDemandSeriesPresentation.Project(
+            Workspace(view),
+            new DemandSeriesBrowseQuery(list.Filter),
+            WatchAreaDisplayContext.AllAreas,
+            navigation: null,
+            focusedDemandId: current.DemandId);
+
+        var milestones = Assert.IsType<WatchDemandSeriesDetailPresentation>(
+            presentation.Detail).LifecycleMilestones;
+        Assert.Equal(4, milestones.Count);
+        Assert.Equal(at.AddHours(-1), milestones[1].OccurredAt);
+        Assert.Equal(WatchPresentationSeverity.Warning, milestones[1].SemanticSeverity);
+        Assert.Equal(
+            ("第 1 代 GONE",
+                WatchTimeDisplay.Format(at.AddHours(-1)),
+                "GONE_CONFIRMED",
+                "Warning"),
+            (milestones[1].Label,
+                milestones[1].Value,
+                milestones[1].Status,
+                milestones[1].SemanticState));
+        Assert.Equal(at, milestones[3].OccurredAt);
+        Assert.Equal(WatchPresentationSeverity.Success, milestones[3].SemanticSeverity);
+        Assert.Equal(
+            ("当前外部可读",
+                WatchTimeDisplay.Format(at),
+                ExternalReadabilityStates.Readable,
+                "Success"),
+            (milestones[3].Label,
+                milestones[3].Value,
+                milestones[3].Status,
+                milestones[3].SemanticState));
+
+        var missingGoneView = view with
+        {
+            Detail = detail with
+            {
+                Series = detail.Series with
+                {
+                    Demands = [current],
+                },
+            },
+        };
+        var missingGonePresentation = WatchDemandSeriesPresentation.Project(
+            Workspace(missingGoneView),
+            new DemandSeriesBrowseQuery(list.Filter),
+            WatchAreaDisplayContext.AllAreas,
+            navigation: null,
+            focusedDemandId: current.DemandId);
+        var missingGoneMilestone = Assert.IsType<WatchDemandSeriesDetailPresentation>(
+            missingGonePresentation.Detail).LifecycleMilestones[1];
+        Assert.Null(missingGoneMilestone.OccurredAt);
+        Assert.Equal(WatchPresentationSeverity.None, missingGoneMilestone.SemanticSeverity);
+        Assert.Equal(
+            ("GONE 尚未确认", "—", "未发生", "Neutral"),
+            (missingGoneMilestone.Label,
+                missingGoneMilestone.Value,
+                missingGoneMilestone.Status,
+                missingGoneMilestone.SemanticState));
+    }
+
+    [Fact]
     public void Selected_series_keeps_generation_mes_observation_error_and_event_evidence_distinct()
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");

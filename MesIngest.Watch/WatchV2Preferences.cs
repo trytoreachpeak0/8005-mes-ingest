@@ -23,7 +23,7 @@ internal sealed record WatchV2DisplayPreferences
         bool rememberWindowSize = true,
         double windowWidth = DefaultWindowWidth,
         double windowHeight = DefaultWindowHeight,
-        bool isNavigationPaneOpen = true)
+        bool isNavigationPaneOpen = false)
     {
         if (!IsValidWindowSize(windowWidth, windowHeight))
         {

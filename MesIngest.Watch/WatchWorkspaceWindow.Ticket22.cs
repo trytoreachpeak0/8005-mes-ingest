@@ -7,16 +7,35 @@ using InfoBarSeverity = Wpf.Ui.Controls.InfoBarSeverity;
 
 namespace MesIngest.Watch;
 
+internal sealed record WatchErrorSearchCategoryNavigationItem(
+    string Category,
+    string CodesSummary,
+    long? SeriesCount)
+{
+    public string SeriesCountText => SeriesCount?.ToString("N0", CultureInfo.CurrentCulture) ?? "—";
+
+    public string SeriesCountCaption => SeriesCount is null ? "尚无快照" : "Series";
+
+    public string AutomationId => $"ErrorSearchCategory_{Category}";
+
+    public string AutomationName => SeriesCount is { } count
+        ? $"错误分类 {Category}，Host 精确 {count.ToString("N0", CultureInfo.CurrentCulture)} 个 DemandSeries，可多选"
+        : $"错误分类 {Category}，尚无 Host 快照计数，可多选";
+}
+
 internal partial class WatchWorkspaceWindow
 {
     private readonly Dictionary<int, string?> _errorSearchCursorsByPage = new();
+    private readonly HashSet<string> _selectedErrorSearchCategories = new(StringComparer.Ordinal);
     private WatchErrorRawEvidenceState _errorRawEvidence = WatchErrorRawEvidenceState.Empty;
+    private IReadOnlyList<WatchErrorSearchCategoryNavigationItem> _errorSearchCategoryNavigationItems = [];
     private string? _selectedErrorPeriodId;
     private string? _selectedErrorEvidenceId;
     private string? _selectedCurrentAttentionIdentity;
     private string? _currentAttentionSelectionNotice;
     private bool _isRenderingErrorSearch;
     private bool _isRenderingCurrentAttention;
+    private bool _isSyncingErrorSearchCategoryList;
     private long _errorSearchOperationGeneration;
     private long _currentAttentionOperationGeneration;
 
@@ -32,7 +51,6 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeTicket22Pages()
     {
-        WatchGridClipboardBehavior.Attach(ErrorSearchCategoryFacetGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(ErrorSearchActivityStateFacetGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(ErrorSearchSeriesGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(ErrorSearchPeriodGrid, preserveSelectionUnit: true);
@@ -41,6 +59,7 @@ internal partial class WatchWorkspaceWindow
         WatchGridClipboardBehavior.Attach(CurrentAttentionKindFacetGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(CurrentAttentionSeverityFacetGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(CurrentAttentionGrid, preserveSelectionUnit: true);
+        CurrentAttentionGrid.ClearValue(DataGrid.HeadersVisibilityProperty);
         WatchGridClipboardBehavior.Attach(CurrentAttentionEvidenceGrid, preserveSelectionUnit: true);
 
         PopulateErrorSearchCatalogChoices();
@@ -52,18 +71,7 @@ internal partial class WatchWorkspaceWindow
 
     private void PopulateErrorSearchCatalogChoices()
     {
-        ErrorSearchCategoryFilter.Items.Clear();
-        foreach (var category in SeriesErrorCatalog.Definitions
-                     .Select(definition => definition.Category)
-                     .Distinct(StringComparer.Ordinal)
-                     .Order(StringComparer.Ordinal))
-        {
-            ErrorSearchCategoryFilter.Items.Add(new ComboBoxItem
-            {
-                Content = category,
-                Tag = category,
-            });
-        }
+        UpdateErrorSearchCategoryNavigation([]);
 
         ErrorSearchCodeFilter.Items.Clear();
         foreach (var definition in SeriesErrorCatalog.Definitions.OrderBy(
@@ -76,6 +84,51 @@ internal partial class WatchWorkspaceWindow
                 Tag = definition.Code,
                 ToolTip = definition.Meaning,
             });
+        }
+    }
+
+    private void UpdateErrorSearchCategoryNavigation(
+        IReadOnlyList<WatchErrorSearchCategoryFacetPresentation> facets)
+    {
+        var counts = facets.ToDictionary(
+            facet => facet.Category,
+            facet => facet.SeriesCount,
+            StringComparer.Ordinal);
+        _errorSearchCategoryNavigationItems = SeriesErrorCatalog.Definitions
+            .GroupBy(definition => definition.Category, StringComparer.Ordinal)
+            .Select(group => new WatchErrorSearchCategoryNavigationItem(
+                group.Key,
+                string.Join(
+                    " · ",
+                    group.Select(definition => definition.Code).Order(StringComparer.Ordinal)),
+                counts.TryGetValue(group.Key, out var count) ? count : null))
+            .ToArray();
+        RefreshErrorSearchCategoryNavigation();
+    }
+
+    private void RefreshErrorSearchCategoryNavigation()
+    {
+        var search = ErrorSearchCategorySearchInput.Text.Trim();
+        var visibleItems = _errorSearchCategoryNavigationItems
+            .Where(item => search.Length == 0
+                || item.Category.Contains(search, StringComparison.OrdinalIgnoreCase)
+                || item.CodesSummary.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        _isSyncingErrorSearchCategoryList = true;
+        try
+        {
+            ErrorSearchCategoryList.UnselectAll();
+            ErrorSearchCategoryList.ItemsSource = visibleItems;
+            foreach (var item in visibleItems.Where(item =>
+                         _selectedErrorSearchCategories.Contains(item.Category)))
+            {
+                ErrorSearchCategoryList.SelectedItems.Add(item);
+            }
+        }
+        finally
+        {
+            _isSyncingErrorSearchCategoryList = false;
         }
     }
 
@@ -588,7 +641,7 @@ internal partial class WatchWorkspaceWindow
 
     private ErrorSearchFilter ReadErrorSearchFilter() => new ErrorSearchFilter
     {
-        Categories = ReadChoiceValues(ErrorSearchCategoryFilter),
+        Categories = _selectedErrorSearchCategories.Order(StringComparer.Ordinal).ToArray(),
         ErrorCodes = ReadChoiceValues(ErrorSearchCodeFilter),
         ActivityStates = ReadChoiceValues(ErrorSearchActivityStateFilter),
         SeriesId = ReadOptionalText(ErrorSearchSeriesIdFilter.Text),
@@ -675,7 +728,13 @@ internal partial class WatchWorkspaceWindow
         _isRenderingErrorSearch = true;
         try
         {
-            SelectChoice(ErrorSearchCategoryFilter, query.Filter.Categories);
+            _selectedErrorSearchCategories.Clear();
+            foreach (var category in query.Filter.Categories)
+            {
+                _selectedErrorSearchCategories.Add(category);
+            }
+            ErrorSearchCategorySearchInput.Clear();
+            RefreshErrorSearchCategoryNavigation();
             SelectChoice(ErrorSearchCodeFilter, query.Filter.ErrorCodes);
             SelectChoice(ErrorSearchActivityStateFilter, query.Filter.ActivityStates);
             SelectChoice(ErrorSearchWindowFilter, [query.Window.Kind]);
@@ -714,7 +773,7 @@ internal partial class WatchWorkspaceWindow
             if (comboBox.IsEditable)
             {
                 comboBox.SelectedIndex = -1;
-                comboBox.Text = string.Empty;
+                comboBox.Text = comboBox.Tag?.ToString() ?? string.Empty;
             }
             else
             {
@@ -743,6 +802,101 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
+    private void RenderErrorSearchHeader(
+        WatchV2WorkspaceState state,
+        WatchErrorSearchPresentation presentation)
+    {
+        ErrorSearchFreshnessText.Text =
+            $"Endpoint {BuildPageEndpoint(state, "/api/v2/error-search")} · "
+            + $"{presentation.ClientAttemptFacts} · "
+            + $"自动刷新 {_preferences.RefreshIntervals.ErrorSearch.IntervalSeconds} 秒";
+        SetTextAutomationName(
+            ErrorSearchFreshnessText,
+            "错误检索 Endpoint、最近成功与自动刷新",
+            ErrorSearchFreshnessText.Text);
+
+        var activeCount = presentation.ActivityFacets
+            .FirstOrDefault(facet => string.Equals(
+                facet.State,
+                ErrorSearchActivityStates.Active,
+                StringComparison.Ordinal))
+            ?.SeriesCount ?? 0;
+        var (status, styleKey) = !presentation.HasSnapshot
+            ? (presentation.IsRefreshing ? "正在读取" : "尚无快照",
+                presentation.IsRefreshing ? "StatusPillAccent" : "StatusPill")
+            : presentation.IsStale
+                ? ("快照已陈旧", "StatusPillCaution")
+                : activeCount > 0
+                    ? ($"活动错误 {activeCount:N0}", "StatusPillCritical")
+                    : ("无活动错误", "StatusPillSuccess");
+        SetHeaderStatus(
+            ErrorSearchHeaderStatusPill,
+            ErrorSearchHeaderStatusText,
+            "错误检索状态",
+            status,
+            styleKey);
+    }
+
+    private void RenderCurrentAttentionHeader(
+        WatchV2WorkspaceState state,
+        WatchCurrentIngestAttentionPresentation presentation)
+    {
+        CurrentAttentionFreshnessText.Text =
+            $"Endpoint {BuildPageEndpoint(state, "/api/v2/current-ingest-attention")} · "
+            + $"{presentation.ClientAttemptFacts} · "
+            + $"自动刷新 {_preferences.RefreshIntervals.CurrentIngestAttention.IntervalSeconds} 秒";
+        SetTextAutomationName(
+            CurrentAttentionFreshnessText,
+            "接入告警 Endpoint、最近成功与自动刷新",
+            CurrentAttentionFreshnessText.Text);
+
+        var exactTotal = state.CurrentAttention.Snapshot?.ExactTotalItemCount ?? 0;
+        var errorCount = presentation.SeverityFacets
+            .FirstOrDefault(facet => string.Equals(
+                facet.Value,
+                CurrentIngestAttentionSeverities.Error,
+                StringComparison.Ordinal))
+            ?.ItemCount ?? 0;
+        var (status, styleKey) = !presentation.HasSnapshot
+            ? (presentation.IsRefreshing ? "正在读取" : "尚无快照",
+                presentation.IsRefreshing ? "StatusPillAccent" : "StatusPill")
+            : presentation.IsStale
+                ? ("快照已陈旧", "StatusPillCaution")
+                : exactTotal == 0
+                    ? ("当前无关注", "StatusPillSuccess")
+                    : ($"当前关注 {exactTotal:N0}",
+                        errorCount > 0 ? "StatusPillCritical" : "StatusPillCaution");
+        SetHeaderStatus(
+            CurrentAttentionHeaderStatusPill,
+            CurrentAttentionHeaderStatusText,
+            "接入告警状态",
+            status,
+            styleKey);
+    }
+
+    private string BuildPageEndpoint(WatchV2WorkspaceState state, string endpointPath)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(state.BaseUrl)
+            ? _currentHostSettings.BaseUrl
+            : state.BaseUrl;
+        return $"{baseUrl.TrimEnd('/')}{endpointPath}";
+    }
+
+    private void SetHeaderStatus(
+        Border pill,
+        TextBlock text,
+        string automationLabel,
+        string value,
+        string styleKey)
+    {
+        pill.SetResourceReference(FrameworkElement.StyleProperty, styleKey);
+        text.Text = value;
+        var automationName = $"{automationLabel}：{value}";
+        AutomationProperties.SetName(pill, automationName);
+        AutomationProperties.SetName(text, automationName);
+        pill.ToolTip = automationName;
+    }
+
     private void RenderErrorSearch(WatchV2WorkspaceState state)
     {
         _isRenderingErrorSearch = true;
@@ -752,6 +906,7 @@ internal partial class WatchWorkspaceWindow
                 state,
                 _errorSearchQuery,
                 _errorRawEvidence);
+            RenderErrorSearchHeader(state, presentation);
             ErrorSearchSnapshotText.Text = presentation.SnapshotFacts;
             ErrorSearchWindowText.Text = presentation.CommittedWindow;
             ErrorSearchNormalizedFilterText.Text = presentation.CommittedConditions;
@@ -794,7 +949,7 @@ internal partial class WatchWorkspaceWindow
                     ? $"{ErrorSearchStatusInfoBar.Title}。{ErrorSearchStatusInfoBar.Message}"
                     : "错误检索状态：当前无活动通知");
 
-            ErrorSearchCategoryFacetGrid.ItemsSource = presentation.CategoryFacets;
+            UpdateErrorSearchCategoryNavigation(presentation.CategoryFacets);
             ErrorSearchActivityStateFacetGrid.ItemsSource = presentation.ActivityFacets;
             ErrorSearchSeriesGrid.ItemsSource = presentation.Rows;
             ErrorSearchSeriesGrid.SelectedItem = presentation.Rows.FirstOrDefault(row =>
@@ -865,6 +1020,11 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchLoadRawEvidenceButton.IsEnabled =
                 ErrorSearchEvidenceGrid.SelectedItem is WatchErrorSearchEvidencePresentation evidence
                 && evidence.CanReadRawEvidence;
+            ErrorSearchOpenSeriesButton.IsEnabled =
+                WatchDemandSeriesNavigationContext.FromErrorSearch(
+                    state.ErrorSearch.Snapshot,
+                    state.ErrorSearch.SelectedId,
+                    state.ErrorSearch.Detail) is not null;
         }
         finally
         {
@@ -880,6 +1040,7 @@ internal partial class WatchWorkspaceWindow
             var presentation = WatchCurrentIngestAttentionPresentation.Project(
                 state,
                 _currentAttentionQuery);
+            RenderCurrentAttentionHeader(state, presentation);
             var hadSelection = !string.IsNullOrWhiteSpace(_selectedCurrentAttentionIdentity);
             var selected = presentation.Rows.FirstOrDefault(row => string.Equals(
                 row.StableIdentity,
@@ -1009,6 +1170,31 @@ internal partial class WatchWorkspaceWindow
 
     private static void SetTextAutomationName(TextBlock control, string label, string value) =>
         AutomationProperties.SetName(control, $"{label}：{value}");
+
+    private void OnErrorSearchCategorySearchTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_isRenderingErrorSearch)
+        {
+            RefreshErrorSearchCategoryNavigation();
+        }
+    }
+
+    private void OnErrorSearchCategorySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isRenderingErrorSearch || _isSyncingErrorSearchCategoryList)
+        {
+            return;
+        }
+
+        foreach (var item in e.RemovedItems.OfType<WatchErrorSearchCategoryNavigationItem>())
+        {
+            _selectedErrorSearchCategories.Remove(item.Category);
+        }
+        foreach (var item in e.AddedItems.OfType<WatchErrorSearchCategoryNavigationItem>())
+        {
+            _selectedErrorSearchCategories.Add(item.Category);
+        }
+    }
 
     private void OnErrorSearchApplyFiltersClick(object sender, RoutedEventArgs e)
     {
@@ -1170,6 +1356,22 @@ internal partial class WatchWorkspaceWindow
                     evidence.EvidenceId,
                     new ErrorSearchRawEvidenceQuery(ErrorSearchRawEvidenceFields.All),
                     _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        });
+    }
+
+    private void OnErrorSearchOpenSeriesClick(object sender, RoutedEventArgs e)
+    {
+        ErrorSearchOperationTask = RunErrorSearchUiActionAsync(async () =>
+        {
+            var errorSearch = _session.State.ErrorSearch;
+            var navigation = WatchDemandSeriesNavigationContext.FromErrorSearch(
+                    errorSearch.Snapshot,
+                    errorSearch.SelectedId,
+                    errorSearch.Detail)
+                ?? throw new InvalidOperationException(
+                    "当前选择没有与冻结错误检索快照一致的详情，无法打开 DemandSeries。");
+            await NavigateToDemandSeriesAsync(navigation, _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
         });
     }
@@ -1370,23 +1572,44 @@ internal partial class WatchWorkspaceWindow
             (GridLength)FindResource("ErrorSearchCategoryColumnWidth"),
             (GridLength)FindResource("ErrorSearchDetailColumnWidth"),
             (GridLength)FindResource("Ticket22CardGap"));
-        ReflowTicket22ThreeCards(
-            stack,
-            CurrentAttentionFacetCard,
-            CurrentAttentionResultsCard,
-            CurrentAttentionEvidenceCard,
-            CurrentAttentionFacetColumn,
-            CurrentAttentionFacetGapColumn,
-            CurrentAttentionResultsColumn,
-            CurrentAttentionResultsGapColumn,
-            CurrentAttentionEvidenceColumn,
-            CurrentAttentionFirstGapRow,
-            CurrentAttentionResultsRow,
-            CurrentAttentionSecondGapRow,
-            CurrentAttentionEvidenceRow,
-            (GridLength)FindResource("CurrentAttentionFacetColumnWidth"),
-            (GridLength)FindResource("CurrentAttentionEvidenceColumnWidth"),
-            (GridLength)FindResource("Ticket22CardGap"));
+        ReflowCurrentAttention(stack);
+    }
+
+    private void ReflowCurrentAttention(bool stack)
+    {
+        Grid.SetColumn(CurrentAttentionFacetCard, 0);
+        Grid.SetRow(CurrentAttentionFacetCard, 0);
+        Grid.SetColumnSpan(CurrentAttentionFacetCard, stack ? 1 : 3);
+        Grid.SetColumn(CurrentAttentionResultsCard, 0);
+        Grid.SetRow(CurrentAttentionResultsCard, 2);
+        Grid.SetColumn(CurrentAttentionEvidenceCard, stack ? 0 : 2);
+        Grid.SetRow(CurrentAttentionEvidenceCard, stack ? 4 : 2);
+
+        CurrentAttentionMasterColumn.Width = stack
+            ? new GridLength(1, GridUnitType.Star)
+            : (GridLength)FindResource("CurrentAttentionMasterColumnWidth");
+        CurrentAttentionMasterDetailGapColumn.Width = stack
+            ? new GridLength(0)
+            : new GridLength(16);
+        CurrentAttentionDetailColumn.Width = stack
+            ? new GridLength(0)
+            : new GridLength(1, GridUnitType.Star);
+        CurrentAttentionFirstGapRow.Height = new GridLength(16);
+        CurrentAttentionResultsRow.Height = stack
+            ? GridLength.Auto
+            : new GridLength(1, GridUnitType.Star);
+        CurrentAttentionSecondGapRow.Height = stack
+            ? new GridLength(16)
+            : new GridLength(0);
+        CurrentAttentionEvidenceRow.Height = stack
+            ? GridLength.Auto
+            : new GridLength(0);
+        CurrentAttentionGrid.Height = stack
+            ? (double)FindResource("Ticket22ResultsGridMinHeight")
+            : double.NaN;
+        CurrentAttentionKindFilterColumn.Width = new GridLength(stack ? 170 : 200);
+        CurrentAttentionSeverityFilterColumn.Width = new GridLength(stack ? 160 : 210);
+        CurrentAttentionPageSizeFilterColumn.Width = new GridLength(stack ? 70 : 90);
     }
 
     private static void ReflowTicket22ThreeCards(

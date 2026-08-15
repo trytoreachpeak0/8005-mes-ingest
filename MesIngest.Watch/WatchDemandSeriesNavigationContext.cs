@@ -109,4 +109,40 @@ internal sealed record WatchDemandSeriesNavigationContext(
             source.Filter.MesAreas.ToArray(),
             sourceFacts);
     }
+
+    public static WatchDemandSeriesNavigationContext? FromErrorSearch(
+        ErrorSearchListSnapshot? source,
+        string? selectedId,
+        ErrorSearchDetailSnapshot? detail)
+    {
+        if (source is null
+            || detail is null
+            || !WatchErrorSearchDetailConsistency.Matches(source, selectedId, detail))
+        {
+            return null;
+        }
+
+        var series = detail.Series;
+        var sourceFacts = new WatchDemandSeriesObjectFacts(
+            series.SeriesId,
+            DemandId: null,
+            series.WorkType,
+            series.Sublot,
+            Generation: null,
+            DemandStatus: null,
+            Lifecycle: null,
+            CurrentPresence: null,
+            ExternalReadabilityState: null,
+            ReadabilityBlockers: null);
+        return new WatchDemandSeriesNavigationContext(
+            "错误检索",
+            series.SeriesId,
+            FocusedDemandId: null,
+            source.Snapshot.ProjectionCommitId,
+            source.Snapshot.ProjectionSequence,
+            source.Snapshot.ProjectionCommittedAt,
+            source.Snapshot.ErrorSearchAsOf,
+            RequestedMesAreas: [],
+            sourceFacts);
+    }
 }

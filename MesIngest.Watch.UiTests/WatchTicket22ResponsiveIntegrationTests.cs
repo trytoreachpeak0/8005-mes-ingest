@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -13,7 +14,192 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchTicket22ResponsiveIntegrationTests
 {
     [Fact]
-    public async Task Current_attention_keeps_longest_type_facet_visible_at_1440_by_900_epx_and_stacks_at_1180_epx()
+    public async Task Error_and_attention_headers_show_live_freshness_compact_status_and_explicit_all_placeholders()
+    {
+        const string sharedSecret = "ticket-22-header-freshness-secret";
+        var errorQueries = new ConcurrentQueue<ErrorSearchQuery>();
+        var attentionQueries = new ConcurrentQueue<CurrentIngestAttentionQuery>();
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-22-header-freshness", sharedSecret)
+            {
+                Overview = FakeHostReply.Return(
+                    WatchErrorSearchProductionIntegrationTests.CreateOverview()),
+                ErrorSearch = FakeHostReply.Select<ErrorSearchQuery, ErrorSearchListSnapshot>(query =>
+                {
+                    errorQueries.Enqueue(query);
+                    return FakeHostReply.Return(
+                        WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
+                            query,
+                            "ticket-22-header-error-snapshot",
+                            pageNumber: 1,
+                            totalPages: 1,
+                            totalSeriesCount: 8));
+                }),
+                ErrorSearchDetail = FakeHostReply.Return(
+                    WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
+                        new ErrorSearchFilter().Normalize(),
+                        ErrorSearchWindowKinds.Last7Days)),
+                CurrentAttention = FakeHostReply.Select<
+                    CurrentIngestAttentionQuery,
+                    CurrentIngestAttentionSnapshot>(query =>
+                {
+                    attentionQueries.Enqueue(query);
+                    return FakeHostReply.Return(
+                        WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(query));
+                }),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
+        using var timeout = WatchErrorSearchProductionIntegrationTests.CreateTimeout();
+        WatchV2PreferencesStore.Save(
+            files.WorkspacePath,
+            new WatchV2Preferences(
+                WatchV2AutoRefreshSettings.Default with
+                {
+                    ErrorSearch = new WatchV2AutoRefreshSetting(60),
+                    CurrentIngestAttention = new WatchV2AutoRefreshSetting(300),
+                },
+                WatchV2DisplayPreferences.Default));
+
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = host.BaseUrl,
+                    SharedSecret = sharedSecret,
+                    RequestTimeoutSeconds = 30,
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Width = 1440;
+                window.Height = 900;
+                window.Show();
+                await window.InitializeAsync(timeout.Token);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.ErrorSearch,
+                    PageNumber: 1,
+                    Cursor: null));
+                await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);
+                window.UpdateLayout();
+
+                var errorFreshness = Find<TextBlock>(window, "ErrorSearchFreshnessText");
+                var errorLastSuccess = Assert.IsType<DateTimeOffset>(
+                    window.WorkspaceState.ErrorSearch.LastSuccessfulAt);
+                Assert.Contains(
+                    $"{host.BaseUrl.TrimEnd('/')}/api/v2/error-search",
+                    errorFreshness.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    WatchTimeDisplay.Format(errorLastSuccess),
+                    errorFreshness.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains("自动刷新 60 秒", errorFreshness.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    errorFreshness.Text,
+                    AutomationProperties.GetName(errorFreshness),
+                    StringComparison.Ordinal);
+
+                var errorHeader = Find<Grid>(window, "ErrorSearchHeaderGrid");
+                var errorPill = Find<Border>(window, "ErrorSearchHeaderStatusPill");
+                Assert.Same(
+                    errorPill,
+                    Assert.Single(errorHeader.Children.Cast<UIElement>(), child =>
+                        Grid.GetColumn(child) == 1));
+                Assert.Same(window.FindResource("StatusPillCritical"), errorPill.Style);
+                Assert.Equal(
+                    "活动错误 3",
+                    Find<TextBlock>(window, "ErrorSearchHeaderStatusText").Text);
+                var errorFacts = Find<FrameworkElement>(window, "ErrorSearchContractFactsPanel");
+                Assert.Equal(2, Grid.GetRow(errorFacts));
+                Assert.True(errorFacts.IsVisible);
+                Assert.Equal(new Thickness(0), Find<Grid>(window, "ErrorSearchPage").Margin);
+                AssertNonColorText(window, "ErrorSearchScopeText");
+                AssertNonColorText(window, "ErrorSearchSnapshotText");
+                AssertNonColorText(window, "ErrorSearchWindowText");
+                AssertNonColorText(window, "ErrorSearchNormalizedFilterText");
+
+                Assert.Equal(
+                    "全部错误码",
+                    Find<ComboBox>(window, "ErrorSearchCodeFilter").Text);
+                Assert.Equal(
+                    "全部状态",
+                    Find<ComboBox>(window, "ErrorSearchActivityStateFilter").Text);
+                WatchErrorSearchProductionIntegrationTests.Click(
+                    Find<ButtonBase>(window, "ErrorSearchApplyFilterButton"));
+                await window.ErrorSearchOperationTask.WaitAsync(timeout.Token);
+                Assert.Empty(errorQueries.Last().Filter.ErrorCodes);
+                Assert.Empty(errorQueries.Last().Filter.ActivityStates);
+
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    PageNumber: 1,
+                    Cursor: null));
+                await window.CurrentAttentionNavigationTask.WaitAsync(timeout.Token);
+                window.UpdateLayout();
+
+                var attentionFreshness = Find<TextBlock>(window, "CurrentAttentionFreshnessText");
+                var attentionLastSuccess = Assert.IsType<DateTimeOffset>(
+                    window.WorkspaceState.CurrentAttention.LastSuccessfulAt);
+                Assert.Contains(
+                    $"{host.BaseUrl.TrimEnd('/')}/api/v2/current-ingest-attention",
+                    attentionFreshness.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    WatchTimeDisplay.Format(attentionLastSuccess),
+                    attentionFreshness.Text,
+                    StringComparison.Ordinal);
+                Assert.Contains("自动刷新 300 秒", attentionFreshness.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    attentionFreshness.Text,
+                    AutomationProperties.GetName(attentionFreshness),
+                    StringComparison.Ordinal);
+
+                var attentionHeader = Find<Grid>(window, "CurrentAttentionHeaderGrid");
+                var attentionPill = Find<Border>(window, "CurrentAttentionHeaderStatusPill");
+                Assert.Same(
+                    attentionPill,
+                    Assert.Single(attentionHeader.Children.Cast<UIElement>(), child =>
+                        Grid.GetColumn(child) == 1));
+                Assert.Same(window.FindResource("StatusPillCritical"), attentionPill.Style);
+                Assert.Equal(
+                    "当前关注 8",
+                    Find<TextBlock>(window, "CurrentAttentionHeaderStatusText").Text);
+                var attentionFacts = Find<FrameworkElement>(window, "CurrentAttentionContractFactsPanel");
+                Assert.Equal(2, Grid.GetRow(attentionFacts));
+                Assert.True(attentionFacts.IsVisible);
+                Assert.Equal(
+                    new Thickness(0),
+                    Find<Grid>(window, "CurrentAttentionLayoutGrid").Margin);
+                AssertNonColorText(window, "CurrentAttentionHistoryScopeText");
+                AssertNonColorText(window, "CurrentAttentionSnapshotText");
+                AssertNonColorText(window, "CurrentAttentionScopeText");
+
+                Assert.Equal(
+                    "全部类型",
+                    Find<ComboBox>(window, "CurrentAttentionKindFilter").Text);
+                Assert.Equal(
+                    "全部严重度",
+                    Find<ComboBox>(window, "CurrentAttentionSeverityFilter").Text);
+                WatchErrorSearchProductionIntegrationTests.Click(
+                    Find<ButtonBase>(window, "CurrentAttentionApplyFilterButton"));
+                await window.CurrentAttentionOperationTask.WaitAsync(timeout.Token);
+                Assert.Empty(attentionQueries.Last().Kinds ?? []);
+                Assert.Empty(attentionQueries.Last().Severities ?? []);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Current_attention_keeps_longest_type_facet_visible_and_uses_selected_520_master_detail_geometry()
     {
         const string sharedSecret = "ticket-22-facet-width-secret";
         await using var host = await ScriptedFakeHost.StartV2Async(
@@ -63,9 +249,10 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 var resultsCard = Find<FrameworkElement>(window, "CurrentAttentionResultsCard");
                 var evidenceCard = Find<FrameworkElement>(window, "CurrentAttentionEvidenceCard");
                 Assert.Equal((0, 0), (Grid.GetColumn(facetCard), Grid.GetRow(facetCard)));
-                Assert.Equal((2, 0), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
-                Assert.Equal((4, 0), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
+                Assert.Equal((0, 2), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
+                Assert.Equal((2, 2), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
 
+                Find<Expander>(window, "CurrentAttentionFacetExpander").IsExpanded = true;
                 var facetGrid = Find<DataGrid>(window, "CurrentAttentionKindFacetGrid");
                 facetGrid.BringIntoView();
                 window.UpdateLayout();
@@ -126,6 +313,12 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 window.Width = 1180;
                 window.UpdateLayout();
 
+                Assert.Equal((0, 0), (Grid.GetColumn(facetCard), Grid.GetRow(facetCard)));
+                Assert.Equal((0, 2), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
+                Assert.Equal((2, 2), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
+
+                window.Width = 720;
+                window.UpdateLayout();
                 Assert.Equal((0, 0), (Grid.GetColumn(facetCard), Grid.GetRow(facetCard)));
                 Assert.Equal((0, 2), (Grid.GetColumn(resultsCard), Grid.GetRow(resultsCard)));
                 Assert.Equal((0, 4), (Grid.GetColumn(evidenceCard), Grid.GetRow(evidenceCard)));
@@ -200,7 +393,8 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var errorInputs = new (string Name, Type Type, string AutomationName)[]
                 {
-                    ("ErrorSearchCategoryFilter", typeof(ComboBox), "错误分类筛选"),
+                    ("ErrorSearchCategorySearchInput", typeof(TextBox), "错误分类搜索"),
+                    ("ErrorSearchCategoryList", typeof(ListBox), "错误分类导航（可多选）"),
                     ("ErrorSearchCodeFilter", typeof(ComboBox), "错误码筛选"),
                     ("ErrorSearchActivityStateFilter", typeof(ComboBox), "错误活动状态筛选"),
                     ("ErrorSearchWindowFilter", typeof(ComboBox), "错误检索时间范围"),
@@ -234,7 +428,6 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var errorGrids = new Dictionary<string, string>
                 {
-                    ["ErrorSearchCategoryFacetGrid"] = "错误分类 Host 精确分面",
                     ["ErrorSearchActivityStateFacetGrid"] = "错误活动状态 Host 精确分面",
                     ["ErrorSearchSeriesGrid"] = "错误检索去重 Series 结果",
                     ["ErrorSearchPeriodGrid"] = "错误检索真正命中期间",
@@ -264,11 +457,23 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 var stateOptions = ItemText(Find<ComboBox>(window, "ErrorSearchActivityStateFilter"));
                 Assert.Contains(ErrorSearchActivityStates.Active, stateOptions, StringComparison.Ordinal);
                 Assert.Contains(ErrorSearchActivityStates.Ended, stateOptions, StringComparison.Ordinal);
+                var categoryNavigation = Find<ListBox>(window, "ErrorSearchCategoryList");
+                Assert.Equal(SelectionMode.Multiple, categoryNavigation.SelectionMode);
+                Assert.Empty(categoryNavigation.SelectedItems);
+                Assert.True(
+                    double.IsNaN(categoryNavigation.Height),
+                    "The selected Variant A category list must fill its remaining grid row instead of using a fixed height.");
+                var activityFacet = Find<DataGrid>(window, "ErrorSearchActivityStateFacetGrid");
+                var activityFacetBottom = activityFacet.TranslatePoint(
+                    new Point(0, activityFacet.ActualHeight),
+                    categoryCard).Y;
+                Assert.InRange(categoryCard.ActualHeight - activityFacetBottom, 0, 24);
                 Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "ErrorSearchCategoryFilter").Text));
-                Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "ErrorSearchCodeFilter").Text));
-                var categoryOptions = ItemText(Find<ComboBox>(window, "ErrorSearchCategoryFilter"));
+                    Find<TextBox>(window, "ErrorSearchCategorySearchInput").Text));
+                Assert.Equal(
+                    "全部错误码",
+                    Find<ComboBox>(window, "ErrorSearchCodeFilter").Text);
+                var categoryOptions = ItemAutomationText(categoryNavigation);
                 Assert.All(
                     SeriesErrorCatalog.Definitions
                         .Select(definition => definition.Category)
@@ -368,10 +573,12 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 Assert.Contains("轮询失败", kindOptions, StringComparison.Ordinal);
                 Assert.Contains("任务类型保护", kindOptions, StringComparison.Ordinal);
                 Assert.Contains("未分配观测", kindOptions, StringComparison.Ordinal);
-                Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "CurrentAttentionKindFilter").Text));
-                Assert.True(string.IsNullOrWhiteSpace(
-                    Find<ComboBox>(window, "CurrentAttentionSeverityFilter").Text));
+                Assert.Equal(
+                    "全部类型",
+                    Find<ComboBox>(window, "CurrentAttentionKindFilter").Text);
+                Assert.Equal(
+                    "全部严重度",
+                    Find<ComboBox>(window, "CurrentAttentionSeverityFilter").Text);
                 AssertNonColorText(window, "CurrentAttentionSnapshotText");
                 AssertNonColorText(window, "CurrentAttentionScopeText");
                 AssertNonColorText(window, "CurrentAttentionPageSummaryText");
@@ -463,6 +670,23 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
             ComboBoxItem comboBoxItem => comboBoxItem.Content?.ToString(),
             _ => item.ToString(),
         }));
+
+    private static string ItemAutomationText(ListBox listBox)
+    {
+        listBox.UpdateLayout();
+        return string.Join(
+            " | ",
+            listBox.Items.Cast<object>().Select(item =>
+            {
+                var container = Assert.IsType<ListBoxItem>(
+                    listBox.ItemContainerGenerator.ContainerFromItem(item));
+                Assert.StartsWith(
+                    "ErrorSearchCategory_",
+                    AutomationProperties.GetAutomationId(container),
+                    StringComparison.Ordinal);
+                return AutomationProperties.GetName(container);
+            }));
+    }
 
     private static T? FindVisualDescendant<T>(DependencyObject root)
         where T : DependencyObject

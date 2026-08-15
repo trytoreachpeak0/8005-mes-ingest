@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -40,7 +41,9 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                     {
                         queryReceived.TrySetResult(query);
                     }
-                    if (query.Filter.ReadabilityStates.Count == 2
+                    if (query.Filter.ReadabilityStates.SequenceEqual(
+                            [ExternalReadabilityStates.NotReadable],
+                            StringComparer.Ordinal)
                         && query.Filter.WorkTypes.Count == 2
                         && query.Filter.Blockers.Count == 2)
                     {
@@ -151,9 +154,49 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(2, checks.Items.Count);
                 Assert.Equal(2, blockers.Items.Count);
                 Assert.Equal(2, raw.Items.Count);
+                Assert.Equal(
+                    "Catalog Revision 7",
+                    Find<TextBlock>(window, "ReadabilityCatalogRevisionText").Text);
+                Assert.Contains(
+                    "更新于",
+                    Find<TextBlock>(window, "ReadabilityHeaderFactsText").Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "Host 投影提交",
+                    Find<TextBlock>(window, "ReadabilityCompactFactsText").Text,
+                    StringComparison.Ordinal);
+                Assert.Contains(
+                    "不可见",
+                    Find<TextBlock>(window, "ReadabilityNotReadableCountText").Text,
+                    StringComparison.Ordinal);
+                var conclusion = Find<Wpf.Ui.Controls.InfoBar>(
+                    window,
+                    "ReadabilityDetailInfoBar");
+                Assert.True(conclusion.IsOpen);
+                Assert.Contains(demandId, conclusion.Title, StringComparison.Ordinal);
+                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Warning, conclusion.Severity);
 
-                Find<ComboBox>(window, "ReadabilityStateFilter").Text =
-                    "READABLE, NOT_READABLE";
+                var stateAll = Find<ButtonBase>(window, "ReadabilityStateAllButton");
+                var stateReadable = Find<ButtonBase>(
+                    window,
+                    "ReadabilityStateReadableButton");
+                var stateNotReadable = Find<ButtonBase>(
+                    window,
+                    "ReadabilityStateNotReadableButton");
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateAll));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateReadable));
+                Assert.Equal("已选择", AutomationProperties.GetItemStatus(stateNotReadable));
+
+                stateReadable.RaiseEvent(
+                    new RoutedEventArgs(ButtonBase.ClickEvent));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateAll));
+                Assert.Equal("已选择", AutomationProperties.GetItemStatus(stateReadable));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateNotReadable));
+                stateNotReadable.RaiseEvent(
+                    new RoutedEventArgs(ButtonBase.ClickEvent));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateAll));
+                Assert.Equal("未选择", AutomationProperties.GetItemStatus(stateReadable));
+                Assert.Equal("已选择", AutomationProperties.GetItemStatus(stateNotReadable));
                 Find<ComboBox>(window, "ReadabilityWorkTypeFilter").Text =
                     "WIRE_TO_GATE, WIRE_TO_NITROGEN";
                 Find<ComboBox>(window, "ReadabilityBlockerFilter").Text =
@@ -165,7 +208,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
 
                 var multiFilter = await multiFilterReceived.Task.WaitAsync(timeout.Token);
                 Assert.Equal(
-                    [ExternalReadabilityStates.NotReadable, ExternalReadabilityStates.Readable],
+                    [ExternalReadabilityStates.NotReadable],
                     multiFilter.Filter.ReadabilityStates);
                 Assert.Equal(
                     ["WIRE_TO_GATE", "WIRE_TO_NITROGEN"],

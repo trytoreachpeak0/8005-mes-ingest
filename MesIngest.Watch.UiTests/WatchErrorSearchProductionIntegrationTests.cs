@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
@@ -19,6 +20,185 @@ public sealed class WatchErrorSearchProductionIntegrationTests
     private const string SeriesId = "SERIES-ERROR-22";
     private static readonly DateTimeOffset ErrorSearchAsOf =
         DateTimeOffset.Parse("2026-08-14T06:00:00Z");
+
+    [Fact]
+    public async Task Matching_error_detail_enables_open_series_and_click_reads_a_fresh_demand_series_snapshot()
+    {
+        var demandQueryReceived = new TaskCompletionSource<DemandSeriesBrowseQuery>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var filter = new ErrorSearchFilter().Normalize();
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-22-error-open-series", Credential)
+            {
+                Overview = FakeHostReply.Return(CreateOverview()),
+                ErrorSearch = FakeHostReply.Select<ErrorSearchQuery, ErrorSearchListSnapshot>(query =>
+                    FakeHostReply.Return(CreateErrorPage(
+                        query,
+                        SnapshotReference,
+                        pageNumber: 1,
+                        totalPages: 1,
+                        totalSeriesCount: 1))),
+                ErrorSearchDetail = FakeHostReply.Return(CreateErrorDetail(
+                    filter,
+                    ErrorSearchWindowKinds.Last7Days)),
+                DemandSeries = FakeHostReply.Select<DemandSeriesBrowseQuery, DemandSeriesListSnapshot>(query =>
+                {
+                    demandQueryReceived.TrySetResult(query);
+                    return FakeHostReply.Return(
+                        WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesList(
+                            query,
+                            SeriesId,
+                            "demand-series-target-snapshot-22"));
+                }),
+                DemandSeriesDetail = FakeHostReply.Select<FakeHostV2DetailRequest, DemandSeriesDetailSnapshot>(request =>
+                    FakeHostReply.Return(
+                        WatchDemandSeriesProductionIntegrationTests.CreateDemandSeriesDetail(
+                            request.ObjectId,
+                            request.SnapshotReference))),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+        using var timeout = CreateTimeout();
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(timeout.Token);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.ErrorSearch,
+                    ErrorWindow: ErrorSearchWindowKinds.Last7Days,
+                    Cursor: null));
+                await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);
+
+                var openSeries = Find<ButtonBase>(window, "ErrorSearchOpenSeriesButton");
+                Assert.False(openSeries.IsEnabled);
+
+                await window.SelectErrorSeriesAndRenderAsync(SeriesId, timeout.Token);
+                Assert.True(openSeries.IsEnabled);
+
+                Click(openSeries);
+                await window.ErrorSearchOperationTask.WaitAsync(timeout.Token);
+
+                var demandQuery = await demandQueryReceived.Task.WaitAsync(timeout.Token);
+                Assert.Equal(SeriesId, demandQuery.Filter.SeriesId);
+                Assert.Null(demandQuery.Filter.DemandId);
+                Assert.Empty(demandQuery.Filter.MesAreas);
+                Assert.Null(demandQuery.SnapshotReference);
+                Assert.Null(demandQuery.Cursor);
+                Assert.Equal(WatchWorkspacePage.DemandSeries, window.ActivePage);
+                Assert.Equal(SeriesId, window.WorkspaceState.DemandSeries.SelectedId);
+                Assert.Contains(
+                    "来源 错误检索",
+                    Find<Wpf.Ui.Controls.InfoBar>(window, "DemandSeriesInfoBar").Message,
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Category_navigation_preserves_hidden_multi_selection_and_applies_host_exact_categories()
+    {
+        var receivedQueries = new ConcurrentQueue<ErrorSearchQuery>();
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-22-error-category-navigation", Credential)
+            {
+                Overview = FakeHostReply.Return(CreateOverview()),
+                ErrorSearch = FakeHostReply.Select<ErrorSearchQuery, ErrorSearchListSnapshot>(query =>
+                {
+                    receivedQueries.Enqueue(query);
+                    return FakeHostReply.Return(CreateErrorPage(
+                        query,
+                        SnapshotReference,
+                        pageNumber: 1,
+                        totalPages: 1,
+                        totalSeriesCount: 8));
+                }),
+            },
+            TestContext.Current.CancellationToken);
+        using var files = new TemporaryWatchFiles();
+        using var timeout = CreateTimeout();
+
+        await RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                CreateOptions(host.BaseUrl),
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                await window.InitializeAsync(timeout.Token);
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "ErrorSearchNavigationItem"));
+                await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);
+                window.UpdateLayout();
+
+                var search = Find<TextBox>(window, "ErrorSearchCategorySearchInput");
+                var categories = Find<ListBox>(window, "ErrorSearchCategoryList");
+                Assert.Equal(SelectionMode.Multiple, categories.SelectionMode);
+                Assert.Equal("错误分类搜索", AutomationProperties.GetName(search));
+                Assert.Equal("错误分类导航（可多选）", AutomationProperties.GetName(categories));
+                Assert.Collection(
+                    categories.Items.Cast<object>(),
+                    item => Assert.Contains(
+                        "DATA_COMPLETENESS",
+                        CategoryAutomationName(categories, item),
+                        StringComparison.Ordinal),
+                    item => Assert.Contains(
+                        "DATA_FORMAT",
+                        CategoryAutomationName(categories, item),
+                        StringComparison.Ordinal),
+                    item => Assert.Contains(
+                        "OBSERVATION_CONFLICT",
+                        CategoryAutomationName(categories, item),
+                        StringComparison.Ordinal),
+                    item => Assert.Contains(
+                        "LIFECYCLE_CONFLICT",
+                        CategoryAutomationName(categories, item),
+                        StringComparison.Ordinal));
+
+                var completeness = FindCategoryItem(categories, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
+                var format = FindCategoryItem(categories, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
+                categories.SelectedItems.Add(completeness);
+                categories.SelectedItems.Add(format);
+                Assert.Equal(2, categories.SelectedItems.Count);
+
+                search.Text = "FORMAT";
+                window.UpdateLayout();
+                Assert.Single(categories.Items);
+                Assert.Contains(
+                    "DATA_FORMAT",
+                    CategoryAutomationName(categories, categories.Items[0]),
+                    StringComparison.Ordinal);
+
+                Click(Find<ButtonBase>(window, "ErrorSearchApplyFilterButton"));
+                await window.ErrorSearchOperationTask.WaitAsync(timeout.Token);
+                Assert.Equal(
+                    ["DATA_COMPLETENESS", "DATA_FORMAT"],
+                    receivedQueries.Last().Filter.Categories);
+
+                Click(Find<ButtonBase>(window, "ErrorSearchClearFilterButton"));
+                await window.ErrorSearchOperationTask.WaitAsync(timeout.Token);
+                Assert.Empty(receivedQueries.Last().Filter.Categories);
+                Assert.Empty(categories.SelectedItems);
+                Assert.Equal(string.Empty, search.Text);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+        });
+    }
 
     [Fact]
     public async Task Overview_and_navigation_load_first_page_then_normalized_filters_render_host_exact_facets_and_same_snapshot_detail()
@@ -103,8 +283,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Null(navigationQuery.SnapshotReference);
                 Assert.Null(navigationQuery.Cursor);
 
-                Find<ComboBox>(window, "ErrorSearchCategoryFilter").Text =
-                    " data_format, data_completeness, DATA_FORMAT ";
+                SelectErrorCategories(window, "DATA_FORMAT", "DATA_COMPLETENESS");
                 Find<ComboBox>(window, "ErrorSearchCodeFilter").Text =
                     " invalid_mes_field_format, required_mes_field_missing ";
                 Find<ComboBox>(window, "ErrorSearchActivityStateFilter").Text =
@@ -158,7 +337,10 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Equal(SeriesId, committed.Items[0].SeriesId);
                 Assert.Equal(2, committed.Items[0].MatchedDemandGenerationCount);
 
-                Assert.Equal(2, Find<DataGrid>(window, "ErrorSearchCategoryFacetGrid").Items.Count);
+                var categoryNavigation = Find<ListBox>(window, "ErrorSearchCategoryList");
+                Assert.Equal(4, categoryNavigation.Items.Count);
+                FindCategoryItem(categoryNavigation, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
+                FindCategoryItem(categoryNavigation, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
                 Assert.Equal(2, Find<DataGrid>(window, "ErrorSearchActivityStateFacetGrid").Items.Count);
                 Assert.Single(Find<DataGrid>(window, "ErrorSearchSeriesGrid").Items);
                 var pageSummary = Find<TextBlock>(window, "ErrorSearchPageSummaryText");
@@ -516,6 +698,8 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                     OverviewNavigationTargets.ErrorSearch,
                     Cursor: null));
                 await window.ErrorSearchNavigationTask.WaitAsync(timeout.Token);
+                window.Show();
+                window.UpdateLayout();
 
                 await ApplySeriesFilterAsync(window, "empty-22", timeout.Token);
                 var empty = window.WorkspaceState.ErrorSearch;
@@ -546,6 +730,9 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.NotNull(failed.LastFailureAt);
                 Assert.Equal(WatchHostFailureKind.ServerQuery, failed.FailureKind);
                 Assert.Single(Find<DataGrid>(window, "ErrorSearchSeriesGrid").Items);
+                var retainedCategories = Find<ListBox>(window, "ErrorSearchCategoryList");
+                FindCategoryItem(retainedCategories, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
+                FindCategoryItem(retainedCategories, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
                 var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "ErrorSearchStatusInfoBar");
                 Assert.True(failure.IsOpen);
                 Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, failure.Severity);
@@ -1058,6 +1245,47 @@ public sealed class WatchErrorSearchProductionIntegrationTests
 
     internal static void Click(UIElement element) =>
         element.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+    internal static void SelectErrorCategories(FrameworkElement window, params string[] values)
+    {
+        if (window is Window actualWindow && !actualWindow.IsVisible)
+        {
+            actualWindow.Show();
+        }
+        window.UpdateLayout();
+        var categories = Find<ListBox>(window, "ErrorSearchCategoryList");
+        foreach (var value in values)
+        {
+            categories.SelectedItems.Add(FindCategoryItem(categories, value));
+        }
+    }
+
+    private static object FindCategoryItem(
+        ListBox categories,
+        string category,
+        string? expectedCount = null)
+    {
+        var item = categories.Items.Cast<object>().Single(candidate =>
+            CategoryAutomationName(categories, candidate).Contains(category, StringComparison.Ordinal));
+        if (expectedCount is not null)
+        {
+            Assert.Contains(
+                expectedCount,
+                CategoryAutomationName(categories, item),
+                StringComparison.Ordinal);
+        }
+        return item;
+    }
+
+    private static string CategoryAutomationName(ListBox categories, object item)
+    {
+        categories.UpdateLayout();
+        var container = Assert.IsType<ListBoxItem>(
+            categories.ItemContainerGenerator.ContainerFromItem(item));
+        var automationId = AutomationProperties.GetAutomationId(container);
+        Assert.StartsWith("ErrorSearchCategory_", automationId, StringComparison.Ordinal);
+        return AutomationProperties.GetName(container);
+    }
 
     internal static T Find<T>(FrameworkElement root, string name)
         where T : class => Assert.IsAssignableFrom<T>(root.FindName(name));
