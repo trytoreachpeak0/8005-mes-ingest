@@ -260,7 +260,7 @@ internal partial class WatchWorkspaceWindow
             ReadabilityHeaderFactsText,
             $"资格审计 AREA 与更新时间：{ReadabilityHeaderFactsText.Text}");
 
-        ReadabilityCompactFactsText.Text = string.Join(
+        var compactSnapshotFacts = string.Join(
             " · ",
             new[]
             {
@@ -269,9 +269,6 @@ internal partial class WatchWorkspaceWindow
                 presentation.HostAreaScope,
                 presentation.OrderSummary,
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
-        AutomationProperties.SetName(
-            ReadabilityCompactFactsText,
-            $"资格审计紧凑快照事实：{ReadabilityCompactFactsText.Text}");
 
         var readableCount = presentation.StateFacets.FirstOrDefault(facet => string.Equals(
             facet.State,
@@ -305,6 +302,16 @@ internal partial class WatchWorkspaceWindow
                 " · ",
                 presentation.BlockerFacets.Select(facet =>
                     $"{facet.Code} {facet.DemandCount:N0}"));
+        ReadabilityCompactFactsText.Text = string.Join(
+            " · ",
+            new[]
+            {
+                compactSnapshotFacts,
+                ReadabilityBlockerFacetSummaryText.Text,
+            }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        AutomationProperties.SetName(
+            ReadabilityCompactFactsText,
+            $"资格审计紧凑快照事实：{ReadabilityCompactFactsText.Text}");
         AutomationProperties.SetName(
             ReadabilityBlockerFacetSummaryText,
             ReadabilityBlockerFacetSummaryText.Text);

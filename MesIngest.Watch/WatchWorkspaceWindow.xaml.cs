@@ -2,6 +2,7 @@ using System.IO;
 using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using MesIngest.Core.SeriesProjection;
@@ -37,6 +38,8 @@ internal sealed class WatchOverviewNavigationEventArgs(
 /// </summary>
 internal partial class WatchWorkspaceWindow : IDisposable
 {
+    private const double MinimumFixedPageViewportHeight = 700;
+
     private readonly WatchV2WorkspaceSession _session;
     private readonly WatchV2AutoRefreshCoordinator _autoRefresh;
     private readonly string _connectionPreferencesPath;
@@ -93,6 +96,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         InitializeReadabilityAuditAndAreaProfiles();
         InitializeDataPageAreaProfileSelectors();
         InitializeTicket22Pages();
+        WorkspaceContent.SizeChanged += OnWorkspaceContentSizeChanged;
+        WorkspaceNavigation.PaneOpened += OnWorkspaceNavigationPaneStateChanged;
+        WorkspaceNavigation.PaneClosed += OnWorkspaceNavigationPaneStateChanged;
         if (Application.Current is null)
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
@@ -1991,7 +1997,34 @@ internal partial class WatchWorkspaceWindow : IDisposable
             WorkspaceNavigation.IsPaneOpen = false;
         }
 
-        var contentWidth = Math.Max(0, ActualWidth - (WorkspaceNavigation.IsPaneOpen ? 232 : 48) - 48);
+        ReflowResponsiveWorkspace();
+    }
+
+    private void OnWorkspaceContentSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ReflowResponsiveWorkspace();
+
+    private void OnWorkspaceNavigationPaneStateChanged(object sender, RoutedEventArgs e) =>
+        ReflowResponsiveWorkspace();
+
+    private void ReflowResponsiveWorkspace()
+    {
+        var navigationWidth = WorkspaceNavigation.ActualWidth > 0
+            ? WorkspaceNavigation.ActualWidth
+            : ActualWidth;
+        var paneWidth = WorkspaceNavigation.IsPaneOpen
+            ? WorkspaceNavigation.OpenPaneLength
+            : WorkspaceNavigation.CompactPaneLength;
+        var contentWidth = Math.Max(0, navigationWidth - paneWidth - 48);
+        var contentHeight = WorkspaceContent.ActualHeight > 0
+            ? WorkspaceContent.ActualHeight
+            : Math.Max(
+                0,
+                WorkspaceNavigation.ActualHeight
+                    - WorkspaceContent.Margin.Top
+                    - WorkspaceContent.Margin.Bottom);
+        var useOuterScrolling = contentHeight > 0
+            && contentHeight < MinimumFixedPageViewportHeight;
+
         OverviewSummaryCards.Columns = contentWidth >= 1160 ? 5 : contentWidth >= 760 ? 3 : 2;
         OverviewSummaryRow.Height = contentWidth >= 1160
             ? new GridLength(174)
@@ -2012,8 +2045,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsVerticalGap.Height = stackSettings ? new GridLength(16) : new GridLength(0);
         SettingsBottomRow.Height = stackSettings ? GridLength.Auto : new GridLength(0);
 
+        ReflowDemandSeries(
+            contentWidth < (double)FindResource("DemandSeriesMasterDetailStackBreakpoint"),
+            useOuterScrolling);
+
+        var stackReadability = contentWidth
+            < (double)FindResource("ReadabilityMasterDetailStackBreakpoint");
         ReflowMasterDetail(
-            contentWidth < (double)FindResource("ReadabilityMasterDetailStackBreakpoint"),
+            stackReadability,
             ReadabilityDetailRegion,
             ReadabilityMasterColumn,
             ReadabilityBodyGapColumn,
@@ -2021,6 +2060,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ReadabilityBodyVerticalGap,
             ReadabilityBodyBottomRow,
             (GridLength)FindResource("ReadabilityMasterColumnWidth"));
+        ConfigureResponsivePageViewport(
+            ReadabilityAuditLayoutGrid,
+            ReadabilityAuditPage,
+            stackReadability || useOuterScrolling);
 
         ReflowMasterDetail(
             contentWidth < (double)FindResource("AreaProfileMasterDetailStackBreakpoint"),
@@ -2031,10 +2074,57 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AreaProfileVerticalGap,
             AreaProfileBottomRow,
             (GridLength)FindResource("AreaProfileMasterColumnWidth"));
-        ReflowTicket22Pages(contentWidth);
+        ReflowTicket22Pages(contentWidth, useOuterScrolling);
         WorkspaceContent.Margin = contentWidth < 760
             ? new Thickness(12)
             : new Thickness(24, 16, 24, 16);
+    }
+
+    private void ReflowDemandSeries(bool stack, bool useOuterScrolling)
+    {
+        var gap = (GridLength)FindResource("DemandSeriesSectionGap");
+
+        Grid.SetColumn(DemandSeriesMasterPanel, 0);
+        Grid.SetRow(DemandSeriesMasterPanel, 0);
+        Grid.SetColumn(DemandSeriesDetailPanel, 0);
+        Grid.SetRow(DemandSeriesDetailPanel, 2);
+
+        DemandSeriesMasterDetailPrimaryRow.Height = stack
+            ? GridLength.Auto
+            : new GridLength(0.9, GridUnitType.Star);
+        DemandSeriesMasterDetailGapRow.Height = gap;
+        DemandSeriesMasterDetailBottomRow.Height = stack
+            ? GridLength.Auto
+            : new GridLength(1.1, GridUnitType.Star);
+
+        ConfigureResponsivePageViewport(
+            DemandSeriesLayoutGrid,
+            DemandSeriesScrollViewer,
+            stack || useOuterScrolling);
+    }
+
+    private static void ConfigureResponsivePageViewport(
+        FrameworkElement pageLayout,
+        ScrollViewer viewport,
+        bool useOuterScrolling)
+    {
+        if (useOuterScrolling)
+        {
+            BindingOperations.ClearBinding(pageLayout, HeightProperty);
+            pageLayout.Height = double.NaN;
+            viewport.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            return;
+        }
+
+        pageLayout.SetBinding(
+            HeightProperty,
+            new Binding(nameof(FrameworkElement.ActualHeight))
+            {
+                Source = viewport,
+                Mode = BindingMode.OneWay,
+            });
+        viewport.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+        viewport.ScrollToTop();
     }
 
     private void ReflowMasterDetail(
@@ -2165,6 +2255,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Interlocked.Increment(ref _errorSearchOperationGeneration);
         Interlocked.Increment(ref _currentAttentionOperationGeneration);
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
+        WorkspaceContent.SizeChanged -= OnWorkspaceContentSizeChanged;
+        WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;
+        WorkspaceNavigation.PaneClosed -= OnWorkspaceNavigationPaneStateChanged;
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();
         _session.Dispose();

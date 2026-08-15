@@ -80,7 +80,9 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     public string LastModifiedText => WatchTimeDisplay.Format(LastModifiedAt);
 
     public string StatusText => IsApplied
-        ? "当前应用"
+        ? IsValid
+            ? "当前应用"
+            : "当前应用 · 无效"
         : IsValid
             ? "有效"
             : "无效";
@@ -617,6 +619,15 @@ internal partial class WatchWorkspaceWindow
             ReadabilityLiveMesFactsText.Text = detail is null
                 ? "选择后显示可信 LiveMesFieldSet，或保留全部原始观测冲突证据。"
                 : $"{detail.LiveMesFacts} · {detail.ObservationSummary} · {detail.PollTraceFacts}";
+            AutomationProperties.SetName(
+                ReadabilityDetailFactsText,
+                $"资格审计详情快照事实：{ReadabilityDetailFactsText.Text}");
+            AutomationProperties.SetName(
+                ReadabilitySeriesFactsText,
+                $"资格审计所属 Series 事实：{ReadabilitySeriesFactsText.Text}");
+            AutomationProperties.SetName(
+                ReadabilityLiveMesFactsText,
+                $"资格审计可信 MES 字段或原始观测冲突：{ReadabilityLiveMesFactsText.Text}");
             ReadabilityQualificationGrid.ItemsSource = detail?.QualificationChecks;
             ReadabilityBlockerEvidenceGrid.ItemsSource = detail?.BlockerEvidence;
             ReadabilityRawObservationGrid.ItemsSource = detail?.RawObservations;
@@ -859,7 +870,13 @@ internal partial class WatchWorkspaceWindow
                 .ToArray();
             var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
 
-            AreaProfileDirectoryText.Text = $"{_areaProfileStore.DirectoryPath} · UTF-8";
+            var areaProfileDirectoryPath = Path.GetFullPath(_areaProfileStore.DirectoryPath);
+            AreaProfileDirectoryText.Text = FormatAreaProfileDirectoryCaption(
+                areaProfileDirectoryPath);
+            AreaProfileDirectoryText.ToolTip = areaProfileDirectoryPath;
+            AutomationProperties.SetHelpText(
+                AreaProfileDirectoryText,
+                areaProfileDirectoryPath);
             AreaProfileListSummaryText.Text = searchText.Length == 0
                 ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
                 : $"显示 {visibleRows.Length:N0} / {_areaProfileRows.Count:N0} 个文件"
@@ -1111,6 +1128,68 @@ internal partial class WatchWorkspaceWindow
         return string.Join(
             Environment.NewLine,
             Enumerable.Range(1, lineCount));
+    }
+
+    internal static string FormatAreaProfileDirectoryCaption(string directoryPath)
+    {
+        var fullPath = Path.GetFullPath(directoryPath);
+        var localApplicationData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData);
+        if (TryFormatLocalApplicationDataCaption(
+                fullPath,
+                localApplicationData,
+                out var caption))
+        {
+            return caption;
+        }
+
+        if (string.Equals(
+                Environment.GetEnvironmentVariable("MESINGEST_WATCH_UI_TEST_MODE"),
+                "1",
+                StringComparison.Ordinal)
+            && TryFormatLocalApplicationDataCaption(
+                fullPath,
+                Environment.GetEnvironmentVariable("LOCALAPPDATA"),
+                out caption))
+        {
+            return caption;
+        }
+
+        var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath));
+        return $"{directoryName} · 本机 TXT · UTF-8";
+    }
+
+    private static bool TryFormatLocalApplicationDataCaption(
+        string fullPath,
+        string? localApplicationDataPath,
+        out string caption)
+    {
+        caption = string.Empty;
+        if (string.IsNullOrWhiteSpace(localApplicationDataPath)
+            || !Path.IsPathFullyQualified(localApplicationDataPath))
+        {
+            return false;
+        }
+
+        var localApplicationData = Path.TrimEndingDirectorySeparator(
+            Path.GetFullPath(localApplicationDataPath));
+        var isRoot = string.Equals(
+            fullPath,
+            localApplicationData,
+            StringComparison.OrdinalIgnoreCase);
+        var isDescendant = fullPath.StartsWith(
+            localApplicationData + Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+        if (!isRoot && !isDescendant)
+        {
+            return false;
+        }
+
+        var relativePath = Path.GetRelativePath(localApplicationData, fullPath);
+        caption = relativePath == "."
+            ? "%LocalAppData% · UTF-8"
+            : $"%LocalAppData%\\{relativePath} · UTF-8";
+        return true;
     }
 
     private void OnAreaProfileNewClick(object sender, RoutedEventArgs e)

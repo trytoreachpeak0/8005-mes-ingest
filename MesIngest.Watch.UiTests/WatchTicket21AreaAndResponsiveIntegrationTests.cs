@@ -16,6 +16,39 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 {
     [Fact]
+    public void Area_directory_caption_abbreviates_the_real_local_application_data_root()
+    {
+        var localApplicationData = Environment.GetFolderPath(
+            Environment.SpecialFolder.LocalApplicationData);
+        Assert.False(string.IsNullOrWhiteSpace(localApplicationData));
+        var directory = Path.Combine(
+            localApplicationData,
+            "MesIngest.Watch",
+            "area-filters");
+
+        Assert.Equal(
+            "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8",
+            WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
+    }
+
+    [Fact]
+    public void Area_directory_caption_does_not_abbreviate_a_custom_path_that_only_has_the_canonical_suffix()
+    {
+        var nonLocalRoot = Path.Combine(
+            Path.GetPathRoot(Environment.CurrentDirectory)
+                ?? throw new InvalidOperationException("当前目录没有路径根。"),
+            $"watch-ticket-21-non-local-{Guid.NewGuid():N}");
+        var directory = Path.Combine(
+            nonLocalRoot,
+            "MesIngest.Watch",
+            "area-filters");
+
+        Assert.Equal(
+            "area-filters · 本机 TXT · UTF-8",
+            WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
+    }
+
+    [Fact]
     public void Area_directory_launcher_creates_only_the_requested_directory_and_suppresses_shell_in_ui_test_mode()
     {
         var root = Path.Combine(
@@ -595,6 +628,75 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             {
                 window.Close();
             }
+        });
+    }
+
+    [Fact]
+    public async Task Applied_profile_that_is_now_invalid_keeps_critical_text_and_automation_when_selected()
+    {
+        using var files = new TemporaryWatchFiles("已损坏", "A1-1\n");
+        var store = new WatchAreaFilterProfileStore(files.AreaProfilesPath);
+        Assert.True(store.Apply("已损坏").Applied);
+        File.WriteAllText(files.ProfilePath, "AREA-INVALID\n", new UTF8Encoding(false));
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath,
+                areaFilterProfilesDirectoryPath: files.AreaProfilesPath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                window.UpdateLayout();
+
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                var row = Assert.Single(
+                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                Assert.True(row.IsApplied);
+                Assert.False(row.IsValid);
+                Assert.Equal("当前应用 · 无效", row.StatusText);
+                Assert.Contains("当前应用 · 无效", row.AutomationName, StringComparison.Ordinal);
+
+                profileList.SelectedItem = row;
+                window.UpdateLayout();
+                var container = Assert.IsType<ListBoxItem>(
+                    profileList.ItemContainerGenerator.ContainerFromItem(row));
+                Assert.Equal(row.AutomationName, AutomationProperties.GetName(container));
+
+                var statusPill = Assert.IsType<Border>(FindVisualDescendant<Border>(
+                    container,
+                    border => border.Visibility == Visibility.Visible
+                        && ReferenceEquals(
+                            border.Style,
+                            window.FindResource("StatusPillCritical"))));
+                var statusText = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    FindVisualDescendant<Wpf.Ui.Controls.TextBlock>(
+                        statusPill,
+                        text => text.Text == "当前应用 · 无效"));
+                Assert.Same(
+                    window.FindResource("SystemFillColorCriticalBackgroundBrush"),
+                    statusPill.Background);
+                Assert.Same(
+                    window.FindResource("SystemFillColorCriticalBrush"),
+                    statusText.Foreground);
+                Assert.Same(
+                    window.FindResource("AccentFillColorDefaultBrush"),
+                    container.Background);
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            return Task.CompletedTask;
         });
     }
 

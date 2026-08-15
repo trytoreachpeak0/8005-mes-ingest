@@ -14,6 +14,83 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchTicket22ResponsiveIntegrationTests
 {
     [Fact]
+    public async Task Error_search_wide_minimum_height_keeps_three_columns_and_scrolls_to_raw_evidence()
+    {
+        using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
+
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(async () =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Width = 1440;
+                window.Height = 600;
+                window.Show();
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.ErrorSearch,
+                    PageNumber: 1,
+                    Cursor: null));
+                window.UpdateLayout();
+
+                var rawEvidence = Find<DataGrid>(window, "ErrorSearchRawEvidenceGrid");
+                var rawEvidenceExpander = Assert.IsType<Expander>(
+                    FindLogicalAncestor<Expander>(rawEvidence));
+                rawEvidenceExpander.IsExpanded = true;
+                window.UpdateLayout();
+                await window.Dispatcher.InvokeAsync(
+                    window.UpdateLayout,
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+
+                var body = Find<Grid>(window, "ErrorSearchBodyGrid");
+                Assert.True(double.IsNaN(body.Height));
+                Assert.True(body.RowDefinitions[0].Height.IsAuto);
+                Assert.Equal(new GridLength(244), body.ColumnDefinitions[0].Width);
+                Assert.Equal(new GridLength(12), body.ColumnDefinitions[1].Width);
+                Assert.Equal(
+                    new GridLength(1, GridUnitType.Star),
+                    body.ColumnDefinitions[2].Width);
+                Assert.Equal(new GridLength(12), body.ColumnDefinitions[3].Width);
+                Assert.Equal(new GridLength(370), body.ColumnDefinitions[4].Width);
+
+                var category = Find<Wpf.Ui.Controls.Card>(window, "ErrorSearchCategoryCard");
+                var results = Find<Wpf.Ui.Controls.Card>(window, "ErrorSearchResultsCard");
+                var detail = Find<Wpf.Ui.Controls.Card>(window, "ErrorSearchDetailCard");
+                Assert.Equal((0, 0), (Grid.GetColumn(category), Grid.GetRow(category)));
+                Assert.Equal((2, 0), (Grid.GetColumn(results), Grid.GetRow(results)));
+                Assert.Equal((4, 0), (Grid.GetColumn(detail), Grid.GetRow(detail)));
+
+                var viewport = Find<ScrollViewer>(window, "ErrorSearchBodyScrollViewer");
+                Assert.Equal(ScrollBarVisibility.Auto, viewport.VerticalScrollBarVisibility);
+                Assert.True(
+                    viewport.ScrollableHeight > 0,
+                    "The 1440x600 Error Search body must expose an outer scrolling fallback; "
+                    + $"extent={viewport.ExtentHeight:0.##}, "
+                    + $"viewport={viewport.ViewportHeight:0.##}.");
+
+                viewport.ScrollToEnd();
+                window.UpdateLayout();
+                rawEvidence.BringIntoView();
+                window.UpdateLayout();
+                Assert.True(viewport.VerticalOffset > 0);
+                AssertFullyWithin(rawEvidence, viewport, "Error Search raw evidence");
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+        });
+    }
+
+    [Fact]
     public async Task Error_and_attention_headers_show_live_freshness_compact_status_and_explicit_all_placeholders()
     {
         const string sharedSecret = "ticket-22-header-freshness-secret";
@@ -722,6 +799,51 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
         }
 
         return null;
+    }
+
+    private static T? FindLogicalAncestor<T>(DependencyObject child)
+        where T : DependencyObject
+    {
+        for (var current = LogicalTreeHelper.GetParent(child);
+             current is not null;
+             current = LogicalTreeHelper.GetParent(current))
+        {
+            if (current is T match)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    private static void AssertFullyWithin(
+        FrameworkElement element,
+        FrameworkElement viewport,
+        string description)
+    {
+        Assert.Equal(Visibility.Visible, element.Visibility);
+        Assert.True(
+            element.IsVisible,
+            $"{description} must be visible in the rendered window; "
+            + $"visibility={element.Visibility}, "
+            + $"actual=({element.ActualWidth:0.##},{element.ActualHeight:0.##}).");
+        Assert.True(
+            element.ActualWidth > 0 && element.ActualHeight > 0,
+            $"{description} must render at a positive size; "
+            + $"actual=({element.ActualWidth:0.##},{element.ActualHeight:0.##}).");
+
+        var origin = element.TranslatePoint(new Point(0, 0), viewport);
+        var tolerance = 0.5;
+        Assert.True(
+            origin.X >= -tolerance
+                && origin.Y >= -tolerance
+                && origin.X + element.ActualWidth <= viewport.ActualWidth + tolerance
+                && origin.Y + element.ActualHeight <= viewport.ActualHeight + tolerance,
+            $"{description} must remain fully inside the scrolled production viewport. "
+            + $"element=({origin.X:0.##},{origin.Y:0.##},"
+            + $"{element.ActualWidth:0.##},{element.ActualHeight:0.##}); "
+            + $"viewport=({viewport.ActualWidth:0.##},{viewport.ActualHeight:0.##}).");
     }
 
     private static T Find<T>(FrameworkElement root, string name)

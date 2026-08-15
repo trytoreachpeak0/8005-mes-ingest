@@ -1532,10 +1532,10 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
-    private void ReflowTicket22Pages(double contentWidth)
+    private void ReflowTicket22Pages(double contentWidth, bool useOuterScrolling)
     {
         var stack = contentWidth < (double)FindResource("Ticket22ThreeCardStackBreakpoint");
-        if (stack)
+        if (stack || useOuterScrolling)
         {
             BindingOperations.ClearBinding(ErrorSearchBodyGrid, FrameworkElement.HeightProperty);
             ErrorSearchBodyGrid.Height = double.NaN;
@@ -1572,11 +1572,16 @@ internal partial class WatchWorkspaceWindow
             (GridLength)FindResource("ErrorSearchCategoryColumnWidth"),
             (GridLength)FindResource("ErrorSearchDetailColumnWidth"),
             (GridLength)FindResource("Ticket22CardGap"));
-        ReflowCurrentAttention(stack);
+        ReflowCurrentAttention(stack, useOuterScrolling);
     }
 
-    private void ReflowCurrentAttention(bool stack)
+    private void ReflowCurrentAttention(bool stack, bool useOuterScrolling)
     {
+        ConfigureResponsivePageViewport(
+            CurrentAttentionLayoutGrid,
+            CurrentAttentionPage,
+            stack || useOuterScrolling);
+
         Grid.SetColumn(CurrentAttentionFacetCard, 0);
         Grid.SetRow(CurrentAttentionFacetCard, 0);
         Grid.SetColumnSpan(CurrentAttentionFacetCard, stack ? 1 : 3);

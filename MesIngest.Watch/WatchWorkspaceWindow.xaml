@@ -37,6 +37,7 @@
         <sys:Double x:Key="DemandSeriesPageSummaryMinWidth">230</sys:Double>
         <sys:Double x:Key="DemandSeriesEvidenceMinHeight">330</sys:Double>
         <sys:Double x:Key="DemandSeriesGenerationHeight">250</sys:Double>
+        <sys:Double x:Key="DemandSeriesMasterDetailStackBreakpoint">1080</sys:Double>
         <wpf:GridLength x:Key="DemandSeriesMasterListHeight">260</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesSectionGap">16</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesMesObservationHeight">220</wpf:GridLength>
@@ -290,6 +291,15 @@
                                 </Grid.RowDefinitions>
                                 <Grid x:Name="OverviewSummaryViewport">
                                     <UniformGrid x:Name="OverviewSummaryCards" Columns="5" Margin="-5,-6">
+                                    <UniformGrid.Resources>
+                                        <Style x:Key="OverviewSubsummaryIntentButton"
+                                               TargetType="ui:Button"
+                                               BasedOn="{StaticResource InlineIntentButton}">
+                                            <Setter Property="MinWidth" Value="0" />
+                                            <Setter Property="MinHeight" Value="24" />
+                                            <Setter Property="Padding" Value="0" />
+                                        </Style>
+                                    </UniformGrid.Resources>
                                     <Border x:Name="SeriesSummaryCard" Style="{StaticResource SummaryCard}" Margin="5,6" MinHeight="174">
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
@@ -306,7 +316,7 @@
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="DocumentBulletList24" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" /><ui:TextBlock Text="资格审计" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel><ui:Button x:Name="ReadabilitySummaryAction" Grid.Column="1" Content="查看 →" Style="{StaticResource InlineIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部资格审计第一页" /></Grid>
                                             <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="ReadabilitySummaryValue" Text="—" Style="{StaticResource OverviewRatioMetric}" /><ui:TextBlock x:Name="ReadabilitySummaryDetail" Text="等待 Host 概览" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
-                                            <WrapPanel Grid.Row="2"><ui:Button x:Name="ReadableSummaryAction" Content="可读" Style="{StaticResource InlineIntentButton}" Margin="0,0,12,0" Click="OnOverviewIntentClick" AutomationProperties.Name="查看可读资格审计第一页" /><ui:Button x:Name="NotReadableSummaryAction" Content="不可读" Style="{StaticResource InlineIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看不可读资格审计第一页" /></WrapPanel>
+                                            <WrapPanel Grid.Row="2"><ui:Button x:Name="ReadableSummaryAction" Content="可读" Style="{StaticResource OverviewSubsummaryIntentButton}" Margin="0,0,12,0" Click="OnOverviewIntentClick" AutomationProperties.Name="查看可读资格审计第一页" /><ui:Button x:Name="NotReadableSummaryAction" Content="不可读" Style="{StaticResource OverviewSubsummaryIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看不可读资格审计第一页" /></WrapPanel>
                                         </Grid>
                                     </Border>
                                     <Border x:Name="ErrorsSummaryCard" Style="{StaticResource SummaryCard}" Margin="5,6" MinHeight="174">
@@ -314,7 +324,7 @@
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Search24" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" /><ui:TextBlock Text="错误检索" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel><ui:Button x:Name="ErrorsSummaryAction" Grid.Column="1" Content="查看 →" Style="{StaticResource InlineIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看全部错误检索第一页" /></Grid>
                                             <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="ErrorsSummaryValue" Text="—" Style="{StaticResource OverviewPrimaryMetric}" /><ui:TextBlock x:Name="ErrorsSummaryDetail" Text="等待 Host 概览" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
-                                            <WrapPanel Grid.Row="2"><ui:Button x:Name="ActiveErrorsSummaryAction" Content="活动" Style="{StaticResource InlineIntentButton}" Margin="0,0,12,0" Click="OnOverviewIntentClick" AutomationProperties.Name="查看活动错误第一页" /><ui:Button x:Name="PriorErrorsSummaryAction" Content="近 7 天" Style="{StaticResource InlineIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看近七天错误第一页" /></WrapPanel>
+                                            <WrapPanel Grid.Row="2"><ui:Button x:Name="ActiveErrorsSummaryAction" Content="活动" Style="{StaticResource OverviewSubsummaryIntentButton}" Margin="0,0,12,0" Click="OnOverviewIntentClick" AutomationProperties.Name="查看活动错误第一页" /><ui:Button x:Name="PriorErrorsSummaryAction" Content="近 7 天" Style="{StaticResource OverviewSubsummaryIntentButton}" Click="OnOverviewIntentClick" AutomationProperties.Name="查看近七天错误第一页" /></WrapPanel>
                                         </Grid>
                                     </Border>
                                     <Border x:Name="AreaSummaryCard" Style="{StaticResource SummaryCard}" Margin="5,6" MinHeight="174">
@@ -357,7 +367,16 @@
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <StackPanel Margin="16,14,16,10"><ui:TextBlock Text="当前显示范围" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="AREA 配置会同时影响两个数据页" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
                                             <StackPanel Grid.Row="1" Margin="16,6">
-                                                <Border Padding="14" CornerRadius="8" Background="{DynamicResource AccentFillColorTertiaryBrush}"><StackPanel><ui:TextBlock Text="{Binding Text, ElementName=LocalAreaHeadingText}" FontTypography="BodyStrong" /><ui:TextBlock Text="{Binding Text, ElementName=LocalAreaDetailText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" /></StackPanel></Border>
+                                                <Grid x:Name="OverviewScopeSurface">
+                                                    <Border x:Name="OverviewScopeSurfaceTint"
+                                                            CornerRadius="8"
+                                                            Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                            Opacity="0.10" />
+                                                    <StackPanel Margin="14">
+                                                        <ui:TextBlock Text="{Binding Text, ElementName=LocalAreaHeadingText}" FontTypography="BodyStrong" />
+                                                        <ui:TextBlock Text="{Binding Text, ElementName=LocalAreaDetailText}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
+                                                    </StackPanel>
+                                                </Grid>
                                                 <ui:TextBlock Text="需求系列" FontTypography="BodyStrong" Margin="0,18,0,0" /><ui:TextBlock Text="{Binding Text, ElementName=SeriesSummaryDetail}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
                                                 <ui:TextBlock Text="资格审计" FontTypography="BodyStrong" Margin="0,16,0,0" /><ui:TextBlock Text="{Binding Text, ElementName=ReadabilitySummaryDetail}" Style="{StaticResource CaptionText}" Margin="0,4,0,0" />
                                                 <ui:TextBlock x:Name="StaleNoticeText" Text="" FontTypography="BodyStrong" Foreground="{DynamicResource SystemFillColorCautionBrush}" TextWrapping="Wrap" Margin="0,12,0,0" AutomationProperties.Name="概览陈旧状态" />
@@ -620,9 +639,12 @@
 
                                 <Grid x:Name="DemandSeriesMasterDetailGrid" Grid.Row="4">
                                     <Grid.RowDefinitions>
-                                        <RowDefinition Height="0.9*" />
-                                        <RowDefinition Height="{StaticResource DemandSeriesSectionGap}" />
-                                        <RowDefinition Height="1.1*" />
+                                        <RowDefinition x:Name="DemandSeriesMasterDetailPrimaryRow"
+                                                       Height="0.9*" />
+                                        <RowDefinition x:Name="DemandSeriesMasterDetailGapRow"
+                                                       Height="{StaticResource DemandSeriesSectionGap}" />
+                                        <RowDefinition x:Name="DemandSeriesMasterDetailBottomRow"
+                                                       Height="1.1*" />
                                     </Grid.RowDefinitions>
 
                                     <Border x:Name="DemandSeriesMasterPanel"
@@ -1138,6 +1160,9 @@
                                         <ui:TextBlock x:Name="ReadabilityHeaderFactsText"
                                                       Text="全部 AREA · 尚无更新时间"
                                                       Style="{StaticResource CaptionText}"
+                                                      TextWrapping="NoWrap"
+                                                      TextTrimming="CharacterEllipsis"
+                                                      ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                       TextAlignment="Right"
                                                       AutomationProperties.Name="资格审计 AREA 与更新时间" />
                                         <ui:TextBlock x:Name="ReadabilityRefreshPolicyText"
@@ -1306,14 +1331,16 @@
                                                   Text="尚无 Host 审计快照"
                                                   Style="{StaticResource CaptionText}"
                                                   Margin="0,8,0,0"
+                                                  TextWrapping="NoWrap"
+                                                  TextTrimming="CharacterEllipsis"
+                                                  ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                   Visibility="Visible"
                                                   AutomationProperties.Name="资格审计紧凑快照事实" />
                                     <ui:TextBlock x:Name="ReadabilityBlockerFacetSummaryText"
                                                   Grid.Row="2"
                                                   Text="阻断原因精确分面：尚无快照"
                                                   Style="{StaticResource CaptionText}"
-                                                  Margin="0,4,0,0"
-                                                  Visibility="Visible"
+                                                  Visibility="Collapsed"
                                                   AutomationProperties.Name="资格审计紧凑阻断分面" />
                                 </Grid>
                             </ui:Card>
@@ -1618,6 +1645,9 @@
                                                                   Text="列表与详情将共享同一投影提交"
                                                                   Style="{StaticResource SecondaryText}"
                                                                   Margin="0,3,0,0"
+                                                                  TextWrapping="NoWrap"
+                                                                  TextTrimming="CharacterEllipsis"
+                                                                  ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                                   AutomationProperties.Name="资格审计详情快照事实" />
                                                 </StackPanel>
                                                 <ui:Button x:Name="ReadabilityOpenSeriesButton"
@@ -1643,7 +1673,9 @@
                                                                   Text="尚无可信 MES 字段或原始观测冲突"
                                                                   Style="{StaticResource SecondaryText}"
                                                                   Margin="0,10,12,0"
-                                                                  TextWrapping="Wrap"
+                                                                  TextWrapping="NoWrap"
+                                                                  TextTrimming="CharacterEllipsis"
+                                                                  ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                                   AutomationProperties.Name="资格审计可信 MES 字段或原始观测冲突" />
                                                 </StackPanel>
                                                 <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
@@ -1697,7 +1729,9 @@
                                                               Text="尚无所属 Series 事实"
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="0,5,0,10"
-                                                              TextWrapping="Wrap"
+                                                              TextWrapping="NoWrap"
+                                                              TextTrimming="CharacterEllipsis"
+                                                              ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                               AutomationProperties.Name="资格审计所属 Series 事实" />
                                                 <DataGrid x:Name="ReadabilityQualificationGrid"
                                                           Grid.Row="2"
@@ -2029,7 +2063,7 @@
                                                         <ColumnDefinition Width="10" />
                                                         <ColumnDefinition Width="135" />
                                                         <ColumnDefinition Width="10" />
-                                                        <ColumnDefinition Width="150" />
+                                                        <ColumnDefinition Width="135" />
                                                         <ColumnDefinition Width="10" />
                                                         <ColumnDefinition Width="*" />
                                                         <ColumnDefinition Width="10" />
@@ -2471,6 +2505,7 @@
 
                                 <ui:Card x:Name="AreaProfileMasterCard"
                                          Padding="0"
+                                         VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
                                          AutomationProperties.Name="AREA 配置主列表"
@@ -2523,42 +2558,53 @@
                                                 <Style TargetType="ListBoxItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                                     <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Background" Value="Transparent" />
                                                     <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsSelected" Value="True">
+                                                            <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
                                                 </Style>
                                             </ListBox.ItemContainerStyle>
                                             <ListBox.ItemTemplate>
                                                 <DataTemplate>
-                                                    <Grid Margin="14,10">
-                                                        <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="Auto" />
-                                                        </Grid.RowDefinitions>
+                                                    <Border x:Name="AreaProfileRowSurface" Padding="14,10">
                                                         <Grid>
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                            </Grid.ColumnDefinitions>
-                                                            <ui:TextBlock Text="{Binding ProfileName}"
-                                                                          Style="{StaticResource BodyStrong}" />
-                                                            <Grid Grid.Column="1" VerticalAlignment="Center">
-                                                                <ui:TextBlock x:Name="AreaProfileRowValidStatus"
-                                                                              Text="有效"
-                                                                              Style="{StaticResource CaptionText}"
-                                                                              Foreground="{DynamicResource SystemFillColorSuccessBrush}" />
-                                                                <Border x:Name="AreaProfileRowStatusPill"
-                                                                        Style="{StaticResource StatusPillAccent}"
-                                                                        Visibility="Collapsed">
-                                                                    <ui:TextBlock x:Name="AreaProfileRowStatus"
-                                                                                  Text="{Binding StatusText}"
-                                                                                  FontTypography="Caption" />
-                                                                </Border>
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto" />
+                                                                <RowDefinition Height="Auto" />
+                                                            </Grid.RowDefinitions>
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <ui:TextBlock x:Name="AreaProfileRowNameText"
+                                                                              Text="{Binding ProfileName}"
+                                                                              Style="{StaticResource BodyStrong}" />
+                                                                <Grid Grid.Column="1" VerticalAlignment="Center">
+                                                                    <ui:TextBlock x:Name="AreaProfileRowValidStatus"
+                                                                                  Text="有效"
+                                                                                  Style="{StaticResource CaptionText}"
+                                                                                  Foreground="{DynamicResource SystemFillColorSuccessBrush}" />
+                                                                    <Border x:Name="AreaProfileRowStatusPill"
+                                                                            Style="{StaticResource StatusPillAccent}"
+                                                                            Visibility="Collapsed">
+                                                                        <ui:TextBlock x:Name="AreaProfileRowStatus"
+                                                                                      Text="{Binding StatusText}"
+                                                                                      FontTypography="Caption" />
+                                                                    </Border>
+                                                                </Grid>
                                                             </Grid>
+                                                            <ui:TextBlock x:Name="AreaProfileRowMetadataText"
+                                                                          Grid.Row="1"
+                                                                          Text="{Binding MetadataText}"
+                                                                          Style="{StaticResource CaptionText}"
+                                                                          Margin="0,5,0,0" />
                                                         </Grid>
-                                                        <ui:TextBlock Grid.Row="1"
-                                                                      Text="{Binding MetadataText}"
-                                                                      Style="{StaticResource CaptionText}"
-                                                                      Margin="0,5,0,0" />
-                                                    </Grid>
+                                                    </Border>
                                                     <DataTemplate.Triggers>
                                                         <DataTrigger Binding="{Binding IsApplied}" Value="True">
                                                             <Setter TargetName="AreaProfileRowValidStatus"
@@ -2576,9 +2622,36 @@
                                                                     Property="Visibility"
                                                                     Value="Visible" />
                                                             <Setter TargetName="AreaProfileRowStatusPill"
-                                                                    Property="Style"
-                                                                    Value="{StaticResource StatusPillCritical}" />
+                                                                     Property="Style"
+                                                                     Value="{StaticResource StatusPillCritical}" />
                                                         </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
+                                                            <Setter TargetName="AreaProfileRowSurface"
+                                                                    Property="Background"
+                                                                    Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                            <Setter TargetName="AreaProfileRowNameText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="AreaProfileRowMetadataText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="AreaProfileRowValidStatus"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                        </DataTrigger>
+                                                        <MultiDataTrigger>
+                                                            <MultiDataTrigger.Conditions>
+                                                                <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
+                                                                <Condition Binding="{Binding IsApplied}" Value="True" />
+                                                                <Condition Binding="{Binding IsValid}" Value="True" />
+                                                            </MultiDataTrigger.Conditions>
+                                                            <Setter TargetName="AreaProfileRowStatusPill"
+                                                                    Property="Background"
+                                                                    Value="{DynamicResource ControlFillColorDefaultBrush}" />
+                                                            <Setter TargetName="AreaProfileRowStatus"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                                        </MultiDataTrigger>
                                                     </DataTemplate.Triggers>
                                                 </DataTemplate>
                                             </ListBox.ItemTemplate>
@@ -2602,6 +2675,7 @@
                                 <ui:Card x:Name="AreaProfileEditorCard"
                                          Grid.Column="2"
                                          Padding="0"
+                                         VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
                                          AutomationProperties.Name="AREA 配置编辑器"
@@ -2851,7 +2925,9 @@
                                                   Text="Endpoint 尚未配置 · Watch 尚无成功读取 · 自动刷新等待偏好"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="0,3,12,0"
-                                                  TextWrapping="Wrap"
+                                                  TextWrapping="NoWrap"
+                                                  TextTrimming="CharacterEllipsis"
+                                                  ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                   AutomationProperties.Name="接入告警 Endpoint、最近成功与自动刷新：尚未读取" />
                                 </StackPanel>
                                 <Border x:Name="CurrentAttentionHeaderStatusPill"
@@ -2874,6 +2950,7 @@
                                         <ui:TextBlock x:Name="CurrentAttentionHistoryScopeText"
                                                       Text="只读呈现全 Host 当前仍需关注的接入项；已结束的 Series 错误只在错误检索中保留。"
                                                       Style="{StaticResource CaptionText}"
+                                                      TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                       AutomationProperties.Name="接入告警历史范围：只读呈现全 Host 当前仍需关注的接入项；已结束的 Series 错误只在错误检索中保留。" />
@@ -2881,6 +2958,7 @@
                                                       Text="尚无 Host 当前接入关注快照"
                                                       Style="{StaticResource CaptionText}"
                                                       Margin="0,2,0,0"
+                                                      TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                       AutomationProperties.Name="接入告警快照：尚无 Host 当前接入关注快照" />
@@ -2888,6 +2966,7 @@
                                                       Text="全 Host 当前关注；本机 AREA 配置不参与筛选、计数或分页。"
                                                       Style="{StaticResource CaptionText}"
                                                       Margin="0,2,0,0"
+                                                      TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                       AutomationProperties.Name="接入告警范围：全 Host 当前关注；本机 AREA 配置不参与筛选、计数或分页。" />
@@ -3081,6 +3160,9 @@
                                                           Text="尚无当前接入关注快照"
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
+                                                          TextWrapping="NoWrap"
+                                                          TextTrimming="CharacterEllipsis"
+                                                          ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                           AutomationProperties.Name="接入告警分页摘要：尚无当前接入关注快照" />
                                             <ui:TextBlock x:Name="CurrentAttentionEmptyResultText"
                                                           Text=""
@@ -3224,7 +3306,9 @@
                                                 <ui:TextBlock x:Name="CurrentAttentionSelectedContextText"
                                                               Text="选择一项查看其稳定标识与 Host 结构化证据。"
                                                               Style="{StaticResource SecondaryText}"
-                                                              TextWrapping="Wrap"
+                                                              TextWrapping="NoWrap"
+                                                              TextTrimming="CharacterEllipsis"
+                                                              ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                               AutomationProperties.Name="接入告警选中项上下文" />
                                             </Border>
                                             <ui:TextBlock Grid.Row="2"
@@ -3306,7 +3390,7 @@
                                     <Border Style="{StaticResource SurfaceCard}" Padding="0">
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                            <Grid Margin="18,16">
+                                            <Grid Margin="18,14">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="40" />
                                                     <ColumnDefinition Width="*" />
@@ -3336,36 +3420,36 @@
                                                 </Border>
                                             </Grid>
                                             <Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
-                                            <Grid Grid.Row="2" Margin="18,16">
+                                            <Grid Grid.Row="2" Margin="18,12">
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="6" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                                 <ui:TextBlock Text="服务地址" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HostBaseUrlInput" Grid.Column="1" AutomationProperties.Name="Host 基址" />
                                                 <ui:TextBlock Grid.Row="2" Text="访问凭据" Style="{StaticResource FieldLabel}" /><StackPanel Grid.Row="2" Grid.Column="1"><PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Padding="12,8" AutomationProperties.Name="只读 API 凭据" /><ui:TextBlock Text="留空继续使用当前外部配置凭据；输入值仅用于本次进程，保存后立即清空。" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" /></StackPanel>
                                                 <ui:TextBlock Grid.Row="4" Text="请求超时" Style="{StaticResource FieldLabel}" /><StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal"><TextBox x:Name="RequestTimeoutInput" Width="100" ToolTip="1–300 秒" AutomationProperties.Name="全局请求超时秒数" /><ui:TextBlock Text="秒 · 合法范围 1–300" Style="{StaticResource SecondaryText}" Margin="10,0,0,0" VerticalAlignment="Center" /></StackPanel>
                                             </Grid>
                                         </Grid>
                                     </Border>
-                                    <Border Style="{StaticResource SurfaceCard}" Padding="0" Margin="0,16,0,0">
-                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,16"><ui:TextBlock Text="连接变更" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="应用后取消旧 Host 的全部请求，清空旧业务窗口并返回概览。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,16"><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="凭据仅保存在本机" Message="界面不会显示、复制或记录完整令牌。" /><ui:Button x:Name="ApplyHostButton" Content="应用 Host 设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,14,0,0" Click="OnApplyHostClick" AutomationProperties.Name="应用 Host 设置" /></StackPanel></Grid>
+                                    <Border Style="{StaticResource SurfaceCard}" Padding="0" Margin="0,12,0,0">
+                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,14"><ui:TextBlock Text="连接变更" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="应用后取消旧 Host 的全部请求，清空旧业务窗口并返回概览。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,12"><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="凭据仅保存在本机" Message="界面不会显示、复制或记录完整令牌。" /><ui:Button x:Name="ApplyHostButton" Content="应用 Host 设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,10,0,0" Click="OnApplyHostClick" AutomationProperties.Name="应用 Host 设置" /></StackPanel></Grid>
                                     </Border>
                                 </StackPanel>
 
                                 <StackPanel x:Name="RefreshSettingsCard" Grid.Column="2">
                                     <Border Style="{StaticResource SurfaceCard}" Padding="0">
-                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,16"><ui:TextBlock Text="自动刷新间隔" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="所有数据视图始终自动刷新；这里只配置各视图的刷新时间。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,10,18,16">
-                                            <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="概览" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host、投影、当前关注与跨页摘要" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="OverviewIntervalInput" Grid.Column="1" AutomationProperties.Name="概览自动刷新间隔" /></Grid>
-                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                            <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="需求系列" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="完整生命周期与当前出现范围" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="DemandSeriesIntervalInput" Grid.Column="1" AutomationProperties.Name="需求系列自动刷新间隔" /></Grid>
-                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                            <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="资格审计" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="外部可读资格与全部阻断原因" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ReadabilityAuditIntervalInput" Grid.Column="1" AutomationProperties.Name="资格审计自动刷新间隔" /></Grid>
-                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                            <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="错误检索" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="活动与已结束的历史错误" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ErrorSearchIntervalInput" Grid.Column="1" AutomationProperties.Name="错误检索自动刷新间隔" /></Grid>
-                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                            <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="接入告警" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host 当前仍需关注的接入项" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="CurrentAttentionIntervalInput" Grid.Column="1" AutomationProperties.Name="接入告警自动刷新间隔" /></Grid>
+                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,14"><ui:TextBlock Text="自动刷新间隔" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="所有数据视图始终自动刷新；这里只配置各视图的刷新时间。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,6,18,12">
+                                            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="概览" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host、投影、当前关注与跨页摘要" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="OverviewIntervalInput" Grid.Column="1" AutomationProperties.Name="概览自动刷新间隔" /></Grid>
+                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+                                            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="需求系列" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="完整生命周期与当前出现范围" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="DemandSeriesIntervalInput" Grid.Column="1" AutomationProperties.Name="需求系列自动刷新间隔" /></Grid>
+                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+                                            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="资格审计" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="外部可读资格与全部阻断原因" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ReadabilityAuditIntervalInput" Grid.Column="1" AutomationProperties.Name="资格审计自动刷新间隔" /></Grid>
+                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+                                            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="错误检索" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="活动与已结束的历史错误" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ErrorSearchIntervalInput" Grid.Column="1" AutomationProperties.Name="错误检索自动刷新间隔" /></Grid>
+                                            <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,4" />
+                                            <Grid Margin="0,3"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="接入告警" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host 当前仍需关注的接入项" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="CurrentAttentionIntervalInput" Grid.Column="1" AutomationProperties.Name="接入告警自动刷新间隔" /></Grid>
                                         </StackPanel></Grid>
                                     </Border>
-                                    <Border Style="{StaticResource SurfaceCard}" Padding="0" Margin="0,16,0,0">
-                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,16"><ui:TextBlock Text="显示与布局" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="本机偏好，不影响 Host 或业务数据。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><Grid Grid.Row="2" Margin="18,16"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel><ui:TextBlock Text="记住窗口尺寸" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="重启后恢复最近窗口几何" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="RememberWindowSizeCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口尺寸" /><StackPanel Grid.Row="2"><ui:TextBlock Text="默认展开导航窗格" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="关闭时使用获选的 48 epx 紧凑 rail" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="KeepNavigationPaneOpenCheckBox" Grid.Row="2" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="默认展开导航窗格" /><ui:Button x:Name="SaveRefreshIntervalsButton" Grid.Row="4" Grid.ColumnSpan="2" Content="保存刷新与显示设置" Appearance="Secondary" HorizontalAlignment="Right" Click="OnSaveLocalPreferencesClick" AutomationProperties.Name="保存刷新与显示设置" /></Grid></Grid>
+                                    <Border Style="{StaticResource SurfaceCard}" Padding="0" Margin="0,12,0,0">
+                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,14"><ui:TextBlock Text="显示与布局" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="本机偏好，不影响 Host 或业务数据。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><Grid Grid.Row="2" Margin="18,12"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel><ui:TextBlock Text="记住窗口尺寸" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="重启后恢复最近窗口几何" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="RememberWindowSizeCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口尺寸" /><StackPanel Grid.Row="2"><ui:TextBlock Text="默认展开导航窗格" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="关闭时使用获选的 48 epx 紧凑 rail" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="KeepNavigationPaneOpenCheckBox" Grid.Row="2" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="默认展开导航窗格" /><ui:Button x:Name="SaveRefreshIntervalsButton" Grid.Row="4" Grid.ColumnSpan="2" Content="保存刷新与显示设置" Appearance="Secondary" HorizontalAlignment="Right" Click="OnSaveLocalPreferencesClick" AutomationProperties.Name="保存刷新与显示设置" /></Grid></Grid>
                                     </Border>
                                 </StackPanel>
                             </Grid>
