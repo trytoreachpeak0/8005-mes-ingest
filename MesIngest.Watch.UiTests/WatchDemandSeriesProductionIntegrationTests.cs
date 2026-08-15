@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
@@ -172,6 +174,8 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 window.Width = 1440;
                 window.Height = 900;
                 window.Show();
+                SetClientSizeInEpx(window, 1440, 900);
+                await WaitForCompactNavigationAsync(window);
                 await window.InitializeAsync(timeout.Token);
                 await window.ApplyAreaContextAsync(
                     new WatchAreaDisplayContext(
@@ -1208,6 +1212,42 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
         Assert.True(
             scrollViewer.ScrollableWidth <= 24,
             $"{message}; scrollableWidth={scrollViewer.ScrollableWidth:0.##}, viewportWidth={scrollViewer.ViewportWidth:0.##}, extentWidth={scrollViewer.ExtentWidth:0.##}.");
+    }
+
+    private static async Task WaitForCompactNavigationAsync(WatchWorkspaceWindow window)
+    {
+        var navigation = Find<Wpf.Ui.Controls.NavigationView>(
+            window,
+            "WorkspaceNavigation");
+        navigation.ApplyTemplate();
+        var paneGrid = Assert.IsAssignableFrom<FrameworkElement>(
+            navigation.Template.FindName("PaneGrid", navigation));
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(2))
+        {
+            await window.Dispatcher.InvokeAsync(
+                window.UpdateLayout,
+                DispatcherPriority.ApplicationIdle);
+            if (paneGrid.ActualWidth is >= 39.5 and <= 40.5)
+            {
+                return;
+            }
+
+            await Task.Delay(16, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Fail(
+            $"The compact navigation pane did not settle within two seconds; "
+            + $"actual width={paneGrid.ActualWidth:F2} epx.");
+    }
+
+    private static void SetClientSizeInEpx(Window window, int width, int height)
+    {
+        var dpi = VisualTreeHelper.GetDpi(window);
+        WatchWindowNative.SetClientSize(
+            new WindowInteropHelper(window).Handle,
+            checked((int)Math.Round(width * dpi.DpiScaleX)),
+            checked((int)Math.Round(height * dpi.DpiScaleY)));
     }
 
     private static T FindVisualChild<T>(DependencyObject root)
