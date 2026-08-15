@@ -36,6 +36,14 @@ public sealed class WatchErrorFilterLabelLayoutTests
                     Cursor: null));
                 window.Show();
                 window.UpdateLayout();
+                var navigation = Find<Wpf.Ui.Controls.NavigationView>(
+                    window,
+                    "WorkspaceNavigation");
+                Assert.False(navigation.IsPaneOpen);
+                Assert.True(VisualStateManager.GoToState(
+                    navigation,
+                    "PaneCompact",
+                    useTransitions: false));
                 await window.Dispatcher.InvokeAsync(
                     window.UpdateLayout,
                     DispatcherPriority.ApplicationIdle);
@@ -48,6 +56,8 @@ public sealed class WatchErrorFilterLabelLayoutTests
                 var filterGrid = Assert.IsType<Grid>(field.Parent);
                 var label = Assert.IsAssignableFrom<TextBlock>(field.Children[0]);
                 var applyButton = Find<FrameworkElement>(window, "ErrorSearchApplyFilterButton");
+                var inlineFilterMinimumWidth =
+                    (double)window.FindResource("ErrorSearchInlineFilterMinimumWidth");
                 Assert.Equal("SeriesId（精确）", label.Text);
                 Assert.Equal(TextTrimming.None, label.TextTrimming);
 
@@ -87,6 +97,14 @@ public sealed class WatchErrorFilterLabelLayoutTests
                     + $"(field={field.ActualWidth:F2}, label={label.ActualWidth:F2}, "
                     + $"dpi={dpi.PixelsPerInchX:F0}).");
 
+                Assert.True(
+                    filterGrid.ActualWidth >= inlineFilterMinimumWidth,
+                    $"The settled 48 epx compact rail must preserve the selected inline filter; "
+                    + $"filter={filterGrid.ActualWidth:F2}, page={Find<Grid>(window, "ErrorSearchPage").ActualWidth:F2}.");
+                Assert.Equal(0, Grid.GetRow(field));
+                Assert.Equal(1, Grid.GetColumnSpan(field));
+                Assert.Equal(Grid.GetRow(field), Grid.GetRow(applyButton));
+
                 var errorBody = Find<Grid>(window, "ErrorSearchBodyGrid");
                 Assert.Equal(5, errorBody.ColumnDefinitions.Count);
                 Assert.Equal(new GridLength(244), errorBody.ColumnDefinitions[0].Width);
@@ -94,6 +112,27 @@ public sealed class WatchErrorFilterLabelLayoutTests
                 Assert.Equal(new GridLength(1, GridUnitType.Star), errorBody.ColumnDefinitions[2].Width);
                 Assert.Equal(new GridLength(12), errorBody.ColumnDefinitions[3].Width);
                 Assert.Equal(new GridLength(370), errorBody.ColumnDefinitions[4].Width);
+
+                window.Width = 1390;
+                window.UpdateLayout();
+                await window.Dispatcher.InvokeAsync(
+                    window.UpdateLayout,
+                    DispatcherPriority.ApplicationIdle);
+
+                Assert.True(
+                    filterGrid.ActualWidth < inlineFilterMinimumWidth,
+                    $"The constrained middle card must exercise the two-row filter; "
+                    + $"filter={filterGrid.ActualWidth:F2}.");
+                Assert.Equal(2, Grid.GetRow(field));
+                Assert.Equal(7, Grid.GetColumnSpan(field));
+                Assert.Equal(Grid.GetRow(field), Grid.GetRow(applyButton));
+                Assert.True(
+                    field.ActualWidth >= 95.5,
+                    $"The reflowed exact SeriesId field exposes only {field.ActualWidth:F2} epx.");
+                Assert.True(
+                    naturalText.WidthIncludingTrailingWhitespace
+                        <= applyButton.TranslatePoint(new Point(), label).X + 0.5,
+                    $"The reflowed {label.Text} label is still obscured by the apply command.");
             }
             finally
             {

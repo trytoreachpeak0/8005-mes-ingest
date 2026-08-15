@@ -125,6 +125,7 @@
         <sys:Double x:Key="Ticket22ResultsGridMinHeight">320</sys:Double>
         <sys:Double x:Key="Ticket22DetailGridHeight">176</sys:Double>
         <sys:Double x:Key="Ticket22RawGridHeight">176</sys:Double>
+        <sys:Double x:Key="ErrorSearchInlineFilterMinimumWidth">677</sys:Double>
         <wpf:GridLength x:Key="Ticket22CardGap">12</wpf:GridLength>
         <wpf:GridLength x:Key="ErrorSearchCategoryColumnWidth">244</wpf:GridLength>
         <wpf:GridLength x:Key="ErrorSearchDetailColumnWidth">370</wpf:GridLength>
@@ -2057,7 +2058,13 @@
                                                 BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                                                 BorderThickness="0,1,0,1">
                                             <StackPanel>
-                                                <Grid>
+                                                <Grid x:Name="ErrorSearchFilterGrid"
+                                                      SizeChanged="OnErrorSearchFilterGridSizeChanged">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition x:Name="ErrorSearchFilterGapRow" Height="0" />
+                                                        <RowDefinition x:Name="ErrorSearchFilterSecondRow" Height="0" />
+                                                    </Grid.RowDefinitions>
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="185" />
                                                         <ColumnDefinition Width="10" />
@@ -2112,7 +2119,8 @@
                                                             <ComboBoxItem Content="全部历史" Tag="ALL_HISTORY" />
                                                         </ComboBox>
                                                     </StackPanel>
-                                                    <StackPanel Grid.Column="6">
+                                                    <StackPanel x:Name="ErrorSearchSeriesIdFilterField"
+                                                                Grid.Column="6">
                                                         <ui:TextBlock Text="SeriesId（精确）" Style="{StaticResource FieldLabel}" />
                                                         <TextBox x:Name="ErrorSearchSeriesIdFilter"
                                                                  Margin="0,5,0,0"

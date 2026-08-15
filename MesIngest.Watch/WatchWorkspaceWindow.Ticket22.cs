@@ -1575,6 +1575,26 @@ internal partial class WatchWorkspaceWindow
         ReflowCurrentAttention(stack, useOuterScrolling);
     }
 
+    private void OnErrorSearchFilterGridSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ReflowErrorSearchFilterGrid(e.NewSize.Width);
+
+    private void ReflowErrorSearchFilterGrid(double filterWidth)
+    {
+        var stackSeriesFilter = filterWidth > 0
+            && filterWidth < (double)FindResource("ErrorSearchInlineFilterMinimumWidth");
+
+        Grid.SetRow(ErrorSearchSeriesIdFilterField, stackSeriesFilter ? 2 : 0);
+        Grid.SetColumn(ErrorSearchSeriesIdFilterField, stackSeriesFilter ? 0 : 6);
+        Grid.SetColumnSpan(ErrorSearchSeriesIdFilterField, stackSeriesFilter ? 7 : 1);
+        Grid.SetRow(ErrorSearchApplyFilterButton, stackSeriesFilter ? 2 : 0);
+        ErrorSearchFilterGapRow.Height = stackSeriesFilter
+            ? new GridLength(8)
+            : new GridLength(0);
+        ErrorSearchFilterSecondRow.Height = stackSeriesFilter
+            ? GridLength.Auto
+            : new GridLength(0);
+    }
+
     private void ReflowCurrentAttention(bool stack, bool useOuterScrolling)
     {
         ConfigureResponsivePageViewport(
