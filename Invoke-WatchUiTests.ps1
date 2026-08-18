@@ -201,7 +201,12 @@ try {
             $(if ($currentSuite -eq "watch-window-visual") { "1" } else { $null }))
 
         $traitArgument = if ($currentSuite -eq "watch-vm-tests") {
-            @("-trait-", "Category=watch-xaml-visual", "-trait-", "Category=watch-ui-journeys", "-trait-", "Category=watch-window-visual")
+            @(
+                "-trait-", "Category=watch-xaml-visual",
+                "-trait-", "Category=watch-ui-journeys",
+                "-trait-", "Category=watch-window-visual",
+                "-trait-", "Category=watch-window-legacy",
+                "-trait-", "Category=watch-window-nonbaseline")
         } else {
             @("-trait", "Category=$currentSuite")
         }

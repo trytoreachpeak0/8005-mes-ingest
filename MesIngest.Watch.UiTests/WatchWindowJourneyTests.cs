@@ -22,7 +22,7 @@ public sealed class WatchWindowJourneyTests
     [InlineData("alert-to-demand")]
     [InlineData("slow-request-cancel")]
     [InlineData("offline-reconnect")]
-    [Trait("Category", "watch-window-visual")]
+    [Trait("Category", "watch-window-legacy")]
     public async Task Operator_completes_high_value_real_window_journey(string journeyName)
     {
         await RunJourneyAsync(journeyName);

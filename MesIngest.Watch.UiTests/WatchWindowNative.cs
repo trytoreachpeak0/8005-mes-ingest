@@ -84,6 +84,8 @@ internal static class WatchWindowNative
     public static byte[] CaptureClientAreaAtCurrentSize(IntPtr handle)
         => CaptureClientArea(handle, null, null);
 
+    public static bool IsForegroundWindow(IntPtr handle) => GetForegroundWindow() == handle;
+
     private static byte[] CaptureClientArea(IntPtr handle, int? expectedWidth, int? expectedHeight)
     {
         if (!GetClientRect(handle, out var rect))
@@ -187,6 +189,9 @@ internal static class WatchWindowNative
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr handle, out NativeRect rect);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

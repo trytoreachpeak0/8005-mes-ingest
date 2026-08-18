@@ -14,6 +14,45 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchTicket22ResponsiveIntegrationTests
 {
     [Fact]
+    public async Task Current_attention_go_to_page_keeps_native_clear_type_text_rendering()
+    {
+        using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
+
+        await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                var command = Find<ButtonBase>(window, "CurrentAttentionGoToPageButton");
+                Assert.Equal("跳转", command.Content);
+                Assert.Same(
+                    DependencyProperty.UnsetValue,
+                    command.ReadLocalValue(TextOptions.TextRenderingModeProperty));
+                Assert.Equal(
+                    TextRenderingMode.ClearType,
+                    TextOptions.GetTextRenderingMode(command));
+            }
+            finally
+            {
+                window.Close();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
     public async Task Error_search_wide_minimum_height_keeps_three_columns_and_scrolls_to_raw_evidence()
     {
         using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();

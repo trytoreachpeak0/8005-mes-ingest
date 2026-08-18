@@ -53,7 +53,7 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
 
     public async Task VerifyContractAsync(CancellationToken cancellationToken)
     {
-        var correlationId = Guid.NewGuid().ToString("N");
+        var correlationId = WatchProcessCorrelationId.Create();
         try
         {
             await DiscoverAndRequireExactContractAsync(correlationId, cancellationToken)
@@ -342,7 +342,7 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
         CancellationToken cancellationToken,
         int? maximumResponseBytes = null)
     {
-        var correlationId = Guid.NewGuid().ToString("N");
+        var correlationId = WatchProcessCorrelationId.Create();
         var stopwatch = Stopwatch.StartNew();
         try
         {

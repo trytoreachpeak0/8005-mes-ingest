@@ -42,8 +42,8 @@ try {
                 Get-ChildItem -LiteralPath $runDirectory -Recurse -Filter "*.candidate.png" -File |
                     Sort-Object Name
             )
-            if ($candidates.Count -ne 5) {
-                throw "Expected 5 real-window candidates on run $run; actual=$($candidates.Count)."
+            if ($candidates.Count -ne 11) {
+                throw "Expected 11 production-workspace candidates on run $run; actual=$($candidates.Count)."
             }
 
             $manifest = ($candidates | ForEach-Object {

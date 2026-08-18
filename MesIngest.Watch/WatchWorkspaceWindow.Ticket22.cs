@@ -2,6 +2,10 @@ using System.Globalization;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using InfoBarSeverity = Wpf.Ui.Controls.InfoBarSeverity;
 
@@ -1444,6 +1448,7 @@ internal partial class WatchWorkspaceWindow
 
     private void OnCurrentAttentionGoToPageClick(object sender, RoutedEventArgs e)
     {
+        LogCurrentAttentionGoToPageRenderingState("handler-entry");
         CurrentAttentionOperationTask = RunCurrentAttentionUiActionAsync(async () =>
         {
             var snapshot = _session.State.CurrentAttention.Snapshot
@@ -1460,8 +1465,105 @@ internal partial class WatchWorkspaceWindow
             var query = WatchCurrentIngestAttentionQueries.OpenPage(snapshot, pageNumber);
             await RefreshCurrentAttentionAndRenderAsync(query, _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
+            _ = LogCurrentAttentionGoToPageRenderingTimelineAsync();
         });
     }
+
+    private async Task LogCurrentAttentionGoToPageRenderingTimelineAsync()
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("MESINGEST_WATCH_UI_TEST_MODE"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var delays = new[] { 0, 250, 500, 750, 1000, 1500, 2000 };
+        var elapsed = 0;
+        foreach (var delay in delays)
+        {
+            if (delay > 0)
+            {
+                await Task.Delay(delay).ConfigureAwait(true);
+                elapsed += delay;
+            }
+
+            await Dispatcher.InvokeAsync(
+                () =>
+                {
+                    UpdateLayout();
+                    LogCurrentAttentionGoToPageRenderingState($"after-refresh+{elapsed}ms");
+                },
+                DispatcherPriority.Render);
+        }
+    }
+
+    private void LogCurrentAttentionGoToPageRenderingState(string stage)
+    {
+        if (!string.Equals(
+                Environment.GetEnvironmentVariable("MESINGEST_WATCH_UI_TEST_MODE"),
+                "1",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var button = CurrentAttentionGoToPageButton;
+        button.ApplyTemplate();
+        var presenter = button.Template.FindName("ContentPresenter", button)
+            as ContentPresenter;
+        var text = FindVisualDescendant<FrameworkElement>(
+            button,
+            element => element is TextBlock or AccessText);
+        var focused = Keyboard.FocusedElement as FrameworkElement;
+
+        Console.WriteLine(
+            "[DEBUG-T23FONT] "
+            + $"stage={stage} "
+            + $"windowActive={IsActive} "
+            + $"buttonPressed={button.IsPressed} "
+            + $"buttonKeyboardFocused={button.IsKeyboardFocused} "
+            + $"buttonKeyboardFocusWithin={button.IsKeyboardFocusWithin} "
+            + $"buttonMouseOver={button.IsMouseOver} "
+            + $"buttonMouseCaptured={button.IsMouseCaptured} "
+            + $"buttonEnabled={button.IsEnabled} "
+            + $"focused={focused?.GetType().Name}:{focused?.Name} "
+            + $"button={FormatTextRenderingElement(button)} "
+            + $"foreground={FormatBrush(button.Foreground)} "
+            + $"pressedForeground={FormatBrush(button.PressedForeground)} "
+            + $"presenter={FormatTextRenderingElement(presenter)} "
+            + $"presenterForeground={FormatBrush(
+                presenter is null ? null : TextElement.GetForeground(presenter))} "
+            + $"text={FormatTextRenderingElement(text)}");
+    }
+
+    private string FormatTextRenderingElement(FrameworkElement? element)
+    {
+        if (element is null)
+        {
+            return "(null)";
+        }
+
+        var point = element.TranslatePoint(new Point(0, 0), this);
+        return $"{element.GetType().Name}"
+            + $"@{point.X:R},{point.Y:R}"
+            + $"/{element.ActualWidth:R}x{element.ActualHeight:R}"
+            + $"/opacity={element.Opacity:R}"
+            + $"/render={TextOptions.GetTextRenderingMode(element)}"
+            + $"/format={TextOptions.GetTextFormattingMode(element)}"
+            + $"/hint={TextOptions.GetTextHintingMode(element)}"
+            + $"/snaps={element.SnapsToDevicePixels}"
+            + $"/rounds={element.UseLayoutRounding}";
+    }
+
+    private static string FormatBrush(Brush? brush) => brush switch
+    {
+        SolidColorBrush solid =>
+            $"Solid({solid.Color})/opacity={solid.Opacity:R}/frozen={solid.IsFrozen}",
+        null => "(null)",
+        _ => $"{brush.GetType().Name}/opacity={brush.Opacity:R}/frozen={brush.IsFrozen}",
+    };
 
     private void OnCurrentAttentionSelectionChanged(object sender, SelectionChangedEventArgs e)
     {

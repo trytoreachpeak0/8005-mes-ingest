@@ -59,12 +59,13 @@ journey from one deployed payload, without invoking a baseline suite:
 .\Invoke-WatchUiTests.ps1 -Suite watch-production-preview
 ```
 
-The old five-state window matrix remains isolated under `watch-window-visual`
-until the shared baseline ticket replaces it. Do not use that historical matrix
-as approval evidence for the production workspace.
+The legacy five-state V1 journeys remain available only under the
+`watch-window-legacy` trait and are not release baselines. The formal
+`watch-window-visual` suite runs the production workspace journey and compares
+the 11 approved Ticket 19–22 page/state captures.
 
-Run the five pixel-exact `1440x900` client-area baselines only on the calibrated 100%
-environment:
+Run the 11 pixel-exact `1440x900` production client-area baselines only on the
+calibrated 100% environment:
 
 ```powershell
 .\Invoke-WatchUiTests.ps1 -Suite watch-window-visual

@@ -1,8 +1,12 @@
 # Real Watch window baselines
 
-This directory holds exactly five pixel-exact `1440x900` client-area PNGs produced by
-the formal `MesIngest.Watch.exe` under the calibrated 100% DPI, light-theme, zh-CN,
-SoftwareOnly environment. The five names match `WatchWindowJourneyTests`.
+This directory holds exactly 11 pixel-exact `1440x900` client-area PNGs produced by
+the formal production `MesIngest.Watch.exe` under the calibrated 100% DPI,
+light-theme, zh-CN, SoftwareOnly environment. The names match
+`WatchProductionBaselineMatrix` and cover Overview (normal, expanded navigation,
+and retained failure), Settings (normal and validation), DemandSeries,
+ReadabilityAudit, AREA profiles, Error Search, CurrentIngestAttention, and the
+attention-to-error drill.
 
 Missing or changed baselines fail and write candidates/evidence under the run's artifact
 directory. Tests never accept, rename, or overwrite a verified PNG.

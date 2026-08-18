@@ -551,6 +551,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     [Fact]
     [Trait("Category", "watch-ui-journeys")]
+    [Trait("Category", "watch-window-visual")]
     public async Task Operator_reviews_the_complete_production_workspace_and_records_the_shared_preview()
     {
         Assert.SkipUnless(
@@ -566,7 +567,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
         var scenario = CreateScenario(
             query => latestErrorQuery = query,
             overviewAvailability);
-        await using var host = await ScriptedFakeHost.StartV2Async(scenario, cancellationToken);
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            scenario,
+            cancellationToken,
+            "http://127.0.0.1:51543");
 
         var artifactRoot = WatchWindowJourneyTests.ResolveArtifactRoot();
         var journeyName = "production-workspace-19-22";
@@ -646,7 +650,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "the first committed production overview",
                 StepTimeout);
             SetNavigationPaneExpanded(window, expanded: false);
-            Capture(evidence, process.MainWindowHandle, "01-overview");
+            CaptureApprovedBaseline(evidence, process.MainWindowHandle, "01-overview");
 
             failedStep = "fluent-window-chrome";
             var chromeUiaEvidence = ExerciseWindowChrome(
@@ -658,7 +662,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
             failedStep = "overview-navigation-expanded";
             SetNavigationPaneExpanded(window, expanded: true);
-            Capture(
+            CaptureApprovedBaseline(
                 evidence,
                 process.MainWindowHandle,
                 "01e-overview-navigation-expanded");
@@ -695,7 +699,22 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 .Where(entry => entry.Operation == FakeHostOperation.OverviewV2
                     && entry.State == FakeHostRequestState.Failed)
                 .Max(entry => entry.Sequence);
-            Capture(evidence, process.MainWindowHandle, "01f-overview-offline-retained");
+            Navigate(window, "SettingsNavigationItem", "SettingsPage");
+            Navigate(window, "OverviewNavigationItem", "OverviewPage");
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "OverviewContextText"))
+                        .Contains("最近失败", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "OverviewHostStatusText"))
+                        .Contains("Host 已连接 · 读取失败", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "StaleNoticeText"))
+                        .Contains("数据可能已过期", StringComparison.Ordinal),
+                "the canonical reactivated retained Overview failure",
+                PreviewStateTimeout);
+            AssertOverviewFacts(window, retainedOverviewFacts);
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "01f-overview-offline-retained");
 
             failedStep = "overview-recovery";
             Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
@@ -730,7 +749,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => FindById(window, "AdvancedLocalPreferencesExpander") is not null,
                 "production settings and advanced-preferences entry",
                 StepTimeout);
-            Capture(evidence, process.MainWindowHandle, "02-settings");
+            CaptureApprovedBaseline(evidence, process.MainWindowHandle, "02-settings");
 
             failedStep = "settings-timeout-validation";
             var contractRequestsBeforeInvalidTimeout = host.Timeline.Count(entry =>
@@ -757,7 +776,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Assert.Equal(
                 validConnectionPreferences,
                 File.ReadAllBytes(connectionPreferencesPath));
-            Capture(evidence, process.MainWindowHandle, "02v-settings-timeout-validation");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "02v-settings-timeout-validation");
 
             requestTimeoutInput.Text = "30";
             WaitUntil(
@@ -781,7 +803,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => !demandGenerationGrid.Properties.IsOffscreen.ValueOrDefault,
                 "DemandSeries detail evidence in view",
                 StepTimeout);
-            Capture(evidence, process.MainWindowHandle, "03-demand-series-detail");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "03-demand-series-detail");
 
             failedStep = "readability-audit";
             Navigate(window, "ReadabilityAuditNavigationItem", "ReadabilityAuditPage");
@@ -795,7 +820,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 qualificationChecklist,
                 "readability qualification detail for the production candidate");
-            Capture(evidence, process.MainWindowHandle, "04-readability-audit-detail");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "04-readability-audit-detail");
 
             failedStep = "area-filter";
             Navigate(window, "AreaFilterNavigationItem", "AreaFilterPage");
@@ -838,7 +866,27 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 FindRequiredById(window, "AreaProfileEditor"),
                 "AREA editor for the production candidate");
-            Capture(evidence, process.MainWindowHandle, "05-area-filter-profile");
+            var areaFileReload = FindRequiredById(
+                    window,
+                    "AreaProfileFileReloadButton")
+                .AsButton();
+            WaitUntil(
+                () => areaFileReload.IsEnabled,
+                "the AREA file reload command",
+                StepTimeout);
+            areaFileReload.Invoke();
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "AreaProfileDiskStateText"))
+                        .Contains("磁盘版本未变化", StringComparison.Ordinal)
+                    && !FindRequiredById(window, "AreaProfileApplyButton").AsButton().IsEnabled
+                    && !FindRequiredById(window, "AreaProfileDiscardButton").AsButton().IsEnabled
+                    && !FindRequiredById(window, "AreaProfileSaveButton").AsButton().IsEnabled,
+                "the canonical clean AREA editor state",
+                StepTimeout);
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "05-area-filter-profile");
 
             failedStep = "error-search";
             Navigate(
@@ -862,7 +910,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "ErrorSearchFreshnessText",
                 "ErrorSearchCategoryList",
                 "Error Search before the production candidate capture");
-            Capture(evidence, process.MainWindowHandle, "06-error-search-variant-a");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "06-error-search-variant-a");
 
             failedStep = "current-attention";
             Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");
@@ -876,12 +927,56 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "current ingest attention rows");
             attentionGrid.Select(0);
             WaitForRows(window, "CurrentAttentionEvidenceGrid", "current attention evidence");
+            var attentionRequestsBeforeCanonicalPaging = host.Timeline.Count(entry =>
+                entry.Operation == FakeHostOperation.CurrentAttentionV2
+                && entry.State == FakeHostRequestState.Completed);
+            var attentionPageNumber = FindRequiredById(
+                    window,
+                    "CurrentAttentionPageNumberInput")
+                .AsTextBox();
+            attentionPageNumber.Text = "1";
+            var attentionGoToPage = FindRequiredById(
+                    window,
+                    "CurrentAttentionGoToPageButton")
+                .AsButton();
+            WaitUntil(
+                () => attentionGoToPage.IsEnabled,
+                "the Current Attention direct-page command",
+                StepTimeout);
+            attentionGoToPage.Invoke();
+            WaitUntil(
+                () => host.Timeline.Count(entry =>
+                    entry.Operation == FakeHostOperation.CurrentAttentionV2
+                    && entry.State == FakeHostRequestState.Completed)
+                    > attentionRequestsBeforeCanonicalPaging,
+                "the canonical Current Attention page-one request",
+                StepTimeout);
+            attentionGrid = WaitForRows(
+                window,
+                "CurrentAttentionGrid",
+                "canonical current ingest attention rows");
+            attentionGrid.Select(0);
+            WaitForRows(
+                window,
+                "CurrentAttentionEvidenceGrid",
+                "canonical current attention evidence");
             PrepareRepresentativeFirstScreen(
                 window,
                 "CurrentAttentionSnapshotText",
                 "CurrentAttentionKindFilter",
                 "Current Attention before the production candidate capture");
-            Capture(evidence, process.MainWindowHandle, "07-current-ingest-attention");
+            Console.WriteLine(
+                "[DEBUG-T23FONT] stage=before-capture-uia "
+                + $"windowForeground={WatchWindowNative.IsForegroundWindow(process.MainWindowHandle)} "
+                + $"buttonKeyboardFocused={attentionGoToPage.Properties.HasKeyboardFocus.ValueOrDefault} "
+                + $"buttonEnabled={attentionGoToPage.IsEnabled} "
+                + $"buttonBounds={attentionGoToPage.BoundingRectangle} "
+                + $"gridKeyboardFocused={attentionGrid.Properties.HasKeyboardFocus.ValueOrDefault} "
+                + $"gridBounds={attentionGrid.BoundingRectangle}");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "07-current-ingest-attention");
 
             failedStep = "current-attention-error-drill";
             var drill = FindRequiredById(window, "CurrentAttentionOpenErrorSearchButton")
@@ -919,7 +1014,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "ErrorSearchFreshnessText",
                 "ErrorSearchCategoryList",
                 "drilled Error Search before the production candidate capture");
-            Capture(evidence, process.MainWindowHandle, "08-current-attention-error-drill");
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "08-current-attention-error-drill");
             Capture(evidence, process.MainWindowHandle, "final");
 
             Assert.NotNull(latestErrorQuery);
@@ -2359,6 +2457,27 @@ public sealed class WatchWorkspaceProductionJourneyTests
             exact1440By900
                 ? WatchWindowNative.CaptureClientArea(windowHandle)
                 : WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle));
+    }
+
+    private static void CaptureApprovedBaseline(
+        WatchJourneyEvidence evidence,
+        IntPtr windowHandle,
+        string step)
+    {
+        Assert.True(
+            WatchProductionBaselineMatrix.Contains(step),
+            $"Production baseline step is not declared in the shared matrix: {step}");
+        WatchWindowNative.MovePointerOffWindow();
+        Thread.Sleep(2000);
+        var actual = WatchWindowCaptureStability.Capture(
+            () => WatchWindowNative.CaptureClientArea(windowHandle),
+            () => Thread.Sleep(250));
+        evidence.RecordStep(step, actual);
+        if (WatchProductionBaselineMatrix.IsEnabled)
+        {
+            WatchWindowBaseline.Verify(step, actual, evidence);
+        }
+
     }
 
     private static void CaptureWindowIncludingPopups(

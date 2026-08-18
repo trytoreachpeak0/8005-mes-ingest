@@ -2,11 +2,17 @@
 param(
     [Parameter(Mandatory = $true)]
     [ValidateSet(
-        "cold-start-overview",
-        "visible-gone-paging-details",
-        "alert-to-demand",
-        "slow-request-cancel",
-        "offline-reconnect")]
+        "01-overview",
+        "01e-overview-navigation-expanded",
+        "01f-overview-offline-retained",
+        "02-settings",
+        "02v-settings-timeout-validation",
+        "03-demand-series-detail",
+        "04-readability-audit-detail",
+        "05-area-filter-profile",
+        "06-error-search-variant-a",
+        "07-current-ingest-attention",
+        "08-current-attention-error-drill")]
     [string]$Journey,
 
     [Parameter(Mandatory = $true)]

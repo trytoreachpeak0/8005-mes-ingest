@@ -354,13 +354,14 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
 
     public static async Task<ScriptedFakeHost> StartV2Async(
         FakeHostV2Scenario scenario,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? listenUrl = null)
     {
         ArgumentNullException.ThrowIfNull(scenario);
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.WebHost.UseUrls(ResolveListenUrl(listenUrl));
         var application = builder.Build();
         var host = new ScriptedFakeHost(application, scenario);
         host.MapV2Endpoints();
@@ -379,6 +380,29 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
             await application.DisposeAsync().ConfigureAwait(false);
             throw;
         }
+    }
+
+    internal static string ResolveListenUrl(string? listenUrl)
+    {
+        if (string.IsNullOrWhiteSpace(listenUrl))
+        {
+            return "http://127.0.0.1:0";
+        }
+
+        if (!Uri.TryCreate(listenUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttp
+            || !string.Equals(uri.Host, "127.0.0.1", StringComparison.Ordinal)
+            || uri.Port <= 0
+            || uri.AbsolutePath != "/"
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment))
+        {
+            throw new ArgumentException(
+                "A fixed fake Host endpoint must be an HTTP 127.0.0.1 origin with an explicit port.",
+                nameof(listenUrl));
+        }
+
+        return uri.GetLeftPart(UriPartial.Authority);
     }
 
     public IWatchHostQueryAdapter CreateAdapter(WatchHostSettings settings)

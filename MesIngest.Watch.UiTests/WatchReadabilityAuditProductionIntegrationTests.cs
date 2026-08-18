@@ -599,7 +599,12 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 while (!string.Equals(
                            window.WorkspaceState.ReadabilityAudit.Snapshot?.SnapshotReference,
                            zeroSnapshotReference,
-                           StringComparison.Ordinal))
+                           StringComparison.Ordinal)
+                       || !Find<TextBlock>(window, "ReadabilityCompactFactsText")
+                           .Text
+                           .Contains(
+                               $"SnapshotReference {zeroSnapshotReference}",
+                               StringComparison.Ordinal))
                 {
                     timeout.Token.ThrowIfCancellationRequested();
                     await Dispatcher.Yield(DispatcherPriority.Background);
