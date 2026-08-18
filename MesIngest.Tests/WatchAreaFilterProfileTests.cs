@@ -530,18 +530,30 @@ public sealed class WatchAreaFilterProfileTests
             FileAccess.ReadWrite,
             FileShare.None);
 
-        var operationTask = Task.Run(() => operation switch
+        // The budget must start when the store call actually starts. Timing it from
+        // Task.Run instead measures thread-pool scheduling latency, which under a loaded
+        // agent exceeds the budget on whichever parameter happens to be queued behind
+        // the STA UI tests.
+        var started = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var operationTask = Task.Run(() =>
         {
-            "enumerate" => (object)concurrentStore.EnumerateProfiles(),
-            "load" => concurrentStore.Load("source"),
-            "save" => concurrentStore.Save("source", "C3-3\n"),
-            "save-as" => concurrentStore.SaveAs("created", "C3-3\n"),
-            "apply" => (object)concurrentStore.Apply("other"),
-            "all" => concurrentStore.ApplyAllAreas(),
-            "rename" => concurrentStore.Rename("source", "renamed", sourceFingerprint),
-            "delete" => concurrentStore.Delete("source", sourceFingerprint),
-            _ => throw new InvalidOperationException(operation),
+            started.SetResult();
+            return operation switch
+            {
+                "enumerate" => (object)concurrentStore.EnumerateProfiles(),
+                "load" => concurrentStore.Load("source"),
+                "save" => concurrentStore.Save("source", "C3-3\n"),
+                "save-as" => concurrentStore.SaveAs("created", "C3-3\n"),
+                "apply" => (object)concurrentStore.Apply("other"),
+                "all" => concurrentStore.ApplyAllAreas(),
+                "rename" => concurrentStore.Rename("source", "renamed", sourceFingerprint),
+                "delete" => concurrentStore.Delete("source", sourceFingerprint),
+                _ => throw new InvalidOperationException(operation),
+            };
         });
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
         var completed = await Task.WhenAny(operationTask, Task.Delay(500));
         if (!ReferenceEquals(completed, operationTask))
         {

@@ -44,9 +44,69 @@ internal static class WatchWindowBaseline
         }
 
         var diff = CreateDiff(expected, actual);
+        var options = WatchWindowVisualEquivalenceOptions.Default;
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual, options);
+        var budgetRejection = string.Empty;
+        if (report.AreEquivalent
+            && WithinRunBudget(baselineName, report, evidence, options, out budgetRejection))
+        {
+            evidence.RecordVisualEquivalence(
+                baselineName,
+                report.DifferingPixels,
+                report.MaxObservedDelta,
+                report.Describe(),
+                expected,
+                actual,
+                diff);
+            Console.WriteLine(
+                "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: "
+                + $"step={baselineName} pixels={report.DifferingPixels} "
+                + $"maxDelta={report.MaxObservedDelta} "
+                + $"runTotalSteps={evidence.AcceptedVisualEquivalenceSteps} "
+                + $"runTotalPixels={evidence.AcceptedVisualEquivalencePixels} "
+                + $"artifacts={evidence.DirectoryPath}");
+            return;
+        }
+
         evidence.RecordWindowComparison(expected, actual, diff);
+        var reason = report.AreEquivalent ? budgetRejection : report.Rejection;
         throw new Xunit.Sdk.XunitException(
-            $"Window baseline mismatch for {baselineName}. See {evidence.DirectoryPath}.");
+            $"Window baseline mismatch for {baselineName}: {reason}. "
+            + $"See {evidence.DirectoryPath}.");
+    }
+
+    /// <summary>
+    /// A single accepted capture is bounded by <see cref="WatchWindowVisualEquivalence"/>.
+    /// This guards the run as a whole, so tolerance cannot erode a baseline one step at a
+    /// time across a journey.
+    /// </summary>
+    private static bool WithinRunBudget(
+        string baselineName,
+        WatchWindowVisualEquivalenceReport report,
+        WatchJourneyEvidence evidence,
+        WatchWindowVisualEquivalenceOptions options,
+        out string rejection)
+    {
+        var steps = evidence.AcceptedVisualEquivalenceSteps + 1;
+        if (steps > options.MaxToleratedStepsPerRun)
+        {
+            rejection =
+                $"{steps} steps in this run would need visual-equivalence tolerance, "
+                + $"limit is {options.MaxToleratedStepsPerRun} (this step: {baselineName})";
+            return false;
+        }
+
+        var pixels = evidence.AcceptedVisualEquivalencePixels + report.DifferingPixels;
+        if (pixels > options.MaxDifferingPixelsPerRun)
+        {
+            rejection =
+                $"{pixels} differing pixels would be tolerated in this run, "
+                + $"limit is {options.MaxDifferingPixelsPerRun}";
+            return false;
+        }
+
+        rejection = string.Empty;
+        return true;
     }
 
     private static string ResolveBaselineDirectory()

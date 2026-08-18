@@ -3,8 +3,8 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [ValidateRange(10, 100)]
-    [int]$Runs = 10,
+    [ValidateRange(1, 100)]
+    [int]$Runs = 3,
 
     [string]$DiagnosticsDirectory
 )

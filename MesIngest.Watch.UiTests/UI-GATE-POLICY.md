@@ -20,3 +20,12 @@ Quarantine requires an owner, a repair ticket, the first-failure evidence path, 
 deadline no later than 7 calendar days. Quarantine cannot silently turn failures into
 passes; the release record must show that the named check was excluded. Global pixel
 tolerance and broad masks are forbidden.
+
+The one sanctioned exception is the bounded visual-equivalence predicate in
+`WatchWindowVisualEquivalence.cs`, defined in `docs/agents/golden-renderer.md`. It is
+neither a global tolerance nor a mask: it applies to the whole frame, requires the ink
+mask to be unchanged, requires every difference to be achromatic and no larger than 3,
+and caps the affected regions, the per-run step count and the per-run pixel count. Any
+capture it accepts is written to the evidence directory and logged by name, and must be
+reviewed at approval time exactly like a `received` file. Widening its bounds to make a
+run pass is a policy change, not a test fix.

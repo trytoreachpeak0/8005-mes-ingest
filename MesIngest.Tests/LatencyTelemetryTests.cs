@@ -249,11 +249,15 @@ public class LatencyTelemetryTests
     public async Task Watch_latency_file_telemetry_enforces_log_retention_by_age()
     {
         using var dir = new TempLatencyDir();
+        var now = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
         var oldLog = Path.Combine(dir.Path, "watch-latency-20260101.log");
         File.WriteAllText(oldLog, "old\n");
-        File.SetLastWriteTimeUtc(oldLog, DateTime.UtcNow.AddDays(-40));
 
-        var now = DateTimeOffset.Parse("2026-07-31T10:00:00Z");
+        // Age the file against the injected clock, not the wall clock: retention is
+        // measured from `now`, so a wall-clock offset silently stops being older
+        // than the cutoff once real time moves past it.
+        File.SetLastWriteTimeUtc(oldLog, now.UtcDateTime.AddDays(-40));
+
         var telemetry = new WatchLatencyFileTelemetry(
             dir.Path,
             retentionDays: 30,

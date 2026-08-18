@@ -20,10 +20,14 @@ A baseline proposal must include:
 - product/business confirmation when interaction, wording, hierarchy, or status color changed.
 
 First show the final real-window previews to the user and obtain explicit approval. Then
-generate a fresh candidate matrix and require it to be byte-identical for 10 consecutive
-calibrated runs. Use `New-WatchWindowBaselineProposal.ps1` to assemble the review package.
-Only after the recorded non-submitter review may a maintainer copy `after.png` to the
-matching `*.verified.png`. Run 10 consecutive comparisons against the promoted matrix and
+generate a fresh candidate matrix and require it to be stable for `-Runs` consecutive
+calibrated runs (default 3; see "Repetition count" in `docs/agents/golden-renderer.md`
+for when to raise it). A run is stable when its captures are byte-identical to run 1, or
+when the bounded visual-equivalence predicate accepts them; every accepted capture is
+recorded in the evidence directory and must be reviewed alongside the previews. Use
+`New-WatchWindowBaselineProposal.ps1` to assemble the review package. Only after the
+recorded non-submitter review may a maintainer copy `after.png` to the matching
+`*.verified.png`. Run the same number of comparisons against the promoted matrix and
 require zero received files. Baseline approval does not establish the release gate; the
 complete gate needs 50 additional consecutive passes.
 

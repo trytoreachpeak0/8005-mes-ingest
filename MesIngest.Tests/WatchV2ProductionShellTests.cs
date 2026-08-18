@@ -229,25 +229,25 @@ public sealed class WatchV2ProductionShellTests
             Assert.True(seriesGrid.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(seriesGrid));
             Assert.Equal(DataGridSelectionUnit.FullRow, seriesGrid.SelectionUnit);
+            // The list carries the approved DemandSeriesPage prototype hierarchy (restored
+            // in 0024945). Per-generation status, readability, the last sequence and the
+            // related-attention state live in the detail pane, not in list columns;
+            // WatchDemandSeriesProductionIntegrationTests asserts the same order.
             Assert.Equal(
                 new[]
                 {
                     "SeriesId",
-                    "SUBLOT",
                     "WorkType",
-                    "开始时间",
+                    "SUBLOT",
                     "生命周期 / 当前出现",
+                    "当前 AREA",
                     "当前 Demand",
                     "世代",
-                    "Demand 状态",
-                    "DemandLastSeenAt",
-                    "GoneConfirmedAt",
-                    "ArchivedAt",
-                    "外部可读",
-                    "最后序列",
-                    "相关关注",
-                    "PollTrace",
-                    "ProjectionCommit",
+                    "事件",
+                    "开始",
+                    "LAST SEEN",
+                    "GONE SINCE",
+                    "ARCHIVED",
                 },
                 seriesGrid.Columns.Select(column => column.Header?.ToString()));
             var orderSummary = Assert.IsAssignableFrom<TextBlock>(
@@ -341,8 +341,16 @@ public sealed class WatchV2ProductionShellTests
             var generationGrid = Assert.IsType<DataGrid>(
                 window.FindName("DemandSeriesGenerationGrid"));
             Assert.Contains(generationGrid.Columns, column =>
+                string.Equals(column.Header?.ToString(), "外部可读", StringComparison.Ordinal));
+
+            // The compact generation grid keeps the readability verdict; the blocker
+            // detail and the trusted-MES field set moved to the full-evidence grid behind
+            // DemandSeriesFullEvidenceButton, so assert them where they now render.
+            var generationEvidenceGrid = Assert.IsType<DataGrid>(
+                window.FindName("DemandSeriesGenerationEvidenceGrid"));
+            Assert.Contains(generationEvidenceGrid.Columns, column =>
                 string.Equals(column.Header?.ToString(), "资格阻断", StringComparison.Ordinal));
-            Assert.Contains(generationGrid.Columns, column =>
+            Assert.Contains(generationEvidenceGrid.Columns, column =>
                 string.Equals(column.Header?.ToString(), "可信 MES", StringComparison.Ordinal));
 
             var rawGrid = Assert.IsType<DataGrid>(

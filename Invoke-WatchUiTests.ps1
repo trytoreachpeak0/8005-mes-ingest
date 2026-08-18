@@ -3,7 +3,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual", "watch-production-preview")]
+    [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual", "watch-production-preview", "watch-window-candidate-equivalence")]
     [string]$Suite = "watch-vm-tests",
 
     [string]$ArtifactsDirectory

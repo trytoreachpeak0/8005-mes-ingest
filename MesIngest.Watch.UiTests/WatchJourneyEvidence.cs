@@ -102,6 +102,77 @@ internal sealed partial class WatchJourneyEvidence
         File.WriteAllBytes(Path.Combine(_directory, "diff.png"), diff);
     }
 
+    /// <summary>Steps in this run whose capture was accepted as visually equivalent.</summary>
+    public int AcceptedVisualEquivalenceSteps => _visualEquivalences.Count;
+
+    /// <summary>Total differing pixels accepted across this run.</summary>
+    public int AcceptedVisualEquivalencePixels =>
+        _visualEquivalences.Sum(static entry => entry.Pixels);
+
+    /// <summary>
+    /// Records a capture that differed from its baseline but was accepted as visually
+    /// equivalent. Acceptance is never silent: it is written to the evidence directory as
+    /// JSON alongside the expected/actual/diff images so a reviewer can audit every case.
+    /// </summary>
+    public void RecordVisualEquivalence(
+        string step,
+        int differingPixels,
+        int maxObservedDelta,
+        string components,
+        byte[] expected,
+        byte[] actual,
+        byte[] diff)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(step);
+        _visualEquivalences.Add(new VisualEquivalenceEntry(
+            step, differingPixels, maxObservedDelta, components));
+
+        var safeStep = SafeFileName(step);
+        File.WriteAllBytes(
+            Path.Combine(_directory, $"{safeStep}.equivalent-expected.png"), expected);
+        File.WriteAllBytes(
+            Path.Combine(_directory, $"{safeStep}.equivalent-actual.png"), actual);
+        File.WriteAllBytes(
+            Path.Combine(_directory, $"{safeStep}.equivalent-diff.png"), diff);
+
+        var builder = new StringBuilder();
+        builder.AppendLine("{");
+        builder.AppendLine("  \"acceptedSteps\": [");
+        for (var index = 0; index < _visualEquivalences.Count; index++)
+        {
+            var entry = _visualEquivalences[index];
+            builder.Append(string.Format(
+                CultureInfo.InvariantCulture,
+                "    {{ \"step\": \"{0}\", \"differingPixels\": {1}, "
+                + "\"maxAbsoluteDelta\": {2}, \"regions\": \"{3}\" }}",
+                entry.Step,
+                entry.Pixels,
+                entry.MaxDelta,
+                entry.Components));
+            builder.AppendLine(index == _visualEquivalences.Count - 1 ? string.Empty : ",");
+        }
+
+        builder.AppendLine("  ],");
+        builder.AppendLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "  \"totalAcceptedSteps\": {0},",
+            AcceptedVisualEquivalenceSteps));
+        builder.AppendLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "  \"totalAcceptedPixels\": {0}",
+            AcceptedVisualEquivalencePixels));
+        builder.AppendLine("}");
+        WriteText("visual-equivalence-accepted.json", builder.ToString());
+    }
+
+    private readonly List<VisualEquivalenceEntry> _visualEquivalences = [];
+
+    private sealed record VisualEquivalenceEntry(
+        string Step,
+        int Pixels,
+        int MaxDelta,
+        string Components);
+
     public void RecordReceivedXaml(string xaml) => WriteText("received.xaml", xaml);
 
     private void WriteText(string fileName, string value) =>

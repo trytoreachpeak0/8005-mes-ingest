@@ -1,0 +1,115 @@
+using System.Globalization;
+using System.IO;
+
+namespace MesIngest.Watch.UiTests;
+
+/// <summary>
+/// Compares two real-window candidate directories with the same bounded
+/// visual-equivalence predicate the promoted-baseline gate uses.
+/// </summary>
+/// <remarks>
+/// The candidate stability gate lives in PowerShell and compares SHA-256 hashes, which is
+/// the right fast path. When hashes diverge it needs the same judgement the C# gate makes,
+/// otherwise the two gates would disagree about what counts as a regression. Rather than
+/// reimplement the predicate in PowerShell, <c>Test-WatchWindowBaselineStability.ps1</c>
+/// invokes this entry point with the two run directories.
+/// </remarks>
+[Trait("Category", "watch-window-candidate-equivalence")]
+public sealed class WatchWindowCandidateEquivalenceTests
+{
+    [Fact]
+    public void Candidate_directories_are_visually_equivalent()
+    {
+        var referenceDirectory = Environment.GetEnvironmentVariable(
+            "MESINGEST_WATCH_CANDIDATE_REFERENCE");
+        var actualDirectory = Environment.GetEnvironmentVariable(
+            "MESINGEST_WATCH_CANDIDATE_ACTUAL");
+        if (string.IsNullOrWhiteSpace(referenceDirectory)
+            || string.IsNullOrWhiteSpace(actualDirectory))
+        {
+            Assert.Skip(
+                "MESINGEST_WATCH_CANDIDATE_REFERENCE and MESINGEST_WATCH_CANDIDATE_ACTUAL "
+                + "are not set; this entry point is driven by the stability gate.");
+        }
+
+        var reference = EnumerateCandidates(referenceDirectory!);
+        var actual = EnumerateCandidates(actualDirectory!);
+
+        var missing = reference.Keys.Except(actual.Keys, StringComparer.Ordinal).ToArray();
+        var unexpected = actual.Keys.Except(reference.Keys, StringComparer.Ordinal).ToArray();
+        Assert.True(
+            missing.Length == 0 && unexpected.Length == 0,
+            $"Candidate set changed. Missing: [{string.Join(", ", missing)}]. "
+            + $"Unexpected: [{string.Join(", ", unexpected)}].");
+
+        var options = WatchWindowVisualEquivalenceOptions.Default;
+        var toleratedSteps = 0;
+        var toleratedPixels = 0;
+        var failures = new List<string>();
+
+        foreach (var name in reference.Keys.OrderBy(static key => key, StringComparer.Ordinal))
+        {
+            var expectedBytes = File.ReadAllBytes(reference[name]);
+            var actualBytes = File.ReadAllBytes(actual[name]);
+            if (expectedBytes.AsSpan().SequenceEqual(actualBytes))
+            {
+                continue;
+            }
+
+            var report = WatchWindowVisualEquivalence.Compare(expectedBytes, actualBytes, options);
+            if (!report.AreEquivalent)
+            {
+                failures.Add($"{name}: {report.Rejection}");
+                continue;
+            }
+
+            toleratedSteps++;
+            toleratedPixels += report.DifferingPixels;
+            Console.WriteLine(string.Format(
+                CultureInfo.InvariantCulture,
+                "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: candidate={0} pixels={1} "
+                + "maxDelta={2} regions={3}",
+                name,
+                report.DifferingPixels,
+                report.MaxObservedDelta,
+                report.Components.Count));
+        }
+
+        if (toleratedSteps > options.MaxToleratedStepsPerRun)
+        {
+            failures.Add(
+                $"{toleratedSteps} candidates needed tolerance, "
+                + $"limit is {options.MaxToleratedStepsPerRun}");
+        }
+
+        if (toleratedPixels > options.MaxDifferingPixelsPerRun)
+        {
+            failures.Add(
+                $"{toleratedPixels} differing pixels tolerated, "
+                + $"limit is {options.MaxDifferingPixelsPerRun}");
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            "Real-window candidates are not visually equivalent:"
+            + Environment.NewLine
+            + string.Join(Environment.NewLine, failures));
+
+        Console.WriteLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "WATCH_WINDOW_CANDIDATE_EQUIVALENCE_OK: tolerated={0} pixels={1}",
+            toleratedSteps,
+            toleratedPixels));
+    }
+
+    private static Dictionary<string, string> EnumerateCandidates(string directory)
+    {
+        Assert.True(Directory.Exists(directory), $"Candidate directory is missing: {directory}");
+        return Directory
+            .EnumerateFiles(directory, "*.candidate.png", SearchOption.AllDirectories)
+            .ToDictionary(
+                path => Path.GetFileName(path),
+                path => path,
+                StringComparer.Ordinal);
+    }
+}
