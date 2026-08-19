@@ -40,7 +40,12 @@ param(
     [switch]$ProductOrBusinessConfirmed,
 
     [Parameter(Mandatory = $true)]
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+
+    # Must match the -Runs the candidate gate was actually driven with, so the proposal
+    # records the count that produced its evidence instead of a fixed number.
+    [ValidateRange(1, 100)]
+    [int]$RequiredConsecutiveCandidateRuns = 3
 )
 
 Set-StrictMode -Version Latest
@@ -95,9 +100,9 @@ Copy-Item -LiteralPath $environment -Destination (Join-Path $output "environment
     "changeType=$ChangeType",
     "productOrBusinessConfirmed=$($ProductOrBusinessConfirmed.IsPresent)",
     "candidateSha256=$((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash)",
-    "requiredConsecutiveCandidateRuns=10",
+    "requiredConsecutiveCandidateRuns=$RequiredConsecutiveCandidateRuns",
     "approvalState=PENDING_NON_SUBMITTER_REVIEW"
 ) | Out-File -LiteralPath (Join-Path $output "proposal.txt") -Encoding utf8
 
 Write-Host "WATCH_WINDOW_BASELINE_PROPOSAL_CREATED: $output"
-Write-Host "No verified baseline was changed. Reviewer approval and the 10-run evidence remain required."
+Write-Host "No verified baseline was changed. Reviewer approval and the $RequiredConsecutiveCandidateRuns-run evidence remain required."

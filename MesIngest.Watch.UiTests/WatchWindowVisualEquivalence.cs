@@ -21,18 +21,24 @@ namespace MesIngest.Watch.UiTests;
 /// one exists to reject a specific family of real regressions:
 ///
 ///   1. identical dimensions               - resize / DPI / layout container changes
-///   2. ink-mask invariance                - moved text, different glyph, font or weight,
-///                                           moved control, added or removed element
+///   2. ink-mask invariance                - backstop for rule 4 (see below)
 ///   3. achromatic delta (dR = dG = dB)     - accent, status and theme colour changes
 ///   4. bounded magnitude                  - contrast, opacity and brightness changes
 ///   5. locality (component count and size) - global gamma shifts, large-area repaints
 ///   6. pixel budget                       - slow erosion of the baseline
 ///   7. alpha invariance                   - compositing changes
 ///
-/// Rule 2 is the load-bearing one and is deliberately not configurable in a way that can
-/// weaken it. Because rule 4 bounds every difference, no pixel can cross between "clearly
-/// ink" and "clearly background"; the mask is therefore evaluated with a tolerance band
-/// around the threshold so that the check has no boundary flakiness.
+/// Rule 4 is what rejects moved text, a different glyph, font or weight, a moved control
+/// and an added or removed element: each of those turns background into ink somewhere,
+/// which is a swing of tens of levels rather than 3. Rules 5 and 6 bound how much of the
+/// frame may differ at all.
+///
+/// Rule 2 states that requirement directly rather than leaving it implicit in a magnitude
+/// bound. While <see cref="WatchWindowVisualEquivalenceOptions.MaxAbsoluteDelta"/> stays
+/// at 3 it is unreachable - a pixel cannot cross from clearly ink to clearly background
+/// within 3 levels - and the band around the threshold keeps it from flaking on the
+/// threshold itself. It is here so the invariant survives someone raising the magnitude
+/// bound: they have to confront the ink rule instead of silently losing the guarantee.
 ///
 /// Acceptance is never silent: callers are expected to record the returned report as
 /// evidence and to surface it in the run summary.
