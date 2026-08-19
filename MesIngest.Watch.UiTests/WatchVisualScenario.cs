@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Watch;
@@ -186,6 +187,10 @@ internal sealed class WatchVisualScenario : IDisposable
         var width = _visualCase.Width;
         var height = _visualCase.Height;
         Window.Hide();
+
+        // Order matters: the focus scope is the window, so focus has to be cleared while the
+        // content is still inside it. Doing this after reparenting leaves IsFocused set.
+        NeutralizeInputState(Window);
         Window.Content = null;
         var surface = new WatchVisualCapture
         {
@@ -213,6 +218,48 @@ internal sealed class WatchVisualScenario : IDisposable
         surface.UpdateLayout();
         _captureTarget = surface;
         return surface;
+    }
+
+    /// <summary>
+    /// Drops the hover, capture and focus state the window picked up while it was on the
+    /// real desktop, before anything is rendered.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="PrepareAsync"/> calls <c>Window.Show()</c>, so the scenario is a real
+    /// window on the golden machine for as long as it takes to reach the required state.
+    /// A 2560x1440 scenario is larger than the 1920x1080 desktop, so the pointer is
+    /// necessarily somewhere over it and whichever control sits under it latches
+    /// <c>IsMouseOver</c>. Hiding the window and reparenting the content offscreen does not
+    /// by itself make WPF re-evaluate that: the input system delivers no MouseLeave, and a
+    /// Wpf.Ui control template paints its hover brush over a locally set Background.
+    ///
+    /// That is how Ticket 23's XAML gate failed - `overview-loaded-2560x1440` rendered
+    /// `OverviewDemandsButton` with an accent fill in 1 run of 10, 695,918 chromatic pixels,
+    /// while the serialized visual tree stayed byte-identical because none of this appears
+    /// in it. Evidence:
+    /// `.artifacts/golden-renderer/ticket-23-xaml-gate/run-20260819-090314-watch-xaml-stability`.
+    ///
+    /// <see cref="Mouse.Synchronize"/> re-runs the hit test against what is actually visible
+    /// - nothing, the window is hidden - which clears the hover state for real. The capture
+    /// is offscreen, so this cannot be worked around by moving the cursor: at 2560x1440
+    /// there is no position on a 1920x1080 desktop that is outside the window.
+    /// </remarks>
+    private static void NeutralizeInputState(Window window)
+    {
+        if (Mouse.Captured is not null)
+        {
+            Mouse.Capture(null);
+        }
+
+        // The window is the focus scope, so clearing it here also clears IsFocused and
+        // IsKeyboardFocusWithin on whichever descendant held focus.
+        FocusManager.SetFocusedElement(window, null);
+        Keyboard.ClearFocus();
+        Mouse.Synchronize();
+
+        // Let the VisualStateManager and any template triggers settle on the cleared state
+        // before the surface is measured and rendered.
+        PumpDispatcher();
     }
 
     public void Dispose()

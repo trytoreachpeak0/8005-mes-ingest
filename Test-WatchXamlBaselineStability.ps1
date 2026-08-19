@@ -65,10 +65,30 @@ for ($run = 1; $run -le $Runs; $run++) {
             Remove-Item -Force
     }
 
-    & $runner -Configuration $Configuration -Suite watch-xaml-visual
+    # Build once. This loop looks for runtime nondeterminism in the renderer, so every
+    # iteration must execute the same binaries; rebuilding between them exercises the
+    # compiler instead.
+    #
+    # Where the time actually goes, measured on gpt_win11 (run-20260819-105020, three
+    # iterations): restore 30 s on iteration 1 and skipped after, xUnit reports 38.6 s of
+    # tests, and the test process then sits for 5.6-6.0 min between writing its last
+    # capture and returning. That gap is ~80% of the ~7.3 min iteration and is not build,
+    # not restore, and not `dotnet run` evaluation - all three were measured and are
+    # seconds. The STA threads are IsBackground with a 30 s cap, so they are not holding
+    # it either. Unresolved; it deserves its own ticket rather than a guess here.
+    # Until then the effective lever is -Runs: 3 costs ~22 min where 10 cost ~77.
+    if ($run -eq 1) {
+        & $runner -Configuration $Configuration -Suite watch-xaml-visual
+    } else {
+        & $runner -Configuration $Configuration -Suite watch-xaml-visual -ReuseBuild
+    }
+
     $testExitCode = $LASTEXITCODE
     if ($testExitCode -eq 2) {
         exit 2
+    }
+    if ($testExitCode -eq 5) {
+        throw "Run $run could not reuse the $Configuration build; run 1 must produce it."
     }
     if ($testExitCode -notin @(0, 1)) {
         throw "watch-xaml-visual exited with unexpected code $testExitCode on run $run."

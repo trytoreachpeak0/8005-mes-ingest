@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
@@ -510,6 +511,48 @@ public sealed class WatchXamlVisualTests
                     var code = Assert.IsType<TextBlock>(detailButton.Content);
                     Assert.Equal("POLL_FAILURE", code.Text);
                 }
+            }
+            finally
+            {
+                scenario.Window.Close();
+            }
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "watch-vm-tests")]
+    public async Task Capture_target_carries_no_hover_capture_or_focus_state()
+    {
+        // Ticket 23: the XAML gate failed at run 6 of 10 because OverviewDemandsButton
+        // rendered its accent hover fill instead of Background="White" - 695,918 chromatic
+        // pixels, with a byte-identical visual tree, because interaction state is not
+        // serialized. PrepareAsync shows a real window, so whatever sits under the pointer
+        // latches IsMouseOver; a 2560x1440 scenario cannot avoid the pointer on a 1920x1080
+        // desktop. This asserts the capture surface starts from a cleared input state.
+        await WatchVisualSta.RunAsync(async () =>
+        {
+            using var scenario = WatchVisualScenario.Create(
+                WatchVisualCase.At2560("overview-loaded", WatchVisualState.OverviewHealthy));
+            try
+            {
+                await scenario.PrepareAsync();
+
+                // Put the window into the state the golden machine kept reaching by accident.
+                var card = (Button)scenario.Window.FindName("OverviewDemandsButton");
+                card.Focus();
+                Keyboard.Focus(card);
+                Assert.True(
+                    card.IsFocused || ReferenceEquals(Keyboard.FocusedElement, card),
+                    "The scenario could not be put into the focused state under test.");
+
+                var captureTarget = scenario.CreateCaptureTarget();
+
+                Assert.Null(Mouse.Captured);
+                Assert.Null(Keyboard.FocusedElement);
+                Assert.Null(FocusManager.GetFocusedElement(captureTarget));
+                Assert.False(card.IsMouseOver, "The captured card must not be hovered.");
+                Assert.False(card.IsFocused, "The captured card must not hold focus.");
+                Assert.False(card.IsKeyboardFocusWithin, "The captured card must not hold keyboard focus.");
             }
             finally
             {

@@ -6,12 +6,42 @@ param(
     [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual", "watch-production-preview", "watch-window-candidate-equivalence")]
     [string]$Suite = "watch-vm-tests",
 
-    [string]$ArtifactsDirectory
+    [string]$ArtifactsDirectory,
+
+    # Iteration-only narrowing. Re-runs part of one suite so a single scenario
+    # can be exercised without paying for the whole category. A narrowed run is
+    # never a gate result; see docs/agents/golden-renderer.md.
+    [string[]]$Class = @(),
+
+    [string[]]$Method = @(),
+
+    # Reuse the restore and build output already produced for this Configuration. A stability
+    # loop runs the same binaries N times looking for runtime nondeterminism, so rebuilding
+    # between iterations exercises the compiler rather than the renderer. The first iteration
+    # must be a normal run.
+    #
+    # Be honest about the size of this: measured on gpt_win11 it saves the ~30 s restore on
+    # iterations 2..N and a few seconds of `dotnet run` evaluation (4.4 s -> 1.8 s; the built
+    # exe starts in 0.7 s). It is not why the XAML gate is slow. In that gate an iteration
+    # costs ~7.3 min, of which xUnit reports 38.6 s of tests and ~6 min is the test process
+    # sitting between its last written capture and process exit - see the note in
+    # Test-WatchXamlBaselineStability.ps1.
+    [switch]$ReuseBuild
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "WatchBaselineTools.ps1")
+
+$narrowingArgument = @()
+foreach ($className in $Class) { $narrowingArgument += @("-class", $className) }
+foreach ($methodName in $Method) { $narrowingArgument += @("-method", $methodName) }
+$isNarrowedRun = $narrowingArgument.Count -gt 0
+if ($isNarrowedRun -and $Suite -in @("all", "watch-production-preview")) {
+    [Console]::Error.WriteLine(
+        "WATCH_UI_NARROWING_REJECTED: -Class/-Method narrow a single suite; -Suite $Suite expands to several.")
+    exit 4
+}
 
 function Stop-WatchUiEnvironment {
     param([Parameter(Mandatory = $true)][string]$Reason)
@@ -103,14 +133,32 @@ $env:TESTINGPLATFORM_TELEMETRY_OPTOUT = "1"
 $env:MESINGEST_WATCH_UI_ARTIFACTS = $resolvedArtifacts
 $env:MESINGEST_WATCH_WINDOW_BASELINE_DIRECTORY = $baselineDirectory
 
-$restore = Invoke-DotnetCaptured -Arguments @(
-    "restore", $project, "--ignore-failed-sources", "-p:NuGetAudit=false")
-$restore.Output | ForEach-Object { Write-Host $_ }
-$restore.Output | Out-File -LiteralPath (Join-Path $resolvedArtifacts "restore.log") -Encoding utf8
-if ($restore.ExitCode -ne 0) {
-    [Console]::Error.WriteLine(
-        "WATCH_UI_RESTORE_FAILED: offline restore failed with exitCode=$($restore.ExitCode); artifacts=$resolvedArtifacts")
-    exit $restore.ExitCode
+# Every `dotnet run` below is invoked with these. -ReuseBuild adds --no-build so an
+# iteration executes the existing binaries instead of rebuilding them.
+$buildArguments = if ($ReuseBuild.IsPresent) { @("--no-restore", "--no-build") } else { @("--no-restore") }
+
+if ($ReuseBuild.IsPresent) {
+    $assembly = Join-Path $PSScriptRoot `
+        "MesIngest.Watch.UiTests\bin\$Configuration\net8.0-windows\MesIngest.Watch.UiTests.dll"
+    if (-not (Test-Path -LiteralPath $assembly)) {
+        [Console]::Error.WriteLine(
+            "WATCH_UI_REUSE_BUILD_UNAVAILABLE: -ReuseBuild needs an existing $Configuration build at $assembly. Run once without it first.")
+        exit 5
+    }
+
+    Write-Host "WATCH_UI_REUSE_BUILD: skipping restore and build; running the existing $Configuration output."
+    "skipped: -ReuseBuild reused the existing $Configuration build" |
+        Out-File -LiteralPath (Join-Path $resolvedArtifacts "restore.log") -Encoding utf8
+} else {
+    $restore = Invoke-DotnetCaptured -Arguments @(
+        "restore", $project, "--ignore-failed-sources", "-p:NuGetAudit=false")
+    $restore.Output | ForEach-Object { Write-Host $_ }
+    $restore.Output | Out-File -LiteralPath (Join-Path $resolvedArtifacts "restore.log") -Encoding utf8
+    if ($restore.ExitCode -ne 0) {
+        [Console]::Error.WriteLine(
+            "WATCH_UI_RESTORE_FAILED: offline restore failed with exitCode=$($restore.ExitCode); artifacts=$resolvedArtifacts")
+        exit $restore.ExitCode
+    }
 }
 
 $mutex = [Threading.Mutex]::new($false, "Global\MesIngestWatchUiTests")
@@ -136,8 +184,13 @@ try {
 
     foreach ($currentSuite in $suites) {
         if ($currentSuite -eq "watch-xaml-visual") {
-            Get-ChildItem -LiteralPath $xamlBaselineDirectory -Filter "*.received.*" -File -ErrorAction SilentlyContinue |
-                Remove-Item -Force
+            if ($isNarrowedRun) {
+                Write-Host ("WATCH_UI_PARTIAL_RECEIVED_RETAINED: a narrowed run does not clear existing " +
+                    "*.received.* files, because it does not regenerate the scenarios it skips.")
+            } else {
+                Get-ChildItem -LiteralPath $xamlBaselineDirectory -Filter "*.received.*" -File -ErrorAction SilentlyContinue |
+                    Remove-Item -Force
+            }
         }
 
         $requiresVisualProbe = $currentSuite -in @("watch-xaml-visual", "watch-window-visual")
@@ -146,9 +199,11 @@ try {
             $previousProbeValue = [Environment]::GetEnvironmentVariable($probeVariable)
             try {
                 [Environment]::SetEnvironmentVariable($probeVariable, "1")
-                $probe = Invoke-DotnetCaptured -Arguments @(
-                    "run", "--project", $project, "--configuration", $Configuration, "--no-restore", "--",
-                    "-trait", "Category=watch-xaml-environment", "-parallel", "none")
+                $probeArguments = @(
+                    "run", "--project", $project, "--configuration", $Configuration) +
+                    $buildArguments +
+                    @("--", "-trait", "Category=watch-xaml-environment", "-parallel", "none")
+                $probe = Invoke-DotnetCaptured -Arguments $probeArguments
                 $probeOutput = $probe.Output
                 $probeExitCode = $probe.ExitCode
             } finally {
@@ -177,9 +232,11 @@ try {
             $previousJourneyProbeValue = [Environment]::GetEnvironmentVariable($journeyProbeVariable)
             try {
                 [Environment]::SetEnvironmentVariable($journeyProbeVariable, "1")
-                $journeyProbe = Invoke-DotnetCaptured -Arguments @(
-                    "run", "--project", $project, "--configuration", $Configuration, "--no-restore", "--",
-                    "-trait", "Category=watch-ui-environment", "-parallel", "none")
+                $journeyProbeArguments = @(
+                    "run", "--project", $project, "--configuration", $Configuration) +
+                    $buildArguments +
+                    @("--", "-trait", "Category=watch-ui-environment", "-parallel", "none")
+                $journeyProbe = Invoke-DotnetCaptured -Arguments $journeyProbeArguments
                 $journeyProbeOutput = $journeyProbe.Output
                 $journeyProbeExitCode = $journeyProbe.ExitCode
             } finally {
@@ -212,15 +269,23 @@ try {
         }
 
         Write-Host "WATCH_UI_ENVIRONMENT_OK: session=$($currentProcess.SessionId) name=$sessionName; suite=$currentSuite; artifacts=$resolvedArtifacts; running serial xUnit v3 UI tests."
+        if ($isNarrowedRun) {
+            Write-Host ("WATCH_UI_PARTIAL_RUN: suite=$currentSuite narrowing=" + ($narrowingArgument -join " ") +
+                "; iteration only, satisfies no gate and approves no baseline.")
+        }
         $suiteArguments = @(
-            "run", "--project", $project, "--configuration", $Configuration, "--no-restore", "--") `
-            + $traitArgument `
-            + @("-parallel", "none")
+            "run", "--project", $project, "--configuration", $Configuration) +
+            $buildArguments +
+            @("--") +
+            $traitArgument +
+            $narrowingArgument +
+            @("-parallel", "none")
         $suiteInvocation = Invoke-DotnetCaptured -Arguments $suiteArguments
         $suiteOutput = $suiteInvocation.Output
         $suiteExitCode = $suiteInvocation.ExitCode
         $suiteOutput | ForEach-Object { Write-Host $_ }
-        $suiteOutput | Out-File -LiteralPath (Join-Path $resolvedArtifacts "$currentSuite.runner.log") -Encoding utf8
+        $runnerLogName = if ($isNarrowedRun) { "$currentSuite.partial.runner.log" } else { "$currentSuite.runner.log" }
+        $suiteOutput | Out-File -LiteralPath (Join-Path $resolvedArtifacts $runnerLogName) -Encoding utf8
         if ($suiteExitCode -ne 0) {
             if ($currentSuite -eq "watch-xaml-visual") {
                 $xamlEvidence = Join-Path $resolvedArtifacts "watch-xaml-visual-evidence"
@@ -251,7 +316,11 @@ try {
         }
     }
 
-    Write-Host "WATCH_UI_ALL_PASSED: suite=$Suite artifacts=$resolvedArtifacts"
+    if ($isNarrowedRun) {
+        Write-Host "WATCH_UI_PARTIAL_PASSED: suite=$Suite artifacts=$resolvedArtifacts; narrowed run, satisfies no gate."
+    } else {
+        Write-Host "WATCH_UI_ALL_PASSED: suite=$Suite artifacts=$resolvedArtifacts"
+    }
     exit 0
 } finally {
     [Environment]::SetEnvironmentVariable("MESINGEST_WATCH_RUN_REAL_WINDOWS", $null)
