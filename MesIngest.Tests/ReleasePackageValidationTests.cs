@@ -531,6 +531,9 @@ public sealed class ReleasePackageValidationTests
             Path.Combine(CSharpRoot, "pack", "validation", "release-smoke-rounds.json"),
             Path.Combine(root, "validation", "release-smoke-rounds.json"));
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-WatchAcceptance.ps1"), "# acceptance");
+        File.WriteAllText(Path.Combine(root, "validation", "Invoke-FactoryAcceptance.ps1"), "# factory acceptance");
+        File.WriteAllText(Path.Combine(root, "validation", "FactoryAcceptanceTools.ps1"), "# acceptance tools");
+        File.WriteAllText(Path.Combine(root, "validation", "WatchAcceptanceUia.ps1"), "# watch uia");
         // The shipped documentation and configuration are copied, not stubbed, so the
         // package-wide retired-contract scan runs against what actually ships.
         foreach (var document in new[] { "INSTALL.md", "UPGRADE.md", "FACTORY-VALIDATION.md" })

@@ -132,6 +132,35 @@ cd <安装根>
 - [ ] 再次 `Invoke-RestMethod http://127.0.0.1:5088/api/v2/current-ingest-attention` 成功，且稍后观察到更高的 `snapshot.pollTraceHighWater`
 - [ ] （可选）稍后重开 WPF，确认能重连并显示当前投影
 
+## 六点五、发布验收闭环（票 26）
+
+上面六节是**人工执行清单**，本节是同一现场证据的**机械闭环**：一次运行把发布包身份、
+只读 Oracle 探针、多个完整轮次、SQL Server 持久化、版本化 API、Watch 六页与关闭 Watch 后的
+Service 独立性，汇总成可复核的验收摘要。
+
+```powershell
+# 安装根目录，Oracle 凭据来自 service\appsettings.Local.json（第一节已填）
+$env:MES_INGEST_FACTORY_SQLSERVER = "<专用可丢弃空库连接串>"
+$env:MES_INGEST_FACTORY_EMPTY_DATABASE_CONFIRMED = "YES"
+.\validation\Invoke-FactoryAcceptance.ps1 `
+    -ArtifactsDirectory "C:\mes-ingest-runs\ticket26" `
+    -IncludePackagedWatch
+```
+
+- 配置了 `ReplayRoundsFromRecordingPath` 时脚本**直接拒绝执行**：录制轮次驱动同一条生产入口，
+  因此它属于第一类证据，永远不能冒充工厂验收。
+- Oracle 只读：脚本自己不开任何 Oracle 连接，Host 只执行哈希锁定的唯一 SELECT 产物；
+  运行前会核对包内确有且只有这一个 `.sql`，且不含任何写关键字。
+- 每一项声明的检查都必须产出结果。没跑的必须是**具名 skip**（名称 + 责任方 + 需要什么才能补跑 +
+  留哪个 release gate），否则汇总会以 `UNREPORTED_ACCEPTANCE_CHECK` 失败；带具名 skip 的运行
+  结论是 `PASSED_WITH_NAMED_SKIPS`，不是 `PASSED`。
+- 不带 `-IncludePackagedWatch` 时，两项 Watch 检查写成具名 skip；它需要工厂交互桌面。
+- 本节**不重跑票 23 的像素候选、10 次稳定、基线提升与 DPI clone**：打包未改变 UI 输出。
+  现场若发现真实 UI / UI Automation / DPI 回归，保留红证据并把对应场景退回票 23 的门禁。
+- 产物：`factory-acceptance-summary.md` / `.json`、`package-identity.json`、`rounds.json`、
+  `oracle-probe-state.json`、`evidence-hashes.json`。API 响应正文与 Watch 窗口截图**留在现场机**，
+  只发布计数、身份与哈希——正文含客户原始行。
+
 ## 七、回传前自检
 
 按 `validation/RETURN-CHECKLIST.md` 勾选；填写 `execution-log.md`；若客户方同意验收则填 `signoff.md`（可空着只回传技术证据）。
