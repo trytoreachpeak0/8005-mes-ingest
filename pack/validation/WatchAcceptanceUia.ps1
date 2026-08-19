@@ -331,27 +331,33 @@ function Get-WatchCompactHostState {
 
 <#
 .SYNOPSIS
-  Wait until a page's status bar reports a failed read.
+  Wait until the Watch reports that a read failed.
 
 .DESCRIPTION
-  A refresh that fails does not change the Host connection state — the Watch stays
-  connected and reports the failure on the page it belongs to, keeping the snapshot it
-  already showed. That page notice is therefore what proves the operator sees the
-  failure; its automation name carries the title and message verbatim.
+  A failed refresh does not disconnect the Watch. It stays connected and appends the
+  failure to the compact Host state the operator reads in the navigation footer
+  ("Host 已连接 · 读取失败"), while the page keeps the snapshot it already had. A page
+  info bar carries the fuller wording, but it is collapsed — and therefore absent from
+  the automation tree — until it opens, so the compact state is the reliable signal and
+  the info bar is read only when it is there.
 #>
-function Wait-WatchQueryFailureNotice {
+function Wait-WatchReadFailureNotice {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window,
-        [Parameter(Mandatory = $true)][string] $AutomationId,
-        [ValidateRange(1, 600)][int] $TimeoutSeconds = 120
+        [string[]] $NoticeAutomationIds = @('DemandSeriesInfoBar', 'OverviewInfoBar'),
+        [ValidateRange(1, 600)][int] $TimeoutSeconds = 180
     )
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
-        $notice = Find-WatchElement -Root $Window -AutomationId $AutomationId -TimeoutSeconds 1
-        $text = Get-WatchElementText -Element $notice
-        if ($text -match '失败') { return $text }
+        foreach ($id in $NoticeAutomationIds) {
+            $text = Get-WatchElementText -Element (
+                Find-WatchElement -Root $Window -AutomationId $id -TimeoutSeconds 1)
+            if ($text -match '失败') { return $text }
+        }
+        $compact = Get-WatchCompactHostState -Window $Window
+        if ($compact -match '失败') { return $compact }
         Start-Sleep -Milliseconds 1000
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
     return ''

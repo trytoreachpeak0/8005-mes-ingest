@@ -1387,15 +1387,23 @@ try {
                         -Anchors @('DemandSeriesScrollViewer', 'DemandSeriesGrid'))) {
                     throw 'Could not return to the Demand series page before the failure.'
                 }
-                $rowsBefore = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
+                # The grid realises its rows asynchronously after the page renders, so give
+                # the live snapshot a moment to arrive before treating an empty board as a
+                # reason not to run the check.
+                $rowsBefore = 0
+                $rowsDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+                do {
+                    $rowsBefore = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
+                    if ($rowsBefore -gt 0) { break }
+                    Start-Sleep -Milliseconds 1000
+                } while ([DateTimeOffset]::UtcNow -lt $rowsDeadline)
                 if ($rowsBefore -le 0) {
                     throw 'The Demand series board was empty before the failure, so retention cannot be judged.'
                 }
 
                 Stop-LiveHostProcess -Process $hostProcess
                 $script:hostProcess = $null
-                $failureState = Wait-WatchQueryFailureNotice -Window $script:watchWindow `
-                    -AutomationId 'DemandSeriesInfoBar' -TimeoutSeconds 180
+                $failureState = Wait-WatchReadFailureNotice -Window $script:watchWindow -TimeoutSeconds 180
                 $rowsAfter = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
 
                 # Bring the Service back on the same address before anything else runs.
