@@ -493,6 +493,41 @@ function New-FactoryAcceptanceSummary {
 
 <#
 .SYNOPSIS
+  Close the checklist of a run that aborted outside a check.
+
+.DESCRIPTION
+  A run can die between checks — a Host that will not start, a target that goes away.
+  The remaining checks did not pass and did not earn a named skip either, so they are
+  recorded as red with the abort reason. That keeps the gate closed and says why.
+#>
+function Complete-AbortedAcceptanceChecks {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]] $Checks,
+        [Parameter(Mandatory = $true)][string[]] $ExpectedCheckIds,
+        [Parameter(Mandatory = $true)][string] $Reason
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Reason)) {
+        throw 'ABORTED_RUN_REQUIRES_A_REASON'
+    }
+    $reported = @($Checks | ForEach-Object { [string]$_.id })
+    $completed = New-Object System.Collections.ArrayList
+    foreach ($check in $Checks) { [void]$completed.Add($check) }
+    foreach ($expected in $ExpectedCheckIds) {
+        if ($reported -ccontains $expected) { continue }
+        [void]$completed.Add((New-AcceptanceCheck `
+            -Id $expected `
+            -Title 'Not reached' `
+            -Gate 'FACTORY_RUN_ABORTED' `
+            -Status FAILED `
+            -Detail "Not reached: the acceptance run aborted before this check. $Reason"))
+    }
+    return @($completed)
+}
+
+<#
+.SYNOPSIS
   Hash every evidence file so the returned bundle can be checked for tampering.
 #>
 function Get-EvidenceHashIndex {

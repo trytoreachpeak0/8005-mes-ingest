@@ -362,6 +362,27 @@ public sealed class FactoryAcceptanceToolsTests
         }
     }
 
+    /// <summary>
+    /// A run can die between checks — a Host that will not start, a target that goes away.
+    /// The checks it never reached are neither passes nor named skips, so they close as red
+    /// with the abort reason rather than vanishing from the summary.
+    /// </summary>
+    [Fact]
+    public void An_aborted_run_closes_its_unreached_checks_as_red_evidence()
+    {
+        var output = RunTools(
+            "$checks = @((New-AcceptanceCheck -Id 'A' -Title 'a' -Gate 'G' -Status PASSED -Detail 'ok')); " +
+            "$all = Complete-AbortedAcceptanceChecks -Checks $checks -ExpectedCheckIds @('A','B','C') " +
+            "-Reason 'the packaged Host exited during startup'; " +
+            "$s = New-FactoryAcceptanceSummary -Checks $all -ExpectedCheckIds @('A','B','C') " +
+            "-RollbackReadiness 'READY'; " +
+            "Write-Output \"status=$($s.status) failed=$($s.failed.Count) gate=$($s.failed[0].gate)\"; " +
+            "Write-Output $s.failed[0].detail");
+
+        Assert.Contains("status=FAILED failed=2 gate=FACTORY_RUN_ABORTED", output, StringComparison.Ordinal);
+        Assert.Contains("the packaged Host exited during startup", output, StringComparison.Ordinal);
+    }
+
     /// <summary>The shipped package has to carry the acceptance entry point and its tools.</summary>
     [Fact]
     public void Release_package_requires_the_factory_acceptance_entry_point()

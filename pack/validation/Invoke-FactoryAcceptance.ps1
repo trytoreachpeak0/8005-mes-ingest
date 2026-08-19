@@ -381,8 +381,23 @@ if ([string]::IsNullOrWhiteSpace($sqlConnectionString)) {
 if ([Environment]::GetEnvironmentVariable('MES_INGEST_FACTORY_EMPTY_DATABASE_CONFIRMED') -cne 'YES') {
     throw 'Set MES_INGEST_FACTORY_EMPTY_DATABASE_CONFIRMED=YES only after confirming the target database is dedicated, disposable, and empty.'
 }
+# Preflight with the driver the Host itself uses. The legacy System.Data.SqlClient
+# negotiates differently, so it can connect where Microsoft.Data.SqlClient times out —
+# a preflight on the wrong driver would clear a target the Host cannot reach.
+$hostSqlClientAssembly = Join-Path $packageRoot 'service\Microsoft.Data.SqlClient.dll'
+$sqlClientNamespace = 'System.Data.SqlClient'
+if (Test-Path -LiteralPath $hostSqlClientAssembly -PathType Leaf) {
+    try {
+        Add-Type -Path $hostSqlClientAssembly
+        $sqlClientNamespace = 'Microsoft.Data.SqlClient'
+    } catch {
+        Write-Warning ('The packaged SQL client could not be loaded for preflight; ' +
+            'falling back to System.Data.SqlClient. A Host connection failure will then ' +
+            'only appear at startup.')
+    }
+}
 try {
-    $sqlBuilder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($sqlConnectionString)
+    $sqlBuilder = New-Object "$sqlClientNamespace.SqlConnectionStringBuilder" $sqlConnectionString
 } catch {
     throw 'MES_INGEST_FACTORY_SQLSERVER is not a valid SQL Server connection string.'
 }
@@ -397,7 +412,7 @@ $sqlServerIdentity = $null
 $preflightUserTableCount = -1
 $connection = $null
 try {
-    $connection = [System.Data.SqlClient.SqlConnection]::new($sqlBuilder.ConnectionString)
+    $connection = New-Object "$sqlClientNamespace.SqlConnection" $sqlBuilder.ConnectionString
     $connection.Open()
     $command = $connection.CreateCommand()
     $command.CommandTimeout = 20
@@ -462,6 +477,7 @@ $environmentRecord = [ordered]@{
     oracleMode = $OracleMode
     oracleCommandTimeoutSeconds = $roundSourceConfiguration.CommandTimeoutSeconds
     sqlServer = $sqlServerIdentity
+    sqlClient = $sqlClientNamespace
     packageRoot = $packageRoot
 }
 $environmentRecord | ConvertTo-Json -Depth 6 |
@@ -474,6 +490,9 @@ $remoteBindProcess = $null
 $watchProcess = $null
 $httpClient = $null
 $cleanupNotes = New-Object System.Collections.ArrayList
+$rounds = New-Object System.Collections.ArrayList
+$packageIdentity = $null
+$abortReason = ''
 
 try {
     Add-Type -AssemblyName System.Net.Http
@@ -483,7 +502,6 @@ try {
     # -----------------------------------------------------------------------
     # 1. The package on this machine is the released artifact, byte for byte.
     # -----------------------------------------------------------------------
-    $packageIdentity = $null
     [void](Invoke-AcceptanceSection `
         -Id 'PACKAGE_IDENTITY_MATCHES_RELEASE_MANIFEST' `
         -Title 'Deployed package is the released artifact' `
@@ -634,8 +652,7 @@ try {
     $contract = Wait-LiveHostContract `
         -Process $hostProcess -BaseUrl $baseUrl -TimeoutSeconds $StartupTimeoutSeconds
 
-    $rounds = New-Object System.Collections.ArrayList
-    $roundsCollected = Invoke-AcceptanceSection `
+    $null = Invoke-AcceptanceSection `
         -Id 'LIVE_MES_TASK_UNION_ROUNDS' `
         -Title 'Complete MesTaskUnionRounds against the plant Oracle' `
         -Gate 'FACTORY_ORACLE_ACCEPTANCE' `
@@ -1250,6 +1267,13 @@ try {
                 'API response bodies and Watch window captures are not published — they carry customer rows.')
         })
 }
+catch {
+    # Something outside a section broke — a Host that would not start, a target that went
+    # away mid-run. The run is over, but the evidence still closes: every check that never
+    # produced a result is recorded as red with the reason, so no gate is left ambiguous.
+    $abortReason = Protect-FactoryAcceptanceText -Text ([string]$_.Exception.Message)
+    Write-Warning "The acceptance run aborted: $abortReason"
+}
 finally {
     $sqlConnectionString = $null
     if ($null -ne $watchProcess) {
@@ -1267,8 +1291,15 @@ finally {
     [void]$cleanupNotes.Add('All Host and Watch processes started by this run were stopped; the target database is left in place for review.')
 }
 
+$reportedChecks = if ([string]::IsNullOrWhiteSpace($abortReason)) {
+    @($checks)
+} else {
+    Complete-AbortedAcceptanceChecks `
+        -Checks @($checks) -ExpectedCheckIds $declaredCheckIds -Reason $abortReason
+}
+
 $summary = New-FactoryAcceptanceSummary `
-    -Checks @($checks) `
+    -Checks $reportedChecks `
     -ExpectedCheckIds $declaredCheckIds `
     -RollbackReadiness ('Rollback stays the ticket 25 drill: stop the new Service, restore the separate ' +
         'legacy backup with scripts\cutover\Invoke-CutoverRollback.ps1, and run the legacy programs against ' +
