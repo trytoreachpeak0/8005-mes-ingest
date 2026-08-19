@@ -57,12 +57,31 @@ if (!probeOracle
     throw new InvalidOperationException(
         "MesIngest:SnapshotSource must be Oracle when Production V2 is enabled.");
 }
+if (probeOracle)
+{
+    ReleaseSmokeRoundReplay.ValidateProbeIsLive(configured);
+}
+
 var legacyAlongsideV2Enabled = newV2Enabled
     && builder.Environment.IsDevelopment()
     && configured.EnableLegacyDevelopmentEndpoints;
 var legacySurfaceEnabled = !newV2Enabled || legacyAlongsideV2Enabled;
 var legacyRuntimeEnabled = probeOracle || legacySurfaceEnabled;
 var v2OracleRuntimeEnabled = newV2Enabled && configured.IsOracleSnapshotSource();
+
+if (ReleaseSmokeRoundReplay.IsConfigured(configured) && !v2OracleRuntimeEnabled)
+{
+    // Silently ignoring the recording would let a smoke believe it drove the
+    // production entry while the configured runtime never reads it.
+    throw new InvalidOperationException(
+        "MesIngest:ReplayRoundsFromRecordingPath only feeds the Production V2 Oracle round "
+        + "source; set MesIngest:NewSqlServerConnectionString and MesIngest:SnapshotSource=Oracle, "
+        + "or remove the recording path.");
+}
+
+// Resolved before the container so a missing acknowledgement or an unreadable
+// recording fails startup loudly instead of on the first poll.
+var replayedRoundExecutor = ReleaseSmokeRoundReplay.Resolve(configured);
 
 builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(TimeProvider.System);
@@ -86,6 +105,11 @@ if (newV2Enabled)
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
     if (v2OracleRuntimeEnabled)
     {
+        if (replayedRoundExecutor is not null)
+        {
+            builder.Services.AddSingleton(replayedRoundExecutor);
+        }
+
         builder.Services.AddSingleton<IMesTaskUnionRoundSource>(sp =>
         {
             var options = sp.GetRequiredService<MesIngestHostOptions>();

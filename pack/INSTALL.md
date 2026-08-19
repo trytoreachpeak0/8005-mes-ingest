@@ -64,9 +64,11 @@ sc.exe delete MesIngest
 
 安装前请先写好 `service/appsettings.Local.json`。Host 以可执行文件目录为 ContentRoot，因此即使服务进程工作目录是 `System32`，也会从 `service/` 读取配置与 `queries/`。建议用 `MesIngest.Host.exe --probe-oracle`（在 `service/` 目录、`SnapshotSource=Oracle`）做一次连通探针，成功后再装服务。
 
-## 打包 Watch（独立验收）
+## 打包 Watch
 
-当前打包的 `watch\MesIngest.Watch.exe` 仍使用旧 `/api/*` 客户端契约，尚未迁移到 Production V2；不要将它作为 `/api/v2/*` Host 的发布烟测客户端。它只由本文后述的四套独立交互式验收入口验证；关闭 WPF **不会**停止 Service。
+打包的 `watch\MesIngest.Watch.exe` 与 Service 使用同一套冻结 V2 契约：契约发现、DemandSeries、资格审计、错误检索、当前接入关注和概览都走 `/api/v2/*`，版本或能力集合不精确匹配时 Watch 拒绝解释业务数据。它是只读客户端，从不写入投影。
+
+Watch 与 Service 的进程生命周期互相独立：**关闭 WPF 不会停止 Service**，Service 继续轮询并继续提供 API。发布烟测会实测这一点（见下）。
 
 ## 日志位置
 
@@ -84,7 +86,7 @@ sc.exe delete MesIngest
 
 见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 和 `openApi` 中固定的路径、契约/Schema 版本与 SHA-256）。`openapi/v2.json` 是 Production V2 唯一 canonical OpenAPI；`openApiStatus` 必须是 `FROZEN`，旧 V1 文档不能作为新版契约证据。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
 
-## 发布烟测与四套 Watch 验收
+## 发布烟测
 
 在已登录的交互式 Windows 会话，先由 SQL Server 管理员创建一个**专用、可丢弃且当前没有任何用户表**的烟测库，再从安装包而非源码启动 Production V2 Host。不要指向共享、旧版或生产业务库；脚本不会为你删库或清表：
 
@@ -94,18 +96,41 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 .\validation\Invoke-ReleaseSmoke.ps1 -ArtifactsDirectory C:\MesIngest\release-smoke
 ```
 
-该入口强制 `DOTNET_ENVIRONMENT=Production`，把专用环境变量只注入进程内的 `MesIngest:NewSqlServerConnectionString`，以正式 `service\MesIngest.Host.exe` 建立/校验 V2 schema。它严格核对 `GET /api/v2/contract` 的版本、schema、精确能力集合与只读策略，要求包内 canonical 文档的 SHA-256 匹配发布清单，且运行时 `/openapi/v2.json` 与包内文档完整 JSON 语义严格一致，并逐项确认 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404。脚本会故意请求开启开发旧面；Production 若仍暴露任一旧路由就拒绝 ADR-mes-0017 切换声明。烟测也校验唯一 canonical Oracle 查询和相邻 manifest；它关闭 Oracle one-shot/连续轮询，不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr。
+该入口强制 `DOTNET_ENVIRONMENT=Production`，把专用环境变量只注入进程内的 `MesIngest:NewSqlServerConnectionString`，以正式 `service\MesIngest.Host.exe` 建立/校验 V2 schema。它逐项验证：
 
-该烟测明确**不启动 Watch**：当前步骤只证明 Production V2 Host、SQL Server 和 canonical artifact。打包 Watch 由下面四套独立的交互式验收入口验证；在后续 Watch/V2 契约迁移完成前，不能以旧 `/api/*` 调用冒充新版 Host/Watch 联调。
+- `GET /api/v2/contract` 的版本、schema、精确能力集合与只读策略严格匹配冻结契约；
+- 包内 canonical `openapi/v2.json` 的 SHA-256 匹配发布清单，且运行时 `/openapi/v2.json` 与包内文档完整 JSON 语义严格一致；
+- 退役面 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404（脚本会故意请求开启开发旧面；Production 若仍暴露任一路由就拒绝 ADR-mes-0017 切换声明）；
+- 唯一 canonical Oracle 查询原稿与相邻 `query.manifest.json` 的路径、长度和 SHA-256；
+- `GET /api/v2/externally-readable-demand-catalog` 首次返回非空正文、已提交的 `catalogRevision` 与对应弱 ETag；带同一 `If-None-Match` 的条件读取返回 304 且无正文；
+- 受限原始证据 `/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations` 即使在本机也必须带正确 Bearer 密钥：缺密钥或密钥错误一律 403；
+- 非本机绑定且未配置 `SharedSecret` 时 Host 拒绝启动；
+- Service 自己拥有轮询：`snapshot.pollTraceHighWater` 在没有任何 Watch 进程时持续前进；
+- SQL Server 重启持久化：Host 被强行结束再启动后，目录条目集合与 `count` 完全一致、`catalogRevision` 不回退、`projectionCommitId` 仍存在；重启后的 Host 不轮询，两次读取返回同一 ETag，证明比对的是已落库投影而不是移动中的快照。
 
-四套正式 Windows 验收仍由独立测试仓提供，避免把 fake Host、xUnit、视觉基线或候选文件装进生产包。把 `-HarnessRoot` 指向同源码提交的 `mes\ingest\csharp`，入口会强制真实窗口套件启动本包内的 Watch：
+烟测用脚本生成的轮次录制驱动**同一条生产入口**（canonical 查询原稿、`OracleMesTaskUnionRoundSource`、ProjectionCommit 边界都是发布态代码），因此**无工厂 Oracle 也可重复执行**。录制只替换 Oracle 语句结果：Host 报告 driver `FILE_REPLAY`，`--probe-oracle` 在配置了录制时直接拒绝执行。**录制轮次永远不是工厂验收证据**，工厂 Oracle 验收仍按 `FACTORY-VALIDATION.md` 在现场完成。
+
+烟测不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr；产物 `release-smoke-result.json` 只记录脱敏后的状态码、哈希与计数。
+
+### 打包 Watch 的进程独立性
+
+默认不启动 WPF，`release-smoke-result.json` 记为具名 skip `PACKAGED_WATCH_PROCESS_INDEPENDENCE`。在黄金机交互桌面加 `-IncludePackagedWatch` 才实际执行：启动包内 Watch → 等待窗口就绪 → 关闭窗口 → 确认 Service 未退出且 `pollTraceHighWater` 继续前进。
 
 ```powershell
-.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-vm-tests
-.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-xaml-visual
-.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-ui-journeys
-.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp -Suite watch-window-visual
+.\validation\Invoke-ReleaseSmoke.ps1 -IncludePackagedWatch -ArtifactsDirectory C:\MesIngest\release-smoke
 ```
+
+该开关要求交互式会话，非交互会话直接报错而不是静默跳过。
+
+## 打包 Watch 验收
+
+正式 Windows 验收由独立测试仓提供，避免把 fake Host、xUnit、视觉基线或候选文件装进生产包。把 `-HarnessRoot` 指向同源码提交的 `mes\ingest\csharp`，入口会强制真实窗口套件启动本包内的 Watch：
+
+```powershell
+.\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp
+```
+
+默认 `-Suite watch-production-preview`，即非像素的 `watch-vm-tests` + `watch-ui-journeys`。**打包验收只证明已发布二进制的启动、连接与关键功能**，不重复像素候选、连续稳定计数、基线提升或 DPI clone —— 这些已在票 23 完成并获批。只有当打包差异真的改变了 PNG/XML/UIA/DPI 输出时，才使相应票 23 场景失效，并只用 `-Suite watch-xaml-visual` / `watch-window-visual` 重跑受影响门禁、重新取得批准。
 
 ## 基本故障排查
 

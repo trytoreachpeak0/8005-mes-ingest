@@ -55,18 +55,30 @@ public class InstallPackageLayoutTests
     }
 
     [Fact]
-    public void Committed_host_appsettings_defaults_to_localhost_with_empty_shared_secret()
+    public void Committed_host_appsettings_defaults_to_localhost_without_legacy_only_keys()
     {
         var path = Path.Combine(CSharpRoot, "MesIngest.Host", "appsettings.json");
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         var mes = doc.RootElement.GetProperty("MesIngest");
         Assert.Equal("http://127.0.0.1:5088", mes.GetProperty("Urls").GetString());
         Assert.Equal("", mes.GetProperty("SharedSecret").GetString());
-        Assert.Equal("", mes.GetProperty("SqlServerConnectionString").GetString());
+        Assert.Equal("", mes.GetProperty("NewSqlServerConnectionString").GetString());
         Assert.Equal("", mes.GetProperty("OracleUser").GetString());
         Assert.Equal("", mes.GetProperty("OraclePassword").GetString());
-        Assert.Equal(48, mes.GetProperty("ChangeFeedRetentionHours").GetInt32());
-        Assert.Equal(365, mes.GetProperty("AlertRetentionDays").GetInt32());
+        // Ticket 24: the file ships inside the release package, so it may not carry
+        // configuration that only the retired V1 surface reads.
+        foreach (var legacyOnlyKey in new[]
+                 {
+                     "SnapshotCsvPath",
+                     "SqlServerConnectionString",
+                     "ChangeFeedRetentionHours",
+                     "AlertRetentionDays",
+                 })
+        {
+            Assert.False(
+                mes.TryGetProperty(legacyOnlyKey, out _),
+                $"Packaged host appsettings still carries the legacy-only key {legacyOnlyKey}.");
+        }
     }
 
     [Fact]
@@ -79,10 +91,12 @@ public class InstallPackageLayoutTests
 
         Assert.Equal("http://127.0.0.1:5088", mes.GetProperty("Urls").GetString());
         Assert.Equal("", mes.GetProperty("SharedSecret").GetString());
-        Assert.Equal(48, mes.GetProperty("ChangeFeedRetentionHours").GetInt32());
-        Assert.Equal(365, mes.GetProperty("AlertRetentionDays").GetInt32());
-        Assert.Contains("pageLimits", text, StringComparison.Ordinal);
-        Assert.Contains("1..200", text, StringComparison.Ordinal);
+        Assert.False(mes.TryGetProperty("ChangeFeedRetentionHours", out _));
+        Assert.False(mes.TryGetProperty("AlertRetentionDays", out _));
+        Assert.DoesNotContain("/api/demands", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("DemandChangeFeed", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("IngestAlert", text, StringComparison.Ordinal);
+        Assert.Contains("/api/v2", text, StringComparison.Ordinal);
 
         var oracleUser = mes.GetProperty("OracleUser").GetString()!;
         var oraclePassword = mes.GetProperty("OraclePassword").GetString()!;
@@ -99,7 +113,8 @@ public class InstallPackageLayoutTests
     [Fact]
     public void Install_doc_describes_production_v2_release_smoke_without_claiming_v1_openapi_or_watch()
     {
-        var install = File.ReadAllText(Path.Combine(CSharpRoot, "pack", "INSTALL.md"));
+        var installPath = Path.Combine(CSharpRoot, "pack", "INSTALL.md");
+        var install = File.ReadAllText(installPath);
 
         Assert.Contains("MES_INGEST_RELEASE_SMOKE_SQLSERVER", install, StringComparison.Ordinal);
         Assert.Contains("MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED", install, StringComparison.Ordinal);
@@ -108,8 +123,29 @@ public class InstallPackageLayoutTests
         Assert.Contains("NewSqlServerConnectionString", install, StringComparison.Ordinal);
         Assert.Contains("/api/v2/contract", install, StringComparison.Ordinal);
         Assert.Contains("canonical", install, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("不启动 Watch", install, StringComparison.Ordinal);
-        Assert.DoesNotContain("openapi/v1.json", install, StringComparison.OrdinalIgnoreCase);
+        // Ticket 24: the packaged smoke covers the whole frozen surface it claims.
+        Assert.Contains("/api/v2/externally-readable-demand-catalog", install, StringComparison.Ordinal);
+        Assert.Contains("If-None-Match", install, StringComparison.Ordinal);
+        Assert.Contains("304", install, StringComparison.Ordinal);
+        Assert.Contains("raw-observations", install, StringComparison.Ordinal);
+        Assert.Contains("pollTraceHighWater", install, StringComparison.Ordinal);
+        Assert.Contains("FILE_REPLAY", install, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", install, StringComparison.Ordinal);
+        Assert.Contains("watch-production-preview", install, StringComparison.Ordinal);
+        Assert.Contains("关闭 WPF 不会停止 Service", install, StringComparison.Ordinal);
+        // ADR-mes-0017 retires the v1 surface, and INSTALL.md has to name
+        // `/openapi/v1.json` in order to say it is gone. Forbidding the string
+        // outright would forbid the sentence the contract needs, so what is
+        // checked is that no mention presents v1 as a surface still served.
+        var v1Mentions = File.ReadAllLines(installPath)
+            .Where(line => line.Contains("openapi/v1.json", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.NotEmpty(v1Mentions);
+        Assert.All(v1Mentions, line => Assert.True(
+            line.Contains("404", StringComparison.Ordinal) ||
+            line.Contains("Development", StringComparison.OrdinalIgnoreCase),
+            $"INSTALL.md mentions /openapi/v1.json without retiring it on the same line: {line.Trim()}"));
         Assert.DoesNotContain("临时 CSV", install, StringComparison.Ordinal);
         Assert.DoesNotContain("内存投影", install, StringComparison.Ordinal);
     }
@@ -201,6 +237,16 @@ public class InstallPackageLayoutTests
         Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);
         Assert.Contains("PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED", wrapper, StringComparison.Ordinal);
+        // Ticket 24: the packaged gate runs the published binaries through the
+        // non-pixel suites and reuses the ticket 23 visual acceptance.
+        Assert.Contains("-IncludePackagedWatch", wrapper, StringComparison.Ordinal);
+        Assert.Contains("-Suite watch-production-preview", wrapper, StringComparison.Ordinal);
+        Assert.Contains(
+            "@('watch-ui-journeys', 'watch-vm-tests')",
+            wrapper,
+            StringComparison.Ordinal);
+        Assert.Contains("ticket23VisualBaselinesReused", wrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("-Suite all", wrapper, StringComparison.Ordinal);
         Assert.Contains("ManualAcceptancePath", wrapper, StringComparison.Ordinal);
         Assert.Contains("RELEASE-SIGNOFF.json", wrapper, StringComparison.Ordinal);
         Assert.Contains("READY_FOR_HOST_CLEANUP_AND_FINALIZATION", wrapper, StringComparison.Ordinal);

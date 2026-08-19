@@ -96,7 +96,7 @@ ADR-mes-0017 Production V2 与历史 Development V1 不是同一套契约：
 ## 冻结契约与切换声明
 
 - `openapi/v2.json` 是唯一 Production V2 canonical 文档；包内文件 SHA-256 必须匹配发布清单，运行时 `/openapi/v2.json` 必须与它完整 JSON 语义严格一致。`openapi/v1.json` 只属于 Development 旧面，不能作为 V2 契约证据。
-- 当前打包的 Watch 与其历史冒烟流程仍属于 V1。Ticket 24 负责把发布冒烟和 Watch 迁移到冻结后的 V2 契约。
+- 打包的 Watch 与 Service 使用同一套冻结 V2 契约；发布烟测直接从安装包验证契约严格匹配、目录条件读取、只读鉴权、SQL Server 重启持久化与关闭 Watch 后 Service 继续轮询。
 - Production 必须让旧 `/api/contract`、`/api/demands`、`/api/alerts`、`/api/poll-health`、`/api/demand-changes` 和 `/openapi/v1.json` 全部返回 404；即使配置请求开启开发旧面也不例外。任一旧面可达时，不得宣称 ADR-mes-0017 Production 切换完成。
 
 ## 失败时回滚

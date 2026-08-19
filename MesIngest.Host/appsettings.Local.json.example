@@ -9,13 +9,12 @@
     "OracleDataSource": "<HOST>:<PORT>/<SERVICE_NAME>",
     "OracleMode": "Thin",
     "OracleInstantClientDir": "",
-    "OracleThickOdbcDriver": "<REGISTERED_ORACLE_ODBC_DRIVER_FOR_THICK_MODE>",
-    "ChangeFeedRetentionHours": 48,
-    "AlertRetentionDays": 365
+    "OracleThickOdbcDriver": "<REGISTERED_ORACLE_ODBC_DRIVER_FOR_THICK_MODE>"
   },
   "_comments": {
-    "ChangeFeedRetentionHours": "DemandChangeFeed retention hours; 0 = permanent. List/change page size defaults 100 with hard max 200 (not configurable).",
-    "AlertRetentionDays": "Resolved IngestAlert retention days; 0 = permanent. Active incidents are never purged.",
-    "pageLimits": "GET /api/demands, /api/alerts, /api/demand-changes accept limit=1..200 (default 100)."
+    "NewSqlServerConnectionString": "Dedicated Production V2 database. An empty database bootstraps once; a non-empty one must match schema v17 exactly or the Host refuses to start.",
+    "SharedSecret": "Leave blank for the localhost default. Binding MesIngest:Urls beyond localhost requires a value, and callers then send Authorization: Bearer <SharedSecret>. Restricted raw evidence requires it even on localhost.",
+    "pageLimits": "GET /api/v2/demand-series, /api/v2/readability-audit, /api/v2/error-search and /api/v2/current-ingest-attention accept pageSize=1..200 (default 100).",
+    "conditionalReads": "GET /api/v2/externally-readable-demand-catalog is a full-range resource: send If-None-Match with its weak CatalogRevision ETag to get 304. That ETag is not a paging cursor."
   }
 }

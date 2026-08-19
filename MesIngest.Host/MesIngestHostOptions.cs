@@ -121,6 +121,21 @@ public sealed class MesIngestHostOptions
     /// </summary>
     public int AlertRetentionDays { get; set; } = 365;
 
+    /// <summary>
+    /// Path to a recorded MES_TASK_UNION rounds file. When set, the production round
+    /// source reads its statement results from that file instead of the plant database,
+    /// so a release smoke can drive repeatable rounds with no factory Oracle. Requires
+    /// <see cref="ReplayRoundsAcknowledgement"/>; see <c>ReleaseSmokeRoundReplay</c>.
+    /// </summary>
+    public string ReplayRoundsFromRecordingPath { get; set; } = "";
+
+    /// <summary>
+    /// Must equal <c>ReleaseSmokeRoundReplay.RequiredAcknowledgement</c> whenever
+    /// <see cref="ReplayRoundsFromRecordingPath"/> is set. Recorded rounds are never
+    /// factory acceptance evidence.
+    /// </summary>
+    public string ReplayRoundsAcknowledgement { get; set; } = "";
+
     public bool IsOracleSnapshotSource() =>
         SnapshotSource.Equals("Oracle", StringComparison.OrdinalIgnoreCase);
 

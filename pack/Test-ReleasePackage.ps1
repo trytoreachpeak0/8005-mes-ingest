@@ -163,6 +163,93 @@ $canonicalOpenApiSha256 = (
     Get-FileHash -LiteralPath $canonicalOpenApiPath -Algorithm SHA256
 ).Hash.ToLowerInvariant()
 
+# Ticket 24: Service and Watch must implement one versioned contract. NewMesIngestContract
+# (version, schema version, capability inventory) lives in MesIngest.Core, so identical
+# published bytes on both sides are the mechanical proof that neither drifted.
+$contractAssemblyRelativePath = 'MesIngest.Core.dll'
+$serviceContractAssembly = Join-Path $root (Join-Path 'service' $contractAssemblyRelativePath)
+$watchContractAssembly = Join-Path $root (Join-Path 'watch' $contractAssemblyRelativePath)
+if (-not (Test-Path -LiteralPath $serviceContractAssembly -PathType Leaf)) {
+    throw "Release package is missing the shared contract assembly: service\$contractAssemblyRelativePath"
+}
+$sharedContractSha256 = (
+    Get-FileHash -LiteralPath $serviceContractAssembly -Algorithm SHA256
+).Hash.ToLowerInvariant()
+if (-not $AllowNoWatch) {
+    if (-not (Test-Path -LiteralPath $watchContractAssembly -PathType Leaf)) {
+        throw "Release package is missing the shared contract assembly: watch\$contractAssemblyRelativePath"
+    }
+    $watchContractSha256 = (
+        Get-FileHash -LiteralPath $watchContractAssembly -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    if ($watchContractSha256 -cne $sharedContractSha256) {
+        throw 'Packaged Service and Watch do not carry the same versioned contract assembly.'
+    }
+}
+
+# Ticket 24: the package must not carry a retired endpoint, a legacy-only
+# configuration key, or an explanation of the old contract. This scans the
+# operator-facing documentation and configuration. Packaged PowerShell still names
+# legacy routes inside its own forbidden/404 lists, so it is gated by the
+# repository tests for those files rather than by this text scan.
+$legacyScanRelativePaths = @(
+    'INSTALL.md',
+    'UPGRADE.md',
+    'FACTORY-VALIDATION.md',
+    'RELEASE-EVIDENCE.json',
+    'templates\appsettings.Local.json.example',
+    'templates\watch.appsettings.Local.json.example',
+    'service\appsettings.json',
+    'watch\appsettings.json'
+)
+$legacyScanRelativePaths += @(
+    Get-ChildItem -LiteralPath (Join-Path $root 'validation') -Filter '*.md' -File -ErrorAction SilentlyContinue |
+        ForEach-Object { "validation\$($_.Name)" }
+)
+$forbiddenPackageTerms = @(
+    '/api/contract',
+    '/api/demands',
+    '/api/alerts',
+    '/api/poll-health',
+    '/api/demand-changes',
+    'openapi/v1\.json',
+    'DemandChangeFeed',
+    'SYNC_CURSOR_EXPIRED',
+    'high[-]?watermark',
+    'REAPPEAR_AFTER_GONE',
+    'DUPLICATE_RECONCILE_KEY',
+    'IngestAlert',
+    'FrozenMesFieldSet',
+    'FIELD_DRIFT',
+    'OccurrenceCount',
+    'ChangeFeedRetentionHours',
+    'AlertRetentionDays',
+    'SnapshotCsvPath',
+    # NewSqlServerConnectionString is the production key and must not trip this.
+    '(?<!New)SqlServerConnectionString'
+)
+$retirementMarkers = '404|legacy|development|forbidden|must not|不得|不能|不属于|已移除|禁止|退役'
+foreach ($relativeScanPath in $legacyScanRelativePaths) {
+    $scanPath = Join-Path $root $relativeScanPath
+    if (-not (Test-Path -LiteralPath $scanPath -PathType Leaf)) {
+        continue
+    }
+    $lineNumber = 0
+    foreach ($line in [IO.File]::ReadAllLines($scanPath)) {
+        $lineNumber++
+        if ($line -imatch $retirementMarkers) {
+            continue
+        }
+        foreach ($forbiddenTerm in $forbiddenPackageTerms) {
+            if ($line -imatch $forbiddenTerm) {
+                throw ("Release package still teaches the retired contract at " +
+                    "${relativeScanPath}:${lineNumber} ($forbiddenTerm). Remove it, or state on the " +
+                    'same line that it is retired.')
+            }
+        }
+    }
+}
+
 $queryFiles = @(Get-ChildItem -LiteralPath $root -Filter "*.sql" -File -Force -Recurse -ErrorAction SilentlyContinue)
 if ($queryFiles.Count -ne 1) {
     throw "Release package must contain exactly one canonical SQL artifact; found $($queryFiles.Count)."
@@ -288,6 +375,11 @@ $inventory = @(
         contractVersion = $expectedContractVersion
         schemaVersion = $expectedContractSchemaVersion
         sha256 = $canonicalOpenApiSha256
+    }
+    sharedContract = [ordered]@{
+        assembly = $contractAssemblyRelativePath
+        sha256 = $sharedContractSha256
+        serviceAndWatchIdentical = (-not $AllowNoWatch)
     }
     canonicalQuery = [ordered]@{
         id = $canonicalQueryId

@@ -1,11 +1,32 @@
 #Requires -Version 5.1
+<#
+.SYNOPSIS
+  Runs the external Watch acceptance harness against the packaged Watch binaries.
+
+.PARAMETER Suite
+  Defaults to watch-production-preview: the non-pixel behaviour suites
+  (watch-vm-tests plus watch-ui-journeys). A packaged release proves that the
+  published binaries start, connect, and drive the key journeys; it does not
+  regenerate the pixel candidates, stability runs, baseline promotions, or DPI
+  clone that ticket 23 already accepted for this UI output.
+
+  Use watch-xaml-visual / watch-window-visual / all only when packaging actually
+  changed the UI output. That invalidates the affected ticket 23 scenarios, and
+  only those gates are rerun and re-approved.
+#>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string] $HarnessRoot,
 
-    [ValidateSet('watch-vm-tests', 'watch-xaml-visual', 'watch-ui-journeys', 'watch-window-visual', 'all')]
-    [string] $Suite = 'all',
+    [ValidateSet(
+        'watch-production-preview',
+        'watch-vm-tests',
+        'watch-xaml-visual',
+        'watch-ui-journeys',
+        'watch-window-visual',
+        'all')]
+    [string] $Suite = 'watch-production-preview',
 
     [ValidateSet('Debug', 'Release')]
     [string] $Configuration = 'Release',

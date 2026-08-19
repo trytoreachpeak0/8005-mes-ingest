@@ -50,8 +50,26 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("Production", smoke, StringComparison.Ordinal);
         Assert.Contains("MesIngest__NewSqlServerConnectionString", smoke, StringComparison.Ordinal);
         Assert.Contains("MesIngest__SnapshotSource'] = 'Oracle'", smoke, StringComparison.Ordinal);
-        Assert.Contains("MesIngest__RunOneShotOnStartup'] = 'false'", smoke, StringComparison.Ordinal);
-        Assert.Contains("MesIngest__ContinuousPollEnabled'] = 'false'", smoke, StringComparison.Ordinal);
+        // Ticket 24: recorded rounds drive the production entry so the smoke is
+        // repeatable without factory Oracle, and they can never pass as live evidence.
+        Assert.Contains("MesIngest__ReplayRoundsFromRecordingPath", smoke, StringComparison.Ordinal);
+        Assert.Contains("RELEASE_SMOKE_NOT_FACTORY_EVIDENCE", smoke, StringComparison.Ordinal);
+        Assert.Contains("mes-task-union-rounds.json", smoke, StringComparison.Ordinal);
+        Assert.Contains("liveOracleAttested = $false", smoke, StringComparison.Ordinal);
+        Assert.Contains("oracleConnectionAttempted = $false", smoke, StringComparison.Ordinal);
+        // The checks ticket 24 requires of a packaged smoke.
+        Assert.Contains("/api/v2/externally-readable-demand-catalog", smoke, StringComparison.Ordinal);
+        Assert.Contains("If-None-Match", smoke, StringComparison.Ordinal);
+        Assert.Contains("must be 304", smoke, StringComparison.Ordinal);
+        Assert.Contains("raw-observations", smoke, StringComparison.Ordinal);
+        Assert.Contains("sqlServerRestartPersistence", smoke, StringComparison.Ordinal);
+        Assert.Contains("PollTrace high-water did not advance", smoke, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", smoke, StringComparison.Ordinal);
+        Assert.Contains("IncludePackagedWatch", smoke, StringComparison.Ordinal);
+        Assert.Contains("UserInteractive", smoke, StringComparison.Ordinal);
+        Assert.Contains("remoteBindWithoutSharedSecretExitCode", smoke, StringComparison.Ordinal);
+        Assert.Contains("serviceAndWatchIdentical", smoke, StringComparison.Ordinal);
+        Assert.Contains("serviceAndWatchIdentical", validator, StringComparison.Ordinal);
         Assert.Contains(
             "MesIngest__EnableLegacyDevelopmentEndpoints'] = 'true'",
             smoke,
@@ -73,7 +91,6 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains(CanonicalQueryRelativePath, smoke, StringComparison.Ordinal);
         Assert.Contains(CanonicalQuerySha256, smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("SnapshotCsvPath", smoke, StringComparison.Ordinal);
-        Assert.DoesNotContain("MesIngest.Watch.exe", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("host.stdout.log", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("host.stderr.log", smoke, StringComparison.Ordinal);
         Assert.Contains("BeginOutputReadLine", smoke, StringComparison.Ordinal);
@@ -109,6 +126,12 @@ public sealed class ReleasePackageValidationTests
             Assert.False(rebuild.GetProperty("oldVisualEvidenceAccepted").GetBoolean());
             Assert.Equal(19, rebuild.GetProperty("tickets").GetProperty("11").GetProperty("xamlScenarioCount").GetInt32());
             Assert.Equal(50, rebuild.GetProperty("tickets").GetProperty("12").GetProperty("completeGateRuns").GetInt32());
+            var sharedContract = manifest.RootElement.GetProperty("sharedContract");
+            Assert.Equal("MesIngest.Core.dll", sharedContract.GetProperty("assembly").GetString());
+            Assert.True(sharedContract.GetProperty("serviceAndWatchIdentical").GetBoolean());
+            Assert.Equal(
+                ComputeSha256(Path.Combine(root, "service", "MesIngest.Core.dll")),
+                sharedContract.GetProperty("sha256").GetString());
             var canonicalQuery = manifest.RootElement.GetProperty("canonicalQuery");
             Assert.Equal(CanonicalQueryId, canonicalQuery.GetProperty("id").GetString());
             Assert.Equal($"{CanonicalQueryId}/sha256:{CanonicalQuerySha256}", canonicalQuery.GetProperty("version").GetString());
@@ -324,6 +347,101 @@ public sealed class ReleasePackageValidationTests
         }
     }
 
+    [Theory]
+    [InlineData("INSTALL.md", "先调用 /api/demands 列出需求，再打开 Watch。")]
+    [InlineData("INSTALL.md", "Bootstrap from the DemandChangeFeed highWatermark, then catch up.")]
+    [InlineData("validation/RETURN-CHECKLIST.md", "- [ ] 附上 IngestAlert incident 导出")]
+    public async Task Package_documentation_that_still_teaches_the_retired_contract_is_rejected(
+        string relativePath,
+        string line)
+    {
+        var root = CreateFixture();
+        try
+        {
+            var target = Path.Combine(root, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            await File.AppendAllTextAsync(target, Environment.NewLine + line + Environment.NewLine);
+
+            var result = await RunValidatorAsync(root);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("retired contract", result.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(Path.Combine(root, "RELEASE-MANIFEST.json")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Watch_built_against_a_different_contract_assembly_is_rejected()
+    {
+        var root = CreateFixture();
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "watch", "MesIngest.Core.dll"),
+                "a-different-contract");
+
+            var result = await RunValidatorAsync(root);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("same versioned contract", result.Output, StringComparison.Ordinal);
+            Assert.False(File.Exists(Path.Combine(root, "RELEASE-MANIFEST.json")));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Packaged_configuration_with_a_legacy_only_key_is_rejected()
+    {
+        var root = CreateFixture();
+        try
+        {
+            var settings = Path.Combine(root, "service", "appsettings.json");
+            await File.WriteAllTextAsync(
+                settings,
+                (await File.ReadAllTextAsync(settings)).Replace(
+                    "\"OracleMode\": \"Thin\",",
+                    "\"ChangeFeedRetentionHours\": 48,\r\n    \"OracleMode\": \"Thin\",",
+                    StringComparison.Ordinal));
+
+            var result = await RunValidatorAsync(root);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("ChangeFeedRetentionHours", result.Output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Retiring_a_legacy_endpoint_on_the_same_line_stays_publishable()
+    {
+        var root = CreateFixture();
+        try
+        {
+            await File.AppendAllTextAsync(
+                Path.Combine(root, "INSTALL.md"),
+                Environment.NewLine
+                + "- 旧 `/api/demands` 与 `/api/alerts` 在 Production 一律返回 404。"
+                + Environment.NewLine);
+
+            var result = await RunValidatorAsync(root);
+
+            Assert.Equal(0, result.ExitCode);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Package_with_test_fake_or_visual_candidate_is_rejected()
     {
@@ -358,6 +476,10 @@ public sealed class ReleasePackageValidationTests
 
         File.WriteAllText(Path.Combine(root, "service", "MesIngest.Host.exe"), "host");
         File.WriteAllText(Path.Combine(root, "watch", "MesIngest.Watch.exe"), "watch");
+        // Service and Watch publish the same MesIngest.Core, which carries the frozen
+        // contract identity. Identical bytes are what the validator checks.
+        File.WriteAllText(Path.Combine(root, "service", "MesIngest.Core.dll"), "shared-contract");
+        File.WriteAllText(Path.Combine(root, "watch", "MesIngest.Core.dll"), "shared-contract");
         File.Copy(
             Path.Combine(
                 CSharpRoot,
@@ -389,19 +511,35 @@ public sealed class ReleasePackageValidationTests
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-FactoryValidation.ps1"), "# factory");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-ReleaseSmoke.ps1"), "# smoke");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-WatchAcceptance.ps1"), "# acceptance");
-        File.WriteAllText(Path.Combine(root, "INSTALL.md"), "install");
-        File.WriteAllText(Path.Combine(root, "UPGRADE.md"), "upgrade");
-        File.WriteAllText(Path.Combine(root, "FACTORY-VALIDATION.md"), "validate");
+        // The shipped documentation and configuration are copied, not stubbed, so the
+        // package-wide retired-contract scan runs against what actually ships.
+        foreach (var document in new[] { "INSTALL.md", "UPGRADE.md", "FACTORY-VALIDATION.md" })
+        {
+            File.Copy(Path.Combine(CSharpRoot, "pack", document), Path.Combine(root, document));
+        }
+
+        File.Copy(
+            Path.Combine(CSharpRoot, "MesIngest.Host", "appsettings.json"),
+            Path.Combine(root, "service", "appsettings.json"));
+        File.Copy(
+            Path.Combine(CSharpRoot, "MesIngest.Watch", "appsettings.json"),
+            Path.Combine(root, "watch", "appsettings.json"));
+        foreach (var checklist in Directory.GetFiles(
+                     Path.Combine(CSharpRoot, "pack", "validation"),
+                     "*.md"))
+        {
+            File.Copy(checklist, Path.Combine(root, "validation", Path.GetFileName(checklist)));
+        }
         File.WriteAllText(
             Path.Combine(root, "RELEASE-EVIDENCE.json"),
             """{"schemaVersion":1,"rebuildDecision":"2026-08-09","oldVisualEvidenceAccepted":false,"tickets":{"11":{"generation":"2026-08-09-rebuild","xamlScenarioCount":19},"12":{"generation":"2026-08-09-rebuild","realWindowBaselineCount":5,"completeGateRuns":50},"13":{"generation":"2026-08-09-rebuild"}}}""");
         File.WriteAllText(Path.Combine(root, "VERSION.txt"), "version");
-        File.WriteAllText(
-            Path.Combine(root, "templates", "appsettings.Local.json.example"),
-            """{"MesIngest":{"SharedSecret":"","NewSqlServerConnectionString":"<SQL>"}}""");
-        File.WriteAllText(
-            Path.Combine(root, "templates", "watch.appsettings.Local.json.example"),
-            """{"Watch":{"BaseUrl":"http://127.0.0.1:5088","RenderingMode":"SoftwareOnly","RequestTimeoutSeconds":30,"ConnectionLogRetentionDays":30,"ConnectionLogMaxSizeMb":100,"SharedSecret":""},"_comments":{"SharedSecret":"MesIngestWatch__SharedSecret external-configuration","preferences":"%LocalAppData%"}}""");
+        File.Copy(
+            Path.Combine(CSharpRoot, "MesIngest.Host", "appsettings.Local.json.example"),
+            Path.Combine(root, "templates", "appsettings.Local.json.example"));
+        File.Copy(
+            Path.Combine(CSharpRoot, "MesIngest.Watch", "appsettings.Local.json.example"),
+            Path.Combine(root, "templates", "watch.appsettings.Local.json.example"));
         return root;
     }
 

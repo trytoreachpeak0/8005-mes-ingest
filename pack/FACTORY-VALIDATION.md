@@ -20,6 +20,26 @@
 
 工厂签字**不阻塞**本地后续开发分支。未签字前不得宣称“现场已通”。
 
+## 证据分级（必读）
+
+三类门禁互不替代。任何一类未实际运行时，必须在 `run-manifest.json` / `execution-log.md` /
+`release-smoke-result.json` 中写成**具名 skip**（名称 + 原因 + 需要什么环境才能补跑），
+不得把另一类环境的通过结果写成本类通过。
+
+| 证据类别 | 在哪里跑 | 证明什么 | 不能证明什么 |
+|---|---|---|---|
+| **本机 / 黄金机门禁** | 开发机 tier 1，或校准黄金机 `gpt_win11` 交互计划任务 | 已发布二进制的启动、连接、契约严格匹配、只读鉴权、条件读取、UI 行为与视觉基线 | 真实 SQL Server 兼容性、真实 Oracle 可达性与业务语义 |
+| **真实兼容 SQL Server 门禁** | 指向专用、可丢弃、当前无用户表的真实 SQL Server 实例 | schema bootstrap/校验、ProjectionCommit 原子性、重启后投影持久化 | 工厂 Oracle 行为与 DATES/STEP 业务语义 |
+| **工厂 Oracle 验收** | 工厂现场，连真实 MES Oracle | `execution_scope=LIVE_ORACLE` 探针、正式 PollTrace 身份、逐 TASK_TYPE 的人工业务确认 | —— |
+
+发布烟测用脚本录制的轮次驱动同一条生产入口，因此在无工厂 Oracle 时也能重复执行。
+录制轮次的 driver 为 `FILE_REPLAY`、`liveOracleAttested=false`，**属于第一类证据**；
+它永远不能写进 `live_oracle_probe_passed`，也不能顶替本清单第二、三节的现场探针。
+配置了录制时 `--probe-oracle` 会直接拒绝执行。
+
+黄金机上的 WPF 启动、操作与截图一律通过 `gpt_win11` 的交互计划任务执行；
+PowerShell Direct 只用于部署、监控与取回证据，不用于驱动 UI。
+
 ## 建议回传目录（工厂机本地新建）
 
 在安装根旁建唯一 `run_id` 目录（例：`mes-ingest-runs\run-20260727T050000Z-abcd1234`），后续探针日志与 API JSON 写入该目录。完成后按 `validation/RETURN-CHECKLIST.md` 打包回传。
@@ -100,7 +120,7 @@ cd <安装根>
 - [ ] **UTC+08:00 与 Watch 本机显示**：确认无 offset Oracle DATES 按 UTC+08:00 解释，Watch 按运行电脑实际系统时区显示 `yyyy-MM-dd HH:mm:ss zzz`
 - [ ] **原始快照行 vs VISIBLE**：记录探针或成功 PollTrace 的 `row_count`；与采集器遍历的 VISIBLE 总数对照（允许因未归属/重复等规则而不同，差异须写入 execution-log）
 - [ ] **当前接入关注项**：打开 `GET /api/v2/current-ingest-attention`（或落盘 JSON）；有查询失败、不完整轮次、字段异常、重复键、TaskTypeProtection 或归档后重现时记录到 `execution-log.md`
-- [ ] **WPF**：启动 `watch\MesIngest.Watch.exe`；确认列表展示 VISIBLE（及 GONE 若有）、告警与最近轮询健康
+- [ ] **WPF**：启动 `watch\MesIngest.Watch.exe`；确认概览、DemandSeries、资格审计、错误检索与当前接入关注五个页面都能加载，且状态栏显示的契约版本与 `GET /api/v2/contract` 一致
 - [ ] **横幅**：若故意断 Oracle 或存在 TaskTypeProtection，确认轮询失败 / 保护状态横幅醒目，空板不会被误认为“无任务”
 - [ ] **timeout 归因**：确认 Watch 配置为 30 秒（或明确记录现场值），错误显示真实 endpoint/stage；不得通过无限增大 timeout 判定通过
 - [ ] **SharedSecret + V2 GET**：携带 `Authorization: Bearer <SharedSecret>` 至少实际执行一个 `/api/v2/*` GET，并核对返回的 `X-Correlation-Id`；不得增加或调用写接口

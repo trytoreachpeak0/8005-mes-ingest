@@ -52,6 +52,36 @@ public class FactoryValidationPackTests
         Assert.True(File.Exists(Path.Combine(ValidationRoot, "Invoke-FactoryValidation.ps1")));
     }
 
+    /// <summary>
+    /// Ticket 24: the validation guidance must keep the three gate families apart and
+    /// force a named skip for whichever one did not actually run, so a local or golden
+    /// machine pass can never be written up as a factory pass.
+    /// </summary>
+    [Fact]
+    public void Validation_guidance_separates_evidence_tiers_and_demands_named_skips()
+    {
+        var checklist = File.ReadAllText(Path.Combine(PackRoot, "FACTORY-VALIDATION.md"));
+        var returnChecklist = File.ReadAllText(Path.Combine(ValidationRoot, "RETURN-CHECKLIST.md"));
+
+        Assert.Contains("证据分级", checklist, StringComparison.Ordinal);
+        Assert.Contains("黄金机", checklist, StringComparison.Ordinal);
+        Assert.Contains("真实兼容 SQL Server 门禁", checklist, StringComparison.Ordinal);
+        Assert.Contains("工厂 Oracle 验收", checklist, StringComparison.Ordinal);
+        Assert.Contains("具名 skip", checklist, StringComparison.Ordinal);
+        Assert.Contains("FILE_REPLAY", checklist, StringComparison.Ordinal);
+        Assert.Contains("live_oracle_probe_passed", checklist, StringComparison.Ordinal);
+        Assert.Contains("--probe-oracle", checklist, StringComparison.Ordinal);
+        // Real WPF on the golden machine goes through the interactive scheduled task;
+        // PowerShell Direct stays a deployment and evidence-retrieval channel.
+        Assert.Contains("gpt_win11", checklist, StringComparison.Ordinal);
+        Assert.Contains("交互计划任务", checklist, StringComparison.Ordinal);
+        Assert.Contains("PowerShell Direct", checklist, StringComparison.Ordinal);
+
+        Assert.Contains("具名 skip", returnChecklist, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", returnChecklist, StringComparison.Ordinal);
+        Assert.Contains("证据分级", returnChecklist, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Factory_validation_checklist_covers_probe_service_wpf_and_signoff_split()
     {

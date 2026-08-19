@@ -134,7 +134,15 @@ Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, De
 
 Watch persists only approved local preferences: Host base URL, the external credential reference, request timeout, four auto-refresh settings, window size, and the Demand/detail split. “恢复默认布局” resets only window geometry. Credentials remain in `MesIngestWatch__SharedSecret` or `appsettings.Local.json`; business lists, queries, cursors, pages, selection, details, last-success business time, and Host errors are never written to preference files. Corrupt, out-of-range, or incompatible preference files fall back to safe defaults.
 
-Ticket 24 owns migration of release smoke and Watch to the frozen V2 contract. Until then, closing the legacy Watch can demonstrate only process independence: Production Service polling must be verified from advancing V2 PollTrace evidence, not from the legacy Watch screens.
+## Ticket 24 — release scripts, smoke, and validation guidance on the frozen V2 contract
+
+Packaging, install, smoke, Watch acceptance, factory validation, and the return checklist all speak the frozen `/api/v2` contract. `pack/Test-ReleasePackage.ps1` additionally scans the packaged documentation and configuration for retired endpoints, legacy-only configuration keys, and old-contract explanations; a mention is allowed only on a line that says on the same line that the surface is retired.
+
+`pack/validation/Invoke-ReleaseSmoke.ps1` drives rounds from a recording it writes itself, so a release smoke is repeatable with no factory Oracle. The recording replaces only the Oracle statement result — the canonical query artifact, `OracleMesTaskUnionRoundSource`, and the ProjectionCommit boundary are the shipped production code. Recorded rounds report driver `FILE_REPLAY` and `liveOracleAttested=false`, `--probe-oracle` refuses to run while a recording is configured, and `MesIngest:ReplayRoundsFromRecordingPath` needs `MesIngest:ReplayRoundsAcknowledgement=RELEASE_SMOKE_NOT_FACTORY_EVIDENCE` before the Host will start.
+
+Beyond contract identity and the retired-surface 404s, the smoke proves the first catalog body with its `CatalogRevision`/weak ETag, a same-revision 304, restricted raw evidence denying a missing or wrong Bearer secret on localhost, a remote binding without a shared secret refusing to start, `pollTraceHighWater` advancing with no Watch process, and the SQL Server projection surviving an abrupt Host restart unchanged. `-IncludePackagedWatch` additionally starts and closes the packaged Watch on the interactive golden desktop; without it that check is recorded as the named skip `PACKAGED_WATCH_PROCESS_INDEPENDENCE`.
+
+`Invoke-GoldenRendererValidation.ps1 -Suite watch-package-release` runs the packaged Watch through the non-pixel suites only (`watch-vm-tests` plus `watch-ui-journeys`). A packaged release proves that the published binaries start, connect, and drive the key journeys; it does not repeat the pixel candidates, stability counts, baseline promotions, or DPI clone that ticket 23 already accepted. Only packaging that actually changes PNG/XML/UIA/DPI output invalidates the affected ticket 23 scenarios, and only those gates are rerun.
 
 ## Ticket 10 — factory install package + secure config
 
@@ -146,7 +154,7 @@ cd mes/ingest/csharp
 # optional: -SkipWatch
 ```
 
-Output: `service/` (Host plus the only formal query under `service/queries/`), optional legacy `watch/`, `templates/` (blank Local.json), `scripts/`, validation material, and release metadata. Copy the folder to the plant PC; copy `templates/appsettings.Local.json.example` to `service/appsettings.Local.json`, fill `NewSqlServerConnectionString`, keep `SnapshotSource=Oracle`, and add Oracle secrets locally (never commit or return the filled file).
+Output: `service/` (Host plus the only formal query under `service/queries/`), optional `watch/` (the V2 Watch client), `templates/` (blank Local.json), `scripts/`, validation material, and release metadata. Copy the folder to the plant PC; copy `templates/appsettings.Local.json.example` to `service/appsettings.Local.json`, fill `NewSqlServerConnectionString`, keep `SnapshotSource=Oracle`, and add Oracle secrets locally (never commit or return the filled file).
 
 Default HTTP bind is `http://127.0.0.1:5088`. If `MesIngest:Urls` binds beyond localhost, set `MesIngest:SharedSecret` and call with `Authorization: Bearer <secret>` (Watch: `MesIngestWatch__SharedSecret`). See `pack/INSTALL.md` for Windows Service install/start/stop/uninstall, logs, version, and troubleshooting.
 

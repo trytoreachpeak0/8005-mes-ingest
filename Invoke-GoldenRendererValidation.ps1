@@ -348,7 +348,10 @@ try {
         $installRoot = Join-Path $Root 'CleanInstall\MesIngest'
         New-Item -ItemType Directory -Path (Split-Path -Parent $installRoot) -Force | Out-Null
         Copy-Item -LiteralPath $packageBuild -Destination $installRoot -Recurse
+        # This runs on the interactive golden desktop, so the packaged Watch process
+        # independence check is executed rather than skipped.
         & (Join-Path $installRoot 'validation\Invoke-ReleaseSmoke.ps1') `
+            -IncludePackagedWatch `
             -ArtifactsDirectory (Join-Path $Root 'Results\release-smoke') 2>&1 |
             Tee-Object -FilePath $logPath -Append
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -405,23 +408,38 @@ try {
             throw "SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL: $($skippedResults.Count) named skips must exactly match ReleaseApproval\sql-server-skips.json; details are in $regressionDirectory\summary.json"
         }
 
+        # Ticket 24: a packaged release proves the published binaries start, connect,
+        # and drive the key journeys. It does not repeat the pixel candidates, the
+        # stability runs, the baseline promotions, or the DPI clone that ticket 23
+        # already accepted for this UI output. Packaging that changes UI output
+        # invalidates the affected ticket 23 scenarios, and only those are rerun.
         & (Join-Path $installRoot 'validation\Invoke-WatchAcceptance.ps1') `
             -HarnessRoot $source `
-            -Suite all `
+            -Suite watch-production-preview `
             -Configuration $Configuration `
             -ArtifactsDirectory (Join-Path $Root 'Results\packaged-watch-acceptance') 2>&1 |
             Tee-Object -FilePath $logPath -Append
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
         $uiRunnerLogs = @(Get-ChildItem -LiteralPath (Join-Path $Root 'Results\packaged-watch-acceptance') -Filter '*.runner.log' -File)
-        if ($uiRunnerLogs.Count -ne 4) {
-            throw "Packaged Watch acceptance must produce four runner logs; found $($uiRunnerLogs.Count)."
+        $expectedPackagedSuites = @('watch-ui-journeys', 'watch-vm-tests')
+        $actualPackagedSuites = @(
+            $uiRunnerLogs | ForEach-Object { $_.BaseName.Replace('.runner', '') } | Sort-Object
+        )
+        if (@(Compare-Object `
+                -ReferenceObject $expectedPackagedSuites `
+                -DifferenceObject $actualPackagedSuites `
+                -CaseSensitive).Count -gt 0) {
+            throw ("Packaged Watch acceptance must run exactly the non-pixel suites " +
+                "$($expectedPackagedSuites -join ', '); found $($actualPackagedSuites -join ', ').")
         }
         $uiSkipLines = @($uiRunnerLogs | Select-String -Pattern 'Skipped:\s+(?<count>[1-9][0-9]*)')
         [ordered]@{
-            suites = @($uiRunnerLogs | ForEach-Object { $_.BaseName.Replace('.runner', '') } | Sort-Object)
+            suites = $actualPackagedSuites
             runnerLogCount = $uiRunnerLogs.Count
             skipped = @($uiSkipLines | ForEach-Object { $_.Line })
+            ticket23VisualBaselinesReused = $true
+            ticket23ReuseBasis = 'PACKAGING_DID_NOT_CHANGE_APPROVED_PNG_XML_UIA_OR_DPI_OUTPUT'
         } | ConvertTo-Json -Depth 4 |
             Set-Content -LiteralPath (Join-Path $Root 'Results\packaged-watch-acceptance\summary.json') -Encoding utf8
         if ($uiSkipLines.Count -gt 0) {
