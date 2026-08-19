@@ -215,6 +215,21 @@ function Invoke-AcceptanceRequest {
     }
 }
 
+# A refused read answers with the contract's {code, error} envelope. The code is the
+# triage fact and carries no plant row, so it belongs in the red evidence.
+function Get-ContractErrorCode {
+    param([AllowEmptyString()][AllowNull()][string] $Body)
+
+    if ([string]::IsNullOrWhiteSpace($Body)) { return '' }
+    try {
+        $code = [string]($Body | ConvertFrom-Json).code
+    } catch {
+        return ''
+    }
+    if ([string]::IsNullOrWhiteSpace($code)) { return '' }
+    return " ($code)"
+}
+
 function Get-AcceptanceJson {
     param(
         [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
@@ -224,7 +239,7 @@ function Get-AcceptanceJson {
 
     $response = Invoke-AcceptanceRequest -Client $Client -Uri $Uri -BearerToken $BearerToken
     if ($response.StatusCode -ne 200) {
-        throw "GET $(Split-Path -Leaf $Uri) returned HTTP $($response.StatusCode)."
+        throw "GET $(Split-Path -Leaf $Uri) returned HTTP $($response.StatusCode)$(Get-ContractErrorCode -Body $response.Body)."
     }
     return ($response.Body | ConvertFrom-Json)
 }
@@ -251,7 +266,10 @@ function Start-LiveHostProcess {
         [Parameter(Mandatory = $true)][string] $SqlConnectionString,
         [Parameter(Mandatory = $true)][AllowEmptyString()][string] $SharedSecret,
         [bool] $ContinuousPoll = $true,
-        [bool] $DrainStreams = $true
+        [bool] $DrainStreams = $true,
+        # Where the Host's own stage/correlation lines are kept. Without them a refused
+        # live read is a status code with no reason attached.
+        [string] $LogPath = ''
     )
 
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -284,8 +302,22 @@ function Start-LiveHostProcess {
     $process = [Diagnostics.Process]::Start($info)
     if ($null -eq $process) { throw 'The packaged Host did not start.' }
     if ($DrainStreams) {
-        # Drain both streams so a full pipe cannot block the Host, and never persist
-        # provider output: SQL and Oracle failures can name datasources or credentials.
+        # Drain both streams so a full pipe cannot block the Host. Provider failures can
+        # name a datasource or a credential, so the handler redacts as it writes and the
+        # evidence pass redacts the whole file again before it is published.
+        if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+            foreach ($streamEvent in @('OutputDataReceived', 'ErrorDataReceived')) {
+                $subscription = Register-ObjectEvent -InputObject $process -EventName $streamEvent `
+                    -MessageData $LogPath -Action {
+                        $line = $EventArgs.Data
+                        if ([string]::IsNullOrEmpty($line)) { return }
+                        $line = $line -replace '(?i)((?:password|pwd|secret|token|user id|uid|data source|server|host|initial catalog|database)\s*[:=]\s*)[^;\s,)"]+', '$1[redacted]'
+                        $line = $line -replace '\d{1,3}(\.\d{1,3}){3}', '[redacted]'
+                        Add-Content -LiteralPath $Event.MessageData -Value $line
+                    }
+                [void]$script:hostLogSubscriptions.Add($subscription)
+            }
+        }
         $process.BeginOutputReadLine()
         $process.BeginErrorReadLine()
     }
@@ -502,6 +534,8 @@ $remoteBindProcess = $null
 $watchProcess = $null
 $httpClient = $null
 $cleanupNotes = New-Object System.Collections.ArrayList
+$hostLogSubscriptions = New-Object System.Collections.ArrayList
+$hostLogPath = Join-Path $artifacts 'host-stage-log.txt'
 $rounds = New-Object System.Collections.ArrayList
 $packageIdentity = $null
 $abortReason = ''
@@ -660,7 +694,8 @@ try {
         -BaseUrl $baseUrl `
         -SqlConnectionString $sqlConnectionString `
         -SharedSecret $sharedSecret `
-        -ContinuousPoll $true
+        -ContinuousPoll $true `
+        -LogPath $hostLogPath
     $contract = Wait-LiveHostContract `
         -Process $hostProcess -BaseUrl $baseUrl -TimeoutSeconds $StartupTimeoutSeconds
 
@@ -716,8 +751,8 @@ try {
                     queryVersion = [string]$trace.queryVersion
                     contentDigest = [string]$trace.contentDigest
                     rowCount = [long]$trace.rowCount
-                    diagnosticStage = [string]$trace.diagnostic.stage
-                    diagnosticCode = [string]$trace.diagnostic.code
+                    diagnosticStage = $(if ($null -ne $trace.diagnostic) { [string]$trace.diagnostic.stage } else { '' })
+                    diagnosticCode = $(if ($null -ne $trace.diagnostic) { [string]$trace.diagnostic.code } else { '' })
                     startedAt = [string]$trace.startedAt
                     completedAt = [string]$trace.completedAt
                     catalogRevision = [long]$catalog.catalogRevision
@@ -863,7 +898,8 @@ try {
                 $response = Invoke-AcceptanceRequest -Client $httpClient `
                     -Uri "$baseUrl$($reads[$name])" -BearerToken $sharedSecret
                 if ($response.StatusCode -ne 200) {
-                    throw "GET $($reads[$name]) returned HTTP $($response.StatusCode)."
+                    throw ("GET $($reads[$name]) returned HTTP $($response.StatusCode)" +
+                        "$(Get-ContractErrorCode -Body $response.Body).")
                 }
                 $json = $response.Body | ConvertFrom-Json
                 $itemCount = if ($null -ne $json.PSObject.Properties['items']) {
@@ -914,7 +950,7 @@ try {
             if ([string]::IsNullOrWhiteSpace($snapshotReference)) {
                 throw 'The Demand series page did not carry a snapshotReference.'
             }
-            $firstIds = @($firstPage.items | ForEach-Object { [string]$_.demandId })
+            $firstIds = @($firstPage.items | ForEach-Object { [string]$_.seriesId })
             $totalItems = [long](Get-JsonProperty -Object $firstPage -Name 'exactTotalCount')
 
             # Wait for the poll loop to commit again, then re-read pinned to the same
@@ -935,7 +971,7 @@ try {
 
             $pinned = Get-AcceptanceJson -Client $httpClient -BearerToken $sharedSecret `
                 -Uri ($seriesUri + '&snapshot=' + [Uri]::EscapeDataString($snapshotReference))
-            $pinnedIds = @($pinned.items | ForEach-Object { [string]$_.demandId })
+            $pinnedIds = @($pinned.items | ForEach-Object { [string]$_.seriesId })
             if ([string]$pinned.snapshotReference -cne $snapshotReference -or
                 [long](Get-JsonProperty -Object $pinned -Name 'exactTotalCount') -ne $totalItems -or
                 @(Compare-Object -ReferenceObject $firstIds -DifferenceObject $pinnedIds -CaseSensitive `
@@ -1013,7 +1049,8 @@ try {
         -BaseUrl $restartBaseUrl `
         -SqlConnectionString $sqlConnectionString `
         -SharedSecret $sharedSecret `
-        -ContinuousPoll $false
+        -ContinuousPoll $false `
+        -LogPath $hostLogPath
     [void](Wait-LiveHostContract `
         -Process $restartedHostProcess -BaseUrl $restartBaseUrl -TimeoutSeconds $StartupTimeoutSeconds)
 
@@ -1142,7 +1179,8 @@ try {
             -BaseUrl $watchBaseUrl `
             -SqlConnectionString $sqlConnectionString `
             -SharedSecret $sharedSecret `
-            -ContinuousPoll $true
+            -ContinuousPoll $true `
+            -LogPath $hostLogPath
         [void](Wait-LiveHostContract `
             -Process $hostProcess -BaseUrl $watchBaseUrl -TimeoutSeconds $StartupTimeoutSeconds)
 
@@ -1273,6 +1311,10 @@ try {
         -Gate 'FACTORY_EVIDENCE_CLOSURE' `
         -Evidence @('evidence-hashes.json') `
         -Body {
+            if (Test-Path -LiteralPath $hostLogPath -PathType Leaf) {
+                Set-Content -LiteralPath $hostLogPath -Encoding UTF8 -Value (
+                    Protect-FactoryAcceptanceText -Text ([IO.File]::ReadAllText($hostLogPath)))
+            }
             $textFiles = @(Get-ChildItem -LiteralPath $artifacts -File -Recurse -Force |
                 Where-Object { $_.Extension -in @('.json', '.txt', '.log', '.md') })
             $leaks = New-Object System.Collections.ArrayList
@@ -1315,6 +1357,9 @@ finally {
     Stop-LiveHostProcess -Process $hostProcess
     Stop-LiveHostProcess -Process $restartedHostProcess
     Stop-LiveHostProcess -Process $remoteBindProcess
+    foreach ($subscription in @($hostLogSubscriptions)) {
+        Unregister-Event -SourceIdentifier $subscription.Name -ErrorAction SilentlyContinue
+    }
     if ($null -ne $httpClient) { $httpClient.Dispose() }
     [void]$cleanupNotes.Add('All Host and Watch processes started by this run were stopped; the target database is left in place for review.')
 }
