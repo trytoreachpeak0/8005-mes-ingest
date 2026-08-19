@@ -21,16 +21,21 @@ function Open-CutoverConnection {
 
     Add-Type -AssemblyName System.Data | Out-Null
     $builder = New-Object System.Data.SqlClient.SqlConnectionStringBuilder $ConnectionString
+    # SqlConnectionStringBuilder is an IDictionary, so PowerShell binds member access to the
+    # keyword indexer rather than the CLR property. The keyword is 'Initial Catalog' with a
+    # space; 'InitialCatalog' is only a property name and is rejected as an unknown keyword.
+    $initialCatalog = [string]$builder['Initial Catalog']
+
     # Dropping or restoring a database from a connection that is inside it fails or, worse,
     # succeeds against a database the operator did not mean to name. Force master.
-    if ($builder.InitialCatalog -and
-        $builder.InitialCatalog -ne 'master' -and
-        [string]::Equals($builder.InitialCatalog, $ForbiddenDatabase, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($initialCatalog -and
+        $initialCatalog -ne 'master' -and
+        [string]::Equals($initialCatalog, $ForbiddenDatabase, [StringComparison]::OrdinalIgnoreCase)) {
         throw ("CUTOVER_CONNECTION_TARGETS_THE_DATABASE_ITSELF: connect through master, " +
-            "not Initial Catalog=$($builder.InitialCatalog).")
+            "not Initial Catalog=$initialCatalog.")
     }
 
-    $builder.InitialCatalog = 'master'
+    $builder['Initial Catalog'] = 'master'
     $connection = New-Object System.Data.SqlClient.SqlConnection $builder.ConnectionString
     $connection.Open()
     return $connection
