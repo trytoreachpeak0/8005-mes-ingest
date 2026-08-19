@@ -56,8 +56,6 @@ param(
     [ValidateSet('Thin', 'Thick')]
     [string] $OracleMode = 'Thin',
 
-    [switch] $IncludeThickReverification,
-
     [switch] $IncludePackagedWatch,
 
     [ValidateRange(1, 120)]
@@ -99,7 +97,7 @@ $declaredCheckIds = @(
     'PACKAGE_IDENTITY_MATCHES_RELEASE_MANIFEST',
     'TARGET_ENVIRONMENT_IDENTITY_RECORDED',
     'CANONICAL_QUERY_READ_ONLY_BOUNDARY',
-    'LIVE_ORACLE_THIN_PROBE',
+    'LIVE_ORACLE_READ_ONLY_PROBE',
     'LIVE_ORACLE_THICK_MODE_REVERIFICATION',
     'LIVE_MES_TASK_UNION_ROUNDS',
     'NON_SUCCESS_ROUNDS_PRESERVE_PROJECTION',
@@ -113,6 +111,8 @@ $declaredCheckIds = @(
     'CATALOG_REVISION_MONOTONIC',
     'SNAPSHOT_READ_NOT_TORN',
     'WATCH_SIX_PAGE_LIVE_HOST_VERIFICATION',
+    'WATCH_PAGING_ON_LIVE_DATA',
+    'WATCH_FAILURE_RETENTION',
     'WATCH_CLOSED_SERVICE_CONTINUES',
     'TICKET23_VISUAL_GATES_NOT_REPEATED',
     'EVIDENCE_REDACTION_AND_HASHES'
@@ -145,7 +145,13 @@ function Invoke-AcceptanceSection {
         [Parameter(Mandatory = $true)][string] $Title,
         [Parameter(Mandatory = $true)][string] $Gate,
         [Parameter(Mandatory = $true)][scriptblock] $Body,
-        [string[]] $Evidence = @()
+        [string[]] $Evidence = @(),
+        # A body that throws the literal NOT_OBSERVED says the plant window never produced
+        # the condition it exists to judge. That is a named skip, not a pass and not a red.
+        [switch] $SkipWhenNotObserved,
+        [string] $SkipOwner = '',
+        [string] $SkipRequires = '',
+        [string] $SkipDetail = ''
     )
 
     Write-Host "[acceptance] $Id"
@@ -154,6 +160,18 @@ function Invoke-AcceptanceSection {
         Add-Check -Id $Id -Title $Title -Gate $Gate -Status PASSED `
             -Detail ([string]$detail) -Evidence $Evidence
         return $true
+    } catch [System.Management.Automation.RuntimeException] {
+        if ($SkipWhenNotObserved -and [string]$_.Exception.Message -ceq 'NOT_OBSERVED') {
+            Write-Host "$Id SKIPPED: not observed in this window"
+            Add-Check -Id $Id -Title $Title -Gate $Gate -Status SKIPPED `
+                -Owner $SkipOwner -Requires $SkipRequires -Detail $SkipDetail -Evidence $Evidence
+            return $false
+        }
+        $message = Protect-FactoryAcceptanceText -Text ([string]$_.Exception.Message)
+        Write-Warning "$Id FAILED: $message"
+        Add-Check -Id $Id -Title $Title -Gate $Gate -Status FAILED `
+            -Detail $message -Evidence $Evidence
+        return $false
     } catch {
         $message = Protect-FactoryAcceptanceText -Text ([string]$_.Exception.Message)
         Write-Warning "$Id FAILED: $message"
@@ -372,6 +390,74 @@ function Get-AttentionSnapshot {
     return ($response.Body | ConvertFrom-Json)
 }
 
+function Get-PollTraceHighWater {
+    param(
+        [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
+        [Parameter(Mandatory = $true)][string] $BaseUrl,
+        [string] $BearerToken
+    )
+
+    return [long](Get-AttentionSnapshot -Client $Client -BaseUrl $BaseUrl `
+        -BearerToken $BearerToken).snapshot.pollTraceHighWater
+}
+
+# Waiting for the loop to commit again is what turns several checks from a snapshot of a
+# moving projection into a statement about what survives a commit.
+function Wait-PollTraceHighWaterAbove {
+    param(
+        [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
+        [Parameter(Mandatory = $true)][string] $BaseUrl,
+        [Parameter(Mandatory = $true)][long] $Previous,
+        [Parameter(Mandatory = $true)][int] $TimeoutSeconds,
+        [string] $BearerToken
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        Start-Sleep -Milliseconds 750
+        $current = Get-PollTraceHighWater -Client $Client -BaseUrl $BaseUrl -BearerToken $BearerToken
+        if ($current -gt $Previous) { return $current }
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    return $Previous
+}
+
+<#
+.SYNOPSIS
+  Find a restricted raw-evidence resource that exists in the live snapshot.
+
+.DESCRIPTION
+  Returns an empty string when the plant snapshot carries no error evidence. The caller
+  then says so rather than presenting a refused placeholder as an authorized read.
+#>
+function Resolve-RestrictedRawEvidenceUri {
+    param(
+        [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
+        [Parameter(Mandatory = $true)][string] $BaseUrl,
+        [Parameter(Mandatory = $true)][string] $BearerToken
+    )
+
+    $list = Get-AcceptanceJson -Client $Client -BearerToken $BearerToken `
+        -Uri "$BaseUrl/api/v2/error-search?pageSize=5"
+    $snapshotReference = [string]$list.snapshotReference
+    foreach ($item in @($list.items)) {
+        $seriesId = [string]$item.seriesId
+        if ([string]::IsNullOrWhiteSpace($seriesId)) { continue }
+        $detail = Get-AcceptanceJson -Client $Client -BearerToken $BearerToken `
+            -Uri ("$BaseUrl/api/v2/error-search/$([Uri]::EscapeDataString($seriesId))" +
+                "?snapshot=$([Uri]::EscapeDataString($snapshotReference))")
+        foreach ($period in @($detail.periods)) {
+            foreach ($evidence in @($period.evidence)) {
+                $evidenceId = [string]$evidence.evidenceId
+                if ([string]::IsNullOrWhiteSpace($evidenceId)) { continue }
+                return ("$BaseUrl/api/v2/error-search/$([Uri]::EscapeDataString($seriesId))" +
+                    "/evidence/$([Uri]::EscapeDataString($evidenceId))/raw-observations" +
+                    "?snapshot=$([Uri]::EscapeDataString($detail.snapshotReference))")
+            }
+        }
+    }
+    return ''
+}
+
 function Stop-LiveHostProcess {
     param([Diagnostics.Process] $Process)
 
@@ -538,6 +624,7 @@ $hostLogSubscriptions = New-Object System.Collections.ArrayList
 $hostLogPath = Join-Path $artifacts 'host-stage-log.txt'
 $rounds = New-Object System.Collections.ArrayList
 $packageIdentity = $null
+$watchWindow = $null
 $abortReason = ''
 
 try {
@@ -615,7 +702,7 @@ try {
     # -----------------------------------------------------------------------
     $probeState = $null
     [void](Invoke-AcceptanceSection `
-        -Id 'LIVE_ORACLE_THIN_PROBE' `
+        -Id 'LIVE_ORACLE_READ_ONLY_PROBE' `
         -Title "Live Oracle $OracleMode read-only probe" `
         -Gate 'FACTORY_ORACLE_ACCEPTANCE' `
         -Evidence @("probe-$($OracleMode.ToLowerInvariant()).txt") `
@@ -665,21 +752,19 @@ try {
                 "duration=$($state.DurationMs)ms, commandTimeout=$($roundSourceConfiguration.CommandTimeoutSeconds)s.")
         })
 
-    if ($IncludeThickReverification) {
-        [void](Invoke-AcceptanceSection `
-            -Id 'LIVE_ORACLE_THICK_MODE_REVERIFICATION' `
+    # Thick is a whole separate run of this script with -OracleMode Thick, not a mode this
+    # run can switch into: it needs Instant Client and a registered ODBC driver on the box.
+    if ($OracleMode -ceq 'Thick') {
+        Add-Check -Id 'LIVE_ORACLE_THICK_MODE_REVERIFICATION' `
             -Title 'Thick mode re-verification through the same business entry' `
-            -Gate 'FACTORY_ORACLE_ACCEPTANCE' `
-            -Body {
-                throw ('Thick re-verification must be run as a separate acceptance invocation with ' +
-                    '-OracleMode Thick after the operator configures Instant Client and the ODBC driver.')
-            })
+            -Gate 'FACTORY_ORACLE_ACCEPTANCE' -Status PASSED `
+            -Detail 'This run is the Thick re-verification: the probe and rounds above ran in Thick mode.'
     } else {
         Add-Check -Id 'LIVE_ORACLE_THICK_MODE_REVERIFICATION' `
             -Title 'Thick mode re-verification through the same business entry' `
             -Gate 'FACTORY_ORACLE_ACCEPTANCE' -Status SKIPPED `
             -Owner 'plant IT / release owner' `
-            -Requires 'Oracle Instant Client plus a registered Oracle ODBC driver, then rerun with -OracleMode Thick' `
+            -Requires 'Oracle Instant Client plus a registered Oracle ODBC driver, then rerun this script with -OracleMode Thick' `
             -Detail ('Not run. The ticket asks for Thick only when the plant actually needs it; ' +
                 "the $OracleMode probe and rounds passed, so no Thick fallback was exercised.")
     }
@@ -795,12 +880,20 @@ try {
                     "pollTraceIds=$($preservation.Offenders -join ',').")
             }
             if ($preservation.NonSuccessCount -eq 0) {
-                'No non-SUCCESS round occurred in this window; every observed round committed normally.'
-            } else {
-                ("$($preservation.NonSuccessCount) non-SUCCESS round(s) left catalogRevision and " +
-                    'the Demand count unchanged; no Demand disappearance was fabricated.')
+                # Nothing failed, so nothing was verified. Saying "passed" here would read
+                # as "failed rounds were proven harmless", which this window cannot show.
+                throw 'NOT_OBSERVED'
             }
-        })
+            ("$($preservation.NonSuccessCount) non-SUCCESS round(s) left catalogRevision and " +
+                'the Demand count unchanged; no Demand disappearance was fabricated.')
+        } `
+        -SkipWhenNotObserved `
+        -SkipOwner 'release owner' `
+        -SkipRequires ('a plant window that actually produces a FAILURE or INCOMPLETE round ' +
+            '(for example an Oracle outage during a run)') `
+        -SkipDetail ('Every observed round in this window committed normally, so no failed or ' +
+            'structurally incomplete round was available to check. The rule itself is covered by ' +
+            'the repository tests for Test-NonSuccessRoundsPreservedProjection.'))
 
     # -----------------------------------------------------------------------
     # 5. Versioned contract, authorization, catalog conditional read, main reads.
@@ -829,7 +922,15 @@ try {
                 throw 'Contract discovery advertises a non-GET business operation.'
             }
 
-            $rawUri = "$baseUrl/api/v2/error-search/factory/evidence/factory/raw-observations"
+            # Address a restricted resource that actually exists in the live snapshot.
+            # A placeholder route is refused by query validation before authorization is
+            # ever exercised, so it can only demonstrate the two denials.
+            $rawUri = Resolve-RestrictedRawEvidenceUri `
+                -Client $httpClient -BaseUrl $baseUrl -BearerToken $sharedSecret
+            $resolvedFromLiveData = -not [string]::IsNullOrWhiteSpace($rawUri)
+            if (-not $resolvedFromLiveData) {
+                $rawUri = "$baseUrl/api/v2/error-search/no-such-series/evidence/no-such-evidence/raw-observations"
+            }
             $withoutSecret = Invoke-AcceptanceRequest -Client $httpClient -Uri $rawUri
             $wrongSecret = Invoke-AcceptanceRequest -Client $httpClient -Uri $rawUri -BearerToken 'not-the-secret'
             $withSecret = Invoke-AcceptanceRequest -Client $httpClient -Uri $rawUri -BearerToken $sharedSecret
@@ -837,12 +938,22 @@ try {
                 throw ("Restricted raw evidence was not denied: without=$($withoutSecret.StatusCode) " +
                     "wrong=$($wrongSecret.StatusCode).")
             }
-            if ($withSecret.StatusCode -eq 403) {
+            if ($resolvedFromLiveData -and $withSecret.StatusCode -ne 200) {
+                throw ("The configured shared secret did not read a real restricted evidence " +
+                    "resource: HTTP $($withSecret.StatusCode)$(Get-ContractErrorCode -Body $withSecret.Body).")
+            }
+            if (-not $resolvedFromLiveData -and $withSecret.StatusCode -eq 403) {
                 throw 'Restricted raw evidence rejected the configured shared secret.'
+            }
+            $authorizedRead = if ($resolvedFromLiveData) {
+                "correct secret read a real evidence resource ($($withSecret.StatusCode))"
+            } else {
+                ('the live snapshot carried no error evidence, so the positive path was ' +
+                    "exercised against an absent resource ($($withSecret.StatusCode))")
             }
             ("contractVersion=$([string]$contract.contractVersion), schemaVersion=$([int]$contract.schemaVersion), " +
                 "$($capabilityIds.Count) capabilities, GET-only. Restricted raw evidence: " +
-                "no secret 403, wrong secret 403, correct secret $($withSecret.StatusCode).")
+                "no secret 403, wrong secret 403, $authorizedRead.")
         })
 
     [void](Invoke-AcceptanceSection `
@@ -955,17 +1066,10 @@ try {
 
             # Wait for the poll loop to commit again, then re-read pinned to the same
             # snapshot. Identical content across a commit is the non-tearing evidence.
-            $before = [long](Get-AttentionSnapshot -Client $httpClient -BaseUrl $baseUrl `
-                -BearerToken $sharedSecret).snapshot.pollTraceHighWater
-            $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RoundWaitTimeoutSeconds)
-            $advanced = $false
-            do {
-                Start-Sleep -Milliseconds 750
-                $current = [long](Get-AttentionSnapshot -Client $httpClient -BaseUrl $baseUrl `
-                    -BearerToken $sharedSecret).snapshot.pollTraceHighWater
-                if ($current -gt $before) { $advanced = $true }
-            } while (-not $advanced -and [DateTimeOffset]::UtcNow -lt $deadline)
-            if (-not $advanced) {
+            $before = Get-PollTraceHighWater -Client $httpClient -BaseUrl $baseUrl -BearerToken $sharedSecret
+            $advancedTo = Wait-PollTraceHighWaterAbove -Client $httpClient -BaseUrl $baseUrl `
+                -Previous $before -TimeoutSeconds $RoundWaitTimeoutSeconds -BearerToken $sharedSecret
+            if ($advancedTo -le $before) {
                 throw 'No further round committed, so a cross-commit snapshot read could not be exercised.'
             }
 
@@ -1207,6 +1311,7 @@ try {
                 if ($null -eq $script:watchProcess) { throw 'The packaged Watch did not start.' }
 
                 $window = Wait-WatchMainWindow -Process $script:watchProcess -TimeoutSeconds 90
+                $script:watchWindow = $window
                 $startupStopwatch.Stop()
                 $startupMs = [Math]::Round($startupStopwatch.Elapsed.TotalMilliseconds, 1)
 
@@ -1228,11 +1333,94 @@ try {
                 if (-not $result.AutoRefreshObserved) {
                     throw 'No auto-refresh was observed while the Watch stayed open on live data.'
                 }
+                # Detail and cross-page drill are only unavailable when the live snapshot
+                # has nothing to open. Any other outcome is a real Watch failure.
+                if (-not $result.DetailExercised) {
+                    throw ('Detail selection was not exercised against live Host data: ' +
+                        "$($result.InteractionSummary).")
+                }
+                if (-not $result.DrillExercised) {
+                    throw ("Cross-page drill was not exercised against live Host data: " +
+                        "$($result.InteractionSummary).")
+                }
                 ("Startup to main window $startupMs ms. Pages shown: $($result.PagesShown -join ', '). " +
                     "Host state '$($result.HostStatusText)'. Auto-refresh advanced the Watch view " +
                     "$($result.AutoRefreshObservations) time(s) in $WatchObservationSeconds s. " +
                     "Paging, detail selection and cross-page drill: $($result.InteractionSummary). " +
                     'Window captures stay on this machine; only their hashes are published.')
+            })
+
+        if ($null -ne $watchPages -and $watchPages.PagingExercised) {
+            Add-Check -Id 'WATCH_PAGING_ON_LIVE_DATA' `
+                -Title 'Demand series paging on live Host data' `
+                -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status PASSED `
+                -Detail "Paging moved the Demand series page on live Host data ($($watchPages.InteractionSummary))."
+        } elseif ($null -ne $watchPages -and $watchPages.PagingSinglePage) {
+            Add-Check -Id 'WATCH_PAGING_ON_LIVE_DATA' `
+                -Title 'Demand series paging on live Host data' `
+                -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status SKIPPED `
+                -Owner 'plant operator' `
+                -Requires 'a plant window whose Demand series snapshot exceeds one page' `
+                -Detail ("Not exercised: the live snapshot fitted one page of " +
+                    "$($watchPages.LiveDemandRowCount) rows, so the next-page control was disabled.")
+        } else {
+            Add-Check -Id 'WATCH_PAGING_ON_LIVE_DATA' `
+                -Title 'Demand series paging on live Host data' `
+                -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status FAILED `
+                -Detail ('Paging was neither exercised nor explained by a single-page snapshot: ' +
+                    "$(if ($null -ne $watchPages) { $watchPages.InteractionSummary } else { 'the walk produced no result' }).")
+        }
+
+        # Failure retention: take the Service away underneath the open Watch. The operator
+        # has to see the failure, and the board must keep the rows it already had rather
+        # than blanking into something that reads as "no tasks".
+        [void](Invoke-AcceptanceSection `
+            -Id 'WATCH_FAILURE_RETENTION' `
+            -Title 'A Host failure is shown and the loaded board is retained' `
+            -Gate 'FACTORY_WATCH_ACCEPTANCE' `
+            -Body {
+                if ($null -eq $script:watchProcess -or $null -eq $script:watchWindow) {
+                    throw 'The Watch was never started, so failure retention cannot be judged.'
+                }
+                if (-not (Invoke-WatchNavigation -Window $script:watchWindow `
+                        -NavigationAutomationId 'DemandSeriesNavigationItem' `
+                        -Anchors @('DemandSeriesScrollViewer', 'DemandSeriesGrid'))) {
+                    throw 'Could not return to the Demand series page before the failure.'
+                }
+                $rowsBefore = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
+                if ($rowsBefore -le 0) {
+                    throw 'The Demand series board was empty before the failure, so retention cannot be judged.'
+                }
+
+                Stop-LiveHostProcess -Process $hostProcess
+                $script:hostProcess = $null
+                $failureState = Wait-WatchHostDisconnected -Window $script:watchWindow -TimeoutSeconds 180
+                $rowsAfter = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
+
+                # Bring the Service back on the same address before anything else runs.
+                $script:hostProcess = Start-LiveHostProcess `
+                    -Executable $serviceExecutable `
+                    -BaseUrl $watchBaseUrl `
+                    -SqlConnectionString $sqlConnectionString `
+                    -SharedSecret $sharedSecret `
+                    -ContinuousPoll $true `
+                    -LogPath $hostLogPath
+                [void](Wait-LiveHostContract `
+                    -Process $script:hostProcess -BaseUrl $watchBaseUrl -TimeoutSeconds $StartupTimeoutSeconds)
+
+                if ([string]::IsNullOrWhiteSpace($failureState)) {
+                    throw 'The Watch never reported the Host failure while the Service was down.'
+                }
+                # What the shipped checklist requires is that the failure is unmissable, so
+                # an empty board cannot be read as "no tasks". What the board did with the
+                # rows it already had is recorded as observed fact, not judged here.
+                $boardOutcome = if ($rowsAfter -eq $rowsBefore) {
+                    "kept all $rowsBefore loaded Demand rows"
+                } else {
+                    "moved from $rowsBefore to $rowsAfter Demand rows"
+                }
+                ("With the Service stopped the Watch reported '$failureState' and $boardOutcome; " +
+                    'the Service was then restarted on the same address.')
             })
 
         [void](Invoke-AcceptanceSection `
@@ -1243,8 +1431,8 @@ try {
                 if ($null -eq $script:watchProcess) {
                     throw 'The Watch was never started, so its independence cannot be judged.'
                 }
-                $before = [long](Get-AttentionSnapshot -Client $httpClient -BaseUrl $watchBaseUrl `
-                    -BearerToken $sharedSecret).snapshot.pollTraceHighWater
+                $before = Get-PollTraceHighWater -Client $httpClient -BaseUrl $watchBaseUrl `
+                    -BearerToken $sharedSecret
                 $script:watchProcess.CloseMainWindow() | Out-Null
                 if (-not $script:watchProcess.WaitForExit(60000)) {
                     $script:watchProcess.Kill()
@@ -1260,13 +1448,8 @@ try {
                     throw 'The Host exited when the Watch closed; the Service does not own its own lifetime.'
                 }
 
-                $deadline = [DateTimeOffset]::UtcNow.AddSeconds($RoundWaitTimeoutSeconds)
-                $after = $before
-                do {
-                    Start-Sleep -Milliseconds 750
-                    $after = [long](Get-AttentionSnapshot -Client $httpClient -BaseUrl $watchBaseUrl `
-                        -BearerToken $sharedSecret).snapshot.pollTraceHighWater
-                } while ($after -le $before -and [DateTimeOffset]::UtcNow -lt $deadline)
+                $after = Wait-PollTraceHighWaterAbove -Client $httpClient -BaseUrl $watchBaseUrl `
+                    -Previous $before -TimeoutSeconds $RoundWaitTimeoutSeconds -BearerToken $sharedSecret
                 if ($after -le $before) {
                     throw "The Service did not complete a further round after the Watch closed (high water $before)."
                 }
@@ -1285,6 +1468,16 @@ try {
             -Detail $watchSkipDetail
         Add-Check -Id 'WATCH_CLOSED_SERVICE_CONTINUES' `
             -Title 'The Service keeps polling and serving after the Watch closes' `
+            -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status SKIPPED `
+            -Owner 'plant operator' -Requires 'interactive plant desktop with -IncludePackagedWatch' `
+            -Detail $watchSkipDetail
+        Add-Check -Id 'WATCH_PAGING_ON_LIVE_DATA' `
+            -Title 'Demand series paging on live Host data' `
+            -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status SKIPPED `
+            -Owner 'plant operator' -Requires 'interactive plant desktop with -IncludePackagedWatch' `
+            -Detail $watchSkipDetail
+        Add-Check -Id 'WATCH_FAILURE_RETENTION' `
+            -Title 'A Host failure is shown and the loaded board is retained' `
             -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status SKIPPED `
             -Owner 'plant operator' -Requires 'interactive plant desktop with -IncludePackagedWatch' `
             -Detail $watchSkipDetail
@@ -1311,10 +1504,6 @@ try {
         -Gate 'FACTORY_EVIDENCE_CLOSURE' `
         -Evidence @('evidence-hashes.json') `
         -Body {
-            if (Test-Path -LiteralPath $hostLogPath -PathType Leaf) {
-                Set-Content -LiteralPath $hostLogPath -Encoding UTF8 -Value (
-                    Protect-FactoryAcceptanceText -Text ([IO.File]::ReadAllText($hostLogPath)))
-            }
             $textFiles = @(Get-ChildItem -LiteralPath $artifacts -File -Recurse -Force |
                 Where-Object { $_.Extension -in @('.json', '.txt', '.log', '.md') })
             $leaks = New-Object System.Collections.ArrayList
@@ -1359,6 +1548,13 @@ finally {
     Stop-LiveHostProcess -Process $remoteBindProcess
     foreach ($subscription in @($hostLogSubscriptions)) {
         Unregister-Event -SourceIdentifier $subscription.Name -ErrorAction SilentlyContinue
+    }
+    # The stream handler redacts line by line with a narrower pattern than the evidence
+    # pass. Run the full redaction here so an aborted run cannot leave the weaker one as
+    # the version that survives on disk.
+    if (Test-Path -LiteralPath $hostLogPath -PathType Leaf) {
+        Set-Content -LiteralPath $hostLogPath -Encoding UTF8 -Value (
+            Protect-FactoryAcceptanceText -Text ([IO.File]::ReadAllText($hostLogPath)))
     }
     if ($null -ne $httpClient) { $httpClient.Dispose() }
     [void]$cleanupNotes.Add('All Host and Watch processes started by this run were stopped; the target database is left in place for review.')

@@ -278,6 +278,86 @@ function Save-WatchWindowCapture {
 
 <#
 .SYNOPSIS
+  Navigate the workspace to one page and wait for it to render.
+#>
+function Invoke-WatchNavigation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window,
+        [Parameter(Mandatory = $true)][string] $NavigationAutomationId,
+        [Parameter(Mandatory = $true)][string[]] $Anchors,
+        [ValidateRange(1, 600)][int] $TimeoutSeconds = 30
+    )
+
+    $navigation = Find-WatchElement -Root $Window -AutomationId $NavigationAutomationId -TimeoutSeconds 20
+    if ($null -eq $navigation) { return $false }
+    if (-not (Invoke-WatchElement -Element $navigation -Window $Window)) { return $false }
+    return $null -ne (Wait-WatchAnyElementVisible -Root $Window -AutomationIds $Anchors -TimeoutSeconds $TimeoutSeconds)
+}
+
+<#
+.SYNOPSIS
+  Count the data rows a grid is currently showing.
+#>
+function Get-WatchGridRowCount {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window,
+        [Parameter(Mandatory = $true)][string] $AutomationId,
+        [ValidateRange(0, 600)][int] $TimeoutSeconds = 20
+    )
+
+    $grid = Find-WatchElement -Root $Window -AutomationId $AutomationId -TimeoutSeconds $TimeoutSeconds
+    if ($null -eq $grid) { return -1 }
+    return @($grid.FindAll(
+        [Windows.Automation.TreeScope]::Children,
+        [Windows.Automation.PropertyCondition]::new(
+            [Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [Windows.Automation.ControlType]::DataItem))).Count
+}
+
+<#
+.SYNOPSIS
+  Read the compact Host state the operator sees in the navigation footer.
+#>
+function Get-WatchCompactHostState {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window)
+
+    $element = Find-WatchElement -Root $Window -AutomationId 'HostNavigationItem' -TimeoutSeconds 10
+    if ($null -eq $element) { return '' }
+    return [string]$element.Current.Name
+}
+
+<#
+.SYNOPSIS
+  Wait until the compact Host state stops reporting a connected Host.
+
+.DESCRIPTION
+  Used to observe what the Watch does when the Service goes away underneath it: the
+  operator has to see the failure, and the board must not silently blank into something
+  that reads as "no tasks".
+#>
+function Wait-WatchHostDisconnected {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window,
+        [ValidateRange(1, 600)][int] $TimeoutSeconds = 120
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        $state = Get-WatchCompactHostState -Window $Window
+        if (-not [string]::IsNullOrWhiteSpace($state) -and $state -notmatch '已连接') {
+            return $state
+        }
+        Start-Sleep -Milliseconds 1000
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    return ''
+}
+
+<#
+.SYNOPSIS
   Walk the packaged Watch across its pages against live Host data.
 
 .DESCRIPTION
@@ -352,6 +432,11 @@ function Invoke-WatchPageWalk {
     $autoRefreshObservations = [Math]::Max(0, $observedContexts.Count - 1)
 
     $interactions = New-Object System.Collections.ArrayList
+    $detailExercised = $false
+    $drillExercised = $false
+    $pagingExercised = $false
+    $pagingSinglePage = $false
+    $liveRowCount = -1
 
     # Paging and detail selection on the Demand series page.
     $seriesNavigation = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesNavigationItem' -TimeoutSeconds 10
@@ -368,12 +453,14 @@ function Invoke-WatchPageWalk {
                     [Windows.Automation.AutomationElement]::ControlTypeProperty,
                     [Windows.Automation.ControlType]::DataItem)))
         }
+        $liveRowCount = $rows.Count
         if ($rows.Count -eq 0) {
             [void]$interactions.Add('detail selection: not exercised (the live snapshot had no Demand rows)')
         } else {
             if (Invoke-WatchElement -Element $rows[0] -Window $Window) {
                 $detail = Wait-WatchElementVisible -Root $Window -AutomationId 'DemandSeriesEventGrid' -TimeoutSeconds 20
                 if ($null -ne $detail) {
+                    $detailExercised = $true
                     [void]$interactions.Add("detail selection: exercised on 1 of $($rows.Count) live rows")
                 } else {
                     [void]$interactions.Add('detail selection: selected a live row but no detail grid appeared')
@@ -387,6 +474,7 @@ function Invoke-WatchPageWalk {
         if ($null -eq $nextButton) {
             [void]$interactions.Add('paging: not exercised (no next-page control)')
         } elseif (-not $nextButton.Current.IsEnabled) {
+            $pagingSinglePage = $true
             [void]$interactions.Add("paging: not exercised (the live snapshot fits one page of $($rows.Count) rows)")
         } else {
             $pageInput = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesPageNumberInput' -TimeoutSeconds 10
@@ -397,6 +485,7 @@ function Invoke-WatchPageWalk {
             Start-Sleep -Milliseconds 1500
             $after = Get-WatchElementText -Element $pageInput
             if ($after -cne $before) {
+                $pagingExercised = $true
                 [void]$interactions.Add("paging: exercised on live data (page $before -> $after)")
             } else {
                 # The live snapshot decides whether a second page exists at all, so the
@@ -421,6 +510,7 @@ function Invoke-WatchPageWalk {
             $errorPage = Wait-WatchAnyElementVisible -Root $Window `
                 -AutomationIds @('ErrorSearchBodyScrollViewer', 'ErrorSearchSeriesGrid') -TimeoutSeconds 30
             if ($null -ne $errorPage) {
+                $drillExercised = $true
                 [void]$interactions.Add('cross-page drill: exercised from an attention item into error search')
             } else {
                 [void]$interactions.Add('cross-page drill: the attention item did not open the error search page')
@@ -438,6 +528,11 @@ function Invoke-WatchPageWalk {
         AutoRefreshObservations = $autoRefreshObservations
         AutoRefreshObserved = ($autoRefreshObservations -gt 0)
         InteractionSummary = (@($interactions) -join '; ')
+        DetailExercised = $detailExercised
+        DrillExercised = $drillExercised
+        PagingExercised = $pagingExercised
+        PagingSinglePage = $pagingSinglePage
+        LiveDemandRowCount = $liveRowCount
         WindowMaximised = $maximised
         Captures = @($captures)
     }
