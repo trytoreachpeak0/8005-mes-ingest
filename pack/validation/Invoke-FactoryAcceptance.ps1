@@ -1395,7 +1395,9 @@ $summary | ConvertTo-Json -Depth 10 |
 $report = New-Object System.Collections.ArrayList
 [void]$report.Add("# MesIngest factory acceptance — $($summary.status)")
 [void]$report.Add('')
-[void]$report.Add("Run `$runId` on $([Environment]::MachineName) at $([DateTimeOffset]::Now.ToString('O')).")
+[void]$report.Add("Run $runId on $([Environment]::MachineName) at $([DateTimeOffset]::Now.ToString('O')).")
+[void]$report.Add('')
+[void]$report.Add("Package source commit: $(if ($null -ne $packageIdentity) { $packageIdentity.SourceCommit } else { 'UNKNOWN' }).")
 [void]$report.Add('')
 [void]$report.Add('| Check | Gate | Status | Detail |')
 [void]$report.Add('| --- | --- | --- | --- |')
