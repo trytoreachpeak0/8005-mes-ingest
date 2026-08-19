@@ -1,4 +1,5 @@
 using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
 
 namespace MesIngest.Host;
 
@@ -6,11 +7,17 @@ public sealed class MesIngestHostOptions
 {
     public const string SectionName = "MesIngest";
 
-    /// <summary>Snapshot adapter: File (recorded CSV) or Oracle (production MES_TASK_UNION).</summary>
-    public string SnapshotSource { get; set; } = "File";
+    /// <summary>Round source value that hosts no MES round source at all.</summary>
+    public const string NoRoundSource = "None";
 
-    /// <summary>Path to a recorded MES_TASK_UNION CSV. Required for file snapshot mode.</summary>
-    public string SnapshotCsvPath { get; set; } = "";
+    /// <summary>Round source value that hosts the production Oracle MES_TASK_UNION source.</summary>
+    public const string OracleRoundSource = "Oracle";
+
+    /// <summary>
+    /// Round source adapter. <c>Oracle</c> hosts the production MES_TASK_UNION round source;
+    /// <c>None</c> hosts no round source and is only for API-surface fixtures.
+    /// </summary>
+    public string SnapshotSource { get; set; } = NoRoundSource;
 
     /// <summary>
     /// Directory containing published query folders (default: queries beside the host).
@@ -42,10 +49,6 @@ public sealed class MesIngestHostOptions
 
     public int OracleMaxPoolSize { get; set; } = 4;
 
-    /// <summary>Go-live baseline; rows with DATES earlier are not created as VISIBLE.</summary>
-    public DateTimeOffset GoLiveBaseline { get; set; } =
-        new(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8));
-
     /// <summary>
     /// When true, run one ingest round during host startup (before listening).
     /// Prefer continuous poll for production; keep one-shot for demos/tests.
@@ -64,9 +67,6 @@ public sealed class MesIngestHostOptions
     /// <summary>Per-round snapshot read timeout in seconds.</summary>
     public int QueryTimeoutSeconds { get; set; } = 30;
 
-    /// <summary>Consecutive successful absences before a VISIBLE demand becomes GONE.</summary>
-    public int DisappearThreshold { get; set; } = 2;
-
     /// <summary>
     /// Enter PAUSED_ZERO_DROP when prior healthy non-zero count for a TASK_TYPE
     /// is at/above this threshold and the next successful count is 0.
@@ -76,7 +76,7 @@ public sealed class MesIngestHostOptions
     /// <summary>
     /// Consecutive successful non-zero rounds required to clear PAUSED_ZERO_DROP.
     /// </summary>
-    public int ZeroDropClearStreak { get; set; } = TransportDemandReconciler.DefaultZeroDropClearStreak;
+    public int ZeroDropClearStreak { get; set; } = TaskTypeProtectionPolicy.RequiredRecoveryStreak;
 
     /// <summary>
     /// Kestrel listen URLs. Default is localhost-only. Binding beyond localhost requires SharedSecret.
@@ -91,35 +91,14 @@ public sealed class MesIngestHostOptions
     public string SharedSecret { get; set; } = "";
 
     /// <summary>
-    /// SQL Server connection string for durable projection. When empty, Host uses in-memory store
-    /// (tests / local CSV demos). Put real credentials in appsettings.Local.json or env vars — never commit.
-    /// </summary>
-    public string SqlServerConnectionString { get; set; } = "";
-
-    /// <summary>
-    /// Allows the legacy schema/API alongside v2 only while running in the ASP.NET Core
-    /// Development environment. Production ignores this flag whenever v2 is configured.
-    /// </summary>
-    public bool EnableLegacyDevelopmentEndpoints { get; set; }
-
-    /// <summary>
-    /// Dedicated SQL Server connection string for the isolated new-MesIngest schema.
-    /// Required by the production Host. Development may omit it only to run the explicitly
-    /// enabled legacy surface. Put real credentials in local configuration or environment
+    /// SQL Server connection string for the MesIngest projection schema. Required by the
+    /// production Host; only API-surface fixtures may omit it. The key keeps its
+    /// <c>New</c> prefix on purpose: a configuration file written for the retired contract
+    /// cannot carry it, so a stale file fails startup instead of pointing this Host at the
+    /// retired database. Put real credentials in local configuration or environment
     /// variables only.
     /// </summary>
     public string NewSqlServerConnectionString { get; set; } = "";
-
-    /// <summary>
-    /// DemandChangeFeed retention in hours. Default 48. 0 keeps the ledger permanently.
-    /// </summary>
-    public int ChangeFeedRetentionHours { get; set; } = 48;
-
-    /// <summary>
-    /// Resolved IngestAlert retention in days. Default 365. 0 keeps resolved incidents permanently.
-    /// Active incidents are never purged by retention.
-    /// </summary>
-    public int AlertRetentionDays { get; set; } = 365;
 
     /// <summary>
     /// Path to a recorded MES_TASK_UNION rounds file. When set, the production round
@@ -137,7 +116,52 @@ public sealed class MesIngestHostOptions
     public string ReplayRoundsAcknowledgement { get; set; } = "";
 
     public bool IsOracleSnapshotSource() =>
-        SnapshotSource.Equals("Oracle", StringComparison.OrdinalIgnoreCase);
+        SnapshotSource.Equals(OracleRoundSource, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Configuration keys that belonged to the retired MesIngest contract. They are rejected
+    /// rather than ignored so a stale deployment file cannot look accepted while the value it
+    /// carries — a retired database, a change-feed retention, a frozen-field switch — silently
+    /// does nothing.
+    /// </summary>
+    public static readonly string[] RetiredConfigurationKeys =
+    [
+        "AlertRetentionDays",
+        "ChangeFeedRetentionHours",
+        "DisappearThreshold",
+        "EnableLegacyDevelopmentEndpoints",
+        "GoLiveBaseline",
+        "SnapshotCsvPath",
+        "SqlServerConnectionString",
+    ];
+
+    /// <summary>
+    /// Fails startup when the bound configuration still carries a retired key, or names a
+    /// round source this release does not have.
+    /// </summary>
+    public void ValidateContractShape(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var section = configuration.GetSection(SectionName);
+        var present = RetiredConfigurationKeys
+            .Where(key => section.GetSection(key).Exists())
+            .ToArray();
+        if (present.Length > 0)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName} configuration still contains retired keys: "
+                + string.Join(", ", present)
+                + ". They belonged to the replaced MesIngest contract; remove them and use the "
+                + "current appsettings template.");
+        }
+
+        if (!SnapshotSource.Equals(OracleRoundSource, StringComparison.OrdinalIgnoreCase)
+            && !SnapshotSource.Equals(NoRoundSource, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:SnapshotSource must be {OracleRoundSource} or {NoRoundSource}.");
+        }
+    }
 
     public OracleClientMode ParseOracleMode()
     {

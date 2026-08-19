@@ -68,6 +68,9 @@ $required = @(
     "scripts\install-service.ps1",
     "scripts\uninstall-service.ps1",
     "scripts\Test-ReleasePackage.ps1",
+    "scripts\cutover\CutoverSqlTools.ps1",
+    "scripts\cutover\Invoke-EmptyDatabaseCutover.ps1",
+    "scripts\cutover\Invoke-CutoverRollback.ps1",
     "validation\Invoke-FactoryValidation.ps1",
     "validation\Invoke-ReleaseSmoke.ps1",
     "validation\release-smoke-rounds.json",
@@ -226,6 +229,9 @@ $forbiddenPackageTerms = @(
     'ChangeFeedRetentionHours',
     'AlertRetentionDays',
     'SnapshotCsvPath',
+    'EnableLegacyDevelopmentEndpoints',
+    'GoLiveBaseline',
+    'DisappearThreshold',
     # NewSqlServerConnectionString is the production key and must not trip this.
     '(?<!New)SqlServerConnectionString'
 )
@@ -249,6 +255,38 @@ foreach ($relativeScanPath in $legacyScanRelativePaths) {
             }
         }
     }
+}
+
+# Ticket 25: database deletion may exist only in the attended cutover drill. Any other
+# packaged script that can DROP a database, and any bypass of the typed target
+# confirmation, would be an unattended path against an unconfirmed instance.
+$packagedScripts = @(
+    Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File -Recurse -ErrorAction SilentlyContinue)
+$cutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-EmptyDatabaseCutover.ps1'
+$cutoverToolsPath = Join-Path $root 'scripts\cutover\CutoverSqlTools.ps1'
+$rollbackEntryPoint = Join-Path $root 'scripts\cutover\Invoke-CutoverRollback.ps1'
+$dropCapablePaths = @(
+    $packagedScripts |
+        Where-Object { [IO.File]::ReadAllText($_.FullName) -imatch 'DROP\s+DATABASE' } |
+        ForEach-Object { $_.FullName })
+$unexpectedDropPaths = @(
+    $dropCapablePaths | Where-Object { $_ -ne $cutoverEntryPoint -and $_ -ne $cutoverToolsPath })
+if ($unexpectedDropPaths.Count -gt 0) {
+    throw ('Release package ships a database-deleting path outside the attended cutover drill: ' +
+        ($unexpectedDropPaths -join '; '))
+}
+foreach ($drillPath in @($cutoverEntryPoint, $rollbackEntryPoint)) {
+    $drillText = [IO.File]::ReadAllText($drillPath)
+    if ($drillText -notmatch 'Assert-CutoverOperatorConfirmation') {
+        throw "Cutover drill does not require the typed target confirmation: $drillPath"
+    }
+    if ($drillText -imatch '\[switch\]\s*\$(Force|Yes|NonInteractive|Unattended)') {
+        throw "Cutover drill exposes an unattended bypass switch: $drillPath"
+    }
+}
+$cutoverToolsText = [IO.File]::ReadAllText($cutoverToolsPath)
+if ($cutoverToolsText -notmatch 'Read-Host') {
+    throw 'Cutover confirmation is not read from the console; an unattended run could satisfy it.'
 }
 
 $queryFiles = @(Get-ChildItem -LiteralPath $root -Filter "*.sql" -File -Force -Recurse -ErrorAction SilentlyContinue)

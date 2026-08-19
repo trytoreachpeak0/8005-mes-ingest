@@ -37,6 +37,9 @@ public class InstallPackageLayoutTests
         Assert.True(File.Exists(Path.Combine(pack, "UPGRADE.md")));
         Assert.True(File.Exists(Path.Combine(pack, "install-service.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "uninstall-service.ps1")));
+        Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-EmptyDatabaseCutover.ps1")));
+        Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-CutoverRollback.ps1")));
+        Assert.True(File.Exists(Path.Combine(pack, "cutover", "CutoverSqlTools.ps1")));
 
         var install = File.ReadAllText(Path.Combine(pack, "INSTALL.md"));
         Assert.Contains("Start-Service", install, StringComparison.OrdinalIgnoreCase);
@@ -47,11 +50,17 @@ public class InstallPackageLayoutTests
 
         var upgrade = File.ReadAllText(Path.Combine(pack, "UPGRADE.md"));
         Assert.Contains("BACKUP DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("RESTORE DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RESTORE VERIFYONLY", upgrade, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("NewSqlServerConnectionString", upgrade, StringComparison.Ordinal);
         Assert.Contains("service/queries/mes-task-union/query.sql", upgrade, StringComparison.Ordinal);
         Assert.Contains("/api/v2/contract", upgrade, StringComparison.Ordinal);
-        Assert.Contains("openapi/v1.json", upgrade, StringComparison.OrdinalIgnoreCase);
+        // Ticket 25: the runbook is a cutover, not an upgrade. It must name the one
+        // attended drill that deletes a database and the rollback that restores the
+        // previous deployment whole.
+        Assert.Contains("Invoke-EmptyDatabaseCutover.ps1", upgrade, StringComparison.Ordinal);
+        Assert.Contains("Invoke-CutoverRollback.ps1", upgrade, StringComparison.Ordinal);
+        Assert.Contains("BOOTSTRAPPED_CURRENT_CONDITION", upgrade, StringComparison.Ordinal);
+        Assert.DoesNotContain("openapi/v1.json", upgrade, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -73,6 +82,9 @@ public class InstallPackageLayoutTests
                      "SqlServerConnectionString",
                      "ChangeFeedRetentionHours",
                      "AlertRetentionDays",
+                     "GoLiveBaseline",
+                     "DisappearThreshold",
+                     "EnableLegacyDevelopmentEndpoints",
                  })
         {
             Assert.False(
@@ -136,7 +148,10 @@ public class InstallPackageLayoutTests
         // ADR-mes-0017 retires the v1 surface, and INSTALL.md has to name
         // `/openapi/v1.json` in order to say it is gone. Forbidding the string
         // outright would forbid the sentence the contract needs, so what is
-        // checked is that no mention presents v1 as a surface still served.
+        // checked is that no mention presents it as a surface still served.
+        // Ticket 25 removed the development-only surface too, so a mention now
+        // has to say the route is retired or returns 404 — never that some
+        // environment still serves it.
         var v1Mentions = File.ReadAllLines(installPath)
             .Where(line => line.Contains("openapi/v1.json", StringComparison.OrdinalIgnoreCase))
             .ToArray();
@@ -144,7 +159,7 @@ public class InstallPackageLayoutTests
         Assert.NotEmpty(v1Mentions);
         Assert.All(v1Mentions, line => Assert.True(
             line.Contains("404", StringComparison.Ordinal) ||
-            line.Contains("Development", StringComparison.OrdinalIgnoreCase),
+            line.Contains("退役", StringComparison.Ordinal),
             $"INSTALL.md mentions /openapi/v1.json without retiring it on the same line: {line.Trim()}"));
         Assert.DoesNotContain("临时 CSV", install, StringComparison.Ordinal);
         Assert.DoesNotContain("内存投影", install, StringComparison.Ordinal);
@@ -197,6 +212,8 @@ public class InstallPackageLayoutTests
                      "watch.appsettings.Local.json.example",
                      "Test-ReleasePackage.ps1",
                      "Invoke-ReleaseSmoke.ps1",
+                     "Invoke-EmptyDatabaseCutover.ps1",
+                     "Invoke-CutoverRollback.ps1",
                  })
         {
             Assert.Contains(name, script, StringComparison.Ordinal);

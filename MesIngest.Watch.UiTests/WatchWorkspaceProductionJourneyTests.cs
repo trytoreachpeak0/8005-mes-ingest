@@ -591,7 +591,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             cancellationToken,
             "http://127.0.0.1:51543");
 
-        var artifactRoot = WatchWindowJourneyTests.ResolveArtifactRoot();
+        var artifactRoot = WatchWindowJourneySupport.ResolveArtifactRoot();
         var journeyName = "production-workspace-19-22";
         var runtimeRoot = Path.Combine(artifactRoot, "runtime", journeyName);
         var logDirectory = Path.Combine(runtimeRoot, "logs");
@@ -616,13 +616,13 @@ public sealed class WatchWorkspaceProductionJourneyTests
             [Credential]);
         RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
         evidence.RecordEnvironment(
-            WatchWindowJourneyTests.FormatEnvironment(WatchVisualEnvironment.Capture()));
+            WatchVisualEnvironmentEvidence.Format(WatchVisualEnvironment.Capture()));
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = WatchWindowJourneyTests.ResolveWatchExecutable(),
+            FileName = WatchWindowJourneySupport.ResolveWatchExecutable(),
             WorkingDirectory = Path.GetDirectoryName(
-                WatchWindowJourneyTests.ResolveWatchExecutable())!,
+                WatchWindowJourneySupport.ResolveWatchExecutable())!,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1046,12 +1046,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
             evidence.RecordUiaTree(
                 chromeUiaEvidence
                 + Environment.NewLine
-                + WatchWindowJourneyTests.DumpUiaTree(window, automation));
+                + WatchWindowJourneySupport.DumpUiaTree(window, automation));
         }
         catch (Exception exception)
         {
             failure = exception;
-            failureRecorded = WatchWindowJourneyTests.TryRecordFailure(
+            failureRecorded = WatchWindowJourneySupport.TryRecordFailure(
                 evidence,
                 failedStep,
                 failure,
@@ -1088,13 +1088,13 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
             try
             {
-                await WatchWindowJourneyTests.WaitForExitAsync(
+                await WatchWindowJourneySupport.WaitForExitAsync(
                     process,
                     CancellationToken.None);
             }
             catch (Exception exception)
             {
-                WatchWindowJourneyTests.CaptureCleanupFailure(
+                WatchWindowJourneySupport.CaptureCleanupFailure(
                     ref failure,
                     ref failedStep,
                     exception,
@@ -1107,7 +1107,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             }
             catch (Exception exception)
             {
-                WatchWindowJourneyTests.CaptureCleanupFailure(
+                WatchWindowJourneySupport.CaptureCleanupFailure(
                     ref failure,
                     ref failedStep,
                     exception,
@@ -1122,7 +1122,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             }
             catch (Exception exception)
             {
-                WatchWindowJourneyTests.CaptureCleanupFailure(
+                WatchWindowJourneySupport.CaptureCleanupFailure(
                     ref failure,
                     ref failedStep,
                     exception,
@@ -1135,7 +1135,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             }
             catch (Exception exception)
             {
-                WatchWindowJourneyTests.CaptureCleanupFailure(
+                WatchWindowJourneySupport.CaptureCleanupFailure(
                     ref failure,
                     ref failedStep,
                     exception,
@@ -1147,7 +1147,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
         {
             if (!failureRecorded)
             {
-                WatchWindowJourneyTests.TryRecordFailure(
+                WatchWindowJourneySupport.TryRecordFailure(
                     evidence,
                     failedStep,
                     failure,
@@ -2585,7 +2585,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
         try
         {
             evidence.RecordUiaTree(
-                WatchWindowJourneyTests.DumpUiaTree(window, automation));
+                WatchWindowJourneySupport.DumpUiaTree(window, automation));
         }
         catch (Exception treeFailure)
         {
@@ -2678,7 +2678,6 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     private static string RedactedEndpointShape(FakeHostOperation operation) => operation switch
     {
-        FakeHostOperation.Contract => "/api/contract",
         FakeHostOperation.ContractV2 => "/api/v2/contract",
         FakeHostOperation.OverviewV2 => "/api/v2/watch-overview{?redacted-query}",
         FakeHostOperation.DemandSeriesV2 => "/api/v2/demand-series{?redacted-query}",
@@ -2695,11 +2694,6 @@ public sealed class WatchWorkspaceProductionJourneyTests
             "/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations{?redacted-query}",
         FakeHostOperation.CurrentAttentionV2 =>
             "/api/v2/current-ingest-attention{?redacted-query}",
-        FakeHostOperation.PollHealth => "/api/poll-health",
-        FakeHostOperation.Snapshot => "watch-snapshot",
-        FakeHostOperation.DemandPage => "/api/demands{?redacted-query}",
-        FakeHostOperation.AlertPage => "/api/alerts{?redacted-query}",
-        FakeHostOperation.ExactDemand => "/api/demands/{demandId}",
         _ => "(redacted-endpoint)",
     };
 }

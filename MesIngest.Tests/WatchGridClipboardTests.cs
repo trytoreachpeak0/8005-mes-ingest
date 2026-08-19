@@ -85,7 +85,7 @@ public class WatchGridClipboardTests
     public void Projects_demand_row_in_grid_column_order_with_null_gone_at()
     {
         var beijing = ResolveTz("China Standard Time", "Asia/Shanghai");
-        var demand = new WatchDemandDto(
+        var demand = new ClipboardDemandRow(
             DemandId: "deadbeef",
             TaskType: "DIE_TO_OVEN",
             Sublot: "S1",
@@ -157,7 +157,7 @@ public class WatchGridClipboardTests
     [Fact]
     public void Projects_alert_row_preserving_column_order()
     {
-        var alert = new WatchAlertDto(
+        var alert = new ClipboardAlertRow(
             AlertId: "a1",
             Code: "POLL_FAILURE",
             Severity: "ERROR",
@@ -191,4 +191,41 @@ public class WatchGridClipboardTests
             new[] { "Code", "created", "TASK_TYPE", "SUBLOT", "DemandId", "Message" },
             headers);
     }
+
+    /// <summary>
+    /// A grid row shape only. WatchGridClipboard projects by column binding path, so
+    /// these tests need a row with the paths a grid binds — not a contract DTO.
+    /// </summary>
+    private sealed record ClipboardDemandRow(
+        string DemandId,
+        string TaskType,
+        string Sublot,
+        string? Area,
+        string? Eqp,
+        string? Step,
+        DateTimeOffset Dates,
+        string? Package,
+        string Status,
+        DateTimeOffset MesLastSeenAt,
+        int DisappearCount,
+        bool LocationRisk,
+        string? LocationRiskCode,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset? GoneAt);
+
+    private sealed record ClipboardAlertRow(
+        string AlertId,
+        string Code,
+        string Severity,
+        string? TaskType,
+        string? Sublot,
+        string? DemandId,
+        string? Message,
+        string? Details,
+        DateTimeOffset? FirstSeenAt,
+        DateTimeOffset? LastSeenAt,
+        int OccurrenceCount,
+        bool IsActive,
+        DateTimeOffset? ResolvedAt,
+        DateTimeOffset? CreatedAt);
 }

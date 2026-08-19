@@ -7,8 +7,6 @@ param(
     [ValidateSet(
         'all',
         'watch-vm-tests',
-        'watch-xaml-visual',
-        'watch-xaml-stability',
         'watch-ui-journeys',
         'watch-production-preview',
         'watch-window-visual',
@@ -77,7 +75,6 @@ $source = (Resolve-Path -LiteralPath $SourceDirectory).Path
 $requiredFiles = @(
     'Invoke-WatchUiTests.ps1',
     'WatchBaselineTools.ps1',
-    'Test-WatchXamlBaselineStability.ps1',
     'Test-WatchWindowBaselineStability.ps1',
     'Test-WatchUiGateStability.ps1',
     'Test-GoldenRendererEnvironment.ps1',
@@ -508,11 +505,6 @@ try {
             packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash
         } | ConvertTo-Json -Depth 4 |
             Set-Content -LiteralPath (Join-Path $Root 'Results\release-gates-passed.json') -Encoding utf8
-    }
-    elseif ($Suite -eq 'watch-xaml-stability') {
-        & '.\Test-WatchXamlBaselineStability.ps1' `
-            -Configuration $Configuration `
-            -Runs $Runs 2>&1 | Tee-Object -FilePath $logPath -Append
     }
     elseif ($Suite -eq 'watch-window-stability') {
         & '.\Test-WatchWindowBaselineStability.ps1' `

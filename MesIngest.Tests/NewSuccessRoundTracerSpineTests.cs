@@ -37,7 +37,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] =
                 "Server=invalid.example;Database=invalid;User Id=invalid;Password=invalid;Encrypt=false",
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
@@ -111,7 +111,6 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             Assert.Equal(HttpStatusCode.NotFound, legacyContract.StatusCode);
             using var legacyOpenApi = await client.GetAsync("/openapi/v1.json");
             Assert.Equal(HttpStatusCode.NotFound, legacyOpenApi.StatusCode);
-            Assert.Null(factory.Services.GetService<MesIngest.Core.ITransportDemandStore>());
 
             var series = await client.GetFromJsonAsync<JsonElement>(
                 "/api/v2/demand-series/by-key?workType=WIRE_TO_NITROGEN&sublot=SL-TICKET01-001");
@@ -466,7 +465,7 @@ public sealed class NewSuccessRoundTracerSpineTests : IClassFixture<WebApplicati
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "true",
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });

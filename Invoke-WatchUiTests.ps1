@@ -3,7 +3,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [ValidateSet("all", "watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual", "watch-production-preview", "watch-window-candidate-equivalence")]
+    [ValidateSet("all", "watch-vm-tests", "watch-ui-journeys", "watch-window-visual", "watch-production-preview", "watch-window-candidate-equivalence")]
     [string]$Suite = "watch-vm-tests",
 
     [string]$ArtifactsDirectory,
@@ -25,7 +25,7 @@ param(
     # exe starts in 0.7 s). It is not why the XAML gate is slow. In that gate an iteration
     # costs ~7.3 min, of which xUnit reports 38.6 s of tests and ~6 min is the test process
     # sitting between its last written capture and process exit - see the note in
-    # Test-WatchXamlBaselineStability.ps1.
+    # Test-WatchWindowBaselineStability.ps1.
     [switch]$ReuseBuild
 )
 
@@ -120,7 +120,6 @@ if ($desktop -eq [IntPtr]::Zero) {
 [void][WatchUiDesktop.NativeMethods]::CloseDesktop($desktop)
 
 $project = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\MesIngest.Watch.UiTests.csproj"
-$xamlBaselineDirectory = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\Baselines\SelectedUi"
 $baselineDirectory = Join-Path $PSScriptRoot "MesIngest.Watch.UiTests\WindowBaselines"
 $resolvedArtifacts = if ([string]::IsNullOrWhiteSpace($ArtifactsDirectory)) {
     Join-Path $PSScriptRoot ("TestResults\watch-ui\" + (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
@@ -172,7 +171,7 @@ try {
     }
 
     $suites = if ($Suite -eq "all") {
-        @("watch-vm-tests", "watch-xaml-visual", "watch-ui-journeys", "watch-window-visual")
+        @("watch-vm-tests", "watch-ui-journeys", "watch-window-visual")
     } elseif ($Suite -eq "watch-production-preview") {
         # Tickets 19-22 share one production-UI preview train. Keep the
         # non-pixel/UIA checks and real-window captures in one deployed payload
@@ -183,17 +182,7 @@ try {
     }
 
     foreach ($currentSuite in $suites) {
-        if ($currentSuite -eq "watch-xaml-visual") {
-            if ($isNarrowedRun) {
-                Write-Host ("WATCH_UI_PARTIAL_RECEIVED_RETAINED: a narrowed run does not clear existing " +
-                    "*.received.* files, because it does not regenerate the scenarios it skips.")
-            } else {
-                Get-ChildItem -LiteralPath $xamlBaselineDirectory -Filter "*.received.*" -File -ErrorAction SilentlyContinue |
-                    Remove-Item -Force
-            }
-        }
-
-        $requiresVisualProbe = $currentSuite -in @("watch-xaml-visual", "watch-window-visual")
+        $requiresVisualProbe = $currentSuite -eq "watch-window-visual"
         if ($requiresVisualProbe) {
             $probeVariable = "MESINGEST_WATCH_REQUIRE_VISUAL_ENVIRONMENT"
             $previousProbeValue = [Environment]::GetEnvironmentVariable($probeVariable)
@@ -259,11 +248,13 @@ try {
 
         $traitArgument = if ($currentSuite -eq "watch-vm-tests") {
             @(
-                "-trait-", "Category=watch-xaml-visual",
                 "-trait-", "Category=watch-ui-journeys",
                 "-trait-", "Category=watch-window-visual",
-                "-trait-", "Category=watch-window-legacy",
-                "-trait-", "Category=watch-window-nonbaseline")
+                "-trait-", "Category=watch-window-nonbaseline",
+                # The desktop calibration probe is the runner's own pre-flight for a
+                # capture suite, not a behaviour test. Keep it out of watch-vm-tests so
+                # that suite's result stays what ticket 23 accepted.
+                "-trait-", "Category=watch-xaml-environment")
         } else {
             @("-trait", "Category=$currentSuite")
         }
@@ -287,29 +278,6 @@ try {
         $runnerLogName = if ($isNarrowedRun) { "$currentSuite.partial.runner.log" } else { "$currentSuite.runner.log" }
         $suiteOutput | Out-File -LiteralPath (Join-Path $resolvedArtifacts $runnerLogName) -Encoding utf8
         if ($suiteExitCode -ne 0) {
-            if ($currentSuite -eq "watch-xaml-visual") {
-                $xamlEvidence = Join-Path $resolvedArtifacts "watch-xaml-visual-evidence"
-                New-Item -ItemType Directory -Path $xamlEvidence -Force | Out-Null
-                $receivedFiles = @(Get-ChildItem -LiteralPath $xamlBaselineDirectory -Filter "*.received.*" -File -ErrorAction SilentlyContinue)
-                $receivedFiles | Copy-Item -Destination $xamlEvidence
-                Get-ChildItem -LiteralPath $xamlBaselineDirectory -Filter "*.verified.*" -File -ErrorAction SilentlyContinue |
-                    Copy-Item -Destination $xamlEvidence
-                foreach ($receivedPng in @($receivedFiles | Where-Object Name -Like "*.received.png")) {
-                    $scenario = $receivedPng.Name.Substring(
-                        0,
-                        $receivedPng.Name.Length - ".received.png".Length)
-                    $verifiedPng = Join-Path $xamlBaselineDirectory "$scenario.verified.png"
-                    if (Test-Path -LiteralPath $verifiedPng -PathType Leaf) {
-                        Copy-Item -LiteralPath $verifiedPng -Destination (Join-Path $xamlEvidence "$scenario.expected.png")
-                        Copy-Item -LiteralPath $receivedPng.FullName -Destination (Join-Path $xamlEvidence "$scenario.actual.png")
-                        Write-WatchPngDiff `
-                            -Expected $verifiedPng `
-                            -Actual $receivedPng.FullName `
-                            -Output (Join-Path $xamlEvidence "$scenario.diff.png")
-                    }
-                }
-                $probeOutput | Out-File -LiteralPath (Join-Path $xamlEvidence "environment-probe.log") -Encoding utf8
-            }
             [Console]::Error.WriteLine(
                 "WATCH_UI_FIRST_FAILURE_RETAINED: suite=$currentSuite exitCode=$suiteExitCode artifacts=$resolvedArtifacts")
             exit $suiteExitCode

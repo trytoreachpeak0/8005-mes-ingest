@@ -84,7 +84,7 @@ Watch 与 Service 的进程生命周期互相独立：**关闭 WPF 不会停止 
 
 ## 版本信息
 
-见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 和 `openApi` 中固定的路径、契约/Schema 版本与 SHA-256）。`openapi/v2.json` 是 Production V2 唯一 canonical OpenAPI；`openApiStatus` 必须是 `FROZEN`，旧 V1 文档不能作为新版契约证据。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
+见安装根目录 `VERSION.txt`（发布时间、目标 RID、源码提交与 dirty 标记）和 `RELEASE-MANIFEST.json`（逐文件 SHA-256，以及 `canonicalQuery` 和 `openApi` 中固定的路径、契约/Schema 版本与 SHA-256）。`openapi/v2.json` 是唯一 canonical OpenAPI；`openApiStatus` 必须是 `FROZEN`，已退役的文档不能作为契约证据。程序集版本也可在 `service\MesIngest.Host.exe` 文件属性中查看。
 
 ## 发布烟测
 
@@ -100,7 +100,7 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 
 - `GET /api/v2/contract` 的版本、schema、精确能力集合与只读策略严格匹配冻结契约；
 - 包内 canonical `openapi/v2.json` 的 SHA-256 匹配发布清单，且运行时 `/openapi/v2.json` 与包内文档完整 JSON 语义严格一致；
-- 退役面 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404（脚本会故意请求开启开发旧面；Production 若仍暴露任一路由就拒绝 ADR-mes-0017 切换声明）；
+- 退役面 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404；同时脚本会故意注入一个已退役配置键，Host 必须拒绝启动而不是忽略它，否则不接受 ADR-mes-0017 切换声明；
 - 唯一 canonical Oracle 查询原稿与相邻 `query.manifest.json` 的路径、长度和 SHA-256；
 - `GET /api/v2/externally-readable-demand-catalog` 首次返回非空正文、已提交的 `catalogRevision` 与对应弱 ETag；带同一 `If-None-Match` 的条件读取返回 304 且无正文；
 - 受限原始证据 `/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations` 即使在本机也必须带正确 Bearer 密钥：缺密钥或密钥错误一律 403；
@@ -132,7 +132,7 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 .\validation\Invoke-WatchAcceptance.ps1 -HarnessRoot C:\src\mes\ingest\csharp
 ```
 
-默认 `-Suite watch-production-preview`，即非像素的 `watch-vm-tests` + `watch-ui-journeys`。**打包验收只证明已发布二进制的启动、连接与关键功能**，不重复像素候选、连续稳定计数、基线提升或 DPI clone —— 这些已在票 23 完成并获批。只有当打包差异真的改变了 PNG/XML/UIA/DPI 输出时，才使相应票 23 场景失效，并只用 `-Suite watch-xaml-visual` / `watch-window-visual` 重跑受影响门禁、重新取得批准。
+默认 `-Suite watch-production-preview`，即非像素的 `watch-vm-tests` + `watch-ui-journeys`。**打包验收只证明已发布二进制的启动、连接与关键功能**，不重复像素候选、连续稳定计数、基线提升或 DPI clone —— 这些已在票 23 完成并获批。只有当打包差异真的改变了 PNG/XML/UIA/DPI 输出时，才使相应票 23 场景失效，并只用 `-Suite watch-window-visual` 重跑受影响门禁、重新取得批准。
 
 ## 基本故障排查
 
@@ -157,7 +157,7 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 人工试调与合作者文档：
 
 - V2 合约身份：`GET /api/v2/contract`；唯一 canonical 描述：包内 `openapi/v2.json`，运行时 `GET /openapi/v2.json`
-- 旧 `/api/*` 与 `/openapi/v1.json` 只允许 Development 调试，不属于 V2 能力发现、兼容面或 Production 发布面
+- 已退役的 `/api/*` 与 `/openapi/v1.json` 不再由任何环境提供，也不属于能力发现、兼容面或发布面
 - 实际 `/api/v2/*` 在非本机绑定时需 `Authorization: Bearer <SharedSecret>`；受限原始证据即使在本机也要求显式 Bearer 密钥
 
 工厂连通验证、人工核验与回传约定见同包 [`FACTORY-VALIDATION.md`](FACTORY-VALIDATION.md) 与 `validation/`；本说明只覆盖安装与安全配置。

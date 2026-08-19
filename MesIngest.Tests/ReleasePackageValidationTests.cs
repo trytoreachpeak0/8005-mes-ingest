@@ -75,10 +75,6 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("remoteBindWithoutSharedSecretExitCode", smoke, StringComparison.Ordinal);
         Assert.Contains("serviceAndWatchIdentical", smoke, StringComparison.Ordinal);
         Assert.Contains("serviceAndWatchIdentical", validator, StringComparison.Ordinal);
-        Assert.Contains(
-            "MesIngest__EnableLegacyDevelopmentEndpoints'] = 'true'",
-            smoke,
-            StringComparison.Ordinal);
         Assert.Contains("/api/v2/contract", smoke, StringComparison.Ordinal);
         Assert.Contains("/openapi/v2.json", smoke, StringComparison.Ordinal);
         Assert.Contains("/openapi/v1.json", smoke, StringComparison.Ordinal);
@@ -110,7 +106,7 @@ public sealed class ReleasePackageValidationTests
         {
             var result = await RunValidatorAsync(root);
 
-            Assert.Equal(0, result.ExitCode);
+            Assert.True(result.ExitCode == 0, result.Output);
             var manifestPath = Path.Combine(root, "RELEASE-MANIFEST.json");
             Assert.True(File.Exists(manifestPath), result.Output);
             using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
@@ -513,6 +509,22 @@ public sealed class ReleasePackageValidationTests
         File.WriteAllText(Path.Combine(root, "scripts", "install-service.ps1"), "# install");
         File.WriteAllText(Path.Combine(root, "scripts", "uninstall-service.ps1"), "# uninstall");
         File.WriteAllText(Path.Combine(root, "scripts", "Test-ReleasePackage.ps1"), "# validate");
+        // The cutover drill is copied, not stubbed: the validator asserts that the only
+        // database-deleting path in the package is this attended one.
+        var packagedCutover = Path.Combine(root, "scripts", "cutover");
+        Directory.CreateDirectory(packagedCutover);
+        foreach (var cutoverScript in new[]
+                 {
+                     "CutoverSqlTools.ps1",
+                     "Invoke-EmptyDatabaseCutover.ps1",
+                     "Invoke-CutoverRollback.ps1",
+                 })
+        {
+            File.Copy(
+                Path.Combine(CSharpRoot, "pack", "cutover", cutoverScript),
+                Path.Combine(packagedCutover, cutoverScript));
+        }
+
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-FactoryValidation.ps1"), "# factory");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-ReleaseSmoke.ps1"), "# smoke");
         File.Copy(

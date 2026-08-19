@@ -6,7 +6,6 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchVisualEnvironmentTests
 {
     [Fact]
-    [Trait("Category", "watch-xaml-visual")]
     [Trait("Category", "watch-xaml-environment")]
     public void Current_environment_matches_the_visual_baseline_contract()
     {

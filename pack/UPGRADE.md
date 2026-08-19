@@ -1,129 +1,128 @@
-# MesIngest 升级与回滚说明
+# MesIngest 空库切换与整体回退说明
 
 本说明随 `pack/Publish-MesIngest.ps1` 输出到安装根目录 `UPGRADE.md`。首次安装仍以 `INSTALL.md` 为准。
 
-## 先确认运行面
+## 这不是就地升级
 
-ADR-mes-0017 Production V2 与历史 Development V1 不是同一套契约：
+按 ADR-mes-0017，本版本以**空数据库整体替换**上线，不做就地升级：
 
-| 运行面 | 用途 | SQL Server | HTTP |
-|---|---|---|---|
-| **Production V2 / ADR-mes-0017** | 正式 Oracle 单语句轮询、PollTrace、新投影与冻结契约 | `MesIngest:NewSqlServerConnectionString` 指向专用空库或已精确匹配 V2 schema v17 的库 | 只认 `/api/v2/*` 与 canonical `/openapi/v2.json` |
-| **Legacy Development V1** | CSV/内存示例、旧投影和历史 Watch 测试 | `MesIngest:SqlServerConnectionString` 或内存 | 仅 Development 的 `/api/*`、旧 Swagger / `openapi/v1.json` |
+- 不迁移、不转换、不推测任何历史业务数据；新历史从第一个完整成功 `MesTaskUnionRound` 开始；
+- 不提供旧 schema 适配器、旧 API 适配器或新旧混跑；
+- 数据库删除永远是**停机 + 备份 + 人工确认精确目标**之后的部署操作。Host、Watch、`install-service.ps1`、`uninstall-service.ps1` 都不会删除任何数据库，卸载服务也不会。
 
-生产环境必须配置 `NewSqlServerConnectionString` 和 `SnapshotSource=Oracle`。旧 V1 库不是 V2 就地升级目标：V2 只会在**完全空库**中建立完整 schema，或对既有 V2 库做严格契约校验；遇到旧表、缺列、额外表或版本不匹配时会拒绝启动，不会自动改造或回退到内存。
+Host 只接受两种数据库状态：
 
-## 升级前必做
+| 目标库状态 | 行为 |
+|---|---|
+| 完全空库（0 张用户表） | 一次性建立完整 schema |
+| 已精确匹配当前契约的库 | 严格校验后继续使用 |
+| 其它（旧表、缺列、多表、版本不符） | 拒绝启动，不改造、不回退内存 |
 
-1. **停止当前写入面**
+配置层面同样不留后路：`MesIngest` 配置节若仍带有已退役键（`SqlServerConnectionString`、`SnapshotCsvPath`、`ChangeFeedRetentionHours`、`AlertRetentionDays`、`DisappearThreshold`、`GoLiveBaseline`、`EnableLegacyDevelopmentEndpoints`），Host 直接拒绝启动，而不是忽略它们。这样一份为旧契约写的部署文件不会看起来"被接受"。
+
+## 切换前必做
+
+1. **停止全部写入与读取方**
 
    ```powershell
    Stop-Service MesIngest
-   # 如有正在运行的旧 Watch，先全部退出
+   # 退出全部 Watch 进程，并停止所有外部消费者
    ```
 
-2. **备份当前数据库**
+2. **准备备份落盘位置**
 
-   无论当前是 V1 还是 V2，都先做 SQL Server 完整库备份，不要只备份若干表。
-
-   ```sql
-   BACKUP DATABASE [MesIngest]
-   TO DISK = N'D:\backup\MesIngest_pre_upgrade.bak'
-   WITH INIT, CHECKSUM;
-   ```
+   备份由切换脚本执行并校验，落在 SQL Server 主机上；请预留独立于新库的磁盘位置，切换后长期保留，它是唯一的回退资产。
 
 3. **备份当前安装根目录**
 
    保留完整旧包、`VERSION.txt`、`service/appsettings.Local.json` 以及 Watch 本机配置。已填密钥的 Local.json 不得回传仓库或复制进新发布包。
 
-4. **准备专用 V2 库**
+## 执行空库切换
 
-   - 从 V1 切换时：新建一个空数据库（例如 `MesIngestV2`）；保留旧 V1 库用于回滚。
-   - 已运行同契约 V2 时：仍先备份原 V2 库，再由新 Host 执行严格契约验证。
-   - 不得通过 DROP TABLE、人工补列或复制旧 V1 表来“伪造” V2 schema。
+`scripts/cutover/Invoke-EmptyDatabaseCutover.ps1` 是产品中**唯一**会删除数据库的入口。
 
-## Production V2 升级步骤
+```powershell
+.\scripts\cutover\Invoke-EmptyDatabaseCutover.ps1 `
+    -ConnectionString 'Server=<SQL_HOST>;Database=master;Integrated Security=True;TrustServerCertificate=True' `
+    -DatabaseName 'MesIngest' `
+    -BackupPath 'D:\backup\MesIngest_pre_cutover.bak' `
+    -DowntimeAcknowledgement OLD_HOST_WATCH_AND_CONSUMERS_STOPPED `
+    -EvidenceDirectory .\.cutover-evidence
+```
 
-1. 使用新发布包替换安装内容。`service/queries/mes-task-union/query.sql` 是唯一正式 Oracle SQL，必须与相邻 `query.manifest.json` 及根目录 `RELEASE-MANIFEST.json` 一致。删除旧安装根目录遗留的 `queries/`，不得保留第二份 SQL。
+脚本按顺序做以下事情，任一步失败即中止且不删除任何东西：
 
-2. 从 `templates/appsettings.Local.json.example` 重新创建 `service/appsettings.Local.json`，不要盲目覆盖旧文件。至少核对：
+1. 连接必须走 `master`，不能直接连目标库；
+2. 从连接本身解析真实 `MachineName\InstanceName` 和库名并打印；
+3. **要求操作员在控制台原样键入 `实例/库名`**。没有任何开关可以跳过这一步，因此非交互或重定向输入的无人值守调用一定停在这里，不会对未确认实例执行 DROP；
+4. 核对目标库上没有其它用户会话（否则说明还有旧 Host、Watch 或外部消费者没停）；
+5. `BACKUP DATABASE ... WITH INIT, FORMAT, CHECKSUM`，再 `RESTORE VERIFYONLY ... WITH CHECKSUM`，并记录备份文件 SHA-256；
+6. `ALTER DATABASE ... SET SINGLE_USER WITH ROLLBACK IMMEDIATE` 后 `DROP DATABASE`；
+7. 新建同名**空库**并核对用户表数为 0；
+8. 写出 `cutover-evidence.json`：目标身份、备份路径与哈希、前后用户表数、操作员、时间。
 
-   - `NewSqlServerConnectionString`：指向上一节准备的专用 V2 库；
-   - `SnapshotSource=Oracle`；
-   - `OracleUser`、`OraclePassword`、`OracleDataSource`；
-   - `OracleMode=Thin` 作为默认尝试；
-   - 如需 Thick，还必须同时填 `OracleInstantClientDir` 和已注册的 `OracleThickOdbcDriver`；
-   - 跨机绑定时的 `Urls` 和 `SharedSecret`。
+脚本不会创建 MesIngest schema。接着从 `templates/appsettings.Local.json.example` 重新创建
+`service/appsettings.Local.json`，不要覆盖式沿用旧文件，至少核对：
 
-3. 在安装根目录先执行包校验：
+- `NewSqlServerConnectionString`：指向刚刚建立的空库；
+- `SnapshotSource=Oracle`；
+- `OracleUser`、`OraclePassword`、`OracleDataSource`；
+- `OracleMode=Thin` 作为默认尝试；如需 Thick，还必须同时填 `OracleInstantClientDir` 和已注册的 `OracleThickOdbcDriver`；
+- 跨机绑定时的 `Urls` 和 `SharedSecret`。
+
+`service/queries/mes-task-union/query.sql` 是唯一正式 Oracle SQL，必须与相邻 `query.manifest.json`
+及根目录 `RELEASE-MANIFEST.json` 一致；先在安装根目录执行 `.\scripts\Test-ReleasePackage.ps1 -PackageRoot .`
+校验包内容，再在 `service/` 执行 `.\MesIngest.Host.exe --probe-oracle` 取得 `LIVE_ORACLE` 探针结果。
+
+接着安装并启动新版 Host：
+
+```powershell
+.\scripts\install-service.ps1
+Start-Service MesIngest
+```
+
+Host 首次启动在空库中一次建立完整 schema。随后用只读证据确认这是一段**新**历史：
+
+- `GET /api/v2/contract` 返回冻结契约身份；
+- `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`；
+- 取到 PollTraceId 后 `GET /api/v2/poll-traces/{pollTraceId}`，核对 canonical query version、规范化 content digest、row count 与 outcome；
+- 首个完整 SUCCESS 之后，错误当前条件以 `BOOTSTRAPPED_CURRENT_CONDITION` 起算，不伪造任何早于本次 bootstrap 的开始时间；
+- 库中不存在任何来自已退役契约的 TransportDemand、IngestAlert 或 ChangeFeed 记录——这些退役表在新 schema 中根本不存在；
+- 关闭/不启动 Watch 时 PollTrace high-water 仍继续前进。
+
+建议按 `FACTORY-VALIDATION.md` 和 `validation/Invoke-FactoryValidation.ps1` 采集完整证据。
+
+## 整体回退
+
+回退不是新版内部的降级路径，而是把上一套部署整体恢复：
+
+1. `Stop-Service MesIngest`，退出全部 Watch；
+2. 恢复切换前备份的安装目录、旧版二进制与原 `service/appsettings.Local.json`；
+3. 用独立备份恢复旧数据库：
 
    ```powershell
-   .\scripts\Test-ReleasePackage.ps1 -PackageRoot .
+   .\scripts\cutover\Invoke-CutoverRollback.ps1 `
+       -ConnectionString 'Server=<SQL_HOST>;Database=master;Integrated Security=True;TrustServerCertificate=True' `
+       -DatabaseName 'MesIngest' `
+       -BackupPath 'D:\backup\MesIngest_pre_cutover.bak' `
+       -PreviousDeploymentRestored OLD_PROGRAMS_AND_OLD_CONFIGURATION_RESTORED `
+       -EvidenceDirectory .\.cutover-evidence
    ```
 
-   校验必须确认 canonical SQL 的路径、长度和 SHA-256；同时确认 `openapi/v2.json` 只包含冻结的 `/api/v2/*` GET 面，其契约版本、schema v17 与 SHA-256 写入 `RELEASE-MANIFEST.json`。缺失、空文件、被篡改、出现旧路由/旧术语/写操作或多份 SQL 都必须拒绝。
+   该脚本同样要求控制台原样键入目标身份；它先确认新版服务已停止或未安装，恢复后再核对恢复出来的库**不含**当前契约的 `mesingest` schema——否则说明恢复了错误的备份。
 
-4. 在 `service/` 目录执行 Thin 真实探针：
+4. 启动旧版程序，只按它自身的契约做冒烟；
+5. 保留失败的脱敏探针、Host 日志和 PollTrace 证据供调查；不得回传 SQL、连接串、凭据、datasource 或原始 MES 值。
 
-   ```powershell
-   .\MesIngest.Host.exe --probe-oracle
-   ```
-
-   只有 `execution_scope=LIVE_ORACLE`、`connection_attempted=true`、requested/actual mode 一致、canonical query identity 一致、`outcome=Success` 且 `result=PASSED` 才可以进入下一步。离线或 fake/CI 结果只能是 `NOT_EXECUTED`。
-
-   Thin 失败时，只有在已安装 Instant Client 且有注册 Oracle ODBC 驱动时才改为 Thick 重试。Thick 不会静默回退 Thin；错误配置必须修正，不得带病启动服务。
-
-5. 安装/启动服务：
-
-   ```powershell
-   .\scripts\install-service.ps1
-   Start-Service MesIngest
-   ```
-
-   Host 启动时会在空库中一次建立完整 V2 schema；对非空库则只接受完全一致的 schema v17 / contract identity。验证失败时服务不会回退到旧 V1 或内存库。
-
-6. 用 V2 只读证据冒烟：
-
-   - `GET /api/v2/contract`；
-   - `GET /openapi/v2.json`，并与包内 `openapi/v2.json` 的 SHA-256、契约版本和 schema v17 严格一致；
-   - `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`；
-   - 从采集结果取得 PollTraceId，然后 `GET /api/v2/poll-traces/{pollTraceId}`；
-   - 核对至少多个不同 PollTrace 的 canonical query version、规范化 content digest、row count 和 outcome；
-   - 确认关闭/不启动 Watch 时 PollTrace high-water 仍继续前进。
-
-   首个成功投影完成前，部分运维视图可能暂无快照；等待正式轮询成功，不得改用 V1 poll-health 冒充 V2 证据。建议按 `FACTORY-VALIDATION.md` 和 `validation/Invoke-FactoryValidation.ps1` 采集。
-
-## 冻结契约与切换声明
-
-- `openapi/v2.json` 是唯一 Production V2 canonical 文档；包内文件 SHA-256 必须匹配发布清单，运行时 `/openapi/v2.json` 必须与它完整 JSON 语义严格一致。`openapi/v1.json` 只属于 Development 旧面，不能作为 V2 契约证据。
-- 打包的 Watch 与 Service 使用同一套冻结 V2 契约；发布烟测直接从安装包验证契约严格匹配、目录条件读取、只读鉴权、SQL Server 重启持久化与关闭 Watch 后 Service 继续轮询。
-- Production 必须让旧 `/api/contract`、`/api/demands`、`/api/alerts`、`/api/poll-health`、`/api/demand-changes` 和 `/openapi/v1.json` 全部返回 404；即使配置请求开启开发旧面也不例外。任一旧面可达时，不得宣称 ADR-mes-0017 Production 切换完成。
-
-## 失败时回滚
-
-1. 停止 MesIngest Service，退出所有 Watch。
-2. 恢复升级前备份的安装目录和原 `service/appsettings.Local.json`。
-3. 恢复对应旧版二进制的 SQL Server 库：
-
-   ```sql
-   ALTER DATABASE [MesIngest] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-   RESTORE DATABASE [MesIngest]
-   FROM DISK = N'D:\backup\MesIngest_pre_upgrade.bak'
-   WITH REPLACE;
-   ALTER DATABASE [MesIngest] SET MULTI_USER;
-   ```
-
-   如果此次是从 V1 切换到新建 `MesIngestV2` 库，旧 V1 库本就应保持不变；将旧服务配置重新指向它即可。不要为了回滚破坏或复用新 V2 库。
-
-4. 启动旧版 Host，只按它自身的契约做冒烟。
-5. 保留失败的脱敏探针、Host 日志和 V2 PollTrace 证据供调查；不得回传 SQL、连接串、凭据、datasource 或原始 MES 值。
+新程序不读旧库，旧程序不读新库，也不存在滚动升级、双写或影子同步模式。
 
 ## 数据与只读承诺
 
-| 对象 | Ticket 15 行为 |
+| 对象 | 行为 |
 |---|---|
 | 客户 Oracle / 批准 `MES_TASK_UNION` SQL | 仅执行一条已校验的只读查询；不部署 Oracle DDL、索引、视图或改写 SQL |
-| 旧 V1 SQL Server 库 | 作为独立回滚资产保留；不就地升级到 V2 |
-| V2 SQL Server 库 | 空库可一次 bootstrap；非空库必须精确匹配 schema v17，否则拒绝启动 |
-| PollTrace / projection evidence | 成功和失败轮次按 V2 因果契约持久化；执行/结构失败不写入部分投影 |
+| 切换前的 SQL Server 库 | 备份后删除；备份作为独立回退资产长期保留 |
+| 新 SQL Server 库 | 空库一次 bootstrap；非空库必须精确匹配契约，否则拒绝启动 |
+| 数据库删除 | 只存在于 `scripts/cutover/Invoke-EmptyDatabaseCutover.ps1`，且必须停机、备份并人工键入精确目标 |
+| PollTrace / projection evidence | 成功和失败轮次按因果契约持久化；执行/结构失败不写入部分投影 |
 | Local.json / SharedSecret | 只留在现场，不进发布包、回传包或仓库 |

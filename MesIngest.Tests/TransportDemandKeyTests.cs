@@ -1,35 +1,46 @@
-using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
 
 namespace MesIngest.Tests;
 
+/// <summary>
+/// The contract fixes one TransportDemandKey comparison rule
+/// (<see cref="NewMesIngestContract.KeyComparison"/>) and one implementation of it.
+/// These assert that rule through the token every layer keys on.
+/// </summary>
 public sealed class TransportDemandKeyTests
 {
     [Fact]
-    public void Equal_components_have_value_equality()
+    public void Equal_components_produce_the_same_token()
     {
-        var first = new TransportDemandKey("WIRE_TO_GATE", "Q-1");
-        var second = new TransportDemandKey("WIRE_TO_GATE", "Q-1");
-
-        Assert.Equal(first, second);
-        Assert.Equal(first.GetHashCode(), second.GetHashCode());
+        Assert.Equal(
+            TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-1"),
+            TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-1"));
     }
 
     [Fact]
-    public void Task_type_and_sublot_both_participate_in_identity()
+    public void Work_type_and_sublot_both_participate_in_identity()
     {
-        var key = new TransportDemandKey("WIRE_TO_GATE", "Q-1");
+        var token = TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-1");
 
-        Assert.NotEqual(key, new TransportDemandKey("WIRE_TO_NITROGEN", "Q-1"));
-        Assert.NotEqual(key, new TransportDemandKey("WIRE_TO_GATE", "Q-2"));
+        Assert.NotEqual(token, TransportDemandKeyIdentity.CreateToken("WIRE_TO_NITROGEN", "Q-1"));
+        Assert.NotEqual(token, TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-2"));
     }
 
     [Fact]
-    public void Equality_is_ordinal_and_case_sensitive()
+    public void Identity_is_ordinal_and_case_sensitive()
     {
-        var key = new TransportDemandKey("WIRE_TO_GATE", "Q-1");
+        var token = TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-1");
 
-        Assert.NotEqual(key, new TransportDemandKey("wire_to_gate", "Q-1"));
-        Assert.NotEqual(key, new TransportDemandKey("WIRE_TO_GATE", "q-1"));
+        Assert.NotEqual(token, TransportDemandKeyIdentity.CreateToken("wire_to_gate", "Q-1"));
+        Assert.NotEqual(token, TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "q-1"));
+    }
+
+    [Fact]
+    public void Component_boundaries_cannot_be_shifted_between_work_type_and_sublot()
+    {
+        Assert.NotEqual(
+            TransportDemandKeyIdentity.CreateToken("WIRE_TO", "GATE-Q-1"),
+            TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "-Q-1"));
     }
 
     [Theory]
@@ -39,18 +50,17 @@ public sealed class TransportDemandKeyTests
     [InlineData("WIRE_TO_GATE", null)]
     [InlineData("WIRE_TO_GATE", "")]
     [InlineData("WIRE_TO_GATE", "   ")]
-    public void Null_or_blank_components_are_rejected(string? taskType, string? sublot)
+    public void Null_or_blank_components_are_rejected(string? workType, string? sublot)
     {
         Assert.ThrowsAny<ArgumentException>(
-            () => new TransportDemandKey(taskType!, sublot!));
+            () => TransportDemandKeyIdentity.CreateToken(workType!, sublot!));
     }
 
     [Fact]
-    public void Non_blank_components_are_not_normalized()
+    public void Surrounding_whitespace_is_preserved_rather_than_normalized_away()
     {
-        var key = new TransportDemandKey(" Wire_To_Gate ", " q-1 ");
-
-        Assert.Equal(" Wire_To_Gate ", key.TaskType);
-        Assert.Equal(" q-1 ", key.Sublot);
+        Assert.NotEqual(
+            TransportDemandKeyIdentity.CreateToken(" WIRE_TO_GATE ", " Q-1 "),
+            TransportDemandKeyIdentity.CreateToken("WIRE_TO_GATE", "Q-1"));
     }
 }

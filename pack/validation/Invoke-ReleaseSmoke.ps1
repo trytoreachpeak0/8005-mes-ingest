@@ -130,7 +130,10 @@ function Start-PackagedHostProcess {
         # A long-lived Host must have both streams drained or a full pipe blocks it.
         # A start that is expected to refuse immediately leaves stderr for the caller,
         # so the refusal reason can be asserted instead of only the exit code.
-        [bool] $DrainStreams = $true
+        [bool] $DrainStreams = $true,
+        # Ticket 25: set one key of the replaced contract on purpose. A build that
+        # ignores it instead of refusing cannot claim the ADR-mes-0017 cutover.
+        [string] $RetiredConfigurationKey
     )
 
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -151,10 +154,9 @@ function Start-PackagedHostProcess {
     $info.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] =
         $(if ($ContinuousPoll) { 'true' } else { 'false' })
     $info.EnvironmentVariables['MesIngest__PostPollDelaySeconds'] = '1'
-    $info.EnvironmentVariables['MesIngest__GoLiveBaseline'] = '2026-01-01T00:00:00+08:00'
-    # Request the development-only switch deliberately. Production must suppress
-    # it, otherwise this build cannot claim the ADR-mes-0017 production cutover.
-    $info.EnvironmentVariables['MesIngest__EnableLegacyDevelopmentEndpoints'] = 'true'
+    if (-not [string]::IsNullOrWhiteSpace($RetiredConfigurationKey)) {
+        $info.EnvironmentVariables["MesIngest__$RetiredConfigurationKey"] = 'retired-value'
+    }
     $info.EnvironmentVariables['MesIngest__Urls'] = $BaseUrl
     $info.EnvironmentVariables['MesIngest__SharedSecret'] = $SharedSecret
     if (-not [string]::IsNullOrWhiteSpace($RecordingPath)) {
@@ -522,6 +524,7 @@ $baseUrl = "http://127.0.0.1:$port"
 $hostProcess = $null
 $restartedHostProcess = $null
 $remoteBindProcess = $null
+$retiredKeyProcess = $null
 $watchProcess = $null
 $httpClient = $null
 $startedAt = [DateTimeOffset]::UtcNow
@@ -895,6 +898,40 @@ try {
     $remoteBindProcess.Dispose()
     $remoteBindProcess = $null
 
+    # Ticket 25: a configuration file written for the replaced contract must fail
+    # startup rather than be silently ignored, so a stale deployment file cannot look
+    # accepted while the value it carries does nothing.
+    $retiredKeyPort = Get-FreeLoopbackPort
+    $retiredKeyProcess = Start-PackagedHostProcess `
+        -Executable $serviceExecutable `
+        -BaseUrl "http://127.0.0.1:$retiredKeyPort" `
+        -SqlConnectionString $sqlConnectionString `
+        -SharedSecret '' `
+        -ContinuousPoll $false `
+        -OneShotOnStartup $false `
+        -DrainStreams $false `
+        -RetiredConfigurationKey 'ChangeFeedRetentionHours'
+    $retiredKeyStandardError = $retiredKeyProcess.StandardError.ReadToEnd()
+    if (-not $retiredKeyProcess.WaitForExit(20000)) {
+        $retiredKeyProcess.Kill()
+        $retiredKeyProcess.WaitForExit(5000) | Out-Null
+        throw 'A retired configuration key did not stop the packaged Host from starting.'
+    }
+    $retiredKeyExitCode = $retiredKeyProcess.ExitCode
+    if ($retiredKeyExitCode -eq 0) {
+        throw 'A retired configuration key exited successfully instead of refusing.'
+    }
+    # As with the shared-secret check, a non-zero exit alone could come from anything.
+    # The refusal names the retired key and carries no credential or datasource value.
+    if ($retiredKeyStandardError.IndexOf(
+            'retired keys',
+            [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        throw 'The packaged Host failed for some other reason than the retired configuration key.'
+    }
+    $retiredKeyStandardError = $null
+    $retiredKeyProcess.Dispose()
+    $retiredKeyProcess = $null
+
     [ordered]@{
         status = 'PASSED'
         completedAt = [DateTimeOffset]::UtcNow.ToString('O')
@@ -912,7 +949,7 @@ try {
             sha256 = $canonicalOpenApiHash
             liveCanonicalSha256 = $liveOpenApiCanonicalHash
         }
-        legacyDevelopmentFlagRequested = $true
+        retiredConfigurationKeyRejected = 'ChangeFeedRetentionHours'
         legacyRouteStatuses = $legacyStatuses
         canonicalQuery = [ordered]@{
             path = $canonicalQueryRelativePath
@@ -944,6 +981,7 @@ try {
             restrictedRawEvidenceWithWrongSecret = $rawWithWrongSecret.StatusCode
             restrictedRawEvidenceWithSecret = $rawWithSecret.StatusCode
             remoteBindWithoutSharedSecretExitCode = $remoteBindExitCode
+            retiredConfigurationKeyExitCode = $retiredKeyExitCode
         }
         servicePollOwnership = [ordered]@{
             pollTraceHighWaterBeforeWatch = $highWaterBeforeWatch
@@ -979,4 +1017,5 @@ finally {
     Stop-PackagedHostProcess -Process $hostProcess
     Stop-PackagedHostProcess -Process $restartedHostProcess
     Stop-PackagedHostProcess -Process $remoteBindProcess
+    Stop-PackagedHostProcess -Process $retiredKeyProcess
 }

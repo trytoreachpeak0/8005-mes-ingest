@@ -644,12 +644,11 @@ public sealed class NewMesIngestOpenApiContractTests
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 connectionString
                     ?? "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false");
-            builder.UseSetting($"{MesIngestHostOptions.SectionName}:SnapshotSource", "File");
+            builder.UseSetting(
+                $"{MesIngestHostOptions.SectionName}:SnapshotSource",
+                MesIngestHostOptions.NoRoundSource);
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled", "false");
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:RunOneShotOnStartup", "false");
-            builder.UseSetting(
-                $"{MesIngestHostOptions.SectionName}:EnableLegacyDevelopmentEndpoints",
-                "true");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:SharedSecret",
                 "contract-secret");
@@ -666,10 +665,9 @@ public sealed class NewMesIngestOpenApiContractTests
                     {
                         NewSqlServerConnectionString =
                             "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false",
-                        SnapshotSource = "File",
+                        SnapshotSource = MesIngestHostOptions.NoRoundSource,
                         ContinuousPollEnabled = false,
                         RunOneShotOnStartup = false,
-                        EnableLegacyDevelopmentEndpoints = true,
                         SharedSecret = "contract-secret",
                         Urls = remoteBinding
                             ? "http://0.0.0.0:5088"

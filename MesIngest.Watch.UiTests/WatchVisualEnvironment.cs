@@ -178,3 +178,25 @@ internal static class WatchVisualEnvironment
         internal static extern bool CloseDesktop(IntPtr desktop);
     }
 }
+
+/// <summary>
+/// One evidence rendering of a captured desktop environment, so every journey
+/// records the same fields in the same order.
+/// </summary>
+internal static class WatchVisualEnvironmentEvidence
+{
+    public static string Format(WatchVisualEnvironmentSnapshot snapshot) => string.Join(
+        Environment.NewLine,
+        $"interactive={snapshot.HasInteractiveInputDesktop}",
+        $"desktop={snapshot.DesktopWidth}x{snapshot.DesktopHeight}",
+        $"dpi={snapshot.Dpi}",
+        $"scale={snapshot.Dpi / 96d:P0}",
+        $"lightTheme={snapshot.AppsUseLightTheme}",
+        $"culture={snapshot.CultureName}",
+        $"uiCulture={snapshot.UiCultureName}",
+        $"timezone={snapshot.TimeZoneId}",
+        $"rendering={snapshot.RenderingMode}",
+        $"framework={Environment.Version}",
+        $"os={Environment.OSVersion}",
+        $"processArchitecture={System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture}");
+}

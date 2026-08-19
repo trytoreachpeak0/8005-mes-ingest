@@ -24,18 +24,12 @@ From `mes/ingest/csharp`, run the non-pixel suite in a logged-in Windows desktop
 If no interactive input desktop is available, the entry exits with code `2` and a
 `WATCH_UI_ENVIRONMENT_UNAVAILABLE` message before running product tests.
 
-The required Verify.Xaml 4.2.1 matrix is separate:
-
-```powershell
-.\Invoke-WatchUiTests.ps1 -Suite watch-xaml-visual
-```
-
-Before starting the test process, this suite checks the active desktop, 1920x1080
+Before starting a capture suite, the runner checks the active desktop, 1920x1080
 resolution, 96 DPI, Windows light app theme, `zh-CN` culture and UI culture,
 Microsoft YaHei UI and Consolas, and the default `SoftwareOnly` rendering mode. Any
-difference exits with code `2` before Verify can write a received artifact. See
-[`Baselines/README.md`](Baselines/README.md) for the 10-run stability and human-review
-workflow. Tests and candidates contain fixed fake data only.
+difference exits with code `2` before a received artifact can be written. See
+[`WindowBaselines/README.md`](WindowBaselines/README.md) for the 10-run stability and
+human-review workflow. Tests and candidates contain fixed fake data only.
 
 The production real-window journey launches `MesIngest.Watch.exe`, drives it through
 FlaUI.UIA3 5.0.0, and serves the versioned V2 read contract from
@@ -59,10 +53,9 @@ journey from one deployed payload, without invoking a baseline suite:
 .\Invoke-WatchUiTests.ps1 -Suite watch-production-preview
 ```
 
-The legacy five-state V1 journeys remain available only under the
-`watch-window-legacy` trait and are not release baselines. The formal
-`watch-window-visual` suite runs the production workspace journey and compares
-the 11 approved Ticket 19–22 page/state captures.
+The formal `watch-window-visual` suite runs the production workspace journey and
+compares the 11 approved Ticket 19–22 page/state captures. There is no second journey
+set: the retired shell and its baselines were removed with the replaced contract.
 
 Run the 11 pixel-exact `1440x900` production client-area baselines only on the
 calibrated 100% environment:
@@ -71,7 +64,7 @@ calibrated 100% environment:
 .\Invoke-WatchUiTests.ps1 -Suite watch-window-visual
 ```
 
-The single local release-gate entry runs all four suites in order and owns a named
+The single local release-gate entry runs all three suites in order and owns a named
 desktop mutex, so neither another assembly nor another desktop driver can overlap it:
 
 ```powershell

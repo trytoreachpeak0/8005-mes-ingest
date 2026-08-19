@@ -15,7 +15,6 @@ namespace MesIngest.Watch.UiTests;
 
 internal enum FakeHostOperation
 {
-    Contract,
     ContractV2,
     OverviewV2,
     DemandSeriesV2,
@@ -26,11 +25,6 @@ internal enum FakeHostOperation
     ErrorSearchDetailV2,
     ErrorSearchRawEvidenceV2,
     CurrentAttentionV2,
-    PollHealth,
-    Snapshot,
-    DemandPage,
-    AlertPage,
-    ExactDemand,
 }
 
 internal enum FakeHostRequestState
@@ -71,10 +65,6 @@ internal sealed class FakeHostGate
 }
 
 internal readonly record struct FakeHostUnit;
-
-internal sealed record FakeHostSnapshotRequest(
-    WatchDemandBrowseQuery DemandQuery,
-    WatchAlertBrowseQuery AlertQuery);
 
 internal sealed record FakeHostV2DetailRequest(
     string ObjectId,
@@ -228,46 +218,6 @@ internal sealed class FakeHostScript<TRequest, TResponse>
         Sequence(reply);
 }
 
-internal sealed class FakeHostScenario
-{
-    public FakeHostScenario(string sessionId)
-    {
-        if (string.IsNullOrWhiteSpace(sessionId))
-        {
-            throw new ArgumentException("A fake Host session id is required.", nameof(sessionId));
-        }
-
-        SessionId = sessionId;
-    }
-
-    public string SessionId { get; }
-
-    public FakeHostScript<FakeHostUnit, FakeHostUnit> Contract { get; init; } =
-        FakeHostReply.Success();
-
-    public FakeHostScript<FakeHostUnit, WatchPollHealthDto?> PollHealth { get; init; } =
-        FakeHostReply.Return<WatchPollHealthDto?>(null);
-
-    public FakeHostScript<FakeHostSnapshotRequest, WatchSnapshot> Snapshot { get; init; } =
-        FakeHostReply.Return(new WatchSnapshot(
-            [],
-            [],
-            PollHealth: null,
-            FetchError: null,
-            DemandsSucceeded: true,
-            AlertsSucceeded: true,
-            PollHealthSucceeded: true));
-
-    public FakeHostScript<WatchDemandBrowseQuery, WatchDemandPage> DemandPage { get; init; } =
-        FakeHostReply.Return(new WatchDemandPage([], null, false));
-
-    public FakeHostScript<WatchAlertBrowseQuery, WatchAlertPage> AlertPage { get; init; } =
-        FakeHostReply.Return(new WatchAlertPage([], null, false));
-
-    public FakeHostScript<string, WatchDemandDto?> ExactDemand { get; init; } =
-        FakeHostReply.Return<WatchDemandDto?>(null);
-}
-
 internal sealed record FakeHostV2Scenario
 {
     public FakeHostV2Scenario(string sessionId, string credential)
@@ -315,28 +265,16 @@ internal sealed record FakeHostV2Scenario
 internal sealed class ScriptedFakeHost : IAsyncDisposable
 {
     private readonly object _sync = new();
-    private readonly Queue<FakeHostScenario> _scenarios;
     private readonly List<FakeHostRequestEvent> _timeline = [];
     private readonly List<TimelineWaiter> _waiters = [];
     private readonly WebApplication? _application;
     private readonly FakeHostV2Scenario? _v2Scenario;
     private long _nextSequence;
 
-    public ScriptedFakeHost(params FakeHostScenario[] scenarios)
-    {
-        if (scenarios is null || scenarios.Length == 0)
-        {
-            throw new ArgumentException("At least one fake Host scenario is required.", nameof(scenarios));
-        }
-
-        _scenarios = new Queue<FakeHostScenario>(scenarios);
-    }
-
     private ScriptedFakeHost(WebApplication application, FakeHostV2Scenario scenario)
     {
         _application = application;
         _v2Scenario = scenario;
-        _scenarios = new Queue<FakeHostScenario>();
     }
 
     public string BaseUrl { get; private set; } = string.Empty;
@@ -403,20 +341,6 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
         }
 
         return uri.GetLeftPart(UriPartial.Authority);
-    }
-
-    public IWatchHostQueryAdapter CreateAdapter(WatchHostSettings settings)
-    {
-        ArgumentNullException.ThrowIfNull(settings);
-        FakeHostScenario scenario;
-        lock (_sync)
-        {
-            scenario = _scenarios.Count > 0
-                ? _scenarios.Dequeue()
-                : throw new InvalidOperationException("No fake Host scenario remains for a new session.");
-        }
-
-        return new Adapter(this, scenario, settings.Credential);
     }
 
     public Task WaitForAsync(
@@ -1163,161 +1087,6 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
         {
             completion.TrySetResult();
         }
-    }
-
-    private sealed class Adapter : IWatchHostQueryAdapter
-    {
-        private readonly ScriptedFakeHost _owner;
-        private readonly FakeHostScenario _scenario;
-        private readonly string _credential;
-
-        public Adapter(
-            ScriptedFakeHost owner,
-            FakeHostScenario scenario,
-            string credential)
-        {
-            _owner = owner;
-            _scenario = scenario;
-            _credential = credential;
-        }
-
-        public async Task VerifyContractAsync(CancellationToken cancellationToken)
-        {
-            _ = await ExecuteAsync(
-                    FakeHostOperation.Contract,
-                    "/api/contract",
-                    _scenario.Contract.Next(new FakeHostUnit()),
-                    cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        public Task<WatchPollHealthDto?> FetchPollHealthAsync(CancellationToken cancellationToken) =>
-            ExecuteAsync(
-                FakeHostOperation.PollHealth,
-                "/api/poll-health",
-                _scenario.PollHealth.Next(new FakeHostUnit()),
-                cancellationToken);
-
-        public Task<WatchSnapshot> FetchSnapshotAsync(
-            WatchDemandBrowseQuery demandQuery,
-            WatchAlertBrowseQuery alertQuery,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(
-                FakeHostOperation.Snapshot,
-                "watch-snapshot",
-                _scenario.Snapshot.Next(new FakeHostSnapshotRequest(demandQuery, alertQuery)),
-                cancellationToken);
-
-        public Task<WatchDemandPage> FetchDemandPageAsync(
-            WatchDemandBrowseQuery query,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(
-                FakeHostOperation.DemandPage,
-                "/api/demands",
-                _scenario.DemandPage.Next(query),
-                cancellationToken);
-
-        public Task<WatchAlertPage> FetchAlertPageAsync(
-            WatchAlertBrowseQuery query,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(
-                FakeHostOperation.AlertPage,
-                "/api/alerts",
-                _scenario.AlertPage.Next(query),
-                cancellationToken);
-
-        public Task<WatchDemandDto?> FetchDemandByIdAsync(
-            string demandId,
-            CancellationToken cancellationToken = default) =>
-            ExecuteAsync(
-                FakeHostOperation.ExactDemand,
-                "/api/demands/{demand-id}",
-                _scenario.ExactDemand.Next(demandId),
-                cancellationToken);
-
-        public void Dispose()
-        {
-        }
-
-        private async Task<T> ExecuteAsync<T>(
-            FakeHostOperation operation,
-            string endpoint,
-            FakeHostReply<T> reply,
-            CancellationToken cancellationToken)
-        {
-            _owner.Record(
-                new FakeHostRequestMatch(
-                    _scenario.SessionId,
-                    operation,
-                    FakeHostRequestState.Started),
-                endpoint);
-            try
-            {
-                if (reply.Gate is not null)
-                {
-                    await reply.Gate.WaitAsync(
-                            cancellationToken,
-                            reply.CompleteAfterCancellation)
-                        .ConfigureAwait(false);
-                }
-
-                if (reply.FailureShape == FakeHostFailureShape.CursorExpired)
-                {
-                    throw new WatchEndpointFetchException(
-                        reply.Endpoint,
-                        MesIngest.Core.LatencyStages.HttpStatus,
-                        TimeSpan.Zero,
-                        new HttpRequestException(
-                            Redact(reply.FailureMessage),
-                            inner: null,
-                            HttpStatusCode.BadRequest));
-                }
-
-                if (reply is { FailureShape: FakeHostFailureShape.Query, FailureKind: { } failureKind })
-                {
-                    throw new WatchHostQueryException(
-                        failureKind,
-                        reply.Endpoint,
-                        $"fake-{_scenario.SessionId}-{operation}",
-                        Redact(reply.FailureMessage));
-                }
-
-                _owner.Record(
-                    new FakeHostRequestMatch(
-                        _scenario.SessionId,
-                        operation,
-                        cancellationToken.IsCancellationRequested
-                            ? FakeHostRequestState.CompletedAfterCancellation
-                            : FakeHostRequestState.Completed),
-                    endpoint);
-                return reply.Value;
-            }
-            catch (OperationCanceledException)
-            {
-                _owner.Record(
-                    new FakeHostRequestMatch(
-                        _scenario.SessionId,
-                        operation,
-                        FakeHostRequestState.Canceled),
-                    endpoint);
-                throw;
-            }
-            catch (Exception ex) when (ex is WatchHostQueryException or WatchEndpointFetchException)
-            {
-                _owner.Record(
-                    new FakeHostRequestMatch(
-                        _scenario.SessionId,
-                        operation,
-                        FakeHostRequestState.Failed),
-                    endpoint);
-                throw;
-            }
-        }
-
-        private string Redact(string message) =>
-            string.IsNullOrEmpty(_credential)
-                ? message
-                : message.Replace(_credential, "(masked)", StringComparison.Ordinal);
     }
 
     private sealed record TimelineWaiter(

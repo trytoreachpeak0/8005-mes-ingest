@@ -44,6 +44,7 @@ $releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
 $watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
+$cutoverSrc = Join-Path $PSScriptRoot "cutover"
 $openapiSrc = Join-Path $PSScriptRoot "openapi\v2.json"
 $canonicalQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\mes-task-union\query.sql"))
 $canonicalQueryId = 'MES_TASK_UNION'
@@ -61,6 +62,7 @@ if (-not (Test-Path $releaseValidator)) { throw "Missing release package validat
 if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
 if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
 if (-not (Test-Path -LiteralPath $openapiSrc -PathType Leaf)) { throw "Missing frozen V2 OpenAPI source: $openapiSrc" }
+if (-not (Test-Path -LiteralPath $cutoverSrc -PathType Container)) { throw "Missing cutover drill scripts: $cutoverSrc" }
 if (-not (Test-Path -LiteralPath $canonicalQuerySource -PathType Leaf)) { throw "Missing canonical query source: $canonicalQuerySource" }
 
 $resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
@@ -156,6 +158,13 @@ New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
 Copy-Item $installService (Join-Path $scriptsDir "install-service.ps1") -Force
 Copy-Item $uninstallService (Join-Path $scriptsDir "uninstall-service.ps1") -Force
 Copy-Item $releaseValidator (Join-Path $scriptsDir "Test-ReleasePackage.ps1") -Force
+# The only database-deleting entry point in the product. It ships beside install/uninstall
+# so the attended cutover and rollback drills are run from the package, not improvised.
+$cutoverDir = Join-Path $scriptsDir "cutover"
+New-Item -ItemType Directory -Force -Path $cutoverDir | Out-Null
+Copy-Item (Join-Path $cutoverSrc "CutoverSqlTools.ps1") (Join-Path $cutoverDir "CutoverSqlTools.ps1") -Force
+Copy-Item (Join-Path $cutoverSrc "Invoke-EmptyDatabaseCutover.ps1") (Join-Path $cutoverDir "Invoke-EmptyDatabaseCutover.ps1") -Force
+Copy-Item (Join-Path $cutoverSrc "Invoke-CutoverRollback.ps1") (Join-Path $cutoverDir "Invoke-CutoverRollback.ps1") -Force
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
 Copy-Item $upgradeDoc (Join-Path $OutputDir "UPGRADE.md") -Force
 Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force

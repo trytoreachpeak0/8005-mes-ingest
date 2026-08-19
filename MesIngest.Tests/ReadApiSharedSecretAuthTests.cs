@@ -1,19 +1,28 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
-using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace MesIngest.Tests;
 
+/// <summary>
+/// SharedSecret admission for the only published read surface. Contract discovery is
+/// the cheapest business read on that surface: it needs no projection round trip, so
+/// these tests prove the admission decision itself rather than a query result.
+/// </summary>
 public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private const string ContractPath = "/api/v2/contract";
+
     private readonly WebApplicationFactory<Program> _factory;
 
     public ReadApiSharedSecretAuthTests(WebApplicationFactory<Program> factory)
@@ -24,108 +33,53 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
     [Fact]
     public async Task Localhost_binding_allows_api_without_shared_secret()
     {
-        var path = await WriteEmptyCsvAsync();
-        try
-        {
-            await using var factory = CreateFactory(path, urls: "http://127.0.0.1:5088", sharedSecret: "");
-            var client = factory.CreateClient();
+        await using var factory = CreateFactory(urls: "http://127.0.0.1:5088", sharedSecret: "");
+        var client = factory.CreateClient();
 
-            var response = await client.GetAsync("/api/demands");
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        var response = await client.GetAsync(ContractPath);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
     public async Task Non_localhost_binding_rejects_request_without_shared_secret()
     {
-        var path = await WriteEmptyCsvAsync();
-        try
-        {
-            await using var factory = CreateFactory(
-                path,
-                urls: "http://0.0.0.0:5088",
-                sharedSecret: "plant-secret");
-            var client = factory.CreateClient();
+        await using var factory = CreateFactory(urls: "http://0.0.0.0:5088", sharedSecret: "plant-secret");
+        var client = factory.CreateClient();
 
-            var response = await client.GetAsync("/api/demands");
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        var response = await client.GetAsync(ContractPath);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal("UNAUTHORIZED", JsonDocument.Parse(body).RootElement.GetProperty("code").GetString());
     }
 
     [Fact]
     public async Task Non_localhost_binding_rejects_wrong_shared_secret()
     {
-        var path = await WriteEmptyCsvAsync();
-        try
-        {
-            await using var factory = CreateFactory(
-                path,
-                urls: "http://192.168.1.10:5088",
-                sharedSecret: "plant-secret");
-            var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", "wrong-secret");
+        await using var factory = CreateFactory(urls: "http://192.168.1.10:5088", sharedSecret: "plant-secret");
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "wrong-secret");
 
-            var response = await client.GetAsync("/api/alerts");
-            Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        var response = await client.GetAsync(ContractPath);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
     public async Task Non_localhost_binding_accepts_correct_bearer_shared_secret()
     {
-        var now = new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.FromHours(8));
-        var store = new InMemoryTransportDemandStore();
-        store.ReplaceState(new ProjectionState(
-        [
-            new TransportDemand
-            {
-                DemandId = "auth-1",
-                TaskType = "DIE_TO_OVEN",
-                Sublot = "Q-AUTH",
-                Area = "N01-01",
-                Eqp = "EQ1",
-                Step = "烘箱",
-                Dates = now,
-                Package = "PKG",
-                Status = DemandStatus.Visible,
-                MesLastSeenAt = now,
-                DisappearCount = 0,
-            },
-        ]));
+        await using var factory = CreateFactory(urls: "http://0.0.0.0:5088", sharedSecret: "plant-secret");
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "plant-secret");
 
-        var path = await WriteEmptyCsvAsync();
-        try
-        {
-            await using var factory = CreateFactory(
-                path,
-                urls: "http://0.0.0.0:5088",
-                sharedSecret: "plant-secret",
-                store: store);
-            var client = factory.CreateClient();
-            client.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", "plant-secret");
+        var contract = await client.GetFromJsonAsync<JsonElement>(ContractPath);
 
-            var list = await client.GetFromJsonAsync<JsonElement>("/api/demands");
-            Assert.Equal(1, list.GetProperty("items").GetArrayLength());
-            Assert.Equal("auth-1", list.GetProperty("items")[0].GetProperty("demandId").GetString());
-        }
-        finally
-        {
-            File.Delete(path);
-        }
+        Assert.Equal(
+            NewMesIngestContract.Version,
+            contract.GetProperty("contractVersion").GetString());
     }
 
     [Fact]
@@ -174,37 +128,36 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
         Assert.Contains("SharedSecret", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(
-        string csvPath,
-        string urls,
-        string sharedSecret,
-        ITransportDemandStore? store = null)
-    {
-        return _factory.WithWebHostBuilder(builder =>
+    private WebApplicationFactory<Program> CreateFactory(string urls, string sharedSecret) =>
+        _factory.WithWebHostBuilder(builder =>
         {
+            builder.UseEnvironment(Environments.Production);
+            builder.UseSetting(
+                $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
+                "Server=auth.invalid;Database=auth;Integrated Security=true;Encrypt=false");
+            builder.UseSetting(
+                $"{MesIngestHostOptions.SectionName}:SnapshotSource",
+                MesIngestHostOptions.NoRoundSource);
+            builder.UseSetting($"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled", "false");
+            builder.UseSetting($"{MesIngestHostOptions.SectionName}:RunOneShotOnStartup", "false");
+            // Admission is decided before routing. Dropping the hosted services keeps
+            // this fixture off a real SQL Server without weakening what it asserts.
+            // The binding and the secret are injected as the resolved options object
+            // because that is exactly what the admission middleware reads.
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveAll<IHostedService>();
+                services.RemoveAll<MesIngestHostOptions>();
                 services.AddSingleton(new MesIngestHostOptions
                 {
-                    SnapshotCsvPath = csvPath,
-                    GoLiveBaseline = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.FromHours(8)),
-                    RunOneShotOnStartup = false,
+                    NewSqlServerConnectionString =
+                        "Server=auth.invalid;Database=auth;Integrated Security=true;Encrypt=false",
+                    SnapshotSource = MesIngestHostOptions.NoRoundSource,
                     ContinuousPollEnabled = false,
+                    RunOneShotOnStartup = false,
                     Urls = urls,
                     SharedSecret = sharedSecret,
                 });
-                if (store is not null)
-                {
-                    services.AddSingleton(store);
-                }
             });
         });
-    }
-
-    private static async Task<string> WriteEmptyCsvAsync()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"mes-ingest-auth-{Guid.NewGuid():N}.csv");
-        await File.WriteAllTextAsync(path, "TASK_TYPE,SUBLOT,AREA,EQP,STEP,DATES,PACKAGE\n", Encoding.UTF8);
-        return path;
-    }
 }

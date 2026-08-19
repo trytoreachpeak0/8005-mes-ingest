@@ -1,77 +1,17 @@
 # MesIngest (C#)
 
-MES task ingest Host. The repository contains two deliberately different surfaces:
+MES task ingest Host. One surface, one contract: Oracle `MES_TASK_UNION` → causal round /
+PollTrace → the dedicated SQL Server projection → the frozen, read-only `/api/v2/*` contract.
 
-- **Production V2 (Tickets 15–17):** Oracle `MES_TASK_UNION` → causal round / PollTrace → the dedicated new SQL Server projection → frozen, read-only `/api/v2/*` contract.
-- **Legacy Development V1:** CSV or the old snapshot source → `TransportDemandReconciler` → `/api/*`. This remains useful for historical tests and local demos only; it is not a V2 compatibility surface.
+Outside `Development`, Host requires `MesIngest:NewSqlServerConnectionString` and
+`MesIngest:SnapshotSource=Oracle`. The replaced contract is gone, not disabled: there is no
+`/api/demands`, `/api/alerts`, `/api/poll-health`, `/api/demand-changes`, or `/openapi/v1.json`
+to serve, no old schema to upgrade, and no configuration key that would re-enable them. A
+configuration file that still carries a retired key fails startup instead of being ignored
+(`MesIngestHostOptions.RetiredConfigurationKeys`). `/openapi/v2.json` is the only published API
+description.
 
-Outside `Development`, Host requires `MesIngest:NewSqlServerConnectionString`. With that key set and `MesIngest:SnapshotSource=Oracle`, only the V2 production poller and V2 HTTP surface run. The legacy `/api/demands`, `/api/alerts`, `/api/poll-health`, `/api/demand-changes`, and `/openapi/v1.json` are absent in Production; `/openapi/v2.json` is the canonical production API description.
-
-## Tickets 01–07 — legacy Development V1
-
-The following CSV, in-memory, old SQL projection, poll-health, and change-feed examples are retained as historical Development workflows. They do not describe the Ticket 15 production configuration or its V2 evidence contract.
-
-### Ticket 01 quick start (CSV + in-memory)
-
-```powershell
-cd mes/ingest/csharp
-
-# Point at a recorded MES_TASK_UNION CSV. Factory samples often have DATES before
-# the default go-live baseline (2026-08-01); override baseline for local demos.
-$env:MesIngest__SnapshotCsvPath = (Resolve-Path ..\..\samples\mes-task-union\latest.csv).Path
-$env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
-
-dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
-```
-
-Then:
-
-- `GET http://127.0.0.1:5088/api/demands`
-- `GET http://127.0.0.1:5088/api/demands/{demandId}`
-- `GET http://127.0.0.1:5088/api/alerts`
-- `GET http://127.0.0.1:5088/api/poll-health`
-- `GET http://127.0.0.1:5088/api/demand-changes`
-- Swagger UI: `http://127.0.0.1:5088/swagger` · OpenAPI JSON: `/openapi/v1.json` (pack ships `openapi/v1.json`)
-
-### Ticket 05 — legacy SQL Server projection
-
-Set `MesIngest:SqlServerConnectionString` (env or local config). When set, Host persists TransportDemands, task-type pauses, alerts, and latest poll health; a process restart still serves them via the same read-only HTTP. When empty, Host keeps the in-memory store (unit/contract tests and CSV demos).
-
-```powershell
-Copy-Item MesIngest.Host\appsettings.Local.json.example MesIngest.Host\appsettings.Local.json
-# edit connection string; appsettings.Local.json is gitignored
-
-$env:MesIngest__SnapshotCsvPath = (Resolve-Path ..\..\samples\mes-task-union\latest.csv).Path
-$env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
-dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
-```
-
-Or:
-
-```powershell
-$env:MesIngest__SqlServerConnectionString = "Server=(localdb)\MSSQLLocalDB;Database=MesIngest;Trusted_Connection=True;TrustServerCertificate=True"
-```
-
-SQL Server round-trip smokes run when LocalDB is available, or when `MES_INGEST_SQLSERVER` is set. Credentials never belong in the repo.
-
-### Ticket 06 — legacy restart recovery barrier
-
-After process start, the first *successful* full poll may create/refresh VISIBLE demands but does not increment disappear counts or mark GONE, and does not enter `PAUSED_ZERO_DROP` on a zero count (persisted last-healthy is kept when count is 0). From the second successful poll, normal disappear/GONE and zero-drop rules resume. Barrier-round per-type counts may *raise* (or seed) the persisted last-healthy baseline, but never demote it — so zero-drop protection survives service recycle. Failed/incomplete rounds do not consume the barrier.
-
-### Ticket 07 — legacy continuous single-flight poll
-
-Host runs as a Windows Service-capable process (`UseWindowsService`) with Kestrel read-only API. Continuous poll is single-flight: one round at a time, then wait `PostPollDelaySeconds` (default 10) before the next. `QueryTimeoutSeconds` (default 30) bounds each snapshot read. File CSV mode uses the same poll host — edit the CSV between rounds and `GET /api/demands` reflects the new projection. Failed/incomplete rounds append `POLL_FAILURE` / `POLL_INCOMPLETE` alerts without mutating presence. Closing WPF (or never opening it) does not stop the service or API.
-
-```powershell
-$env:MesIngest__SnapshotCsvPath = (Resolve-Path ..\..\samples\mes-task-union\latest.csv).Path
-$env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
-# ContinuousPollEnabled=true and PostPollDelaySeconds=10 come from appsettings.json
-dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
-```
-
-One-shot startup remains available via `MesIngest__RunOneShotOnStartup=true` (and/or `ContinuousPollEnabled=false`) for short legacy demos and tests. Service install packaging is ticket 10.
-
-## Ticket 15 — Production V2 Oracle round source
+## Ticket 15 — Production Oracle round source
 
 Production V2 runs the one approved `MES_TASK_UNION` statement from `service/queries/mes-task-union/query.sql`. Its raw-byte SHA-256 is compiled into Host and repeated in the adjacent query manifest and release manifest. A missing, empty, moved, duplicated, or modified SQL artifact is rejected before Oracle is called. Each successful read is one command / one result set covering all six branches and becomes one `MesTaskUnionRound` with PollTraceId, canonical query version, normalized content digest, row count, and outcome. The Oracle operation is read-only and bounded by `QueryTimeoutSeconds`; timeout, cancellation, execution, or result-shape failures produce safe failure evidence and never project partial rows.
 
@@ -100,7 +40,7 @@ $env:MesIngest__SnapshotSource = "Oracle"
 dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 ```
 
-The SQL connection must target a dedicated empty database (which V2 bootstraps) or a database already matching the exact V2 schema contract. It is not an in-place migration target for the legacy V1 tables, and Production has no in-memory fallback.
+The SQL connection must target a dedicated empty database (which V2 bootstraps) or a database already matching the exact V2 schema contract. It is never an in-place migration target for the replaced schema, and Production has no in-memory fallback.
 
 Representative read-only endpoints are:
 
@@ -110,16 +50,15 @@ Representative read-only endpoints are:
 - `GET /api/v2/externally-readable-demand-catalog`
 - `GET /api/v2/poll-traces/{pollTraceId}`
 
-`GET /api/v2/contract` returns the one exact, comparable contract identity and its stable capability set. Host and consumers must match that identity exactly; missing fields, old states, or client-side single-page filtering are not compatibility fallbacks. The canonical `/openapi/v2.json` describes only the read-only V2 GET surface, including its snapshot identities, ProjectionCommit, CatalogRevision, pagination bounds, stable ordering, conditional catalog reads, and error responses. The legacy `/openapi/v1.json` remains Development-only and is never production evidence.
+`GET /api/v2/contract` returns the one exact, comparable contract identity and its stable capability set. Host and consumers must match that identity exactly; missing fields, old states, or client-side single-page filtering are not compatibility fallbacks. The canonical `/openapi/v2.json` describes only the read-only V2 GET surface, including its snapshot identities, ProjectionCommit, CatalogRevision, pagination bounds, stable ordering, conditional catalog reads, and error responses. No earlier OpenAPI document is served or supported.
 
-## Ticket 09 — legacy Development Watch
+## Ticket 19–22 — production Watch client
 
-The current WPF client is an optional read-only client for the legacy Development V1 surface. It never hosts the poll loop and never reads SQL Server. The commands and behavior below are retained for historical V1 testing; they are not a Production V2 acceptance path.
+`MesIngest.Watch` is a single-Host, business-read-only WPF operations client for the `/api/v2`
+contract. It never hosts the poll loop and never reads SQL Server.
 
 ```powershell
-# Terminal A — Host (CSV demo)
-$env:MesIngest__SnapshotCsvPath = (Resolve-Path ..\..\samples\mes-task-union\latest.csv).Path
-$env:MesIngest__GoLiveBaseline = "2026-07-01T00:00:00+08:00"
+# Terminal A — Host
 dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 
 # Terminal B — Watch
@@ -130,9 +69,20 @@ dotnet run --project MesIngest.Watch
 # $env:MesIngestWatch__RequestTimeoutSeconds = "30"
 ```
 
-Watch shows VISIBLE/GONE demands with filter/sort (TASK_TYPE, SUBLOT, status, DemandId, time window), active/resolved IngestAlerts with production code/severity/LastSeenAt filters, a bottom health status bar (Watch last success vs Host poll end, connection/stale, active alerts/paused counts, timezone), and current-condition banners (ERROR red / WARNING orange, min 5s hold, brief 已恢复). Demand and Alert views use independent fixed 100-row server windows with previous/next cursor navigation; refresh preserves the current successful page while the committed filter/sort query remains active. Overview, VISIBLE, GONE, and IngestAlert each have a persisted, default-off auto-refresh preference with 10/30/60/300-second intervals; only the visible view runs, and its interval restarts after each request terminates. AlertId, Code, Severity, FirstSeenAt, LastSeenAt, TASK_TYPE, SUBLOT, DemandId, and Message sort through the Host allow-list with AlertId as the stable tie-break; OccurrenceCount, IsActive, and ResolvedAt remain display-only. HTTP timeout defaults to 30s (`Watch:RequestTimeoutSeconds`, range 1–300; invalid values fail startup). Watch defaults to WPF software rendering (`Watch:RenderingMode=SoftwareOnly`) so virtual/remote display drivers cannot leave an undrawn client area; `Auto` restores the platform default. On fetch failure Watch keeps last successful data per endpoint, shows last-success/stale in the status bar, and appends local WatchConnectionEvent JSONL under `%LocalAppData%\MesIngest.Watch\logs\` (or `MesIngestWatch__LogDirectory`; first failure / 5-minute summary / recovery; not Host IngestAlerts).
+Its information architecture is 概览 / 需求系列 / 资格审计 / 错误检索 / AREA 筛选 / 接入告警, plus
+Host status and settings in the navigation footer. Every data view auto-refreshes; settings only
+change the interval. A refresh replaces a view atomically on success, keeps the last successful
+snapshot on loading or failure, and drops a late response that no longer matches the Host session,
+the page query, and the request generation. Applying a new Host or credential raises the session
+generation, cancels outstanding requests, clears every business snapshot and selection, and then
+verifies the contract; a failed handshake never shows the previous Host's data.
 
-Watch persists only approved local preferences: Host base URL, the external credential reference, request timeout, four auto-refresh settings, window size, and the Demand/detail split. “恢复默认布局” resets only window geometry. Credentials remain in `MesIngestWatch__SharedSecret` or `appsettings.Local.json`; business lists, queries, cursors, pages, selection, details, last-success business time, and Host errors are never written to preference files. Corrupt, out-of-range, or incompatible preference files fall back to safe defaults.
+Watch persists only approved local preferences: Host base URL, the external credential reference,
+request timeout, refresh intervals, window geometry, and the named AREA filter profiles under the
+current Windows user. Credentials remain in `MesIngestWatch__SharedSecret` or
+`appsettings.Local.json`; business lists, queries, cursors, pages, selection, details, and Host
+errors are never written to preference files. Corrupt, out-of-range, or incompatible preference
+files fall back to safe defaults.
 
 ## Ticket 24 — release scripts, smoke, and validation guidance on the frozen V2 contract
 
@@ -143,6 +93,42 @@ Packaging, install, smoke, Watch acceptance, factory validation, and the return 
 Beyond contract identity and the retired-surface 404s, the smoke proves the first catalog body with its `CatalogRevision`/weak ETag, a same-revision 304, restricted raw evidence denying a missing or wrong Bearer secret on localhost, a remote binding without a shared secret refusing to start, `pollTraceHighWater` advancing with no Watch process, and the SQL Server projection surviving an abrupt Host restart unchanged. `-IncludePackagedWatch` additionally starts and closes the packaged Watch on the interactive golden desktop; without it that check is recorded as the named skip `PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET`.
 
 `Invoke-GoldenRendererValidation.ps1 -Suite watch-package-release` runs the packaged Watch through the non-pixel suites only (`watch-vm-tests` plus `watch-ui-journeys`). A packaged release proves that the published binaries start, connect, and drive the key journeys; it does not repeat the pixel candidates, stability counts, baseline promotions, or DPI clone that ticket 23 already accepted. Only packaging that actually changes PNG/XML/UIA/DPI output invalidates the affected ticket 23 scenarios, and only those gates are rerun.
+
+## Ticket 25 — retired contract removed, empty-database cutover package
+
+The replaced contract is deleted, not switched off. `FrozenMesFieldSet` / `FIELD_DRIFT` /
+`REAPPEAR_AFTER_GONE`, the `IngestAlert` incident lifecycle, `DemandChangeFeed`, feed
+sequence, bootstrap high-watermark, `SYNC_CURSOR_EXPIRED`, the old DTOs and routes, the old
+Watch shell and its baselines, and the old schema upgrade path are gone from the domain,
+Host, Watch, OpenAPI, tests, and documentation. `RetiredContractAndCutoverSafetyTests`
+asserts the shipped assemblies define no type named for them.
+
+Configuration follows: `MesIngest` refuses to start when the bound configuration still
+carries a retired key (`SqlServerConnectionString`, `SnapshotCsvPath`,
+`ChangeFeedRetentionHours`, `AlertRetentionDays`, `DisappearThreshold`, `GoLiveBaseline`,
+`EnableLegacyDevelopmentEndpoints`) rather than ignoring it, so a deployment file written
+for the old contract cannot look accepted while the value it carries does nothing. The
+release smoke proves that refusal from the published binaries.
+
+Database deletion exists in exactly one place: `pack/cutover/Invoke-EmptyDatabaseCutover.ps1`,
+shipped as `scripts/cutover/`. Host, Watch, install, and uninstall never delete a database.
+The drill connects through `master`, resolves the real `MachineName\InstanceName` and
+database name from the connection, and requires the operator to type that identity back at
+the console. There is no bypass switch, so a redirected or unattended run stops at the
+confirmation instead of dropping an unconfirmed database. It then takes a full
+`WITH CHECKSUM` backup, `RESTORE VERIFYONLY`s it, records its SHA-256, drops the old
+database, recreates an empty one, and proves zero user tables. The new Host bootstraps the
+schema on first start; the first complete SUCCESS round is the earliest provable point of
+the new history.
+
+`pack/cutover/Invoke-CutoverRollback.ps1` restores the previous deployment as a whole: the
+new Service must be stopped, the old programs and configuration must already be back, and
+the restored database must not carry the current `mesingest` schema. New binaries never read
+the old database and old binaries never read the new one; there is no rolling or mixed mode.
+
+`pack/Test-ReleasePackage.ps1` fails the package if any script other than the attended drill
+can `DROP DATABASE`, if either drill loses its typed confirmation, or if a drill gains an
+unattended bypass switch. See `pack/UPGRADE.md` for the runbook.
 
 ## Ticket 10 — factory install package + secure config
 
@@ -166,7 +152,7 @@ Install package also ships `FACTORY-VALIDATION.md` and `validation/` (manifest /
 
 Plant flow: fill V2 SQL Server and Oracle configuration → Thin `--probe-oracle` → on failure explicitly configure Thick and retry → start Service → sample multiple distinct `/api/v2/poll-traces/{pollTraceId}` rounds → compare row counts and VISIBLE projection → confirm PollTrace high-water continues without any Watch process → return only the redacted bundle.
 
-A technically complete capture requires at least one imported real `LIVE_ORACLE` probe with `connection_attempted=true`, matching requested/actual mode, canonical query identity, `outcome=Success`, and `result=PASSED`; it also requires PollTrace query version/hash-derived identity, normalized content digest, row count, and outcome. Legacy `/api/poll-health`, ChangeFeed/Bootstrap, Swagger/OpenAPI, and legacy `ORACLE_QUERY` / `SQL_QUERY` / `SQL_WRITE` latency labels are not V2 formal-source evidence. Human DATES/STEP interpretation and plant signoff remain separate from “validation pack ready”.
+A technically complete capture requires at least one imported real `LIVE_ORACLE` probe with `connection_attempted=true`, matching requested/actual mode, canonical query identity, `outcome=Success`, and `result=PASSED`; it also requires PollTrace query version/hash-derived identity, normalized content digest, row count, and outcome. Swagger/OpenAPI output and `ORACLE_QUERY` / `SQL_QUERY` / `SQL_WRITE` latency labels are not formal-source evidence. Human DATES/STEP interpretation and plant signoff remain separate from “validation pack ready”.
 
 Repo import: copy to `mes/evidence/runs/<run_id>/` per `mes/experiments/definitions/mes-ingest-factory-validation/plan.md`. Do **not** use `meslab import-run` or promote to `samples/`. “验证包已就绪” ≠ “工厂已签字通过”.
 

@@ -941,7 +941,7 @@ public sealed class TaskTypeProtectionTests : IClassFixture<WebApplicationFactor
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "false",
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "File",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
             [$"{MesIngestHostOptions.SectionName}__ZeroDropEnterThreshold"] = EnterThreshold.ToString(),

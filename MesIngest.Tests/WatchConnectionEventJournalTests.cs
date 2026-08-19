@@ -19,7 +19,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             Kind: WatchConnectionEventKind.Failure,
             At: DateTimeOffset.Parse("2026-07-31T10:00:00Z"),
-            Endpoint: "/api/demands",
+            Endpoint: "/api/v2/demand-series",
             Stage: "HTTP_TIMEOUT",
             ElapsedMs: 30_000,
             TimeoutSeconds: 30,
@@ -36,7 +36,7 @@ public class WatchConnectionEventJournalTests
         var root = doc.RootElement;
 
         Assert.Equal("Failure", root.GetProperty("kind").GetString());
-        Assert.Equal("/api/demands", root.GetProperty("endpoint").GetString());
+        Assert.Equal("/api/v2/demand-series", root.GetProperty("endpoint").GetString());
         Assert.DoesNotContain("super-secret-token", line, StringComparison.Ordinal);
         Assert.DoesNotContain("SharedSecret=leak", line, StringComparison.Ordinal);
         Assert.Contains("Bearer [redacted]", root.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
@@ -56,7 +56,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
             DateTimeOffset.Parse("2026-07-31T09:00:00Z"),
-            "/api/demands",
+            "/api/v2/demand-series",
             "HTTP_TIMEOUT",
             30_000,
             30,
@@ -66,7 +66,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Recovered,
             DateTimeOffset.Parse("2026-07-31T09:05:00Z"),
-            "/api/demands",
+            "/api/v2/demand-series",
             "HTTP_TIMEOUT",
             10,
             30,
@@ -79,7 +79,7 @@ public class WatchConnectionEventJournalTests
         Assert.Equal(2, recent.Count);
         Assert.Equal(WatchConnectionEventKind.Recovered, recent[0].Kind);
         Assert.Equal(WatchConnectionEventKind.Failure, recent[1].Kind);
-        Assert.Equal("/api/demands", recent[0].Endpoint);
+        Assert.Equal("/api/v2/demand-series", recent[0].Endpoint);
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
             DateTimeOffset.UtcNow,
-            "/api/demands",
+            "/api/v2/demand-series",
             "HTTP_CONNECT",
             100,
             30,
@@ -132,7 +132,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
             DateTimeOffset.UtcNow,
-            "/api/alerts",
+            "/api/v2/error-search",
             "HTTP_CONNECT",
             50,
             30,
@@ -162,7 +162,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
             DateTimeOffset.UtcNow,
-            "/api/demands",
+            "/api/v2/demand-series",
             "HTTP_CONNECT",
             100,
             30,
@@ -191,7 +191,7 @@ public class WatchConnectionEventJournalTests
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
             DateTimeOffset.UtcNow,
-            "/api/alerts",
+            "/api/v2/error-search",
             "HTTP_CONNECT",
             50,
             30,

@@ -45,57 +45,6 @@ public class WatchLocalLogFailureIsolationTests
     }
 
     [Fact]
-    public async Task Unavailable_primary_directory_is_visible_as_sanitized_TELEMETRY_IO_in_event_feed()
-    {
-        using var dir = new TempDirectory();
-        Directory.Delete(dir.Path);
-        File.WriteAllText(dir.Path, "not-a-directory");
-        var at = DateTimeOffset.Parse("2026-08-01T10:00:00Z");
-        var diagnostics = new WatchTelemetryIoDiagnosticBuffer(capacity: 20);
-        var telemetry = new WatchLatencyFileTelemetry(
-            dir.Path,
-            retentionDays: 30,
-            maxSizeBytes: 1024,
-            utcNow: () => at,
-            onWriteFailure: _ => diagnostics.Record(
-                endpoint: "watch-latency",
-                new IOException(
-                    "disk full SharedSecret=\"shared tail\" Authorization: Bearer \"bearer value\" "
-                    + "Password=\"db pass\" ConnectionString=DSN=prod;Trusted_Connection=yes"),
-                at));
-
-        telemetry.Record(new LatencyEvent(
-            CorrelationId: "c1",
-            Component: LatencyComponents.Watch,
-            Stage: LatencyStages.HttpOk,
-            ElapsedMs: 1,
-            StatusCode: 200,
-            RowCount: 0,
-            Bytes: 0,
-            Endpoint: "/api/demands",
-            Detail: null));
-        await telemetry.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
-
-        var journal = new WatchConnectionEventJournal(
-            dir.Path,
-            retentionDays: 30,
-            maxSizeBytes: 1024,
-            utcNow: () => at);
-        var feed = new WatchUnifiedEventFeed(journal, diagnostics);
-
-        var visible = Assert.Single(feed.Load([], TimeZoneInfo.Utc));
-
-        Assert.Equal(UnifiedEventSource.WatchConnectionEvent, visible.Source);
-        Assert.Equal("TELEMETRY_IO", visible.SeverityOrStage);
-        Assert.Equal("watch-latency", visible.EndpointOrTaskType);
-        Assert.DoesNotContain("shared tail", visible.Message!, StringComparison.Ordinal);
-        Assert.DoesNotContain("bearer value", visible.Message!, StringComparison.Ordinal);
-        Assert.DoesNotContain("db pass", visible.Message!, StringComparison.Ordinal);
-        Assert.DoesNotContain("DSN=prod", visible.Message!, StringComparison.Ordinal);
-        Assert.DoesNotContain("Trusted_Connection=yes", visible.Message!, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task Unavailable_connection_journal_returns_without_throwing_and_reports_TELEMETRY_IO()
     {
         using var dir = new TempDirectory();
@@ -112,7 +61,7 @@ public class WatchLocalLogFailureIsolationTests
         var append = Task.Run(() => journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Recovered,
             DateTimeOffset.Parse("2026-08-01T10:00:00Z"),
-            "/api/demands",
+            "/api/v2/demand-series",
             LatencyStages.HttpOk,
             1,
             30,
@@ -126,50 +75,6 @@ public class WatchLocalLogFailureIsolationTests
         var failure = Assert.Single(diagnostics.ReadRecent());
         Assert.Equal("TELEMETRY_IO", failure.Stage);
         Assert.Equal("watch-connection", failure.Endpoint);
-    }
-
-    [Fact]
-    public async Task Successful_HTTP_refresh_and_connection_event_append_ignore_a_stalled_log_worker()
-    {
-        using var dir = new TempDirectory();
-        using var dispatcher = new WatchLocalLogDispatcher(capacity: 8);
-        using var release = new ManualResetEventSlim();
-        Assert.True(dispatcher.TryEnqueue(release.Wait));
-        var telemetry = new WatchLatencyFileTelemetry(dir.Path, dispatcher: dispatcher);
-        var journal = new WatchConnectionEventJournal(dir.Path, 30, 1024 * 1024, dispatcher: dispatcher);
-        using var http = new HttpClient(new SuccessfulWatchHandler())
-        {
-            BaseAddress = new Uri("http://127.0.0.1:5088/"),
-            Timeout = TimeSpan.FromSeconds(30),
-        };
-        var client = new MesIngestApiClient(http, requestTimeoutSeconds: 30, telemetry);
-
-        try
-        {
-            var sw = Stopwatch.StartNew();
-            var snapshot = await client.FetchSnapshotAsync().WaitAsync(TimeSpan.FromSeconds(1));
-            journal.Append(new WatchConnectionEvent(
-                WatchConnectionEventKind.Recovered,
-                DateTimeOffset.UtcNow,
-                "/api/demands",
-                LatencyStages.HttpOk,
-                1,
-                30,
-                "Host refresh succeeded",
-                1,
-                10));
-            sw.Stop();
-
-            Assert.Null(snapshot.FetchError);
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(1));
-            Assert.Contains(journal.ReadRecent(), evt => evt.Kind == WatchConnectionEventKind.Recovered);
-        }
-        finally
-        {
-            release.Set();
-        }
-
-        await dispatcher.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
     }
 
     [Fact]
@@ -237,34 +142,6 @@ public class WatchLocalLogFailureIsolationTests
             {
                 // best-effort cleanup
             }
-        }
-    }
-
-    private sealed class SuccessfulWatchHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            var path = request.RequestUri!.AbsolutePath;
-            if (WatchHttpTestStubs.IsContractPath(path))
-            {
-                return Task.FromResult(WatchHttpTestStubs.MatchingContract(path));
-            }
-
-            if (path.EndsWith("/api/demands", StringComparison.Ordinal)
-                || path.EndsWith("/api/alerts", StringComparison.Ordinal))
-            {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                {
-                    Content = new StringContent(
-                        """{"items":[],"nextCursor":null,"hasMore":false}""",
-                        Encoding.UTF8,
-                        "application/json"),
-                });
-            }
-
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
         }
     }
 }

@@ -92,7 +92,7 @@ public sealed class WatchJourneyEvidenceTests
             evidence.RecordUiaTree($"Button secret={secret}");
             evidence.RecordProcessOutput($"stdout cursor={cursor}", $"stderr demand={demandId}");
             evidence.RecordFakeHostTimeline(
-                [$"GET /api/demands?cursor={cursor}&demandId={demandId}"],
+                [$"GET /api/v2/demand-series?cursor={cursor}&demandId={demandId}"],
                 $"credential={secret}");
             evidence.RecordEnvironment("100% DPI; zh-CN; light; 1440x900");
             evidence.RecordFailure(
