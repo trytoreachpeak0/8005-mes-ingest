@@ -82,19 +82,22 @@ try {
     Write-Host "  created  = $($identity.CreateDate)"
     Write-Host "  userTables = $($identity.UserTableCount)"
 
-    Assert-CutoverOperatorConfirmation -Identity $identity -Action 'BACK UP AND THEN DESTROY'
-
     $sessions = Get-CutoverForeignSessionCount -Connection $connection -DatabaseName $DatabaseName
     if ($sessions -gt 0) {
         throw ("CUTOVER_TARGET_STILL_IN_USE: $sessions other session(s) are connected to " +
             "[$DatabaseName]. Stop the old Service, every Watch, and every external consumer first.")
     }
 
+    # Back up first, then ask. The backup is not destructive, so doing it before the
+    # confirmation spends that confirmation on the drop alone, and an unusable backup
+    # path fails before anyone is asked to authorize anything.
     Write-Host "CUTOVER_BACKUP_STARTED: $BackupPath"
     Invoke-CutoverFullBackup -Connection $connection -DatabaseName $DatabaseName -BackupPath $BackupPath
     Invoke-CutoverBackupVerify -Connection $connection -BackupPath $BackupPath
     $backupSha256 = Get-CutoverBackupSha256 -BackupPath $BackupPath
     Write-Host "CUTOVER_BACKUP_VERIFIED: sha256=$backupSha256"
+
+    Assert-CutoverOperatorConfirmation -Identity $identity -Action 'DESTROY'
 
     Invoke-CutoverDropDatabase -Connection $connection -DatabaseName $DatabaseName
     Write-Host "CUTOVER_OLD_DATABASE_DROPPED: $($identity.ServerIdentity)/$DatabaseName"

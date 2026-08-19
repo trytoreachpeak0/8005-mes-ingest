@@ -31,7 +31,7 @@ Host 只接受两种数据库状态：
 
 2. **准备备份落盘位置**
 
-   备份由切换脚本执行并校验，落在 SQL Server 主机上；请预留独立于新库的磁盘位置，切换后长期保留，它是唯一的回退资产。
+   备份由切换脚本执行并校验，落在 **SQL Server 主机**上——路径是那台机器的本地路径，不是运行脚本这台机器的路径。请预留独立于新库的磁盘位置并确认目录已存在，切换后长期保留，它是唯一的回退资产。
 
 3. **备份当前安装根目录**
 
@@ -54,9 +54,9 @@ Host 只接受两种数据库状态：
 
 1. 连接必须走 `master`，不能直接连目标库；
 2. 从连接本身解析真实 `MachineName\InstanceName` 和库名并打印；
-3. **要求操作员在控制台原样键入 `实例/库名`**。没有任何开关可以跳过这一步，因此非交互或重定向输入的无人值守调用一定停在这里，不会对未确认实例执行 DROP；
-4. 核对目标库上没有其它用户会话（否则说明还有旧 Host、Watch 或外部消费者没停）；
-5. `BACKUP DATABASE ... WITH INIT, FORMAT, CHECKSUM`，再 `RESTORE VERIFYONLY ... WITH CHECKSUM`，并记录备份文件 SHA-256；
+3. 核对目标库上没有其它用户会话（否则说明还有旧 Host、Watch 或外部消费者没停）；
+4. `BACKUP DATABASE ... WITH INIT, FORMAT, CHECKSUM`，再 `RESTORE VERIFYONLY ... WITH CHECKSUM`，并记录备份文件 SHA-256。备份是非破坏性的，放在确认之前，这样一次确认只授权删除动作，备份路径不可用时也不会先让人确认再失败；
+5. **要求操作员在控制台原样键入 `实例/库名`**。没有任何开关可以跳过这一步，因此非交互或重定向输入的无人值守调用一定停在这里，不会对未确认实例执行 DROP；
 6. `ALTER DATABASE ... SET SINGLE_USER WITH ROLLBACK IMMEDIATE` 后 `DROP DATABASE`；
 7. 新建同名**空库**并核对用户表数为 0；
 8. 写出 `cutover-evidence.json`：目标身份、备份路径与哈希、前后用户表数、操作员、时间。
