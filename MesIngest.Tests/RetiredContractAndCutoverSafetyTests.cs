@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Reflection;
 using System.Text.RegularExpressions;
 using MesIngest.Host;
 
@@ -10,9 +8,10 @@ namespace MesIngest.Tests;
 /// deletion exists only in the attended cutover drill, and neither the repository nor
 /// the release artifacts carry a real credential.
 ///
-/// These read the tracked working tree, so they fail on a stale file the compiler never
-/// looks at — a runbook, a template, a deployment script — which is exactly where a
-/// retired entry point survives longest.
+/// These read the source tree, so they fail on a stale file the compiler never looks at
+/// — a runbook, a template, a deployment script — which is exactly where a retired entry
+/// point survives longest. They use no external tool, so they run identically here and
+/// from the copied payload the packaged release gate builds.
 /// </summary>
 public sealed partial class RetiredContractAndCutoverSafetyTests
 {
@@ -52,6 +51,14 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
         "MesIngest.Watch.UiTests/",
     ];
 
+    /// <summary>
+    /// Directory names that hold build output, test results, recorded evidence, or Git's
+    /// own store rather than source. Recorded evidence is excluded because it is produced
+    /// by the redacting validation scripts, which own that boundary.
+    /// </summary>
+    private static readonly HashSet<string> ExcludedDirectories =
+        new(StringComparer.OrdinalIgnoreCase) { "bin", "obj", "TestResults", ".artifacts", ".git", ".vs" };
+
     [Fact]
     public void Production_assemblies_expose_no_retired_contract_type()
     {
@@ -83,7 +90,7 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
         var cutoverDirectory = Path.Combine(RepositoryPaths.CSharpRoot, "pack", "cutover")
             + Path.DirectorySeparatorChar;
 
-        var offenders = TrackedFiles(ExecutableExtensions, includeTestProjects: false)
+        var offenders = ScannedFiles(ExecutableExtensions, includeTestProjects: false)
             .Where(path => !path.StartsWith(cutoverDirectory, StringComparison.OrdinalIgnoreCase))
             .Where(path => DropDatabaseRegex().IsMatch(File.ReadAllText(path)))
             .Select(RepositoryPaths.ToRelative)
@@ -106,7 +113,7 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
     public void No_source_injects_a_retired_configuration_key_into_a_host()
     {
         var offenders = new List<string>();
-        foreach (var path in TrackedFiles([".cs", ".ps1", ".psm1"], includeTestProjects: true))
+        foreach (var path in ScannedFiles([".cs", ".ps1", ".psm1"], includeTestProjects: true))
         {
             var relative = RepositoryPaths.ToRelative(path);
             if (relative.EndsWith(nameof(RetiredContractAndCutoverSafetyTests) + ".cs", StringComparison.Ordinal)
@@ -193,10 +200,10 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
     }
 
     [Fact]
-    public void No_tracked_file_carries_a_real_credential()
+    public void No_source_file_carries_a_real_credential()
     {
         var offenders = new List<string>();
-        foreach (var path in TrackedFiles(CredentialBearingExtensions, includeTestProjects: true))
+        foreach (var path in ScannedFiles(CredentialBearingExtensions, includeTestProjects: true))
         {
             var relative = RepositoryPaths.ToRelative(path);
             var lineNumber = 0;
@@ -212,7 +219,7 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
 
         Assert.True(
             offenders.Count == 0,
-            "Tracked files must not carry a real credential: " + string.Join(", ", offenders));
+            "Source files must not carry a real credential: " + string.Join(", ", offenders));
     }
 
     private static IEnumerable<string> FindCredentialsOnLine(string line)
@@ -248,52 +255,48 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
         || value.Equals("True", StringComparison.OrdinalIgnoreCase)
         || value.Equals("False", StringComparison.OrdinalIgnoreCase);
 
-    private static IEnumerable<string> TrackedFiles(
+    /// <summary>
+    /// Every source file under the C# root, minus four kinds of directory that are not
+    /// source: build output, test results, recorded evidence, and Git's own store. It
+    /// also never opens a <c>*.Local.json</c>: that is by contract the operator's local
+    /// secret file, which is git-ignored, is deleted from the release package, and must
+    /// not be read by anything.
+    ///
+    /// This deliberately does not shell out to Git. The packaged release gate runs these
+    /// tests from a copied source payload with no worktree and no git executable, and a
+    /// check that cannot run where the release is built is not a check.
+    /// </summary>
+    private static IEnumerable<string> ScannedFiles(
         IReadOnlyList<string> extensions,
         bool includeTestProjects)
     {
-        foreach (var relative in GitTrackedRelativePaths())
+        var root = RepositoryPaths.CSharpRoot;
+        foreach (var full in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
-            var normalized = relative.Replace('\\', '/');
+            var relative = RepositoryPaths.ToRelative(full);
+            if (relative.Split('/').Any(segment => ExcludedDirectories.Contains(segment)))
+            {
+                continue;
+            }
+
+            if (Path.GetFileName(full).EndsWith(".Local.json", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             if (!includeTestProjects
-                && TestProjectPrefixes.Any(prefix => normalized.StartsWith(prefix, StringComparison.Ordinal)))
+                && TestProjectPrefixes.Any(prefix => relative.StartsWith(prefix, StringComparison.Ordinal)))
             {
                 continue;
             }
 
-            var extension = Path.GetExtension(relative);
-            if (!extensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            if (!extensions.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            var full = Path.GetFullPath(Path.Combine(RepositoryPaths.CSharpRoot, relative));
-            if (File.Exists(full))
-            {
-                yield return full;
-            }
+            yield return full;
         }
-    }
-
-    private static IReadOnlyList<string> GitTrackedRelativePaths()
-    {
-        var startInfo = new ProcessStartInfo("git", "ls-files -z")
-        {
-            WorkingDirectory = RepositoryPaths.CSharpRoot,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException("Could not run git ls-files.");
-        var output = process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        Assert.True(process.ExitCode == 0, "git ls-files failed; the scan cannot claim repository coverage.");
-
-        return output
-            .Split('\0', StringSplitOptions.RemoveEmptyEntries)
-            .ToArray();
     }
 
     [GeneratedRegex(@"DROP\s+DATABASE", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
