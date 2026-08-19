@@ -96,6 +96,48 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
             + string.Join(", ", offenders));
     }
 
+    /// <summary>
+    /// A retired key is rejected at startup, so any source that still injects one into a
+    /// Host configuration breaks that Host. Most of those injections live in SQL-gated
+    /// tests, which skip wherever no real SQL Server answers — so without this check the
+    /// breakage only surfaces on the golden machine.
+    /// </summary>
+    [Fact]
+    public void No_source_injects_a_retired_configuration_key_into_a_host()
+    {
+        var offenders = new List<string>();
+        foreach (var path in TrackedFiles([".cs", ".ps1", ".psm1"], includeTestProjects: true))
+        {
+            var relative = RepositoryPaths.ToRelative(path);
+            if (relative.EndsWith(nameof(RetiredContractAndCutoverSafetyTests) + ".cs", StringComparison.Ordinal)
+                || relative.EndsWith("MesIngestHostOptions.cs", StringComparison.Ordinal)
+                || relative.EndsWith("Invoke-ReleaseSmoke.ps1", StringComparison.Ordinal))
+            {
+                // These three define, document, or deliberately exercise the rejection.
+                continue;
+            }
+
+            var lineNumber = 0;
+            foreach (var line in File.ReadLines(path))
+            {
+                lineNumber++;
+                foreach (var key in MesIngestHostOptions.RetiredConfigurationKeys)
+                {
+                    if (line.Contains($"__{key}\"", StringComparison.Ordinal)
+                        || line.Contains($":{key}\"", StringComparison.Ordinal))
+                    {
+                        offenders.Add($"{relative}:{lineNumber} ({key})");
+                    }
+                }
+            }
+        }
+
+        Assert.True(
+            offenders.Count == 0,
+            "These still configure a Host with a retired key, which now fails startup: "
+            + string.Join(", ", offenders));
+    }
+
     [Fact]
     public void Service_install_and_uninstall_never_touch_a_database()
     {

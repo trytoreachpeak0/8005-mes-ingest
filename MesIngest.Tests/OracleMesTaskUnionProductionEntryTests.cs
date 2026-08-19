@@ -57,7 +57,6 @@ public sealed class OracleMesTaskUnionProductionEntryTests : IClassFixture<WebAp
             [$"{MesIngestHostOptions.SectionName}__QueriesDirectory"] = Path.Combine(AppContext.BaseDirectory, "queries"),
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
-            [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "false",
         });
 
         await using var factory = _factory.WithWebHostBuilder(builder =>

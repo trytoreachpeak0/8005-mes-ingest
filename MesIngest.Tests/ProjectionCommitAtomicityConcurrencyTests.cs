@@ -1139,7 +1139,6 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "false",
             [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "Oracle",
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",

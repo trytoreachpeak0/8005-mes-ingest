@@ -529,7 +529,6 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "true",
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });

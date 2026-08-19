@@ -659,7 +659,6 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "false",
             [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",

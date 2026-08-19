@@ -669,7 +669,6 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__SharedSecret"] = RawSecret,
-            [$"{MesIngestHostOptions.SectionName}__EnableLegacyDevelopmentEndpoints"] = "true",
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
