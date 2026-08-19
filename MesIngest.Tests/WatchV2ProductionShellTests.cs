@@ -15,6 +15,7 @@ using ControlAppearance = Wpf.Ui.Controls.ControlAppearance;
 
 namespace MesIngest.Tests;
 
+[Collection("WpfDesktop")]
 public sealed class WatchV2ProductionShellTests
 {
     [Fact]

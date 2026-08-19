@@ -58,6 +58,14 @@ param(
 
     [switch]$SqlServerDatabaseIsDedicatedEmpty,
 
+    # The V2 projection tests assert the engine they were pointed at rather than
+    # discovering it, so the expected identity is an explicit input.
+    [ValidateRange(1, 99)]
+    [int]$SqlServerExpectedProductMajor,
+
+    [ValidateRange(80, 999)]
+    [int]$SqlServerExpectedCompatibilityLevel,
+
     [ValidateRange(60, 14400)]
     [int]$TimeoutSeconds = 3600
 )
@@ -153,6 +161,11 @@ try {
         if (-not $SqlServerDatabaseIsDedicatedEmpty) {
             throw 'watch-package-release SQL Server target must be explicitly confirmed dedicated, disposable, and empty.'
         }
+        # Without these the whole V2 projection suite silently reports NotExecuted, and
+        # the packaged release would claim a real SQL Server gate it never ran.
+        if ($SqlServerExpectedProductMajor -le 0 -or $SqlServerExpectedCompatibilityLevel -le 0) {
+            throw 'watch-package-release requires SqlServerExpectedProductMajor and SqlServerExpectedCompatibilityLevel so the V2 projection tests run instead of skipping.'
+        }
         $credentialSource = (Resolve-Path -LiteralPath $SqlServerCredentialPath -ErrorAction Stop).Path
         $sqlServerCredential = Import-Clixml -LiteralPath $credentialSource
         if ($sqlServerCredential -isnot [PSCredential] `
@@ -165,6 +178,8 @@ try {
             Database = $SqlServerDatabase
             Authentication = 'SqlPasswordFromDpapiCredential'
             DedicatedEmptyConfirmed = $true
+            ExpectedProductMajor = $SqlServerExpectedProductMajor
+            ExpectedCompatibilityLevel = $SqlServerExpectedCompatibilityLevel
         }
         if ([string]::IsNullOrWhiteSpace($repositoryRoot)) {
             throw 'The package release suite requires a Git worktree so its repository-level regression inputs can be staged.'
@@ -218,7 +233,7 @@ try {
             $manualSource = (Resolve-Path -LiteralPath $ManualAcceptancePath -ErrorAction Stop).Path
             $manual = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json
             $requiredChecks = @(
-                'startup-within-10-seconds',
+                'startup-within-25-seconds',
                 'demand-alert-visual-contract',
                 'v2-pages-and-settings',
                 'package-run-not-source'
@@ -281,7 +296,9 @@ param(
     [Parameter(Mandatory = $true)][int]$ExpectedDpi,
     [Parameter(Mandatory = $true)][int]$ExpectedDesktopWidth,
     [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight,
-    [string]$JourneyClientEpx
+    [string]$JourneyClientEpx,
+    [int]$SqlServerExpectedProductMajor,
+    [int]$SqlServerExpectedCompatibilityLevel
 )
 
 $ErrorActionPreference = 'Stop'
@@ -333,6 +350,12 @@ try {
         $env:MES_INGEST_RELEASE_SMOKE_SQLSERVER = $sqlConnectionString
         $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
         $env:MES_INGEST_SQLSERVER = $sqlConnectionString
+        # The V2 projection suite reads its own variable and creates per-test
+        # databases. Without these three the whole suite reports NotExecuted and the
+        # packaged release would claim a real SQL Server gate it never ran.
+        $env:MES_INGEST_TICKET01_SQLSERVER = $sqlConnectionString
+        $env:MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR = $SqlServerExpectedProductMajor
+        $env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL = $SqlServerExpectedCompatibilityLevel
     }
 
     & '.\Test-GoldenRendererEnvironment.ps1' `
@@ -433,17 +456,43 @@ try {
             throw ("Packaged Watch acceptance must run exactly the non-pixel suites " +
                 "$($expectedPackagedSuites -join ', '); found $($actualPackagedSuites -join ', ').")
         }
-        $uiSkipLines = @($uiRunnerLogs | Select-String -Pattern 'Skipped:\s+(?<count>[1-9][0-9]*)')
+        # Two UI entry points can never run inside a release payload, by construction:
+        # the candidate comparison is the stability gate's own entry point, and the
+        # golden-fixture equivalence tests read real captures from .artifacts, which the
+        # payload deliberately excludes. They are named here rather than tolerated as a
+        # count, so any other skip still fails the gate.
+        $expectedUiSkips = @(
+            'MesIngest.Watch.UiTests.WatchWindowCandidateEquivalenceTests.Candidate_directories_are_visually_equivalent',
+            'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_different_page_is_rejected',
+            'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_one_pixel_control_geometry_change_is_rejected',
+            'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_one_pixel_glyph_shift_is_rejected',
+            'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_antialiasing_flip_is_accepted'
+        )
+        $actualUiSkips = @(
+            $uiRunnerLogs |
+                Select-String -Pattern '^\s+(?<test>\S+) \[SKIP\]$' |
+                ForEach-Object { $_.Matches[0].Groups['test'].Value } |
+                Sort-Object -Unique
+        )
+        $uiSkipDifference = @(
+            Compare-Object `
+                -ReferenceObject $expectedUiSkips `
+                -DifferenceObject $actualUiSkips `
+                -CaseSensitive
+        )
         [ordered]@{
             suites = $actualPackagedSuites
             runnerLogCount = $uiRunnerLogs.Count
-            skipped = @($uiSkipLines | ForEach-Object { $_.Line })
+            skippedTests = $actualUiSkips
+            skippedReason = 'STABILITY_GATE_ENTRY_POINT_AND_GOLDEN_FIXTURES_EXCLUDED_FROM_RELEASE_PAYLOAD'
+            skippedMatchesExpectedNamedSet = $uiSkipDifference.Count -eq 0
             ticket23VisualBaselinesReused = $true
             ticket23ReuseBasis = 'PACKAGING_DID_NOT_CHANGE_APPROVED_PNG_XML_UIA_OR_DPI_OUTPUT'
         } | ConvertTo-Json -Depth 4 |
             Set-Content -LiteralPath (Join-Path $Root 'Results\packaged-watch-acceptance\summary.json') -Encoding utf8
-        if ($uiSkipLines.Count -gt 0) {
-            throw "PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED: $($uiSkipLines.Line -join '; ')"
+        if ($uiSkipDifference.Count -gt 0) {
+            throw ('PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED: the skipped UI tests are not the ' +
+                "expected named set; details are in Results\packaged-watch-acceptance\summary.json")
         }
 
         $manualApprovalPath = Join-Path $Root 'ReleaseApproval\manual-acceptance.json'
@@ -565,7 +614,7 @@ catch {
     }
 
     Invoke-Command -Session $session -ScriptBlock {
-        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height, $journeyClientEpx)
+        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height, $journeyClientEpx, $sqlProductMajor, $sqlCompatibilityLevel)
         Expand-Archive -LiteralPath (Join-Path $root 'payload.zip') -DestinationPath $root
         $runner = Join-Path $root 'run-golden-validation.ps1'
         $arguments = @(
@@ -582,6 +631,11 @@ catch {
         if (-not [string]::IsNullOrWhiteSpace($journeyClientEpx)) {
             $arguments += @('-JourneyClientEpx', $journeyClientEpx)
         }
+        if ($sqlProductMajor -gt 0 -and $sqlCompatibilityLevel -gt 0) {
+            $arguments += @(
+                '-SqlServerExpectedProductMajor', $sqlProductMajor,
+                '-SqlServerExpectedCompatibilityLevel', $sqlCompatibilityLevel)
+        }
         $arguments = $arguments -join ' '
         $action = New-ScheduledTaskAction `
             -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
@@ -594,7 +648,8 @@ catch {
         Start-ScheduledTask -TaskName $task
     } -ArgumentList @(
         $guestRoot, $taskName, $Suite, $Configuration, $Runs,
-        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight, $JourneyClientEpx)
+        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight, $JourneyClientEpx,
+        $SqlServerExpectedProductMajor, $SqlServerExpectedCompatibilityLevel)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {

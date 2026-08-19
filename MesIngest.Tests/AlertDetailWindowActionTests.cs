@@ -10,6 +10,7 @@ namespace MesIngest.Tests;
 /// Ticket 16 seam: AlertDetailWindow user actions for the previous GONE and
 /// new VISIBLE TransportDemand instances of a REAPPEAR_AFTER_GONE alert.
 /// </summary>
+[Collection("WpfDesktop")]
 public class AlertDetailWindowActionTests
 {
     [Fact]

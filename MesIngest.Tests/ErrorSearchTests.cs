@@ -215,9 +215,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             out var contractCursorMismatch));
         Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, contractCursorMismatch!.Code);
 
-        var tampered = string.Concat(
-            cursor.AsSpan(0, cursor.Length - 1),
-            cursor[^1] == 'A' ? "B" : "A");
+        var tampered = SignedTokenTampering.TamperSignature(cursor);
         Assert.False(ErrorSearchTokenCodec.TryReadCursor(
             tampered,
             snapshot,
@@ -683,7 +681,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             AssertErrorCode(mismatch, ErrorSearchErrorCodes.CursorMismatch);
         }
 
-        var tampered = frozenReference[..^1] + (frozenReference[^1] == 'A' ? "B" : "A");
+        var tampered = SignedTokenTampering.TamperSignature(frozenReference);
         using (var rejected = await client.GetAsync(
             "/api/v2/error-search?snapshot=" + Uri.EscapeDataString(tampered)))
         {

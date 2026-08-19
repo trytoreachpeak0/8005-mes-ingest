@@ -435,7 +435,7 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
             DemandSeriesBrowseErrorCodes.CursorMismatch,
             mismatchedJson.RootElement.GetProperty("code").GetString());
 
-        var tamperedCursor = cursor[..^1] + (cursor[^1] == 'A' ? 'B' : 'A');
+        var tamperedCursor = SignedTokenTampering.TamperSignature(cursor);
         using var tampered = await client.GetAsync(
             "/api/v2/demand-series?pageSize=2"
             + $"&snapshot={Uri.EscapeDataString(snapshotReference)}"

@@ -11,6 +11,7 @@ namespace MesIngest.Tests;
 /// OnFilterChanged before later-named controls (grids, GoneWindowHours, …) exist.
 /// Also covers ticket 08 clipboard wiring on both grids.
 /// </summary>
+[Collection("WpfDesktop")]
 public class MainWindowStartupTests
 {
     [Fact]

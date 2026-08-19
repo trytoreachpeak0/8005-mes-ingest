@@ -70,6 +70,7 @@ $required = @(
     "scripts\Test-ReleasePackage.ps1",
     "validation\Invoke-FactoryValidation.ps1",
     "validation\Invoke-ReleaseSmoke.ps1",
+    "validation\release-smoke-rounds.json",
     "validation\Invoke-WatchAcceptance.ps1",
     "INSTALL.md",
     "UPGRADE.md",

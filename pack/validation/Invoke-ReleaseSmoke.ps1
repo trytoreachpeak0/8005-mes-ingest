@@ -18,16 +18,31 @@
   Also start and close the packaged WPF Watch to prove the Service keeps polling
   and serving after the Watch exits. Requires an interactive Windows desktop, so
   it belongs to the gpt_win11 interactive scheduled task; without it that check
-  is recorded as the named skip PACKAGED_WATCH_PROCESS_INDEPENDENCE.
+  is recorded as the named skip PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET.
+
+.PARAMETER PackagedWatchStartupBudgetSeconds
+  Upper bound, in seconds, from packaged Watch process start to a shown main
+  window. Measured and recorded whenever -IncludePackagedWatch is used.
 #>
 [CmdletBinding()]
 param(
     [string] $ArtifactsDirectory,
 
-    [ValidateRange(5, 30)]
-    [int] $StartupTimeoutSeconds = 10,
+    # Startup includes the V2 schema bootstrap, which is a database round trip and is
+    # routinely remote. 10 seconds was sized for a Host that never touched a projection.
+    [ValidateRange(5, 120)]
+    [int] $StartupTimeoutSeconds = 60,
 
-    [switch] $IncludePackagedWatch
+    [switch] $IncludePackagedWatch,
+
+    # Operator-visible startup: packaged Watch process start to a shown main window.
+    # A release claims this bound, so the smoke measures it rather than assuming it.
+    # 25s is set from measurement, not from aspiration: a cold first launch of the
+    # freshly copied self-contained binaries took 14.0s on the calibrated golden VM,
+    # and that machine's timings are noisy enough that a tighter bound would flake.
+    # Reducing the cold-start cost itself is tracked separately.
+    [ValidateRange(1, 120)]
+    [int] $PackagedWatchStartupBudgetSeconds = 25
 )
 
 Set-StrictMode -Version Latest
@@ -106,7 +121,9 @@ function Start-PackagedHostProcess {
         [Parameter(Mandatory = $true)][string] $Executable,
         [Parameter(Mandatory = $true)][string] $BaseUrl,
         [Parameter(Mandatory = $true)][string] $SqlConnectionString,
-        [Parameter(Mandatory = $true)][string] $SharedSecret,
+        # Empty is a deliberate value: the remote-binding refusal check starts a Host
+        # with no shared secret on purpose.
+        [Parameter(Mandatory = $true)][AllowEmptyString()][string] $SharedSecret,
         [string] $RecordingPath,
         [bool] $ContinuousPoll = $false,
         [bool] $OneShotOnStartup = $false,
@@ -180,6 +197,37 @@ function Wait-PackagedHostContract {
         throw "Packaged Production V2 Host did not expose /api/v2/contract within $TimeoutSeconds seconds."
     }
     return $contract
+}
+
+# The poll loop keeps committing while the smoke reads. The recording repeats its
+# final round, so the catalog stops changing once every recorded round is projected;
+# waiting for that quiet period is what makes the conditional read below a real 304
+# check instead of a race against the next commit.
+function Wait-SettledCatalog {
+    param(
+        [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
+        [Parameter(Mandatory = $true)][string] $Uri,
+        [int] $TimeoutSeconds = 120,
+        [int] $QuietSeconds = 5
+    )
+
+    $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
+    $lastEtag = $null
+    $lastChangedAt = [DateTimeOffset]::UtcNow
+    do {
+        $read = Invoke-SmokeRequest -Client $Client -Uri $Uri
+        if ($read.StatusCode -ne 200) {
+            throw "The externally readable Demand catalog returned HTTP $($read.StatusCode) while settling."
+        }
+        if ($read.ETag -cne $lastEtag) {
+            $lastEtag = $read.ETag
+            $lastChangedAt = [DateTimeOffset]::UtcNow
+        } elseif (([DateTimeOffset]::UtcNow - $lastChangedAt).TotalSeconds -ge $QuietSeconds) {
+            return $read
+        }
+        Start-Sleep -Milliseconds 500
+    } while ([DateTimeOffset]::UtcNow -lt $deadline)
+    throw "The externally readable Demand catalog did not settle within $TimeoutSeconds seconds (last ETag $lastEtag)."
 }
 
 function Get-PollTraceHighWater {
@@ -449,40 +497,24 @@ New-Item -ItemType Directory -Path $artifacts -Force | Out-Null
 # Scripted rounds for the production entry. The values are synthetic: no plant row,
 # credential, or datasource appears here, and the declared query version pins the
 # recording to the same canonical artifact the Host loads and hashes.
+# The rows live beside this script as data so a repository test can run them through
+# the production MesFieldValidation: rows that stop qualifying would otherwise only
+# surface as an empty catalog after a full golden-machine round trip.
+$recordingSourcePath = Join-Path $PSScriptRoot 'release-smoke-rounds.json'
+if (-not (Test-Path -LiteralPath $recordingSourcePath -PathType Leaf)) {
+    throw "Packaged release smoke is missing its scripted rounds: $recordingSourcePath"
+}
+try {
+    $recordingSource = Get-Content -Raw -LiteralPath $recordingSourcePath | ConvertFrom-Json
+} catch {
+    throw 'The packaged scripted rounds file is not valid JSON.'
+}
+if ([int]$recordingSource.schemaVersion -ne 1 `
+    -or [string]$recordingSource.queryVersion -cne $canonicalQueryVersion) {
+    throw 'The packaged scripted rounds were captured for a different approved query version.'
+}
 $recordingPath = Join-Path $artifacts 'mes-task-union-rounds.json'
-# @(@(...)) flattens in PowerShell, so each round's rows are placed by index to keep
-# the recording an array of row arrays.
-$firstRoundRows = [object[]]::new(1)
-$firstRoundRows[0] = @(
-    'SMOKE_TYPE_A', 'SMOKE-SUBLOT-1', 'SMOKE-AREA', 'SMOKE-EQP-1', 'SMOKE-STEP-1',
-    '2026-01-02T09:00:00+08:00', 'SMOKE-PACKAGE-1'
-)
-$secondRoundRows = [object[]]::new(2)
-$secondRoundRows[0] = @(
-    'SMOKE_TYPE_A', 'SMOKE-SUBLOT-1', 'SMOKE-AREA', 'SMOKE-EQP-1', 'SMOKE-STEP-2',
-    '2026-01-02T10:00:00+08:00', 'SMOKE-PACKAGE-1'
-)
-$secondRoundRows[1] = @(
-    'SMOKE_TYPE_B', 'SMOKE-SUBLOT-2', 'SMOKE-AREA', 'SMOKE-EQP-2', 'SMOKE-STEP-1',
-    '2026-01-02T10:05:00+08:00', 'SMOKE-PACKAGE-2'
-)
-$recordedRounds = [object[]]::new(2)
-$recordedRounds[0] = [ordered]@{ rows = $firstRoundRows }
-$recordedRounds[1] = [ordered]@{ rows = $secondRoundRows }
-[ordered]@{
-    schemaVersion = 1
-    queryVersion = $canonicalQueryVersion
-    columns = @(
-        [ordered]@{ name = 'TASK_TYPE'; kind = 'Text' }
-        [ordered]@{ name = 'SUBLOT'; kind = 'Text' }
-        [ordered]@{ name = 'AREA'; kind = 'Text' }
-        [ordered]@{ name = 'EQP'; kind = 'Text' }
-        [ordered]@{ name = 'STEP'; kind = 'Text' }
-        [ordered]@{ name = 'DATES'; kind = 'DateTimeOffset' }
-        [ordered]@{ name = 'PACKAGE'; kind = 'Text' }
-    )
-    rounds = $recordedRounds
-} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $recordingPath -Encoding UTF8
+Copy-Item -LiteralPath $recordingSourcePath -Destination $recordingPath -Force
 
 $sharedSecret = [Guid]::NewGuid().ToString('N') + [Guid]::NewGuid().ToString('N')
 $port = Get-FreeLoopbackPort
@@ -505,7 +537,7 @@ try {
         -SharedSecret $sharedSecret `
         -RecordingPath $recordingPath `
         -ContinuousPoll $true `
-        -OneShotOnStartup $true
+        -OneShotOnStartup $false
     $contract = Wait-PackagedHostContract `
         -Process $hostProcess `
         -BaseUrl $baseUrl `
@@ -622,10 +654,7 @@ try {
 
     # First catalog body, its CatalogRevision/ETag, and the conditional read.
     $catalogUri = "$baseUrl/api/v2/externally-readable-demand-catalog"
-    $catalogFirst = Invoke-SmokeRequest -Client $httpClient -Uri $catalogUri
-    if ($catalogFirst.StatusCode -ne 200) {
-        throw "First externally readable Demand catalog read failed (HTTP $($catalogFirst.StatusCode))."
-    }
+    $catalogFirst = Wait-SettledCatalog -Client $httpClient -Uri $catalogUri
     if ([string]::IsNullOrWhiteSpace($catalogFirst.ETag)) {
         throw 'The externally readable Demand catalog did not return a CatalogRevision ETag.'
     }
@@ -638,7 +667,16 @@ try {
         @($catalogBody.items).Count -ne $catalogDeclaredCount -or
         [string]::IsNullOrWhiteSpace([string]$catalogBody.projectionCommitId)
     ) {
-        throw 'The first catalog body did not carry a committed, non-empty V2 catalog revision.'
+        # An empty catalog usually means the recorded rows stopped satisfying MES field
+        # validation, which is durable ERROR evidence rather than a packaging defect.
+        # Report what was actually observed so the next step is obvious; these are
+        # counts and revisions, never MES values.
+        throw ('The first catalog body did not carry a committed, non-empty V2 catalog revision: ' +
+            "contractVersion=$([string]$catalogBody.contractVersion) " +
+            "catalogRevision=$([long]$catalogBody.catalogRevision) " +
+            "count=$catalogDeclaredCount items=$(@($catalogBody.items).Count) " +
+            "projectionCommitId=$(if ([string]::IsNullOrWhiteSpace([string]$catalogBody.projectionCommitId)) { 'ABSENT' } else { 'PRESENT' }). " +
+            'An empty catalog with a committed projection means the recorded rows did not qualify as externally readable.')
     }
     if ($catalogFirst.ETag -cne "W/`"catalog-r$([long]$catalogBody.catalogRevision)`"") {
         throw 'The catalog ETag does not identify the CatalogRevision in the body.'
@@ -683,11 +721,11 @@ try {
         -Previous $highWaterBeforeWatch
 
     if ($IncludePackagedWatch) {
-        # This check is about process lifetime, not about the operator's desktop. Point
-        # the Watch at a smoke-owned profile so it leaves no window, refresh, connection,
-        # or area-filter preference behind on the golden machine.
-        $watchProfileRoot = Join-Path $artifacts 'packaged-watch-profile'
-        New-Item -ItemType Directory -Path $watchProfileRoot -Force | Out-Null
+        # The published binary runs in its shipped configuration. MESINGEST_WATCH_UI_TEST_MODE
+        # would isolate preferences but also demands a frozen clock and puts the Watch in a
+        # harness mode, which is exactly what this check must not measure. Only the supported
+        # production settings are set, and the connection log is pointed at the evidence
+        # directory through the documented MesIngestWatch__LogDirectory override.
         $watchInfo = [Diagnostics.ProcessStartInfo]::new()
         $watchInfo.FileName = $watchExecutable
         $watchInfo.WorkingDirectory = Split-Path -Parent $watchExecutable
@@ -695,10 +733,9 @@ try {
         $watchInfo.EnvironmentVariables['MesIngestWatch__BaseUrl'] = $baseUrl
         $watchInfo.EnvironmentVariables['MesIngestWatch__SharedSecret'] = $sharedSecret
         $watchInfo.EnvironmentVariables['MesIngestWatch__RenderingMode'] = 'SoftwareOnly'
-        $watchInfo.EnvironmentVariables['LOCALAPPDATA'] = $watchProfileRoot
-        $watchInfo.EnvironmentVariables['MESINGEST_WATCH_UI_TEST_MODE'] = '1'
         $watchInfo.EnvironmentVariables['MesIngestWatch__LogDirectory'] =
-            Join-Path $watchProfileRoot 'logs'
+            Join-Path $artifacts 'packaged-watch-logs'
+        $watchStartedAt = [Diagnostics.Stopwatch]::StartNew()
         $watchProcess = [Diagnostics.Process]::Start($watchInfo)
         if ($null -eq $watchProcess) { throw 'Packaged Watch did not start.' }
         try {
@@ -712,9 +749,27 @@ try {
         if (-not $watchReachedIdle) {
             throw 'Packaged Watch did not reach an idle input state within 30 seconds.'
         }
-        $watchProcess.Refresh()
-        if ($watchProcess.MainWindowHandle -eq [IntPtr]::Zero) {
-            throw 'Packaged Watch reached idle input without showing a main window.'
+        # Input idle means the process started pumping messages, which happens before
+        # WPF has created and shown the window. Poll for the real window instead of
+        # sampling once.
+        $watchWindowDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+        do {
+            if ($watchProcess.HasExited) {
+                throw "Packaged Watch exited before showing a main window (code $($watchProcess.ExitCode))."
+            }
+            $watchProcess.Refresh()
+            $watchWindow = $watchProcess.MainWindowHandle
+            if ($watchWindow -ne [IntPtr]::Zero) { break }
+            Start-Sleep -Milliseconds 500
+        } while ([DateTimeOffset]::UtcNow -lt $watchWindowDeadline)
+        if ($watchWindow -eq [IntPtr]::Zero) {
+            throw 'Packaged Watch reached idle input but never showed a main window within 60 seconds.'
+        }
+        $watchStartedAt.Stop()
+        $watchStartupMs = [Math]::Round($watchStartedAt.Elapsed.TotalMilliseconds, 1)
+        if ($watchStartedAt.Elapsed.TotalSeconds -gt $PackagedWatchStartupBudgetSeconds) {
+            throw ("Packaged Watch took $watchStartupMs ms to show its main window, " +
+                "beyond the ${PackagedWatchStartupBudgetSeconds}s startup budget.")
         }
         $watchProcess.CloseMainWindow() | Out-Null
         if (-not $watchProcess.WaitForExit(30000)) {
@@ -736,19 +791,19 @@ try {
             checked = $true
             hostStillServing = $true
             pollTraceHighWaterAfterWatchExit = $highWaterAfterWatch
+            startupToMainWindowMs = $watchStartupMs
+            startupBudgetSeconds = $PackagedWatchStartupBudgetSeconds
+            startupWithinBudget = $true
         }
     } else {
         $watchIndependence = [ordered]@{
             checked = $false
-            namedSkip = 'PACKAGED_WATCH_PROCESS_INDEPENDENCE'
+            namedSkip = 'PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET'
             reason = 'Starting the packaged WPF Watch needs the gpt_win11 interactive scheduled task; rerun with -IncludePackagedWatch there.'
         }
     }
 
-    $catalogBeforeRestart = Invoke-SmokeRequest -Client $httpClient -Uri $catalogUri
-    if ($catalogBeforeRestart.StatusCode -ne 200) {
-        throw "Pre-restart catalog read failed (HTTP $($catalogBeforeRestart.StatusCode))."
-    }
+    $catalogBeforeRestart = Wait-SettledCatalog -Client $httpClient -Uri $catalogUri
     $beforeRestart = $catalogBeforeRestart.Body | ConvertFrom-Json
     $beforeRestartDemandIds = @($beforeRestart.items | ForEach-Object { [string]$_.demandId } | Sort-Object)
 

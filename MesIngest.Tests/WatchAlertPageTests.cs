@@ -4,6 +4,7 @@ using MesIngest.Watch;
 
 namespace MesIngest.Tests;
 
+[Collection("WpfDesktop")]
 public sealed class WatchAlertPageTests
 {
     [Fact]

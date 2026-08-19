@@ -12,6 +12,7 @@ using MesIngest.Watch;
 
 namespace MesIngest.Tests;
 
+[Collection("WpfDesktop")]
 public class MainWindowUiAutomationTests
 {
     [Fact]

@@ -595,7 +595,7 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
             Assert.Equal(ReadabilityAuditErrorCodes.InvalidQuery, error.RootElement.GetProperty("code").GetString());
         }
 
-        var tampered = string.Concat(snapshot.AsSpan(0, snapshot.Length - 1), snapshot[^1] == 'A' ? "B" : "A");
+        var tampered = SignedTokenTampering.TamperSignature(snapshot);
         using (var rejected = await client.GetAsync(
             $"/api/v2/readability-audit?pageSize=1&snapshot={Uri.EscapeDataString(tampered)}"))
         {

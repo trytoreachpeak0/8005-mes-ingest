@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "queryVersion": "MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae",
+  "_comment": "Scripted MES_TASK_UNION rounds for the packaged release smoke. Synthetic values only: no plant row, credential, or datasource appears here. Every row must satisfy MesFieldValidation (AREA carries a domain format), otherwise the demands carry durable ERROR evidence and never reach the externally readable catalog the smoke asserts. Round 2 updates the first TransportDemandKey and adds a second one; the final round repeats for every later poll.",
+  "columns": [
+    { "name": "TASK_TYPE", "kind": "Text" },
+    { "name": "SUBLOT", "kind": "Text" },
+    { "name": "AREA", "kind": "Text" },
+    { "name": "EQP", "kind": "Text" },
+    { "name": "STEP", "kind": "Text" },
+    { "name": "DATES", "kind": "DateTimeOffset" },
+    { "name": "PACKAGE", "kind": "Text" }
+  ],
+  "rounds": [
+    {
+      "rows": [
+        [
+          "SMOKE_TYPE_A",
+          "SMOKE-SUBLOT-1",
+          "A1-1",
+          "SMOKE-EQP-1",
+          "SMOKE-STEP-1",
+          "2026-01-02T09:00:00+08:00",
+          "SMOKE-PACKAGE-1"
+        ]
+      ]
+    },
+    {
+      "rows": [
+        [
+          "SMOKE_TYPE_A",
+          "SMOKE-SUBLOT-1",
+          "A1-1",
+          "SMOKE-EQP-1",
+          "SMOKE-STEP-2",
+          "2026-01-02T10:00:00+08:00",
+          "SMOKE-PACKAGE-1"
+        ],
+        [
+          "SMOKE_TYPE_B",
+          "SMOKE-SUBLOT-2",
+          "A1-2",
+          "SMOKE-EQP-2",
+          "SMOKE-STEP-1",
+          "2026-01-02T10:05:00+08:00",
+          "SMOKE-PACKAGE-2"
+        ]
+      ]
+    }
+  ]
+}

@@ -64,7 +64,12 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("raw-observations", smoke, StringComparison.Ordinal);
         Assert.Contains("sqlServerRestartPersistence", smoke, StringComparison.Ordinal);
         Assert.Contains("PollTrace high-water did not advance", smoke, StringComparison.Ordinal);
-        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", smoke, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET", smoke, StringComparison.Ordinal);
+        // A release claims the packaged Watch starts within a bound, so the smoke
+        // measures process start to a shown main window instead of assuming it.
+        Assert.Contains("PackagedWatchStartupBudgetSeconds", smoke, StringComparison.Ordinal);
+        Assert.Contains("startupToMainWindowMs", smoke, StringComparison.Ordinal);
+        Assert.Contains("startup budget", smoke, StringComparison.Ordinal);
         Assert.Contains("IncludePackagedWatch", smoke, StringComparison.Ordinal);
         Assert.Contains("UserInteractive", smoke, StringComparison.Ordinal);
         Assert.Contains("remoteBindWithoutSharedSecretExitCode", smoke, StringComparison.Ordinal);
@@ -510,6 +515,9 @@ public sealed class ReleasePackageValidationTests
         File.WriteAllText(Path.Combine(root, "scripts", "Test-ReleasePackage.ps1"), "# validate");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-FactoryValidation.ps1"), "# factory");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-ReleaseSmoke.ps1"), "# smoke");
+        File.Copy(
+            Path.Combine(CSharpRoot, "pack", "validation", "release-smoke-rounds.json"),
+            Path.Combine(root, "validation", "release-smoke-rounds.json"));
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-WatchAcceptance.ps1"), "# acceptance");
         // The shipped documentation and configuration are copied, not stubbed, so the
         // package-wide retired-contract scan runs against what actually ships.

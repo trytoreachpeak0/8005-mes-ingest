@@ -130,7 +130,7 @@ public class InstallPackageLayoutTests
         Assert.Contains("raw-observations", install, StringComparison.Ordinal);
         Assert.Contains("pollTraceHighWater", install, StringComparison.Ordinal);
         Assert.Contains("FILE_REPLAY", install, StringComparison.Ordinal);
-        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", install, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET", install, StringComparison.Ordinal);
         Assert.Contains("watch-production-preview", install, StringComparison.Ordinal);
         Assert.Contains("关闭 WPF 不会停止 Service", install, StringComparison.Ordinal);
         // ADR-mes-0017 retires the v1 surface, and INSTALL.md has to name
@@ -234,6 +234,24 @@ public class InstallPackageLayoutTests
         Assert.Contains("$env:MES_INGEST_RELEASE_SMOKE_SQLSERVER", wrapper, StringComparison.Ordinal);
         Assert.Contains("$env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED", wrapper, StringComparison.Ordinal);
         Assert.Contains("$env:MES_INGEST_SQLSERVER", wrapper, StringComparison.Ordinal);
+        // Ticket 24: without its own variable and the expected engine identity, the
+        // whole V2 projection suite reports NotExecuted and the packaged release
+        // would claim a real SQL Server gate it never ran.
+        Assert.Contains("$env:MES_INGEST_TICKET01_SQLSERVER", wrapper, StringComparison.Ordinal);
+        Assert.Contains(
+            "$env:MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR",
+            wrapper,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "$env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL",
+            wrapper,
+            StringComparison.Ordinal);
+        Assert.Contains("SqlServerExpectedProductMajor", wrapper, StringComparison.Ordinal);
+        Assert.Contains("SqlServerExpectedCompatibilityLevel", wrapper, StringComparison.Ordinal);
+        Assert.Contains(
+            "run instead of skipping",
+            wrapper,
+            StringComparison.Ordinal);
         Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);
         Assert.Contains("PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED", wrapper, StringComparison.Ordinal);
@@ -246,6 +264,18 @@ public class InstallPackageLayoutTests
             wrapper,
             StringComparison.Ordinal);
         Assert.Contains("ticket23VisualBaselinesReused", wrapper, StringComparison.Ordinal);
+        // The two UI entry points that cannot run inside a release payload are named,
+        // not tolerated as a count, so any other skip still fails the gate.
+        Assert.Contains(
+            "WatchWindowCandidateEquivalenceTests.Candidate_directories_are_visually_equivalent",
+            wrapper,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_antialiasing_flip_is_accepted",
+            wrapper,
+            StringComparison.Ordinal);
+        Assert.Contains("skippedMatchesExpectedNamedSet", wrapper, StringComparison.Ordinal);
+        Assert.Contains("$uiSkipDifference", wrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("-Suite all", wrapper, StringComparison.Ordinal);
         Assert.Contains("ManualAcceptancePath", wrapper, StringComparison.Ordinal);
         Assert.Contains("RELEASE-SIGNOFF.json", wrapper, StringComparison.Ordinal);

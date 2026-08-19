@@ -72,16 +72,24 @@ public sealed class MesTaskUnionPollRunnerTests
 
     private static MesTaskUnionRound CreateRound(
         MesTaskUnionRoundOutcome outcome,
-        string pollTraceId) =>
-        new(
+        string pollTraceId)
+    {
+        // The parentheses are load-bearing on the golden machine's pinned SDK 8.0.4xx:
+        // its C# 12 parser reads `Success ? [` as the nullable array type `Success?[]`
+        // and fails. Newer compilers resolve the ambiguity, so this only breaks where
+        // the packaged release gate builds.
+        MesTaskUnionObservation[] observations = (outcome is MesTaskUnionRoundOutcome.Success)
+            ? [new MesTaskUnionObservation("T", "S", null, null, null, null, null)]
+            : [];
+
+        return new(
             pollTraceId,
             CanonicalMesTaskUnionQuery.QueryVersion,
             outcome,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow,
-            outcome is MesTaskUnionRoundOutcome.Success
-                ? [new MesTaskUnionObservation("T", "S", null, null, null, null, null)]
-                : []);
+            observations);
+    }
 
     private sealed class RecordingRoundSource(MesTaskUnionRound round) : IMesTaskUnionRoundSource
     {

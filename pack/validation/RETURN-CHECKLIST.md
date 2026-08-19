@@ -17,7 +17,7 @@
 - [ ] 每轮在 manifest 中记录 **耗时**（`duration_ms`）、**行数**（`row_count`）、**成败**（`success` / `outcome`）
 - [ ] 脱敏日志：至少含探针日志；也可附 API JSON 中的 CurrentIngestAttention / 概览摘要
 - [ ] 每一类未运行的外部门禁都写成**具名 skip**（名称 + 原因 + 补跑所需环境）。发布烟测的
-      `release-smoke-result.json` 会自带 `PACKAGED_WATCH_PROCESS_INDEPENDENCE` 等具名 skip；
+      `release-smoke-result.json` 会自带 `PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET` 等具名 skip；
       不得把本机 / 黄金机通过、或 `FILE_REPLAY` 录制轮次写成现场 Oracle 通过（见
       `FACTORY-VALIDATION.md` 的「证据分级」）
 

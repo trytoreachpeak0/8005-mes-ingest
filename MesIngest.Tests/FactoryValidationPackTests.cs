@@ -78,7 +78,7 @@ public class FactoryValidationPackTests
         Assert.Contains("PowerShell Direct", checklist, StringComparison.Ordinal);
 
         Assert.Contains("具名 skip", returnChecklist, StringComparison.Ordinal);
-        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE", returnChecklist, StringComparison.Ordinal);
+        Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET", returnChecklist, StringComparison.Ordinal);
         Assert.Contains("证据分级", returnChecklist, StringComparison.Ordinal);
     }
 

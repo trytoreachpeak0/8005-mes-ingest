@@ -266,7 +266,10 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             client,
             RawUri(seriesId, evidenceId, snapshotReference, "package", 21)))
         {
-            Assert.Equal(HttpStatusCode.BadRequest, limitRejected.StatusCode);
+            // The frozen contract maps RAW_EVIDENCE_LIMIT_EXCEEDED to 413, and reserves
+            // 400 for RAW_EVIDENCE_FIELD_NOT_ALLOWED. This assertion only started
+            // executing once the packaged release gate stopped skipping the V2 suite.
+            Assert.Equal(HttpStatusCode.RequestEntityTooLarge, limitRejected.StatusCode);
             await AssertErrorCodeAsync(limitRejected, ErrorSearchErrorCodes.RawLimitExceeded);
         }
 

@@ -112,9 +112,11 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 
 烟测不写连接串，也不落盘可能含 SQL/provider 敏感信息的 Host stdout/stderr；产物 `release-smoke-result.json` 只记录脱敏后的状态码、哈希与计数。
 
-### 打包 Watch 的进程独立性
+### 打包 Watch 的启动耗时与进程独立性
 
-默认不启动 WPF，`release-smoke-result.json` 记为具名 skip `PACKAGED_WATCH_PROCESS_INDEPENDENCE`。在黄金机交互桌面加 `-IncludePackagedWatch` 才实际执行：启动包内 Watch → 等待窗口就绪 → 关闭窗口 → 确认 Service 未退出且 `pollTraceHighWater` 继续前进。
+默认不启动 WPF，`release-smoke-result.json` 记为具名 skip `PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET`。在黄金机交互桌面加 `-IncludePackagedWatch` 才实际执行：启动包内 Watch → **实测进程启动到主窗口出现的耗时并对照上限** → 关闭窗口 → 确认 Service 未退出且 `pollTraceHighWater` 继续前进。
+
+上限由 `-PackagedWatchStartupBudgetSeconds` 控制，默认 **25 秒**；超出即失败，实测毫秒数写入 `release-smoke-result.json` 的 `servicePollOwnership.watchIndependence.startupToMainWindowMs`。
 
 ```powershell
 .\validation\Invoke-ReleaseSmoke.ps1 -IncludePackagedWatch -ArtifactsDirectory C:\MesIngest\release-smoke
