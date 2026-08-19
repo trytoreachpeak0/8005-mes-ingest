@@ -24,6 +24,13 @@ param(
     [ValidateRange(1, 100)]
     [int]$Runs = 3,
 
+    # Pins the journey window to a client size in effective pixels, e.g. '720x450'.
+    # Without it the journey sizes to 1440x900 physical pixels, which is only 1440 epx at
+    # 96 DPI - 1152 at 125% and 960 at 150% - so a DPI run cannot exercise the 720 epx
+    # minimum width. A narrow run records evidence only and never touches a baseline.
+    [ValidatePattern('^\d{3,5}x\d{3,5}$')]
+    [string]$JourneyClientEpx,
+
     [ValidateSet(96, 120, 144)]
     [int]$ExpectedDpi = 96,
 
@@ -243,6 +250,7 @@ try {
         Suite = $Suite
         Configuration = $Configuration
         RequestedRuns = if ($Suite -like '*-stability') { $Runs } else { 1 }
+        JourneyClientEpx = if ([string]::IsNullOrWhiteSpace($JourneyClientEpx)) { $null } else { $JourneyClientEpx }
         VmName = $VmName
         GuestRunDirectory = $guestRoot
         CreatedAt = [DateTimeOffset]::Now.ToString('O')
@@ -272,7 +280,8 @@ param(
     [Parameter(Mandatory = $true)][int]$Runs,
     [Parameter(Mandatory = $true)][int]$ExpectedDpi,
     [Parameter(Mandatory = $true)][int]$ExpectedDesktopWidth,
-    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight
+    [Parameter(Mandatory = $true)][int]$ExpectedDesktopHeight,
+    [string]$JourneyClientEpx
 )
 
 $ErrorActionPreference = 'Stop'
@@ -310,6 +319,10 @@ try {
     $env:TESTINGPLATFORM_TELEMETRY_OPTOUT = '1'
     $env:DOTNET_NOLOGO = '1'
     $env:MesIngestWatch__RenderingMode = 'SoftwareOnly'
+    if (-not [string]::IsNullOrWhiteSpace($JourneyClientEpx)) {
+        $env:MESINGEST_WATCH_JOURNEY_CLIENT_EPX = $JourneyClientEpx
+        Write-Host "GOLDEN_RENDERER_JOURNEY_CLIENT_EPX: $JourneyClientEpx (evidence-only; baselines are not compared)"
+    }
     $sqlConnectionStringPath = Join-Path $Root 'sql-server-connection-string.txt'
     if (Test-Path -LiteralPath $sqlConnectionStringPath -PathType Leaf) {
         $sqlConnectionString = [IO.File]::ReadAllText($sqlConnectionStringPath)
@@ -534,7 +547,7 @@ catch {
     }
 
     Invoke-Command -Session $session -ScriptBlock {
-        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height)
+        param($root, $task, $suite, $configuration, $runs, $dpi, $width, $height, $journeyClientEpx)
         Expand-Archive -LiteralPath (Join-Path $root 'payload.zip') -DestinationPath $root
         $runner = Join-Path $root 'run-golden-validation.ps1'
         $arguments = @(
@@ -547,7 +560,11 @@ catch {
             '-ExpectedDpi', $dpi,
             '-ExpectedDesktopWidth', $width,
             '-ExpectedDesktopHeight', $height
-        ) -join ' '
+        )
+        if (-not [string]::IsNullOrWhiteSpace($journeyClientEpx)) {
+            $arguments += @('-JourneyClientEpx', $journeyClientEpx)
+        }
+        $arguments = $arguments -join ' '
         $action = New-ScheduledTaskAction `
             -Execute 'C:\Program Files\PowerShell\7\pwsh.exe' `
             -Argument $arguments
@@ -559,7 +576,7 @@ catch {
         Start-ScheduledTask -TaskName $task
     } -ArgumentList @(
         $guestRoot, $taskName, $Suite, $Configuration, $Runs,
-        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight)
+        $ExpectedDpi, $ExpectedDesktopWidth, $ExpectedDesktopHeight, $JourneyClientEpx)
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {

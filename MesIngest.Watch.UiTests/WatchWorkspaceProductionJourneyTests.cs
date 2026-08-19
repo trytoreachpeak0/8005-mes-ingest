@@ -31,6 +31,25 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private const string AuditSnapshotReference = "audit-preview-snapshot-21";
     private const string ErrorSnapshotReference = "error-search-snapshot-22";
     private const string PreviewErrorSeriesId = "SERIES-ATTENTION-22";
+    /// <summary>
+    /// Optional journey client size in effective pixels, as <c>WIDTHxHEIGHT</c>.
+    /// </summary>
+    /// <remarks>
+    /// Unset, the journey sizes its client to 1440x900 *physical* pixels, which is what the
+    /// approved baselines are captured at. That is scaling-dependent: the same call gives
+    /// 1152x720 epx at 125% and 960x600 epx at 150%, so Ticket 23's DPI journeys never
+    /// reached the 720 epx minimum width they were supposed to prove.
+    ///
+    /// Set it (e.g. <c>720x450</c>) to pin the window to a width in epx regardless of the
+    /// machine's scaling. Captures then record the actual client size instead of asserting
+    /// 1440x900, because the frame is deliberately not baseline-shaped. Baseline comparison
+    /// stays off in this mode - it is gated separately by
+    /// <see cref="WatchProductionBaselineMatrix.IsEnabled"/> - so a narrow run can never
+    /// promote or fail a baseline.
+    /// </remarks>
+    private static readonly (int Width, int Height)? JourneyClientEpx = ParseClientEpx(
+        Environment.GetEnvironmentVariable("MESINGEST_WATCH_JOURNEY_CLIENT_EPX"));
+
     private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan PreviewStateTimeout = TimeSpan.FromSeconds(35);
     private static readonly DateTimeOffset PreviewErrorAsOf =
@@ -637,7 +656,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             window = application.GetMainWindow(automation, StepTimeout)
                 ?? throw new Xunit.Sdk.XunitException(
                     "The production MesIngest.Watch window did not appear.");
-            WatchWindowNative.SetClientSize(process.MainWindowHandle, 1440, 900);
+            ApplyJourneyClientSize(process.MainWindowHandle);
             WaitUntil(
                 () => FindById(window, "OverviewPage") is not null,
                 "production overview UIA tree",
@@ -658,7 +677,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 automation,
                 evidence,
                 process.MainWindowHandle);
-            WatchWindowNative.SetClientSize(process.MainWindowHandle, 1440, 900);
+            ApplyJourneyClientSize(process.MainWindowHandle);
 
             failedStep = "overview-navigation-expanded";
             SetNavigationPaneExpanded(window, expanded: true);
@@ -2444,6 +2463,43 @@ public sealed class WatchWorkspaceProductionJourneyTests
                   + $"Last error: {lastException.Message}");
     }
 
+    private static (int Width, int Height)? ParseClientEpx(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var parts = value.Split('x', 'X');
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var width)
+            || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var height)
+            || width <= 0
+            || height <= 0)
+        {
+            throw new InvalidOperationException(
+                "MESINGEST_WATCH_JOURNEY_CLIENT_EPX must look like 720x450, but was "
+                + $"'{value}'.");
+        }
+
+        return (width, height);
+    }
+
+    /// <summary>
+    /// Applies the journey's client size: 1440x900 physical by default, or the requested
+    /// effective-pixel size when <c>MESINGEST_WATCH_JOURNEY_CLIENT_EPX</c> is set.
+    /// </summary>
+    private static void ApplyJourneyClientSize(IntPtr windowHandle)
+    {
+        if (JourneyClientEpx is { } epx)
+        {
+            WatchWindowNative.SetClientSizeInEffectivePixels(windowHandle, epx.Width, epx.Height);
+            return;
+        }
+
+        WatchWindowNative.SetClientSize(windowHandle, 1440, 900);
+    }
+
     private static void Capture(
         WatchJourneyEvidence evidence,
         IntPtr windowHandle,
@@ -2452,9 +2508,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
     {
         WatchWindowNative.MovePointerOffWindow();
         Thread.Sleep(250);
+
+        // A narrow run is deliberately not baseline-shaped, so never assert 1440x900.
+        var wantsExactBaselineFrame = exact1440By900 && JourneyClientEpx is null;
         evidence.RecordStep(
             step,
-            exact1440By900
+            wantsExactBaselineFrame
                 ? WatchWindowNative.CaptureClientArea(windowHandle)
                 : WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle));
     }
@@ -2470,11 +2529,20 @@ public sealed class WatchWorkspaceProductionJourneyTests
         WatchWindowNative.MovePointerOffWindow();
         Thread.Sleep(2000);
         var actual = WatchWindowCaptureStability.Capture(
-            () => WatchWindowNative.CaptureClientArea(windowHandle),
+            () => JourneyClientEpx is null
+                ? WatchWindowNative.CaptureClientArea(windowHandle)
+                : WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle),
             () => Thread.Sleep(250));
         evidence.RecordStep(step, actual);
         if (WatchProductionBaselineMatrix.IsEnabled)
         {
+            // Baselines are 1440x900 frames. Comparing a deliberately narrow capture against
+            // one would either fail for the wrong reason or, worse, promote a narrow frame.
+            Assert.True(
+                JourneyClientEpx is null,
+                "Baseline comparison and MESINGEST_WATCH_JOURNEY_CLIENT_EPX are mutually "
+                + "exclusive: a narrow responsive run must not be compared to, or promoted "
+                + "into, the 1440x900 baseline matrix.");
             WatchWindowBaseline.Verify(step, actual, evidence);
         }
 

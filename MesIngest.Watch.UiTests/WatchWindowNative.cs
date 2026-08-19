@@ -9,6 +9,34 @@ internal static class WatchWindowNative
     private const int GwlStyle = -16;
     private const int GwlExStyle = -20;
 
+    /// <summary>
+    /// Sets the client size in effective pixels, converting to physical pixels using the
+    /// window's actual DPI.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="SetClientSize"/> takes physical pixels, so the same call yields a
+    /// different effective size per scaling: 1440x900 physical is 1440x900 epx at 96 DPI,
+    /// 1152x720 epx at 120, and 960x600 epx at 144. Ticket 23's DPI journeys therefore
+    /// never reached the 720 epx minimum width they were meant to prove - the narrowest
+    /// they got was 960 epx. Sizing in epx makes the width under test independent of the
+    /// machine's scaling.
+    /// </remarks>
+    public static void SetClientSizeInEffectivePixels(IntPtr handle, int width, int height)
+    {
+        var dpi = GetDpiForWindow(handle);
+        if (dpi == 0)
+        {
+            throw new InvalidOperationException(
+                $"GetDpiForWindow failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        var scale = dpi / 96.0;
+        SetClientSize(
+            handle,
+            (int)Math.Round(width * scale),
+            (int)Math.Round(height * scale));
+    }
+
     public static void SetClientSize(IntPtr handle, int width, int height)
     {
         var rect = new NativeRect(0, 0, width, height);
