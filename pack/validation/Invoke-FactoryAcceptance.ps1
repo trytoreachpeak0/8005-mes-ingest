@@ -1394,7 +1394,8 @@ try {
 
                 Stop-LiveHostProcess -Process $hostProcess
                 $script:hostProcess = $null
-                $failureState = Wait-WatchHostDisconnected -Window $script:watchWindow -TimeoutSeconds 180
+                $failureState = Wait-WatchQueryFailureNotice -Window $script:watchWindow `
+                    -AutomationId 'DemandSeriesInfoBar' -TimeoutSeconds 180
                 $rowsAfter = Get-WatchGridRowCount -Window $script:watchWindow -AutomationId 'DemandSeriesGrid'
 
                 # Bring the Service back on the same address before anything else runs.
@@ -1409,18 +1410,16 @@ try {
                     -Process $script:hostProcess -BaseUrl $watchBaseUrl -TimeoutSeconds $StartupTimeoutSeconds)
 
                 if ([string]::IsNullOrWhiteSpace($failureState)) {
-                    throw 'The Watch never reported the Host failure while the Service was down.'
+                    throw 'The Watch never reported the failed read while the Service was down.'
                 }
-                # What the shipped checklist requires is that the failure is unmissable, so
-                # an empty board cannot be read as "no tasks". What the board did with the
-                # rows it already had is recorded as observed fact, not judged here.
-                $boardOutcome = if ($rowsAfter -eq $rowsBefore) {
-                    "kept all $rowsBefore loaded Demand rows"
-                } else {
-                    "moved from $rowsBefore to $rowsAfter Demand rows"
+                # The Watch's own failure notice promises it kept the last snapshot, so an
+                # emptied board while that notice is showing would contradict the product.
+                if ($rowsAfter -ne $rowsBefore) {
+                    throw ("The Demand series board changed from $rowsBefore to $rowsAfter rows while the " +
+                        "failure notice claimed the previous snapshot was retained: $failureState")
                 }
-                ("With the Service stopped the Watch reported '$failureState' and $boardOutcome; " +
-                    'the Service was then restarted on the same address.')
+                ("With the Service stopped the Watch showed '$failureState' and kept all $rowsBefore " +
+                    'loaded Demand rows; the Service was then restarted on the same address.')
             })
 
         [void](Invoke-AcceptanceSection `

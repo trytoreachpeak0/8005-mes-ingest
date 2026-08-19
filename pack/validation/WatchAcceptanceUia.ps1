@@ -331,26 +331,27 @@ function Get-WatchCompactHostState {
 
 <#
 .SYNOPSIS
-  Wait until the compact Host state stops reporting a connected Host.
+  Wait until a page's status bar reports a failed read.
 
 .DESCRIPTION
-  Used to observe what the Watch does when the Service goes away underneath it: the
-  operator has to see the failure, and the board must not silently blank into something
-  that reads as "no tasks".
+  A refresh that fails does not change the Host connection state — the Watch stays
+  connected and reports the failure on the page it belongs to, keeping the snapshot it
+  already showed. That page notice is therefore what proves the operator sees the
+  failure; its automation name carries the title and message verbatim.
 #>
-function Wait-WatchHostDisconnected {
+function Wait-WatchQueryFailureNotice {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][Windows.Automation.AutomationElement] $Window,
+        [Parameter(Mandatory = $true)][string] $AutomationId,
         [ValidateRange(1, 600)][int] $TimeoutSeconds = 120
     )
 
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
     do {
-        $state = Get-WatchCompactHostState -Window $Window
-        if (-not [string]::IsNullOrWhiteSpace($state) -and $state -notmatch '已连接') {
-            return $state
-        }
+        $notice = Find-WatchElement -Root $Window -AutomationId $AutomationId -TimeoutSeconds 1
+        $text = Get-WatchElementText -Element $notice
+        if ($text -match '失败') { return $text }
         Start-Sleep -Milliseconds 1000
     } while ([DateTimeOffset]::UtcNow -lt $deadline)
     return ''
