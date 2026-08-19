@@ -489,8 +489,14 @@ function Invoke-WatchPageWalk {
             $before = Get-WatchElementText -Element $pageInput
             $summaryBefore = Get-WatchElementText -Element $summaryElement
             [void](Invoke-WatchElement -Element $nextButton -Window $Window)
-            Start-Sleep -Milliseconds 1500
-            $after = Get-WatchElementText -Element $pageInput
+            # The page number moves only once the next page has been read back from the
+            # Host, which on a large live snapshot is well past any fixed pause.
+            $after = $before
+            $pagingDeadline = [DateTimeOffset]::UtcNow.AddSeconds(45)
+            do {
+                Start-Sleep -Milliseconds 750
+                $after = Get-WatchElementText -Element $pageInput
+            } while ($after -ceq $before -and [DateTimeOffset]::UtcNow -lt $pagingDeadline)
             if ($after -cne $before) {
                 $pagingExercised = $true
                 [void]$interactions.Add("paging: exercised on live data (page $before -> $after)")
