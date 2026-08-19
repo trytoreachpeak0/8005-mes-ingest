@@ -1361,8 +1361,8 @@ try {
                 -Gate 'FACTORY_WATCH_ACCEPTANCE' -Status SKIPPED `
                 -Owner 'plant operator' `
                 -Requires 'a plant window whose Demand series snapshot exceeds one page' `
-                -Detail ("Not exercised: the live snapshot fitted one page of " +
-                    "$($watchPages.LiveDemandRowCount) rows, so the next-page control was disabled.")
+                -Detail ("Not exercised: the next-page control was disabled once the snapshot had " +
+                    "loaded. Page summary read '$($watchPages.DemandSeriesPageSummary)'.")
         } else {
             Add-Check -Id 'WATCH_PAGING_ON_LIVE_DATA' `
                 -Title 'Demand series paging on live Host data' `

@@ -444,6 +444,7 @@ function Invoke-WatchPageWalk {
     $pagingExercised = $false
     $pagingSinglePage = $false
     $liveRowCount = -1
+    $pageSummary = ''
 
     # Paging and detail selection on the Demand series page.
     $seriesNavigation = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesNavigationItem' -TimeoutSeconds 10
@@ -451,6 +452,18 @@ function Invoke-WatchPageWalk {
         [void](Invoke-WatchElement -Element $seriesNavigation -Window $Window)
         [void](Wait-WatchAnyElementVisible -Root $Window `
             -AutomationIds @('DemandSeriesScrollViewer', 'DemandSeriesGrid') -TimeoutSeconds 30)
+
+        # The page controls stay disabled until the first snapshot comes back, so read
+        # them only once the page summary says a snapshot arrived. Reading earlier would
+        # record "one page" for a snapshot that has six.
+        $summaryElement = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesPageSummaryText' -TimeoutSeconds 20
+        $pageSummary = ''
+        $summaryDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+        do {
+            $pageSummary = Get-WatchElementText -Element $summaryElement
+            if (-not [string]::IsNullOrWhiteSpace($pageSummary)) { break }
+            Start-Sleep -Milliseconds 1000
+        } while ([DateTimeOffset]::UtcNow -lt $summaryDeadline)
 
         $grid = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesGrid' -TimeoutSeconds 20
         $rows = @()
@@ -468,7 +481,8 @@ function Invoke-WatchPageWalk {
                 $detail = Wait-WatchElementVisible -Root $Window -AutomationId 'DemandSeriesEventGrid' -TimeoutSeconds 20
                 if ($null -ne $detail) {
                     $detailExercised = $true
-                    [void]$interactions.Add("detail selection: exercised on 1 of $($rows.Count) live rows")
+                    [void]$interactions.Add(
+                        "detail selection: exercised on 1 of $($rows.Count) realised live rows")
                 } else {
                     [void]$interactions.Add('detail selection: selected a live row but no detail grid appeared')
                 }
@@ -482,12 +496,12 @@ function Invoke-WatchPageWalk {
             [void]$interactions.Add('paging: not exercised (no next-page control)')
         } elseif (-not $nextButton.Current.IsEnabled) {
             $pagingSinglePage = $true
-            [void]$interactions.Add("paging: not exercised (the live snapshot fits one page of $($rows.Count) rows)")
+            [void]$interactions.Add(
+                "paging: not exercised, the next-page control is disabled; page summary read '$pageSummary'")
         } else {
             $pageInput = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesPageNumberInput' -TimeoutSeconds 10
-            $summaryElement = Find-WatchElement -Root $Window -AutomationId 'DemandSeriesPageSummaryText' -TimeoutSeconds 5
             $before = Get-WatchElementText -Element $pageInput
-            $summaryBefore = Get-WatchElementText -Element $summaryElement
+            $summaryBefore = $pageSummary
             [void](Invoke-WatchElement -Element $nextButton -Window $Window)
             # The page number moves only once the next page has been read back from the
             # Host, which on a large live snapshot is well past any fixed pause.
@@ -546,6 +560,7 @@ function Invoke-WatchPageWalk {
         PagingExercised = $pagingExercised
         PagingSinglePage = $pagingSinglePage
         LiveDemandRowCount = $liveRowCount
+        DemandSeriesPageSummary = $pageSummary
         WindowMaximised = $maximised
         Captures = @($captures)
     }
