@@ -317,15 +317,27 @@ function Wait-LiveHostContract {
     return $contract
 }
 
+# A freshly bootstrapped database has no projection yet, and the read surfaces answer 409
+# until the first round commits. That is a state to wait through, not a defect, so the
+# caller can ask for a null instead of an exception while it waits.
 function Get-AttentionSnapshot {
     param(
         [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
         [Parameter(Mandatory = $true)][string] $BaseUrl,
-        [string] $BearerToken
+        [string] $BearerToken,
+        [switch] $AllowProjectionNotAvailable
     )
 
-    return Get-AcceptanceJson -Client $Client -BearerToken $BearerToken `
-        -Uri "$BaseUrl/api/v2/current-ingest-attention?kind=POLL_RUN_FAILURE&pageSize=5"
+    $uri = "$BaseUrl/api/v2/current-ingest-attention?kind=POLL_RUN_FAILURE&pageSize=5"
+    if (-not $AllowProjectionNotAvailable) {
+        return Get-AcceptanceJson -Client $Client -Uri $uri -BearerToken $BearerToken
+    }
+    $response = Invoke-AcceptanceRequest -Client $Client -Uri $uri -BearerToken $BearerToken
+    if ($response.StatusCode -eq 409) { return $null }
+    if ($response.StatusCode -ne 200) {
+        throw "GET current-ingest-attention returned HTTP $($response.StatusCode)."
+    }
+    return ($response.Body | ConvertFrom-Json)
 }
 
 function Stop-LiveHostProcess {
@@ -664,7 +676,13 @@ try {
                 if ($hostProcess.HasExited) {
                     throw "The Host exited while rounds were being collected (code $($hostProcess.ExitCode))."
                 }
-                $attention = Get-AttentionSnapshot -Client $httpClient -BaseUrl $baseUrl -BearerToken $sharedSecret
+                $attention = Get-AttentionSnapshot -Client $httpClient -BaseUrl $baseUrl `
+                    -BearerToken $sharedSecret -AllowProjectionNotAvailable
+                if ($null -eq $attention) {
+                    # The empty database has bootstrapped but no round has committed yet.
+                    Start-Sleep -Milliseconds 750
+                    continue
+                }
                 $highWater = [long]$attention.snapshot.pollTraceHighWater
                 if ($highWater -le 0 -or $highWater -le $lastHighWater) {
                     Start-Sleep -Milliseconds 750
@@ -836,7 +854,8 @@ try {
             $reads = [ordered]@{
                 demandSeries = '/api/v2/demand-series?presence=VISIBLE&page=1&pageSize=100'
                 readabilityAudit = '/api/v2/readability-audit?page=1&pageSize=100'
-                errorSearch = '/api/v2/error-search?page=1&pageSize=100'
+                # Error search is cursor-paged; it has no page number parameter.
+                errorSearch = '/api/v2/error-search?pageSize=100'
                 currentIngestAttention = '/api/v2/current-ingest-attention?pageNumber=1&pageSize=100'
                 watchOverview = '/api/v2/watch-overview'
             }
@@ -852,6 +871,15 @@ try {
                 } else {
                     -1
                 }
+                # Discovery and the catalog carry the contract version at the top level;
+                # the paged surfaces carry it on their snapshot identity.
+                $answeredContractVersion = if ($null -ne $json.PSObject.Properties['contractVersion']) {
+                    [string]$json.contractVersion
+                } elseif ($null -ne $json.PSObject.Properties['snapshot']) {
+                    [string]$json.snapshot.contractVersion
+                } else {
+                    ''
+                }
                 # Counts and identities only: response bodies carry customer rows.
                 $surfaces[$name] = [ordered]@{
                     path = $reads[$name]
@@ -859,10 +887,10 @@ try {
                     itemCount = $itemCount
                     elapsedMs = $response.ElapsedMs
                     correlationId = $response.CorrelationId
-                    contractVersion = [string]$json.contractVersion
+                    contractVersion = $answeredContractVersion
                 }
-                if ([string]$json.contractVersion -cne $expectedContractVersion) {
-                    throw "$name answered with contract version $([string]$json.contractVersion)."
+                if ($answeredContractVersion -cne $expectedContractVersion) {
+                    throw "$name answered with contract version '$answeredContractVersion'."
                 }
                 if ([string]::IsNullOrWhiteSpace($response.CorrelationId)) {
                     throw "$name answered without an X-Correlation-Id."
@@ -887,7 +915,7 @@ try {
                 throw 'The Demand series page did not carry a snapshotReference.'
             }
             $firstIds = @($firstPage.items | ForEach-Object { [string]$_.demandId })
-            $totalItems = [int](Get-JsonProperty -Object $firstPage -Name 'totalItems')
+            $totalItems = [long](Get-JsonProperty -Object $firstPage -Name 'exactTotalCount')
 
             # Wait for the poll loop to commit again, then re-read pinned to the same
             # snapshot. Identical content across a commit is the non-tearing evidence.
@@ -909,7 +937,7 @@ try {
                 -Uri ($seriesUri + '&snapshot=' + [Uri]::EscapeDataString($snapshotReference))
             $pinnedIds = @($pinned.items | ForEach-Object { [string]$_.demandId })
             if ([string]$pinned.snapshotReference -cne $snapshotReference -or
-                [int](Get-JsonProperty -Object $pinned -Name 'totalItems') -ne $totalItems -or
+                [long](Get-JsonProperty -Object $pinned -Name 'exactTotalCount') -ne $totalItems -or
                 @(Compare-Object -ReferenceObject $firstIds -DifferenceObject $pinnedIds -CaseSensitive `
                     -SyncWindow 0).Count -gt 0) {
                 throw 'The pinned snapshot read changed after a further commit; the read tore.'
@@ -969,8 +997,8 @@ try {
 
     # Absence-authority state before the restart, so the barrier check can prove a new
     # session actually entered the barrier rather than inheriting the old one.
-    $sessionsBeforeRestart = @((Get-AcceptanceJson -Client $httpClient -BearerToken $sharedSecret `
-        -Uri "$baseUrl/api/v2/absence-authority").items | ForEach-Object { [string]$_.hostSessionId })
+    $sessionBeforeRestart = [string](Get-AcceptanceJson -Client $httpClient -BearerToken $sharedSecret `
+        -Uri "$baseUrl/api/v2/absence-authority").hostSessionId
     $catalogBeforeRestart = Get-AcceptanceJson -Client $httpClient -BearerToken $sharedSecret `
         -Uri "$baseUrl/api/v2/externally-readable-demand-catalog"
 
@@ -1029,41 +1057,41 @@ try {
         -Gate 'FACTORY_SQLSERVER_ACCEPTANCE' `
         -Evidence @('absence-authority.json') `
         -Body {
+            # The endpoint answers with the current Host session, not a list.
             $authority = Get-AcceptanceJson -Client $httpClient -BearerToken $sharedSecret `
                 -Uri "$restartBaseUrl/api/v2/absence-authority"
-            $sessions = @($authority.items)
-            $summary = @($sessions | ForEach-Object {
-                [ordered]@{
-                    hostSessionId = [string]$_.hostSessionId
-                    phase = [string]$_.phase
-                    isCurrent = [bool]$_.isCurrent
-                    absenceAuthorityAvailable = [bool]$_.absenceAuthorityAvailable
-                    eventTypes = @($_.events | ForEach-Object { [string]$_.eventType })
-                }
-            })
-            $summary | ConvertTo-Json -Depth 5 |
+            $current = [ordered]@{
+                hostSessionId = [string]$authority.hostSessionId
+                startedAt = [string]$authority.startedAt
+                phase = [string]$authority.phase
+                isCurrent = [bool]$authority.isCurrent
+                absenceAuthorityAvailable = [bool]$authority.absenceAuthorityAvailable
+                eventTypes = @($authority.events | ForEach-Object { [string]$_.eventType })
+                previousHostSessionId = $sessionBeforeRestart
+            }
+            $current | ConvertTo-Json -Depth 5 |
                 Set-Content -LiteralPath (Join-Path $artifacts 'absence-authority.json') -Encoding UTF8
 
-            $current = @($summary | Where-Object { $_.isCurrent })
-            if ($current.Count -ne 1) {
-                throw "Expected exactly one current Host session; found $($current.Count)."
+            if (-not $current.isCurrent) {
+                throw 'The restarted Host did not report a current session.'
             }
-            if ($sessionsBeforeRestart -ccontains $current[0].hostSessionId) {
+            if ($current.hostSessionId -ceq $sessionBeforeRestart) {
                 throw 'The restarted Host reused the pre-restart session instead of entering a new one.'
             }
-            if ($current[0].eventTypes -cnotcontains 'RESTART_BARRIER_ENTERED') {
-                throw "The new Host session did not record RESTART_BARRIER_ENTERED."
+            if ($current.eventTypes -cnotcontains 'RESTART_BARRIER_ENTERED') {
+                throw ('The new Host session did not record RESTART_BARRIER_ENTERED; events: ' +
+                    "$($current.eventTypes -join ',').")
             }
             # Absence authority belongs to NORMAL alone. Which phase the session has
             # reached depends on how many rounds it completed; the invariant does not.
-            $expectedAuthority = ($current[0].phase -ceq 'NORMAL')
-            if ($current[0].absenceAuthorityAvailable -ne $expectedAuthority) {
-                throw ("Phase $($current[0].phase) reported absenceAuthorityAvailable=" +
-                    "$($current[0].absenceAuthorityAvailable).")
+            $expectedAuthority = ($current.phase -ceq 'NORMAL')
+            if ($current.absenceAuthorityAvailable -ne $expectedAuthority) {
+                throw ("Phase $($current.phase) reported absenceAuthorityAvailable=" +
+                    "$($current.absenceAuthorityAvailable).")
             }
-            ("A new Host session entered the barrier (RESTART_BARRIER_ENTERED), is the only current " +
-                "session, and is in phase $($current[0].phase) with absenceAuthorityAvailable=" +
-                "$($current[0].absenceAuthorityAvailable). $($summary.Count) sessions recorded.")
+            ("A new Host session ($($current.hostSessionId)) replaced $sessionBeforeRestart, entered the " +
+                "barrier (events $($current.eventTypes -join ',')), and is in phase $($current.phase) " +
+                "with absenceAuthorityAvailable=$($current.absenceAuthorityAvailable).")
         })
 
     Stop-LiveHostProcess -Process $restartedHostProcess
