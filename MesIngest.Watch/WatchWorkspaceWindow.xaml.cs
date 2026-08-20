@@ -1602,6 +1602,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         if (_activePage != page)
         {
+            FlushAreaProfileAutoSave();
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
         }
 
@@ -2408,6 +2409,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void OnWindowClosing(object? sender, CancelEventArgs e)
     {
+        FlushAreaProfileAutoSave();
         if (_isWatchingSystemTheme)
         {
             Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
@@ -2469,6 +2471,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;
         WorkspaceNavigation.PaneClosed -= OnWorkspaceNavigationPaneStateChanged;
         _areaProfileStore.DirectoryChanged -= OnAreaProfileDirectoryChanged;
+        DisposeAreaProfileAutoSave();
         _areaProfileStore.Dispose();
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();

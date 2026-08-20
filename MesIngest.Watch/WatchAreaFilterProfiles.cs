@@ -307,6 +307,13 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     public static TimeSpan DeleteConfirmationWindow { get; } =
         TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// Idle time between the last keystroke and the automatic write. Matches
+    /// the `files.autoSaveDelay` default of the editors users compare this
+    /// page against, so the buffer is never dirty for more than about a second.
+    /// </summary>
+    public static TimeSpan EditorAutoSaveDelay { get; } = TimeSpan.FromSeconds(1);
+
     public static TimeSpan OwnWriteSuppressionWindow { get; } =
         TimeSpan.FromSeconds(2);
 
@@ -493,6 +500,64 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         AtomicCreateText(path, draft.Content);
         return CompleteSuccessfulSaveNoLock(draft.ProfileName);
     }
+
+    /// <summary>
+    /// Writes the editor buffer without demanding valid AREA content. Automatic
+    /// saving replaced the explicit save button, so refusing an unfinished
+    /// buffer would silently drop what the user typed; only a name that cannot
+    /// become a file still blocks the write. Whether the content may become the
+    /// displayed range stays with <see cref="Apply(string)"/>.
+    /// </summary>
+    public WatchAreaFilterProfileSaveResult AutoSave(
+        string? profileName,
+        string content,
+        string? expectedFingerprint = null)
+    {
+        using var transactionLock = AcquireProfileTransactionLock();
+        return AutoSaveNoLock(profileName, content, expectedFingerprint);
+    }
+
+    private WatchAreaFilterProfileSaveResult AutoSaveNoLock(
+        string? profileName,
+        string content,
+        string? expectedFingerprint)
+    {
+        var draft = WatchAreaFilterProfileParser.Parse(profileName, content);
+        if (HasUnusableProfileName(draft))
+        {
+            return new WatchAreaFilterProfileSaveResult(Saved: false, draft);
+        }
+
+        var path = GetProfilePath(draft.ProfileName);
+        var fingerprintDiagnostic = ValidateSaveFingerprintNoLock(
+            path,
+            expectedFingerprint);
+        if (fingerprintDiagnostic is not null)
+        {
+            return new WatchAreaFilterProfileSaveResult(
+                Saved: false,
+                AppendDiagnostic(
+                    draft with { FileFingerprint = expectedFingerprint },
+                    fingerprintDiagnostic.Code,
+                    fingerprintDiagnostic.Message));
+        }
+
+        if (expectedFingerprint is null)
+        {
+            AtomicCreateText(path, draft.Content);
+        }
+        else
+        {
+            AtomicWriteText(path, draft.Content);
+        }
+
+        return CompleteSuccessfulSaveNoLock(draft.ProfileName);
+    }
+
+    private static bool HasUnusableProfileName(WatchAreaFilterProfile draft) =>
+        draft.Diagnostics.Any(diagnostic => diagnostic.Code
+            is WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired
+            or WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName);
 
     private WatchAreaFilterProfileSaveResult CompleteSuccessfulSaveNoLock(
         string profileName)

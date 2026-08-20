@@ -124,6 +124,8 @@ internal partial class WatchWorkspaceWindow
 
     private WatchAreaFilterProfileStore _areaProfileStore = null!;
     private IWatchAreaProfileDirectoryLauncher _areaProfileDirectoryLauncher = null!;
+    private TimeProvider _areaProfileClock = TimeProvider.System;
+    private ITimer? _areaProfileAutoSaveTimer;
     private IReadOnlyList<WatchAreaFilterProfilePresentationRow> _areaProfileRows = [];
     private WatchAreaFilterProfile? _areaProfileDraft;
     private string? _selectedAreaProfileName;
@@ -142,6 +144,7 @@ internal partial class WatchWorkspaceWindow
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher,
         IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource)
     {
+        _areaProfileClock = timeProvider ?? TimeProvider.System;
         _areaProfileStore = new WatchAreaFilterProfileStore(
             areaFilterProfilesDirectoryPath,
             timeProvider,
@@ -492,12 +495,12 @@ internal partial class WatchWorkspaceWindow
                     : "StatusPillCritical");
             AreaProfileValidationSummaryText.Text = _areaProfileDraft.IsValid
                 ? $"✓ 格式有效 · {contentByteCount:N0} B"
-                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法草稿不可应用或保存";
+                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用";
             AreaProfileDiskStateText.Text = _areaProfileDraftIsDirty
-                ? "草稿未保存"
+                ? "未落盘 · 即将自动保存"
                 : _selectedAreaProfileName is null
                     ? "尚未保存"
-                    : "磁盘版本未变化";
+                    : "已自动保存";
             AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
                 ? Visibility.Collapsed
                 : Visibility.Visible;
@@ -510,9 +513,6 @@ internal partial class WatchWorkspaceWindow
                 && applied.MesAreas.SequenceEqual(
                     _areaProfileDraft.MesAreas,
                     StringComparer.Ordinal);
-            AreaProfileDiscardButton.IsEnabled = _areaProfileDraftIsDirty;
-            AreaProfileSaveButton.IsEnabled = _areaProfileDraft.IsValid
-                && (isNewProfile || _areaProfileDraftIsDirty);
             AreaProfileApplyButton.IsEnabled = _areaProfileDraft.IsValid
                 && (isNewProfile || _areaProfileDraftIsDirty || !isSelectedProfileApplied);
             AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid;
@@ -783,6 +783,15 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
+        if (string.Equals(
+                _selectedAreaProfileName,
+                row.ProfileName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        FlushAreaProfileAutoSave();
         try
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
@@ -819,6 +828,7 @@ internal partial class WatchWorkspaceWindow
             FileFingerprint = loadedFingerprint,
         };
         _areaProfileDraftIsDirty = true;
+        ScheduleAreaProfileAutoSave();
         RenderAreaProfiles();
         if (focusToPreserve is UIElement { IsVisible: true, IsEnabled: true } element
             && ReferenceEquals(Keyboard.FocusedElement, this))
@@ -829,59 +839,70 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
-    private void OnAreaProfileDiscardClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Restarts the idle countdown after every keystroke, so a burst of typing
+    /// produces one write once the user pauses instead of one write per change.
+    /// </summary>
+    private void ScheduleAreaProfileAutoSave()
     {
-        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        if (_disposed)
         {
-            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
-            ReloadSelectedAreaProfileDraft();
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Informational,
-                "已放弃 AREA 草稿修改",
-                "编辑器已恢复为所选 TXT 的磁盘内容；当前应用范围没有改变。");
-            return Task.CompletedTask;
-        });
-    }
-
-    private void ReloadSelectedAreaProfileDraft()
-    {
-        if (_selectedAreaProfileName is { } selectedName)
-        {
-            _areaProfileDraft = _areaProfileStore.Load(selectedName);
-            _areaProfileDraftIsDirty = false;
-            RenderAreaProfiles(reloadProfiles: true);
             return;
         }
 
-        var applied = _areaProfileStore.LoadAppliedState().CurrentApplied;
-        if (applied.ProfileName is { } appliedName
-            && _areaProfileStore.EnumerateProfiles().FirstOrDefault(summary => string.Equals(
-                summary.ProfileName,
-                appliedName,
-                StringComparison.OrdinalIgnoreCase)) is { } appliedSummary)
-        {
-            _selectedAreaProfileName = appliedSummary.ProfileName;
-            _areaProfileDraft = _areaProfileStore.Load(appliedSummary.ProfileName);
-        }
-        else
-        {
-            _selectedAreaProfileName = null;
-            _areaProfileDraft = WatchAreaFilterProfileParser.Parse(string.Empty, string.Empty);
-        }
-
-        _areaProfileDraftIsDirty = false;
-        RenderAreaProfiles(reloadProfiles: true);
+        _areaProfileAutoSaveTimer ??= _areaProfileClock.CreateTimer(
+            _ => OnAreaProfileAutoSaveDue(),
+            state: null,
+            Timeout.InfiniteTimeSpan,
+            Timeout.InfiniteTimeSpan);
+        _areaProfileAutoSaveTimer.Change(
+            WatchAreaFilterProfileStore.EditorAutoSaveDelay,
+            Timeout.InfiniteTimeSpan);
     }
 
-    private void OnAreaProfileSaveClick(object sender, RoutedEventArgs e)
+    private void CancelAreaProfileAutoSave() => _areaProfileAutoSaveTimer?.Change(
+        Timeout.InfiniteTimeSpan,
+        Timeout.InfiniteTimeSpan);
+
+    private void OnAreaProfileAutoSaveDue()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            FlushAreaProfileAutoSave();
+            return;
+        }
+
+        Dispatcher.BeginInvoke(FlushAreaProfileAutoSave);
+    }
+
+    /// <summary>
+    /// Writes the buffer out now. Called by the idle timer, by <c>Ctrl+S</c>,
+    /// and before anything that would take the buffer away from the user:
+    /// selecting another profile, leaving the page, or closing the window.
+    /// </summary>
+    private void FlushAreaProfileAutoSave()
+    {
+        CancelAreaProfileAutoSave();
+        if (_disposed || !_areaProfileDraftIsDirty || AreaProfileList is null)
+        {
+            return;
+        }
+
         AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
         {
-            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
             var draft = CurrentAreaProfileDraft();
-            var result = _selectedAreaProfileName is null
-                ? _areaProfileStore.SaveAs(draft.ProfileName, draft.Content)
-                : _areaProfileStore.Save(
+            // Only a draft that has never been on disk is created outright.
+            // Anything that was loaded from a file is written against its
+            // fingerprint, so a file deleted underneath the editor keeps the
+            // buffer instead of being silently recreated.
+            var result = _selectedAreaProfileName is null && draft.FileFingerprint is null
+                ? _areaProfileStore.AutoSave(draft.ProfileName, draft.Content)
+                : _areaProfileStore.AutoSave(
                     draft.ProfileName,
                     draft.Content,
                     RequireLoadedAreaProfileFingerprint(draft));
@@ -893,13 +914,26 @@ internal partial class WatchWorkspaceWindow
             _selectedAreaProfileName = result.Draft.ProfileName;
             _areaProfileDraft = result.Draft;
             _areaProfileDraftIsDirty = false;
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Success,
-                "AREA 配置已保存",
-                $"{result.Draft.ProfileName}.txt 已以 UTF-8 原子写入；当前应用范围未静默改变。");
             RenderAreaProfiles(reloadProfiles: true);
             return Task.CompletedTask;
         });
+    }
+
+    /// <summary>
+    /// <c>Ctrl+S</c>, the standing gesture of <see cref="ApplicationCommands.Save"/>,
+    /// stays available as the explicit write for users who would rather not
+    /// trust the idle timer.
+    /// </summary>
+    private void OnAreaProfileSaveNowExecuted(object sender, ExecutedRoutedEventArgs e)
+    {
+        e.Handled = true;
+        FlushAreaProfileAutoSave();
+    }
+
+    private void DisposeAreaProfileAutoSave()
+    {
+        _areaProfileAutoSaveTimer?.Dispose();
+        _areaProfileAutoSaveTimer = null;
     }
 
     private void OnAreaProfileSaveAsClick(object sender, RoutedEventArgs e) =>
@@ -936,6 +970,11 @@ internal partial class WatchWorkspaceWindow
         string targetName,
         IInputElement? invoker)
     {
+        if (operation is AreaProfileFileOperation.Rename or AreaProfileFileOperation.Delete)
+        {
+            FlushAreaProfileAutoSave();
+        }
+
         var sourceProfileName = operation is AreaProfileFileOperation.Rename
             or AreaProfileFileOperation.Delete
                 ? _selectedAreaProfileName
@@ -1163,7 +1202,7 @@ internal partial class WatchWorkspaceWindow
                     if (_areaProfileDraftIsDirty)
                     {
                         CloseAreaProfileFileOperation();
-                        throw new InvalidOperationException("请先保存或放弃未保存修改，再重命名当前 AREA TXT 配置。");
+                        throw new InvalidOperationException("当前 AREA TXT 尚未落盘；请等待自动保存完成后再重命名。");
                     }
 
                     var result = _areaProfileStore.Rename(
@@ -1214,7 +1253,7 @@ internal partial class WatchWorkspaceWindow
                     if (_areaProfileDraftIsDirty)
                     {
                         CloseAreaProfileFileOperation();
-                        throw new InvalidOperationException("请先保存或放弃未保存修改，再删除当前 AREA TXT 配置。");
+                        throw new InvalidOperationException("当前 AREA TXT 尚未落盘；请等待自动保存完成后再删除。");
                     }
 
                     var result = _areaProfileStore.Delete(

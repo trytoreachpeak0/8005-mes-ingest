@@ -2849,6 +2849,10 @@
                                   HorizontalScrollBarVisibility="Disabled"
                                   AutomationProperties.Name="AREA 筛选页面"
                                   AutomationProperties.AutomationId="AreaFilterPage">
+                        <ScrollViewer.CommandBindings>
+                            <CommandBinding Command="ApplicationCommands.Save"
+                                            Executed="OnAreaProfileSaveNowExecuted" />
+                        </ScrollViewer.CommandBindings>
                         <Grid x:Name="AreaFilterLayoutGrid"
                               MinHeight="{Binding ActualHeight, ElementName=AreaFilterPage}">
                             <Grid.RowDefinitions>
@@ -3347,10 +3351,6 @@
                                         <Grid x:Name="AreaProfileAppliedCommandRow"
                                               Grid.Row="4"
                                               Margin="16,11">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
                                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                 <Ellipse Width="8"
                                                          Height="8"
@@ -3360,25 +3360,6 @@
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="7,0,0,0"
                                                               AutomationProperties.Name="当前应用 AREA 配置" />
-                                            </StackPanel>
-                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                                <ui:Button x:Name="AreaProfileDiscardButton"
-                                                           Content="放弃修改"
-                                                           Appearance="Secondary"
-                                                           IsEnabled="False"
-                                                           KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaProfileDiscardClick"
-                                                           AutomationProperties.Name="放弃 AREA TXT 未保存修改"
-                                                           AutomationProperties.AutomationId="AreaProfileDiscardButton" />
-                                                <ui:Button x:Name="AreaProfileSaveButton"
-                                                           Content="保存"
-                                                           Appearance="Secondary"
-                                                           IsEnabled="False"
-                                                           Margin="8,0,0,0"
-                                                           KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaProfileSaveClick"
-                                                           AutomationProperties.Name="保存 AREA TXT 配置"
-                                                           AutomationProperties.AutomationId="AreaProfileSaveButton" />
                                             </StackPanel>
                                         </Grid>
                                     </Grid>

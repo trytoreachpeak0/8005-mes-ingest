@@ -221,10 +221,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 const string savedContent = "C3-3\nB2-2\n";
                 editor.Text = savedContent;
                 Assert.Equal(["A1-1"], window.AreaContext.MesAreas);
-                Assert.Equal("草稿未保存", Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+                Assert.Equal(
+                    "未落盘 · 即将自动保存",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
 
                 var beforeSave = host.Timeline.Count;
-                Click(Find<ButtonBase>(window, "AreaProfileSaveButton"));
+                SaveNow(window);
                 await window.AreaProfileOperationTask.WaitAsync(timeout.Token);
 
                 Assert.Equal(savedContent, File.ReadAllText(files.ProfilePath, Encoding.UTF8));
@@ -420,7 +422,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 editor.Text += "\n# 未保存的本机草稿";
                 var unsavedDraft = editor.Text;
                 Assert.Equal(
-                    "草稿未保存",
+                    "未落盘 · 即将自动保存",
                     Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
 
                 var search = Find<TextBox>(window, "AreaProfileSearchInput");
@@ -552,11 +554,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "删除当前 AREA TXT 配置");
                 Assert.Null(window.FindName("AreaProfileFileReloadButton"));
 
-                var discard = Find<ButtonBase>(window, "AreaProfileDiscardButton");
-                var save = Find<ButtonBase>(window, "AreaProfileSaveButton");
+                Assert.Null(window.FindName("AreaProfileDiscardButton"));
+                Assert.Null(window.FindName("AreaProfileSaveButton"));
                 var apply = Find<ButtonBase>(window, "AreaProfileApplyButton");
-                Assert.False(discard.IsEnabled);
-                Assert.False(save.IsEnabled);
                 Assert.False(apply.IsEnabled);
 
                 var rows = Find<ListBox>(window, "AreaProfileList")
@@ -592,33 +592,36 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     rows,
                     row => row.ProfileName == "西区");
                 Assert.Equal("西区.txt", Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
-                Assert.False(discard.IsEnabled);
-                Assert.False(save.IsEnabled);
+                Assert.Equal(
+                    "已自动保存",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
                 Assert.True(apply.IsEnabled);
 
                 var editor = Find<TextBox>(window, "AreaProfileEditor");
+                var markerBeforeEdit = File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8);
+                Assert.Equal(savedOtherContent, editor.Text);
                 editor.Text = "C3-3\n";
-                Assert.True(discard.IsEnabled);
-                Assert.True(save.IsEnabled);
                 Assert.True(apply.IsEnabled);
-                Assert.Equal("草稿未保存", Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+                Assert.Equal(
+                    "未落盘 · 即将自动保存",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
 
-                var markerBeforeDiscard = File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8);
-                Click(discard);
+                SaveNow(window);
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
 
-                Assert.Equal(savedOtherContent, editor.Text);
-                Assert.Equal(markerBeforeDiscard, File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8));
+                Assert.Equal("C3-3\n", store.Load("西区").Content);
+                Assert.Equal(
+                    "已自动保存",
+                    Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
+                Assert.Equal(
+                    markerBeforeEdit,
+                    File.ReadAllText(files.ActiveMarkerPath, Encoding.UTF8));
                 Assert.Equal("东区", store.LoadApplied().ProfileName);
-                Assert.False(discard.IsEnabled);
-                Assert.False(save.IsEnabled);
                 Assert.True(apply.IsEnabled);
 
                 editor.Text = "AREA-INVALID\n";
-                Assert.True(discard.IsEnabled);
-                Assert.False(save.IsEnabled);
                 Assert.False(apply.IsEnabled);
                 Assert.Same(
                     window.FindResource("StatusPillCritical"),
@@ -712,12 +715,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     4,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
-                var discard = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileDiscardButton");
-                var save = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileSaveButton");
-                var bottomCommandLayer = Assert.IsType<StackPanel>(discard.Parent);
-                Assert.Equal(
-                    new UIElement[] { discard, save },
-                    bottomCommandLayer.Children.Cast<UIElement>());
+                Assert.Null(window.FindName("AreaProfileDiscardButton"));
+                Assert.Null(window.FindName("AreaProfileSaveButton"));
 
                 Click(saveAs);
                 var operationPanel = Find<FrameworkElement>(
@@ -885,7 +884,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal("B2-2\n", store.Load("ProfileB").Content);
                 Assert.Equal("ProfileB", store.LoadApplied().ProfileName);
 
-                Click(Find<ButtonBase>(window, "AreaProfileDiscardButton"));
+                SaveNow(window);
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
@@ -1252,7 +1251,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "RecoverableScope.txt",
                     Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
                 Assert.Equal(
-                    "磁盘版本未变化",
+                    "已自动保存",
                     Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
                 var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
                 Assert.Contains("已保存", failure.Message, StringComparison.Ordinal);
@@ -1320,7 +1319,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "EditableScope.txt",
                     Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
                 Assert.Equal(
-                    "磁盘版本未变化",
+                    "已自动保存",
                     Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
                 var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
                 Assert.Equal("AREA 配置已保存但范围未应用", failure.Title);
@@ -1393,14 +1392,20 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 Find<TextBox>(firstWindow, "AreaProfileEditor").Text = "D4-4\n";
                 Find<TextBox>(secondWindow, "AreaProfileEditor").Text = "C3-3\n";
-                Click(Find<ButtonBase>(secondWindow, "AreaProfileSaveButton"));
+                SaveNow(secondWindow);
                 await secondWindow.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
 
-                Click(Find<ButtonBase>(
-                    firstWindow,
-                    saveAndApply ? "AreaProfileApplyButton" : "AreaProfileSaveButton"));
+                if (saveAndApply)
+                {
+                    Click(Find<ButtonBase>(firstWindow, "AreaProfileApplyButton"));
+                }
+                else
+                {
+                    SaveNow(firstWindow);
+                }
+
                 await firstWindow.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
@@ -1411,11 +1416,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "D4-4\n",
                     Find<TextBox>(firstWindow, "AreaProfileEditor").Text);
                 Assert.Equal(
-                    "草稿未保存",
+                    "未落盘 · 即将自动保存",
                     Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
-                Assert.True(Find<ButtonBase>(
-                    firstWindow,
-                    "AreaProfileDiscardButton").IsEnabled);
                 Assert.True(Find<ButtonBase>(
                     firstWindow,
                     "AreaProfileSaveAsButton").IsEnabled);
@@ -1993,7 +1995,6 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 {
                     ["AreaProfileNewButton"] = "新建 AREA 配置",
                     ["AreaApplyAllAreasButton"] = "应用全部 AREA 显示范围",
-                    ["AreaProfileSaveButton"] = "保存 AREA TXT 配置",
                     ["AreaProfileApplyButton"] = "应用选中 AREA 配置",
                 };
                 foreach (var (name, automationName) in areaCommands)
@@ -2139,6 +2140,15 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
     private static void Click(UIElement element) =>
         element.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+    /// <summary>
+    /// The explicit write that replaced the save button: Ctrl+S, bound on the
+    /// AREA page as <see cref="ApplicationCommands.Save"/>.
+    /// </summary>
+    private static void SaveNow(WatchWorkspaceWindow window) =>
+        ApplicationCommands.Save.Execute(
+            null,
+            Find<ScrollViewer>(window, "AreaFilterPage"));
 
     private static void SelectProfile(WatchWorkspaceWindow window, string profileName)
     {

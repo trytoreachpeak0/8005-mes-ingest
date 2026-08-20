@@ -856,6 +856,88 @@ public sealed class WatchAreaFilterProfileTests
         Assert.Equal("AppliedScope", store.LoadApplied().ProfileName);
     }
 
+    [Fact]
+    public void Auto_save_persists_content_that_is_not_yet_valid_so_typing_is_never_dropped()
+    {
+        using var temporary = new TemporaryDirectory();
+        using var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.SaveAs("EditedScope", "A1-1\n").Saved);
+
+        var result = store.AutoSave(
+            "EditedScope",
+            "A1-1\n还没打完\n",
+            Fingerprint(store, "EditedScope"));
+
+        Assert.True(result.Saved);
+        Assert.False(result.Draft.IsValid);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea,
+            result.Diagnostics[0].Code);
+        Assert.Equal(
+            "A1-1\n还没打完\n",
+            File.ReadAllText(
+                Path.Combine(temporary.Path, "EditedScope.txt"),
+                Encoding.UTF8));
+    }
+
+    [Fact]
+    public void Auto_save_refuses_a_name_that_cannot_become_a_file()
+    {
+        using var temporary = new TemporaryDirectory();
+        using var store = new WatchAreaFilterProfileStore(temporary.Path);
+
+        var unnamed = store.AutoSave("   ", "A1-1\n");
+        var unsafeName = store.AutoSave("../escape", "A1-1\n");
+
+        Assert.False(unnamed.Saved);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired,
+            unnamed.Diagnostics[0].Code);
+        Assert.False(unsafeName.Saved);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName,
+            unsafeName.Diagnostics[0].Code);
+        Assert.Empty(Directory.GetFiles(temporary.Path, "*.txt"));
+    }
+
+    [Fact]
+    public void Auto_save_keeps_the_optimistic_concurrency_of_an_explicit_save()
+    {
+        using var temporary = new TemporaryDirectory();
+        using var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.SaveAs("SharedScope", "A1-1\n").Saved);
+        var staleFingerprint = Fingerprint(store, "SharedScope");
+        File.WriteAllText(
+            Path.Combine(temporary.Path, "SharedScope.txt"),
+            "C3-3\n",
+            new UTF8Encoding(false));
+
+        var result = store.AutoSave("SharedScope", "B2-2\n", staleFingerprint);
+
+        Assert.False(result.Saved);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+            Assert.Single(result.Diagnostics).Code);
+        Assert.Equal("C3-3\n", store.Load("SharedScope").Content);
+    }
+
+    [Fact]
+    public void Auto_save_without_a_fingerprint_creates_the_file_and_never_overwrites_one()
+    {
+        using var temporary = new TemporaryDirectory();
+        using var store = new WatchAreaFilterProfileStore(temporary.Path);
+
+        var created = store.AutoSave("NewScope", "A1-1\n");
+        var collision = store.AutoSave("NewScope", "B2-2\n");
+
+        Assert.True(created.Saved);
+        Assert.False(collision.Saved);
+        Assert.Equal(
+            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+            collision.Diagnostics[^1].Code);
+        Assert.Equal("A1-1\n", store.Load("NewScope").Content);
+    }
+
     private static string Fingerprint(
         WatchAreaFilterProfileStore store,
         string profileName) => store.Load(profileName).FileFingerprint

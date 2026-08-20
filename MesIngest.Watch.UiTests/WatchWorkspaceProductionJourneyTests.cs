@@ -910,10 +910,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "AREA editor for the production candidate");
             WaitUntil(
                 () => TextValue(FindRequiredById(window, "AreaProfileDiskStateText"))
-                        .Contains("磁盘版本未变化", StringComparison.Ordinal)
-                    && !FindRequiredById(window, "AreaProfileApplyButton").AsButton().IsEnabled
-                    && !FindRequiredById(window, "AreaProfileDiscardButton").AsButton().IsEnabled
-                    && !FindRequiredById(window, "AreaProfileSaveButton").AsButton().IsEnabled,
+                        .Contains("已自动保存", StringComparison.Ordinal)
+                    && !FindRequiredById(window, "AreaProfileApplyButton").AsButton().IsEnabled,
                 "the canonical clean AREA editor state",
                 StepTimeout);
             CaptureApprovedBaseline(
