@@ -124,10 +124,12 @@ public sealed class WatchRejectedPrototypeLayoutTests
                     localApplicationData,
                     Path.GetFullPath(areaDirectory));
                 Assert.Equal(
-                    $"%LocalAppData%\\{relativeAreaDirectory} · UTF-8",
+                    $"%LocalAppData%\\{relativeAreaDirectory} · UTF-8 · "
+                        + "每行一个 AREA，如 A1-1，# 开头忽略",
                     directory.Text);
                 Assert.NotEqual(
-                    "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8",
+                    "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
+                        + "每行一个 AREA，如 A1-1，# 开头忽略",
                     directory.Text);
                 Assert.Equal(Path.GetFullPath(areaDirectory), directory.ToolTip);
                 Assert.Equal(Path.GetFullPath(areaDirectory), AutomationProperties.GetHelpText(directory));

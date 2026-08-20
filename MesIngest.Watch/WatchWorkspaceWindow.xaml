@@ -2859,7 +2859,6 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="12" />
                                 <RowDefinition Height="Auto" />
-                                <RowDefinition Height="12" />
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <Grid>
@@ -2882,23 +2881,16 @@
                                                AutomationProperties.AutomationId="AreaProfileOpenDirectoryButton" />
                                 </StackPanel>
                             </Grid>
-                            <StackPanel Grid.Row="2">
-                                <ui:InfoBar IsOpen="True"
-                                            IsClosable="False"
-                                            Severity="Informational"
-                                            Title="当前显示范围"
-                                            Message="{Binding Text, ElementName=AreaProfileAppliedStateText}"
-                                            AutomationProperties.Name="当前应用 AREA 显示范围" />
-                                <ui:InfoBar x:Name="AreaProfileInfoBar"
-                                            IsOpen="False"
-                                            IsClosable="True"
-                                            Severity="Informational"
-                                            Margin="0,8,0,0"
-                                            AutomationProperties.Name="AREA 配置操作状态" />
-                            </StackPanel>
+                            <ui:InfoBar x:Name="AreaProfileInfoBar"
+                                        Grid.Row="2"
+                                        IsOpen="False"
+                                        IsClosable="True"
+                                        Severity="Informational"
+                                        Margin="0,0,0,12"
+                                        AutomationProperties.Name="AREA 配置操作状态" />
 
                             <Grid x:Name="AreaProfileBodyGrid"
-                                  Grid.Row="4">
+                                  Grid.Row="3">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="*" />
                                     <RowDefinition x:Name="AreaProfileVerticalGap"
@@ -3131,22 +3123,23 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <StackPanel>
-                                                <ui:TextBlock x:Name="AreaProfileFileTitleText"
-                                                              Text="新建 AREA 配置"
-                                                              Style="{StaticResource SectionTitleText}"
-                                                              AutomationProperties.Name="当前 AREA TXT 文件" />
-                                                <ui:TextBlock x:Name="AreaProfileDirectoryText"
-                                                              Text="本机配置目录 · UTF-8"
-                                                              Style="{StaticResource CaptionText}"
-                                                              Margin="0,3,0,0"
-                                                              TextTrimming="CharacterEllipsis"
-                                                              AutomationProperties.Name="AREA 配置存储目录" />
-                                            </StackPanel>
+                                            <ui:TextBlock x:Name="AreaProfileFileTitleText"
+                                                          Text="新建 AREA 配置"
+                                                          Style="{StaticResource SectionTitleText}"
+                                                          AutomationProperties.Name="当前 AREA TXT 文件" />
                                             <StackPanel x:Name="AreaProfileFileCommandLayer"
                                                         Grid.Column="1"
                                                         Orientation="Horizontal"
                                                         VerticalAlignment="Center">
+                                                <Border x:Name="AreaProfileValidCountPill"
+                                                        Style="{StaticResource StatusPillCritical}"
+                                                        VerticalAlignment="Center"
+                                                        Margin="0,0,8,0">
+                                                    <ui:TextBlock x:Name="AreaProfileValidCountText"
+                                                                  Text="尚无有效 AREA"
+                                                                  FontTypography="BodyStrong"
+                                                                  AutomationProperties.Name="AREA 有效数量" />
+                                                </Border>
                                                 <ui:Button x:Name="AreaProfileSaveAsButton"
                                                            Content="另存为"
                                                            Appearance="Secondary"
@@ -3171,6 +3164,14 @@
                                                            AutomationProperties.Name="删除当前 AREA TXT 配置"
                                                            AutomationProperties.AutomationId="AreaProfileDeleteButton" />
                                             </StackPanel>
+                                            <ui:TextBlock x:Name="AreaProfileDirectoryText"
+                                                          Grid.Row="1"
+                                                          Grid.ColumnSpan="2"
+                                                          Text="本机配置目录 · UTF-8 · 每行一个 AREA，如 A1-1，# 开头忽略"
+                                                          Style="{StaticResource CaptionText}"
+                                                          Margin="0,3,0,0"
+                                                          TextTrimming="CharacterEllipsis"
+                                                          AutomationProperties.Name="AREA 配置存储目录与格式" />
                                             <TextBox x:Name="AreaProfileNameInput"
                                                      Visibility="Collapsed"
                                                      IsTabStop="False"
@@ -3178,7 +3179,7 @@
                                                      AutomationProperties.Name="AREA 配置名称"
                                                      AutomationProperties.AutomationId="AreaProfileNameInput" />
                                             <Border x:Name="AreaProfileFileOperationPanel"
-                                                    Grid.Row="1"
+                                                    Grid.Row="2"
                                                     Grid.ColumnSpan="2"
                                                     Visibility="Collapsed"
                                                     Margin="0,10,0,0"
@@ -3274,38 +3275,13 @@
                                               Grid.Row="2"
                                               Margin="16,14">
                                             <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="10" />
                                                 <RowDefinition Height="*" />
                                                 <RowDefinition Height="12" />
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel>
-                                                    <ui:TextBlock x:Name="AreaProfileRulesText"
-                                                                  Text="AREA（每行一个）"
-                                                                  Style="{StaticResource FieldLabel}" />
-                                                    <ui:TextBlock Text="格式：A1-1 或 A11-11 · 空行和 # 注释会忽略"
-                                                                  Style="{StaticResource CaptionText}"
-                                                                  Margin="0,3,0,0" />
-                                                </StackPanel>
-                                                <Border x:Name="AreaProfileValidCountPill"
-                                                        Grid.Column="1"
-                                                        Style="{StaticResource StatusPillCritical}"
-                                                        VerticalAlignment="Center">
-                                                    <ui:TextBlock x:Name="AreaProfileValidCountText"
-                                                                  Text="尚无有效 AREA"
-                                                                  FontTypography="BodyStrong"
-                                                                  AutomationProperties.Name="AREA 有效数量" />
-                                                </Border>
-                                            </Grid>
                                             <Border x:Name="AreaProfileEditorFrame"
-                                                    Grid.Row="2"
+                                                    Grid.Row="0"
                                                     MinHeight="{StaticResource AreaProfileEditorMinHeight}"
                                                     BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                                                     BorderThickness="1"
@@ -3348,7 +3324,7 @@
                                                              AutomationProperties.AutomationId="AreaProfileEditor" />
                                                 </Grid>
                                             </Border>
-                                            <Grid x:Name="AreaProfileEditorStatusGrid" Grid.Row="4">
+                                            <Grid x:Name="AreaProfileEditorStatusGrid" Grid.Row="2">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
@@ -3377,7 +3353,7 @@
                                                 </StackPanel>
                                             </Grid>
                                             <Expander x:Name="AreaProfileValidationExpander"
-                                                      Grid.Row="5"
+                                                      Grid.Row="3"
                                                       Header="查看逐项校验"
                                                       Margin="0,8,0,0"
                                                       Visibility="Collapsed">

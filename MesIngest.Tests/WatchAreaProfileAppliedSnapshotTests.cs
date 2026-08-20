@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Threading;
 using MesIngest.Watch;
 
@@ -22,6 +23,48 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
         new(2026, 8, 20, 9, 0, 0, TimeSpan.Zero);
 
     private const string AppliedContent = "A1-1\nA1-2";
+
+    [Fact]
+    public void Area_filter_layout_gives_redundant_banner_and_field_strip_space_to_the_editor() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.DoesNotContain(
+                VisualDescendants<Wpf.Ui.Controls.InfoBar>(window),
+                infoBar => string.Equals(
+                    AutomationProperties.GetName(infoBar),
+                    "当前应用 AREA 显示范围",
+                    StringComparison.Ordinal));
+            Assert.Null(window.FindName("AreaProfileRulesText"));
+
+            var fileTitle = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileFileTitleText"));
+            var validCount = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileValidCountText"));
+            var titleCenter = fileTitle.TranslatePoint(
+                new Point(0, fileTitle.ActualHeight / 2),
+                window);
+            var countCenter = validCount.TranslatePoint(
+                new Point(0, validCount.ActualHeight / 2),
+                window);
+            Assert.InRange(Math.Abs(titleCenter.Y - countCenter.Y), 0, 2);
+
+            var pathAndFormat = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileDirectoryText"));
+            Assert.Contains("每行一个 AREA", pathAndFormat.Text, StringComparison.Ordinal);
+            Assert.Contains("A1-1", pathAndFormat.Text, StringComparison.Ordinal);
+            Assert.Contains("# 开头忽略", pathAndFormat.Text, StringComparison.Ordinal);
+
+            var editorFrame = Assert.IsType<Border>(
+                window.FindName("AreaProfileEditorFrame"));
+            Assert.True(
+                editorFrame.ActualHeight >= 500,
+                $"AREA editor height was only {editorFrame.ActualHeight:N0} epx.");
+        });
 
     // One row per line of the ticket's state table. The file condition travels
     // as a string because the enum is internal to MesIngest.Watch and a public
@@ -521,6 +564,24 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
         }
 
         task.GetAwaiter().GetResult();
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     /// <summary>

@@ -27,7 +27,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             "area-filters");
 
         Assert.Equal(
-            "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8",
+            "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
+                + "每行一个 AREA，如 A1-1，# 开头忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -44,7 +45,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             "area-filters");
 
         Assert.Equal(
-            "area-filters · 本机 TXT · UTF-8",
+            "area-filters · 本机 TXT · UTF-8 · 每行一个 AREA，如 A1-1，# 开头忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -514,9 +515,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "每行一个",
-                    Find<TextBlock>(window, "AreaProfileRulesText").Text,
+                    "每行一个 AREA，如 A1-1，# 开头忽略",
+                    Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
+                Assert.Null(window.FindName("AreaProfileRulesText"));
                 Assert.Contains(
                     "2 个有效 AREA",
                     Find<TextBlock>(window, "AreaProfileValidCountText").Text,
@@ -528,10 +530,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     window.FindResource("CaptionText"),
                     Find<Wpf.Ui.Controls.TextBlock>(window, "AreaProfileDirectoryText").Style);
                 Assert.Equal(
-                    2,
+                    0,
                     Grid.GetRow(Find<Border>(window, "AreaProfileEditorFrame")));
                 Assert.Equal(
-                    4,
+                    2,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
                 Assert.Equal(
                     4,
