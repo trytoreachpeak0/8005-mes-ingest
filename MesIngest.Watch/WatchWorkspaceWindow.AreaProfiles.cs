@@ -232,6 +232,9 @@ internal partial class WatchWorkspaceWindow
         var selectedProfileToReload = !_areaProfileDraftIsDirty
             && _selectedAreaProfileName is { } selectedName
             && change.ProfileNames.Contains(selectedName, StringComparer.OrdinalIgnoreCase)
+            && !change.DeletedProfileNames.Contains(
+                selectedName,
+                StringComparer.OrdinalIgnoreCase)
                 ? selectedName
                 : null;
         if (selectedProfileToReload is null)

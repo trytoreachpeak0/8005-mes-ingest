@@ -30,7 +30,8 @@ internal sealed record WatchAreaProfileRename(
 
 internal sealed record WatchAreaProfileDirectoryChange(
     IReadOnlyList<string> ProfileNames,
-    IReadOnlyList<WatchAreaProfileRename> Renames);
+    IReadOnlyList<WatchAreaProfileRename> Renames,
+    IReadOnlyList<string> DeletedProfileNames);
 
 internal interface IWatchAreaProfileDirectoryEventSource : IDisposable
 {

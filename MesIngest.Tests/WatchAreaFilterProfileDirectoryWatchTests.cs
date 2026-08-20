@@ -70,6 +70,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
 
         var change = Assert.Single(changes);
         Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Equal(["焊线区域"], change.DeletedProfileNames);
         Assert.Empty(store.EnumerateProfiles());
     }
 
@@ -102,6 +103,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
 
         var change = Assert.Single(changes);
         Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Empty(change.DeletedProfileNames);
         Assert.Empty(change.Renames);
         Assert.Equal("B2-2", store.Load("焊线区域").Content);
         Assert.Equal(
@@ -136,6 +138,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
                 - WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         Assert.Equal(["焊线区域"], Assert.Single(changes).ProfileNames);
+        Assert.Equal(["焊线区域"], Assert.Single(changes).DeletedProfileNames);
         Assert.Empty(store.EnumerateProfiles());
     }
 

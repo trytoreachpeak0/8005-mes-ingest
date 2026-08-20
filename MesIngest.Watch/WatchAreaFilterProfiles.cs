@@ -1263,7 +1263,10 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         }
 
         timer.Dispose();
-        RaiseDirectoryChange([profileName], []);
+        var deletedProfileNames = File.Exists(GetProfilePath(profileName))
+            ? Array.Empty<string>()
+            : [profileName];
+        RaiseDirectoryChange([profileName], [], deletedProfileNames);
     }
 
     private void RaisePendingDirectoryChange()
@@ -1286,12 +1289,13 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         profileNames = profileNames
             .Where(profileName => !ShouldSuppressOwnProfileWrite(profileName))
             .ToArray();
-        RaiseDirectoryChange(profileNames, renames);
+        RaiseDirectoryChange(profileNames, renames, []);
     }
 
     private void RaiseDirectoryChange(
         IReadOnlyList<string> profileNames,
-        IReadOnlyList<WatchAreaProfileRename> renames)
+        IReadOnlyList<WatchAreaProfileRename> renames,
+        IReadOnlyList<string> deletedProfileNames)
     {
         if (profileNames.Count == 0 && renames.Count == 0)
         {
@@ -1300,7 +1304,10 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
 
         DirectoryChanged?.Invoke(
             this,
-            new WatchAreaProfileDirectoryChange(profileNames, renames));
+            new WatchAreaProfileDirectoryChange(
+                profileNames,
+                renames,
+                deletedProfileNames));
     }
 
     private void RememberOwnProfileWrite(WatchAreaFilterProfile profile)

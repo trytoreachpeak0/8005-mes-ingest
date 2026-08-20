@@ -68,6 +68,25 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
+    public void A_selected_profile_that_remains_deleted_leaves_the_list_without_a_reload_error() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("AreaProfileInfoBar"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+
+            Assert.Empty(Rows(list));
+            Assert.False(
+                infoBar.IsOpen
+                && infoBar.Title.Contains("无法", StringComparison.Ordinal));
+        });
+
+    [Fact]
     public void An_externally_renamed_selected_profile_follows_the_new_name_and_resorts_without_a_deleted_warning() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {
