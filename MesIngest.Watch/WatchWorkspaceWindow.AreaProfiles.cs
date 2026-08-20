@@ -1008,19 +1008,19 @@ internal partial class WatchWorkspaceWindow
 
     internal static string FormatAreaProfileDirectoryCaption(string directoryPath)
     {
-        const string formatHint = "每行一个 AREA，如 A1-1，# 开头忽略";
+        const string formatHint = "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略";
         var fullPath = Path.GetFullPath(directoryPath);
         var localApplicationData = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData);
+        string storageCaption;
         if (TryFormatLocalApplicationDataCaption(
                 fullPath,
                 localApplicationData,
                 out var caption))
         {
-            return $"{caption} · {formatHint}";
+            storageCaption = caption;
         }
-
-        if (string.Equals(
+        else if (string.Equals(
                 Environment.GetEnvironmentVariable("MESINGEST_WATCH_UI_TEST_MODE"),
                 "1",
                 StringComparison.Ordinal)
@@ -1029,11 +1029,15 @@ internal partial class WatchWorkspaceWindow
                 Environment.GetEnvironmentVariable("LOCALAPPDATA"),
                 out caption))
         {
-            return $"{caption} · {formatHint}";
+            storageCaption = caption;
+        }
+        else
+        {
+            var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath));
+            storageCaption = $"{directoryName} · 本机 TXT · UTF-8";
         }
 
-        var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath));
-        return $"{directoryName} · 本机 TXT · UTF-8 · {formatHint}";
+        return $"{storageCaption} · {formatHint}";
     }
 
     private static bool TryFormatLocalApplicationDataCaption(

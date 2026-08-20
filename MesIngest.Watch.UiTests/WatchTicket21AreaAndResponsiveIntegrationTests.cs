@@ -28,7 +28,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
         Assert.Equal(
             "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
-                + "每行一个 AREA，如 A1-1，# 开头忽略",
+                + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -45,7 +45,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             "area-filters");
 
         Assert.Equal(
-            "area-filters · 本机 TXT · UTF-8 · 每行一个 AREA，如 A1-1，# 开头忽略",
+            "area-filters · 本机 TXT · UTF-8 · "
+                + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -515,7 +516,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "每行一个 AREA，如 A1-1，# 开头忽略",
+                    "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
                 Assert.Null(window.FindName("AreaProfileRulesText"));

@@ -125,11 +125,11 @@ public sealed class WatchRejectedPrototypeLayoutTests
                     Path.GetFullPath(areaDirectory));
                 Assert.Equal(
                     $"%LocalAppData%\\{relativeAreaDirectory} · UTF-8 · "
-                        + "每行一个 AREA，如 A1-1，# 开头忽略",
+                        + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     directory.Text);
                 Assert.NotEqual(
                     "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
-                        + "每行一个 AREA，如 A1-1，# 开头忽略",
+                        + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     directory.Text);
                 Assert.Equal(Path.GetFullPath(areaDirectory), directory.ToolTip);
                 Assert.Equal(Path.GetFullPath(areaDirectory), AutomationProperties.GetHelpText(directory));

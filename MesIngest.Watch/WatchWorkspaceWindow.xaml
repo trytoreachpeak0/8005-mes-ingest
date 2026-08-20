@@ -3167,7 +3167,7 @@
                                             <ui:TextBlock x:Name="AreaProfileDirectoryText"
                                                           Grid.Row="1"
                                                           Grid.ColumnSpan="2"
-                                                          Text="本机配置目录 · UTF-8 · 每行一个 AREA，如 A1-1，# 开头忽略"
+                                                          Text="本机配置目录 · UTF-8"
                                                           Style="{StaticResource CaptionText}"
                                                           Margin="0,3,0,0"
                                                           TextTrimming="CharacterEllipsis"

@@ -56,8 +56,8 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             var pathAndFormat = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                 window.FindName("AreaProfileDirectoryText"));
             Assert.Contains("每行一个 AREA", pathAndFormat.Text, StringComparison.Ordinal);
-            Assert.Contains("A1-1", pathAndFormat.Text, StringComparison.Ordinal);
-            Assert.Contains("# 开头忽略", pathAndFormat.Text, StringComparison.Ordinal);
+            Assert.Contains("A1-1 或 A11-11", pathAndFormat.Text, StringComparison.Ordinal);
+            Assert.Contains("空行和 # 注释会忽略", pathAndFormat.Text, StringComparison.Ordinal);
 
             var editorFrame = Assert.IsType<Border>(
                 window.FindName("AreaProfileEditorFrame"));
