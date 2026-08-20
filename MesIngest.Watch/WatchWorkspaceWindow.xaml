@@ -100,6 +100,7 @@
         <wpf:Thickness x:Key="DemandSeriesInfoSummaryMargin">0,4,12,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesMasterHeaderMargin">16,12</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesHeadingSubtitleMargin">0,4,0,0</wpf:Thickness>
+        <SolidColorBrush x:Key="DemandSeriesSplitterHitTargetBrush" Color="Transparent" />
         <!-- ReadabilityAudit and AREA page geometry stays tokenized so the shared
              integration train can calibrate the two master-detail workspaces. -->
         <sys:Double x:Key="ReadabilityStateFilterWidth">165</sys:Double>
@@ -881,7 +882,7 @@
                                                       ShowsPreview="True"
                                                       Focusable="True"
                                                       KeyboardNavigation.IsTabStop="True"
-                                                      Background="Transparent"
+                                                      Background="{StaticResource DemandSeriesSplitterHitTargetBrush}"
                                                       AutomationProperties.Name="调整需求系列列表与详情高度"
                                                       AutomationProperties.AutomationId="DemandSeriesMasterDetailSplitter" />
                                     </Grid>
