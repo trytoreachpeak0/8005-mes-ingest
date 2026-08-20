@@ -574,7 +574,7 @@ internal partial class WatchWorkspaceWindow
                 && !_areaProfileDraftIsDirty
                 && applied.IsAllAreas)
             {
-                _isAllAreasSelected = true;
+                SelectAllAreasRow();
             }
 
             _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
@@ -924,9 +924,7 @@ internal partial class WatchWorkspaceWindow
             {
                 if (neighbourRow.IsAllAreas)
                 {
-                    _isAllAreasSelected = true;
-                    _selectedAreaProfileName = null;
-                    _areaProfileDraft = null;
+                    SelectAllAreasRow();
                 }
                 else
                 {
@@ -1203,11 +1201,7 @@ internal partial class WatchWorkspaceWindow
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
             if (row.IsAllAreas)
             {
-                _isAllAreasSelected = true;
-                _selectedAreaProfileName = null;
-                _areaProfileDraft = null;
-                _areaProfileDraftIsDirty = false;
-                _areaProfileDraftLostItsFile = false;
+                SelectAllAreasRow();
                 RenderAreaProfiles();
                 return;
             }
@@ -1473,6 +1467,15 @@ internal partial class WatchWorkspaceWindow
         _areaProfileDraftIsDirty = false;
         _areaProfileDraftLostItsFile = false;
         RenderAreaProfiles(reloadProfiles: true);
+    }
+
+    private void SelectAllAreasRow()
+    {
+        _isAllAreasSelected = true;
+        _selectedAreaProfileName = null;
+        _areaProfileDraft = null;
+        _areaProfileDraftIsDirty = false;
+        _areaProfileDraftLostItsFile = false;
     }
 
     /// <summary>
@@ -1980,7 +1983,7 @@ internal partial class WatchWorkspaceWindow
     {
         if (_isAllAreasSelected)
         {
-            OnAreaApplyAllAreasClick(sender, e);
+            ApplyAllAreas();
             return;
         }
 
@@ -2036,16 +2039,13 @@ internal partial class WatchWorkspaceWindow
         });
     }
 
-    private void OnAreaApplyAllAreasClick(object sender, RoutedEventArgs e)
+    private void ApplyAllAreas()
     {
         AreaProfileOperationTask = RunAreaProfileUiActionAsync(async operation =>
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
             var result = _areaProfileStore.ApplyAllAreas();
-            _isAllAreasSelected = true;
-            _selectedAreaProfileName = null;
-            _areaProfileDraft = null;
-            _areaProfileDraftIsDirty = false;
+            SelectAllAreasRow();
             await ApplyAreaContextAsync(
                     result.CurrentApplied.ToDisplayContext(),
                     _lifetimeCancellation.Token)

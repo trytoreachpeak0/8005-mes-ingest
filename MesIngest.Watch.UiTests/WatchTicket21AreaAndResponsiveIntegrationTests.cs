@@ -691,9 +691,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var localScope = Find<TextBlock>(window, "AreaProfileLocalScopeText");
                 Assert.Equal("仅影响本机当前用户的显示", localScope.Text);
                 Assert.Equal(TextWrapping.NoWrap, localScope.TextWrapping);
-                var allAreas = Find<Wpf.Ui.Controls.Button>(window, "AreaApplyAllAreasButton");
-                Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Transparent, allAreas.Appearance);
-                Assert.True(allAreas.ActualWidth < master.ActualWidth / 2);
+                Assert.Null(window.FindName("AreaApplyAllAreasButton"));
 
                 var saveAs = AreaProfileFileCommand(window, "AreaProfileSaveAsMenuItem");
                 var rename = AreaProfileFileCommand(window, "AreaProfileRenameMenuItem");
@@ -720,6 +718,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var saveAndApply = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileApplyButton");
                 Assert.Null(window.FindName("AreaProfileFileReloadButton"));
                 Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Secondary, saveAndApply.Appearance);
+                Assert.True(IsDescendantOrSelf(saveAndApply, master));
+                Assert.False(IsDescendantOrSelf(saveAndApply, editor));
+                Assert.True(saveAndApply.ActualWidth < master.ActualWidth / 2);
                 Assert.Equal(
                     4,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
@@ -1659,7 +1660,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var slowOperation = window.AreaProfileOperationTask;
                 await slowOverviewReceived.Task.WaitAsync(timeout.Token);
 
-                Click(Find<ButtonBase>(window, "AreaApplyAllAreasButton"));
+                SelectAllAreas(window);
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
                 var newerOperation = window.AreaProfileOperationTask;
                 Assert.Empty(window.AreaContext.MesAreas);
                 Assert.True(store.LoadApplied().IsAllAreas);
@@ -1718,7 +1720,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 await window.InitializeAsync(timeout.Token);
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
 
-                Click(Find<ButtonBase>(window, "AreaApplyAllAreasButton"));
+                SelectAllAreas(window);
+                Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
                 var slowAllAreasOperation = window.AreaProfileOperationTask;
                 await client.AllAreasOverviewStarted.WaitAsync(timeout.Token);
 
@@ -1963,7 +1966,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.InRange(areaMaster.ActualWidth, 1, areaPage.ActualWidth);
                 Assert.InRange(areaEditor.ActualWidth, 1, areaPage.ActualWidth);
 
-                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
+                SelectProfile(window, maximumLengthProfileName);
                 Click(AreaProfileFileCommand(window, "AreaProfileRenameMenuItem"));
                 window.UpdateLayout();
                 var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
@@ -2001,13 +2004,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     AssertInteractiveAutomation(control, name, automationName);
                 }
 
-                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
+                SelectProfile(window, maximumLengthProfileName);
                 Find<TextBox>(window, "AreaProfileEditor").Text = "A1-1\nB2-2\n";
                 window.UpdateLayout();
                 var areaCommands = new Dictionary<string, string>
                 {
                     ["AreaProfileNewButton"] = "新建 AREA 配置",
-                    ["AreaApplyAllAreasButton"] = "应用全部 AREA 显示范围",
                     ["AreaProfileApplyButton"] = "应用选中 AREA 配置",
                 };
                 foreach (var (name, automationName) in areaCommands)
@@ -2194,6 +2196,14 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         profiles.SelectedItem = Assert.Single(
             profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
             row => row.ProfileName == profileName);
+    }
+
+    private static void SelectAllAreas(WatchWorkspaceWindow window)
+    {
+        var profiles = Find<ListBox>(window, "AreaProfileList");
+        profiles.SelectedItem = Assert.Single(
+            profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
+            row => row.IsAllAreas);
     }
 
     private static void AssertAutomation(
