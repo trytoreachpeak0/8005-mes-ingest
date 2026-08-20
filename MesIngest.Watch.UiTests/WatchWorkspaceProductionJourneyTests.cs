@@ -812,6 +812,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             failedStep = "demand-series";
             Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
             var demandGrid = WaitForRows(window, "DemandSeriesGrid", "DemandSeries rows");
+            failedStep = "demand-series-column-resize";
+            ExerciseDemandSeriesColumnResize(demandGrid);
             demandGrid.Select(0);
             var demandGenerationGrid = WaitForRows(
                 window,
@@ -2231,6 +2233,31 @@ public sealed class WatchWorkspaceProductionJourneyTests
             description,
             StepTimeout);
         return grid!;
+    }
+
+    private static void ExerciseDemandSeriesColumnResize(Grid grid)
+    {
+        AutomationElement FindHeader(string name) => Assert.Single(
+            grid.FindAllDescendants(
+                grid.Automation.ConditionFactory.ByControlType(ControlType.HeaderItem)),
+            header => string.Equals(header.Name, name, StringComparison.Ordinal));
+
+        var seriesHeader = FindHeader("SeriesId");
+        var before = seriesHeader.BoundingRectangle;
+        Assert.True(before.Width > 0 && before.Height > 0);
+
+        var dragStart = new System.Drawing.Point(
+            before.Right - 1,
+            before.Top + (before.Height / 2));
+        Mouse.Drag(
+            dragStart,
+            new System.Drawing.Point(dragStart.X + 48, dragStart.Y),
+            MouseButton.Left);
+
+        WaitUntil(
+            () => FindHeader("SeriesId").BoundingRectangle.Width >= before.Width + 32,
+            "DemandSeries SeriesId column resized through the real themed header gripper",
+            StepTimeout);
     }
 
     private static AutomationElement WaitForChildren(

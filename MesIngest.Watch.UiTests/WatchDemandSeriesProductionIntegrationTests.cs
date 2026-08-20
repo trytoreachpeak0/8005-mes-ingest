@@ -284,10 +284,18 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         detail.Series.CurrentDemand.ExternalReadabilityState,
                         StringComparison.Ordinal));
 
-                // The source-comparison notice belongs to the drill transition, while the
-                // selected prototype's 03 state is the settled page after that notice.
-                Find<Wpf.Ui.Controls.InfoBar>(window, "DemandSeriesInfoBar").IsOpen = false;
+                // The source-comparison notice belongs to the drill transition. The settled
+                // page keeps its compact summary visible while the detailed notice is folded.
+                var infoExpander = Find<Wpf.Ui.Controls.CardExpander>(
+                    window,
+                    "DemandSeriesInfoExpander");
+                infoExpander.IsExpanded = false;
                 window.UpdateLayout();
+                Assert.Equal(
+                    Visibility.Visible,
+                    Find<Wpf.Ui.Controls.TextBlock>(
+                        window,
+                        "DemandSeriesInfoHeaderSummary").Visibility);
                 var context = Find<TextBlock>(window, "DemandSeriesContextText");
                 Assert.Equal(TextWrapping.NoWrap, context.TextWrapping);
                 Assert.Equal(TextTrimming.CharacterEllipsis, context.TextTrimming);
@@ -304,10 +312,22 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
                 var master = Find<Border>(window, "DemandSeriesMasterPanel");
                 var detailPanel = Find<Border>(window, "DemandSeriesDetailPanel");
+                var splitter = Find<GridSplitter>(
+                    window,
+                    "DemandSeriesMasterDetailSplitter");
                 var masterTop = master.TranslatePoint(new Point(), window).Y;
                 var detailTop = detailPanel.TranslatePoint(new Point(), window).Y;
-                Assert.InRange(masterTop, 230, 244);
-                Assert.InRange(detailTop, 528, 548);
+                var contextBottom = context.TranslatePoint(
+                    new Point(0, context.ActualHeight),
+                    window).Y;
+                Assert.True(
+                    contextBottom <= masterTop,
+                    $"Demand source context must precede the master list; "
+                    + $"contextBottom={contextBottom:0.##}, masterTop={masterTop:0.##}.");
+                Assert.InRange(
+                    Math.Abs(detailTop - (masterTop + master.ActualHeight + splitter.ActualHeight)),
+                    0,
+                    1.5);
 
                 var masterHeading = Find<TextBlock>(window, "DemandSeriesMasterHeadingText");
                 Assert.True(
@@ -335,9 +355,9 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         "ARCHIVED",
                     ],
                     grid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
-                AssertNoSignificantHorizontalScroll(
+                AssertHorizontalScrollRequired(
                     grid,
-                    "Demand master must expose its last summary column in the initial 1440 viewport");
+                    "Demand master must preserve readable column widths through horizontal scrolling in the 1440 viewport");
 
                 var detailFacts = Find<TextBlock>(window, "DemandSeriesDetailFactsText");
                 Assert.Equal(TextWrapping.NoWrap, detailFacts.TextWrapping);
@@ -367,12 +387,12 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     ScrollViewer.GetHorizontalScrollBarVisibility(eventGrid));
                 Assert.True(
                     generationGrid.ActualHeight >= generationGrid.ColumnHeaderHeight
-                        + (2 * generationGrid.RowHeight),
-                    $"Demand generations must show two real rows; actual={generationGrid.ActualHeight:0.##}.");
+                        + generationGrid.RowHeight,
+                    $"Demand generations must keep at least one full row usable at the default master-first ratio; actual={generationGrid.ActualHeight:0.##}.");
                 Assert.True(
                     eventGrid.ActualHeight >= eventGrid.ColumnHeaderHeight
-                        + (3 * eventGrid.RowHeight),
-                    $"Demand events must show three real rows; actual={eventGrid.ActualHeight:0.##}.");
+                        + eventGrid.RowHeight,
+                    $"Demand events must keep at least one full row usable at the default master-first ratio; actual={eventGrid.ActualHeight:0.##}.");
                 Assert.Equal(
                     Visibility.Collapsed,
                     Find<Button>(window, "DemandSeriesCopyTimeButton").Visibility);
@@ -1211,6 +1231,16 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
         var scrollViewer = FindVisualChild<ScrollViewer>(grid);
         Assert.True(
             scrollViewer.ScrollableWidth <= 24,
+            $"{message}; scrollableWidth={scrollViewer.ScrollableWidth:0.##}, viewportWidth={scrollViewer.ViewportWidth:0.##}, extentWidth={scrollViewer.ExtentWidth:0.##}.");
+    }
+
+    private static void AssertHorizontalScrollRequired(DataGrid grid, string message)
+    {
+        grid.ApplyTemplate();
+        grid.UpdateLayout();
+        var scrollViewer = FindVisualChild<ScrollViewer>(grid);
+        Assert.True(
+            scrollViewer.ScrollableWidth > 24,
             $"{message}; scrollableWidth={scrollViewer.ScrollableWidth:0.##}, viewportWidth={scrollViewer.ViewportWidth:0.##}, extentWidth={scrollViewer.ExtentWidth:0.##}.");
     }
 

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 
@@ -27,9 +29,12 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
-                window.Width = 1440;
-                window.Height = 900;
+                window.Width = 1920;
+                window.Height = 1080;
                 window.Show();
+                var ticketViewportAvailable = VisualTreeHelper.GetDpi(window).DpiScaleX == 1
+                    && SystemParameters.PrimaryScreenWidth >= 1920
+                    && SystemParameters.PrimaryScreenHeight >= 1080;
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeries,
                     PageNumber: 1,
@@ -45,9 +50,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 var workspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
                 Assert.Empty(workspace.ColumnDefinitions);
                 Assert.Equal(3, workspace.RowDefinitions.Count);
-                AssertStar(workspace.RowDefinitions[0].Height, 0.9);
-                AssertPixel(workspace.RowDefinitions[1].Height, 16);
-                AssertStar(workspace.RowDefinitions[2].Height, 1.1);
+                AssertStar(workspace.RowDefinitions[0].Height, 1.2);
+                AssertPixel(workspace.RowDefinitions[1].Height, 32);
+                AssertStar(workspace.RowDefinitions[2].Height, 0.8);
 
                 var master = Find<Border>(window, "DemandSeriesMasterPanel");
                 var detail = Find<Border>(window, "DemandSeriesDetailPanel");
@@ -63,15 +68,66 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     viewport,
                     "Demand filters");
                 AssertFullyWithin(master, viewport, "Demand master");
-                AssertFullyWithin(detail, viewport, "Demand detail");
+                if (ticketViewportAvailable)
+                {
+                    AssertFullyWithin(detail, viewport, "Demand detail");
+                }
                 AssertFullyWithin(
                     Find<Border>(window, "DemandSeriesAllAreasConfirmPanel"),
                     viewport,
                     "Demand all-AREA confirmation");
-                AssertFullyWithin(
-                    Find<DataGrid>(window, "DemandSeriesEventGrid"),
-                    viewport,
-                    "Demand immutable-event evidence");
+                if (ticketViewportAvailable)
+                {
+                    AssertFullyWithin(
+                        Find<DataGrid>(window, "DemandSeriesEventGrid"),
+                        viewport,
+                        "Demand immutable-event evidence");
+                }
+
+                Find<Wpf.Ui.Controls.ToggleSwitch>(
+                    window,
+                    "DemandSeriesDetailVisibilityToggle").IsChecked = false;
+                window.UpdateLayout();
+
+                AssertStar(workspace.RowDefinitions[0].Height, 1);
+                AssertPixel(workspace.RowDefinitions[1].Height, 0);
+                AssertPixel(workspace.RowDefinitions[2].Height, 0);
+                Assert.Equal(Visibility.Collapsed, detail.Visibility);
+
+                var demandGrid = Find<DataGrid>(window, "DemandSeriesGrid");
+                var fullRowCapacity = Math.Floor(
+                    (demandGrid.ActualHeight - demandGrid.ColumnHeaderHeight)
+                    / demandGrid.RowHeight);
+                if (ticketViewportAvailable)
+                {
+                    Assert.True(
+                        fullRowCapacity >= 12,
+                        $"At 1920x1080 with detail collapsed, the master list must fit at least "
+                        + $"12 full rows; capacity={fullRowCapacity:0}, gridHeight={demandGrid.ActualHeight:0.##}.");
+                }
+                else
+                {
+                    Assert.True(fullRowCapacity > 0);
+                }
+
+                var firstHeader = FindVisualDescendants<DataGridColumnHeader>(demandGrid)
+                    .Single(header => ReferenceEquals(header.Column, demandGrid.Columns[0]));
+                firstHeader.ApplyTemplate();
+                var rightGripper = Assert.IsType<Thumb>(
+                    firstHeader.Template.FindName("PART_RightHeaderGripper", firstHeader));
+                Assert.True(rightGripper.IsHitTestVisible);
+                Assert.True(rightGripper.ActualWidth > 0);
+
+                var widthBeforeDrag = demandGrid.Columns[0].ActualWidth;
+                rightGripper.RaiseEvent(new DragDeltaEventArgs(36, 0)
+                {
+                    RoutedEvent = Thumb.DragDeltaEvent,
+                });
+                window.UpdateLayout();
+                Assert.True(
+                    demandGrid.Columns[0].ActualWidth >= widthBeforeDrag + 35,
+                    $"The real WPF column-header gripper must resize the column; "
+                    + $"before={widthBeforeDrag:0.##}, after={demandGrid.Columns[0].ActualWidth:0.##}.");
             }
             finally
             {
@@ -415,7 +471,7 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.UpdateLayout();
                 var windowWidth = window.ActualWidth;
                 var demandWorkspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
-                AssertStar(demandWorkspace.RowDefinitions[0].Height, 0.9);
+                AssertStar(demandWorkspace.RowDefinitions[0].Height, 1.2);
                 Assert.Equal(
                     ScrollBarVisibility.Disabled,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
@@ -436,8 +492,8 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.UpdateLayout();
 
                 Assert.Equal(windowWidth, window.ActualWidth);
-                AssertStar(demandWorkspace.RowDefinitions[0].Height, 0.9);
-                AssertStar(demandWorkspace.RowDefinitions[2].Height, 1.1);
+                AssertStar(demandWorkspace.RowDefinitions[0].Height, 1.2);
+                AssertStar(demandWorkspace.RowDefinitions[2].Height, 0.8);
                 Assert.Equal(
                     ScrollBarVisibility.Disabled,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
@@ -489,7 +545,7 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Equal((0, 2), (Grid.GetColumn(demandDetail), Grid.GetRow(demandDetail)));
                 var demandWorkspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
                 Assert.True(demandWorkspace.RowDefinitions[0].Height.IsAuto);
-                AssertPixel(demandWorkspace.RowDefinitions[1].Height, 16);
+                AssertPixel(demandWorkspace.RowDefinitions[1].Height, 32);
                 Assert.True(demandWorkspace.RowDefinitions[2].Height.IsAuto);
 
                 window.NavigateFromOverview(new OverviewNavigationIntent(
@@ -744,6 +800,24 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
 
     private static T Resource<T>(FrameworkElement root, object resourceKey)
         where T : class => Assert.IsAssignableFrom<T>(root.FindResource(resourceKey));
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 
     private static void AssertPixel(GridLength length, double value)
     {

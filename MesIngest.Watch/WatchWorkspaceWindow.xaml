@@ -36,7 +36,7 @@
         <sys:Double x:Key="DemandSeriesPageNumberWidth">112</sys:Double>
         <sys:Double x:Key="DemandSeriesPageSummaryMinWidth">230</sys:Double>
         <sys:Double x:Key="DemandSeriesMasterPanelMinHeight">260</sys:Double>
-        <sys:Double x:Key="DemandSeriesDetailPanelMinHeight">240</sys:Double>
+        <sys:Double x:Key="DemandSeriesDetailPanelMinHeight">256</sys:Double>
         <sys:Double x:Key="DemandSeriesMasterDetailStackBreakpoint">1080</sys:Double>
         <wpf:GridLength x:Key="DemandSeriesMasterDefaultHeight">1.2*</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesDetailDefaultHeight">0.8*</wpf:GridLength>

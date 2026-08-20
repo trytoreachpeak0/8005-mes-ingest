@@ -288,9 +288,9 @@ public sealed class WatchSelectedPrototypeStructureTests
                 var demandBody = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
                 Assert.Equal(4, Grid.GetRow(demandBody));
                 Assert.Equal(3, demandBody.RowDefinitions.Count);
-                AssertStar(demandBody.RowDefinitions[0].Height, 0.9);
-                AssertPixel(demandBody.RowDefinitions[1].Height, 16);
-                AssertStar(demandBody.RowDefinitions[2].Height, 1.1);
+                AssertStar(demandBody.RowDefinitions[0].Height, 1.2);
+                AssertPixel(demandBody.RowDefinitions[1].Height, 32);
+                AssertStar(demandBody.RowDefinitions[2].Height, 0.8);
 
                 var demandMaster = Find<Border>(window, "DemandSeriesMasterPanel");
                 var demandDetail = Find<Border>(window, "DemandSeriesDetailPanel");
@@ -300,7 +300,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                 Assert.Equal(3, demandMasterGrid.RowDefinitions.Count);
                 AssertAuto(demandMasterGrid.RowDefinitions[0].Height);
                 AssertStar(demandMasterGrid.RowDefinitions[1].Height, 1);
-                AssertPixel(demandMasterGrid.RowDefinitions[2].Height, 40);
+                AssertAuto(demandMasterGrid.RowDefinitions[2].Height);
 
                 var lifecycleEvidence = Find<Grid>(
                     window,
