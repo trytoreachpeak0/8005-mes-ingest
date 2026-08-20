@@ -517,6 +517,34 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         return AutoSaveNoLock(profileName, content, expectedFingerprint);
     }
 
+    /// <summary>
+    /// Resolves a write conflict in favour of the editor buffer: the file's
+    /// current fingerprint is read and written against inside one transaction,
+    /// so a third writer cannot slip in between the two and be overwritten
+    /// unnoticed. This is the same optimistic concurrency as
+    /// <see cref="AutoSave"/>, not a second baseline mechanism.
+    /// </summary>
+    public WatchAreaFilterProfileSaveResult OverwriteWithLocalEdit(
+        string? profileName,
+        string content)
+    {
+        using var transactionLock = AcquireProfileTransactionLock();
+        var nameCheck = WatchAreaFilterProfileParser.Parse(profileName, content);
+        if (HasUnusableProfileName(nameCheck))
+        {
+            return new WatchAreaFilterProfileSaveResult(Saved: false, nameCheck);
+        }
+
+        var path = GetProfilePath(nameCheck.ProfileName);
+        string? currentFingerprint = null;
+        if (File.Exists(path))
+        {
+            currentFingerprint = ReadProfileFileSnapshot(path).Fingerprint;
+        }
+
+        return AutoSaveNoLock(profileName, content, currentFingerprint);
+    }
+
     private WatchAreaFilterProfileSaveResult AutoSaveNoLock(
         string? profileName,
         string content,
@@ -554,10 +582,21 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         return CompleteSuccessfulSaveNoLock(draft.ProfileName);
     }
 
-    private static bool HasUnusableProfileName(WatchAreaFilterProfile draft) =>
-        draft.Diagnostics.Any(diagnostic => diagnostic.Code
-            is WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired
-            or WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName);
+    /// <summary>
+    /// Diagnostics about the name the draft would be filed under, as opposed to
+    /// diagnostics about its AREA content. A draft carrying only these can
+    /// still be written once a name is supplied — which is what "save as" does.
+    /// </summary>
+    internal static bool HasUnusableProfileName(WatchAreaFilterProfile draft) =>
+        draft.Diagnostics.Any(IsProfileNameDiagnostic);
+
+    internal static bool HasContentDiagnostics(WatchAreaFilterProfile draft) =>
+        draft.Diagnostics.Any(diagnostic => !IsProfileNameDiagnostic(diagnostic));
+
+    private static bool IsProfileNameDiagnostic(
+        WatchAreaFilterProfileDiagnostic diagnostic) => diagnostic.Code
+        is WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired
+        or WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName;
 
     private WatchAreaFilterProfileSaveResult CompleteSuccessfulSaveNoLock(
         string profileName)

@@ -166,7 +166,7 @@ public sealed class WatchAreaProfileAutoSaveTests
             Assert.False(File.Exists(Path.Combine(directoryPath, "西区.txt")));
             Assert.Equal("B2-2", editor.Text);
             Assert.Equal(
-                "未落盘 · 即将自动保存",
+                "文件已删除 · 未命名草稿",
                 Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                     window.FindName("AreaProfileDiskStateText")).Text);
         });

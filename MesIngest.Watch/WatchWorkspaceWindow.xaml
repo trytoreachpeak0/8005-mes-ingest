@@ -3112,6 +3112,7 @@
                                             <Grid.RowDefinitions>
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
@@ -3219,6 +3220,40 @@
                                                                AutomationProperties.Name="取消 AREA 文件操作"
                                                                AutomationProperties.AutomationId="AreaProfileFileOperationCancelButton" />
                                                 </Grid>
+                                            </Border>
+                                            <Border x:Name="AreaProfileWriteConflictPanel"
+                                                    Grid.Row="2"
+                                                    Grid.ColumnSpan="2"
+                                                    Visibility="Collapsed"
+                                                    Margin="0,12,0,0"
+                                                    AutomationProperties.Name="AREA 并发写入冲突">
+                                                <StackPanel>
+                                                    <ui:InfoBar x:Name="AreaProfileWriteConflictInfo"
+                                                                IsOpen="True"
+                                                                IsClosable="False"
+                                                                Severity="Warning"
+                                                                Title="磁盘版本与你的输入都已改变"
+                                                                Message="该 AREA 配置已被其他程序修改，你的输入尚未落盘；请选择保留哪一份。自动保存在选择前暂停。"
+                                                                AutomationProperties.Name="AREA 并发写入冲突警告" />
+                                                    <StackPanel Orientation="Horizontal"
+                                                                Margin="0,12,0,0">
+                                                        <ui:Button x:Name="AreaProfileKeepLocalEditButton"
+                                                                   Content="保留我的修改"
+                                                                   Appearance="Secondary"
+                                                                   KeyboardNavigation.IsTabStop="True"
+                                                                   Click="OnAreaProfileKeepLocalEditClick"
+                                                                   AutomationProperties.Name="保留编辑器中的 AREA 修改并覆盖磁盘"
+                                                                   AutomationProperties.AutomationId="AreaProfileKeepLocalEditButton" />
+                                                        <ui:Button x:Name="AreaProfileUseDiskVersionButton"
+                                                                   Content="使用磁盘版本"
+                                                                   Appearance="Secondary"
+                                                                   Margin="8,0,0,0"
+                                                                   KeyboardNavigation.IsTabStop="True"
+                                                                   Click="OnAreaProfileUseDiskVersionClick"
+                                                                   AutomationProperties.Name="丢弃编辑器修改并加载磁盘上的 AREA 版本"
+                                                                   AutomationProperties.AutomationId="AreaProfileUseDiskVersionButton" />
+                                                    </StackPanel>
+                                                </StackPanel>
                                             </Border>
                                         </Grid>
                                         <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />

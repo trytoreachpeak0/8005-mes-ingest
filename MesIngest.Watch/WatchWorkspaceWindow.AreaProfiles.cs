@@ -133,6 +133,8 @@ internal partial class WatchWorkspaceWindow
     private bool _areaProfileDraftIsDirty;
     private bool _areaProfileRowsLoaded;
     private bool _isRenderingAreaProfiles;
+    private string? _areaProfileWriteConflictProfileName;
+    private bool _areaProfileDraftLostItsFile;
     private AreaProfileFileOperationConfirmation? _areaProfileFileOperationConfirmation;
     private long _areaProfileOperationGeneration;
 
@@ -399,12 +401,7 @@ internal partial class WatchWorkspaceWindow
                 })
                 .ToArray();
             var searchText = AreaProfileSearchInput.Text.Trim();
-            var visibleRows = _areaProfileRows
-                .Where(row => searchText.Length == 0
-                    || row.ProfileName.Contains(
-                        searchText,
-                        StringComparison.OrdinalIgnoreCase))
-                .ToArray();
+            var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
             var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
 
             var areaProfileDirectoryPath = Path.GetFullPath(_areaProfileStore.DirectoryPath);
@@ -416,7 +413,7 @@ internal partial class WatchWorkspaceWindow
                 areaProfileDirectoryPath);
             AreaProfileListSummaryText.Text = searchText.Length == 0
                 ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
-                : $"显示 {visibleRows.Length:N0} / {_areaProfileRows.Count:N0} 个文件"
+                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个文件"
                     + $" · {invalidCount:N0} 个需要修复";
             if (_selectedAreaProfileName is null
                 && !_areaProfileDraftIsDirty
@@ -496,11 +493,7 @@ internal partial class WatchWorkspaceWindow
             AreaProfileValidationSummaryText.Text = _areaProfileDraft.IsValid
                 ? $"✓ 格式有效 · {contentByteCount:N0} B"
                 : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用";
-            AreaProfileDiskStateText.Text = _areaProfileDraftIsDirty
-                ? "未落盘 · 即将自动保存"
-                : _selectedAreaProfileName is null
-                    ? "尚未保存"
-                    : "已自动保存";
+            AreaProfileDiskStateText.Text = DescribeAreaProfileDiskState();
             AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
                 ? Visibility.Collapsed
                 : Visibility.Visible;
@@ -515,7 +508,12 @@ internal partial class WatchWorkspaceWindow
                     StringComparer.Ordinal);
             AreaProfileApplyButton.IsEnabled = _areaProfileDraft.IsValid
                 && (isNewProfile || _areaProfileDraftIsDirty || !isSelectedProfileApplied);
-            AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid;
+            // "Save as" supplies the name itself, so a draft that only lacks
+            // one — the state a file deleted underneath the editor leaves
+            // behind — must still be able to reach the disk through it.
+            AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid
+                || (_areaProfileDraftLostItsFile
+                    && !WatchAreaFilterProfileStore.HasContentDiagnostics(_areaProfileDraft));
             AreaProfileRenameButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
             AreaProfileDeleteButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
             AutomationProperties.SetName(
@@ -537,6 +535,19 @@ internal partial class WatchWorkspaceWindow
             _isRenderingAreaProfiles = false;
         }
     }
+
+    /// <summary>
+    /// One sentence for where the editor buffer stands relative to its file.
+    /// The states are ordered by what the user has to act on first.
+    /// </summary>
+    private string DescribeAreaProfileDiskState() => this switch
+    {
+        { _areaProfileWriteConflictProfileName: not null } => "磁盘已变更 · 等待选择",
+        { _areaProfileDraftLostItsFile: true } => "文件已删除 · 未命名草稿",
+        { _areaProfileDraftIsDirty: true } => "未落盘 · 即将自动保存",
+        { _selectedAreaProfileName: null } => "尚未保存",
+        _ => "已自动保存",
+    };
 
     private AreaProfileEditorViewState CaptureAreaProfileEditorViewState()
     {
@@ -612,13 +623,30 @@ internal partial class WatchWorkspaceWindow
                     _areaProfileDraft = _areaProfileStore.Load(selectedRow.ProfileName);
                 }
             }
+            else if (_areaProfileDraftIsDirty)
+            {
+                // Somebody else removed the file while the user still had
+                // unwritten input. Dropping the buffer here would throw away
+                // what they typed, so it becomes an unnamed draft that only
+                // "save as" can put back on disk.
+                _selectedAreaProfileName = null;
+                _areaProfileDraftLostItsFile = true;
+                _areaProfileDraft = _areaProfileDraft is { } orphanedDraft
+                    ? WatchAreaFilterProfileParser.Parse(
+                        string.Empty,
+                        orphanedDraft.Content)
+                    : null;
+                ClearAreaProfileWriteConflict();
+            }
+            else if (FindAdjacentAreaProfileRow(rows, selectedName) is { } neighbourRow)
+            {
+                _selectedAreaProfileName = neighbourRow.ProfileName;
+                _areaProfileDraft = _areaProfileStore.Load(neighbourRow.ProfileName);
+            }
             else
             {
                 _selectedAreaProfileName = null;
-                if (!_areaProfileDraftIsDirty)
-                {
-                    _areaProfileDraft = null;
-                }
+                _areaProfileDraft = null;
             }
         }
 
@@ -636,6 +664,55 @@ internal partial class WatchWorkspaceWindow
 
         _areaProfileRows = rows;
         _areaProfileRowsLoaded = true;
+    }
+
+    /// <summary>
+    /// Picks the row that takes the place of one that left the list, so a
+    /// profile deleted underneath a clean editor moves the selection to what
+    /// is now in that position rather than leaving the page with nothing. Both
+    /// sides are narrowed by the active search, because a neighbour the search
+    /// hides would leave the list showing no selection at all.
+    /// </summary>
+    private WatchAreaFilterProfilePresentationRow? FindAdjacentAreaProfileRow(
+        IReadOnlyList<WatchAreaFilterProfilePresentationRow> refreshedRows,
+        string vanishedProfileName)
+    {
+        var visibleBefore = FilterAreaProfileRowsBySearch(_areaProfileRows);
+        var visibleAfter = FilterAreaProfileRowsBySearch(refreshedRows);
+        if (visibleAfter.Count == 0)
+        {
+            return null;
+        }
+
+        var previousIndex = -1;
+        for (var index = 0; index < visibleBefore.Count; index++)
+        {
+            if (string.Equals(
+                    visibleBefore[index].ProfileName,
+                    vanishedProfileName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                previousIndex = index;
+                break;
+            }
+        }
+
+        return previousIndex < 0
+            ? null
+            : visibleAfter[Math.Min(previousIndex, visibleAfter.Count - 1)];
+    }
+
+    private IReadOnlyList<WatchAreaFilterProfilePresentationRow> FilterAreaProfileRowsBySearch(
+        IReadOnlyList<WatchAreaFilterProfilePresentationRow> rows)
+    {
+        var searchText = AreaProfileSearchInput?.Text.Trim() ?? string.Empty;
+        return searchText.Length == 0
+            ? rows
+            : rows
+                .Where(row => row.ProfileName.Contains(
+                    searchText,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToArray();
     }
 
     private void OnAreaProfileOpenDirectoryClick(object sender, RoutedEventArgs e)
@@ -791,6 +868,18 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
+        if (_areaProfileWriteConflictProfileName is not null)
+        {
+            // Walking away from the prompt would resolve the conflict by
+            // dropping one of the two versions without saying so.
+            RenderAreaProfiles();
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Warning,
+                "请先处理 AREA 写入冲突",
+                "当前配置的磁盘版本与你的输入都还在；先选择保留哪一份，再切换配置。");
+            return;
+        }
+
         FlushAreaProfileAutoSave();
         try
         {
@@ -798,6 +887,7 @@ internal partial class WatchWorkspaceWindow
             _selectedAreaProfileName = row.ProfileName;
             _areaProfileDraft = _areaProfileStore.Load(row.ProfileName);
             _areaProfileDraftIsDirty = false;
+            _areaProfileDraftLostItsFile = false;
             RenderAreaProfiles();
         }
         catch (Exception exception) when (exception is IOException
@@ -845,7 +935,7 @@ internal partial class WatchWorkspaceWindow
     /// </summary>
     private void ScheduleAreaProfileAutoSave()
     {
-        if (_disposed)
+        if (_disposed || _areaProfileWriteConflictProfileName is not null)
         {
             return;
         }
@@ -888,7 +978,12 @@ internal partial class WatchWorkspaceWindow
     private void FlushAreaProfileAutoSave()
     {
         CancelAreaProfileAutoSave();
-        if (_disposed || !_areaProfileDraftIsDirty || AreaProfileList is null)
+        if (_disposed
+            || !_areaProfileDraftIsDirty
+            || AreaProfileList is null
+            // The conflict prompt exists to let the user choose; writing while
+            // it is on screen would decide for them.
+            || _areaProfileWriteConflictProfileName is not null)
         {
             return;
         }
@@ -896,6 +991,13 @@ internal partial class WatchWorkspaceWindow
         AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
         {
             var draft = CurrentAreaProfileDraft();
+            if (WatchAreaFilterProfileStore.HasUnusableProfileName(draft))
+            {
+                // An unnamed draft has nowhere to be written; it waits for
+                // "save as" and stays dirty until then.
+                return Task.CompletedTask;
+            }
+
             // Only a draft that has never been on disk is created outright.
             // Anything that was loaded from a file is written against its
             // fingerprint, so a file deleted underneath the editor keeps the
@@ -908,15 +1010,112 @@ internal partial class WatchWorkspaceWindow
                     RequireLoadedAreaProfileFingerprint(draft));
             if (!result.Saved)
             {
+                if (HasAreaProfileDiagnostic(
+                        result.Diagnostics,
+                        WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk)
+                    && _selectedAreaProfileName is { } conflictingProfileName)
+                {
+                    BeginAreaProfileWriteConflict(conflictingProfileName);
+                    return Task.CompletedTask;
+                }
+
                 throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
             }
 
-            _selectedAreaProfileName = result.Draft.ProfileName;
-            _areaProfileDraft = result.Draft;
-            _areaProfileDraftIsDirty = false;
-            RenderAreaProfiles(reloadProfiles: true);
+            AdoptSavedAreaProfile(result.Draft);
             return Task.CompletedTask;
         });
+    }
+
+    /// <summary>
+    /// Puts the page in front of the one decision it cannot make on the user's
+    /// behalf: their unwritten input and the file on disk both changed, and
+    /// writing either one over the other would lose work. Automatic saving
+    /// stays suspended until the choice is made.
+    /// </summary>
+    private void BeginAreaProfileWriteConflict(string profileName)
+    {
+        _areaProfileWriteConflictProfileName = profileName;
+        CancelAreaProfileAutoSave();
+        AreaProfileWriteConflictInfo.Title = $"{profileName}.txt 的磁盘版本与你的输入都已改变";
+        AreaProfileWriteConflictPanel.Visibility = Visibility.Visible;
+        RenderAreaProfiles();
+    }
+
+    private void ClearAreaProfileWriteConflict()
+    {
+        if (_areaProfileWriteConflictProfileName is null)
+        {
+            return;
+        }
+
+        _areaProfileWriteConflictProfileName = null;
+        AreaProfileWriteConflictPanel.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Keeps the editor buffer. The store reads the file's current fingerprint
+    /// and writes against it inside one transaction, so this rebases the
+    /// optimistic-concurrency baseline without opening a window for a third
+    /// writer to be overwritten unnoticed.
+    /// </summary>
+    private void OnAreaProfileKeepLocalEditClick(object sender, RoutedEventArgs e)
+    {
+        if (_areaProfileWriteConflictProfileName is not { } profileName)
+        {
+            return;
+        }
+
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            var draft = CurrentAreaProfileDraft();
+            var result = _areaProfileStore.OverwriteWithLocalEdit(
+                profileName,
+                draft.Content);
+            if (!result.Saved)
+            {
+                throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
+            }
+
+            ClearAreaProfileWriteConflict();
+            AdoptSavedAreaProfile(result.Draft);
+            AreaProfileEditor.Focus();
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Discards the editor buffer in favour of what the other writer produced.
+    /// </summary>
+    private void OnAreaProfileUseDiskVersionClick(object sender, RoutedEventArgs e)
+    {
+        if (_areaProfileWriteConflictProfileName is not { } profileName)
+        {
+            return;
+        }
+
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
+        {
+            var onDisk = _areaProfileStore.Load(profileName);
+            ClearAreaProfileWriteConflict();
+            AdoptSavedAreaProfile(onDisk);
+            AreaProfileEditor.Focus();
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// Makes a profile that is now on disk the selected, clean editor buffer.
+    /// Every path that finishes a write goes through here so none of them can
+    /// forget one of the four fields that describe the editor's disk state.
+    /// </summary>
+    private void AdoptSavedAreaProfile(WatchAreaFilterProfile saved)
+    {
+        _selectedAreaProfileName = saved.ProfileName;
+        _areaProfileDraft = saved;
+        _areaProfileDraftIsDirty = false;
+        _areaProfileDraftLostItsFile = false;
+        RenderAreaProfiles(reloadProfiles: true);
     }
 
     /// <summary>
@@ -927,6 +1126,17 @@ internal partial class WatchWorkspaceWindow
     private void OnAreaProfileSaveNowExecuted(object sender, ExecutedRoutedEventArgs e)
     {
         e.Handled = true;
+        if (_areaProfileWriteConflictProfileName is not null)
+        {
+            // An explicit write that quietly does nothing is worse than one
+            // that says why it was refused.
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Warning,
+                "请先处理 AREA 写入冲突",
+                "该配置的磁盘版本已被其他程序修改；先选择保留哪一份，写盘才会继续。");
+            return;
+        }
+
         FlushAreaProfileAutoSave();
     }
 
@@ -1161,9 +1371,14 @@ internal partial class WatchWorkspaceWindow
                 case AreaProfileFileOperation.Create:
                 {
                     var profileName = RequireSafeAreaProfileName(targetName);
+                    // A fresh draft leaves the old file behind, conflict and
+                    // all; keeping the prompt would suspend auto-save for a
+                    // profile the editor no longer shows.
+                    ClearAreaProfileWriteConflict();
                     _selectedAreaProfileName = null;
                     _areaProfileDraft = WatchAreaFilterProfileParser.Parse(profileName, string.Empty);
                     _areaProfileDraftIsDirty = true;
+                    _areaProfileDraftLostItsFile = false;
                     CloseAreaProfileFileOperation();
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Informational,
@@ -1184,15 +1399,16 @@ internal partial class WatchWorkspaceWindow
                         throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
                     }
 
-                    _selectedAreaProfileName = result.Draft.ProfileName;
-                    _areaProfileDraft = result.Draft;
-                    _areaProfileDraftIsDirty = false;
+                    // Saving the buffer elsewhere settles the conflict: the
+                    // editor now follows the new file, and the old one keeps
+                    // whatever the other writer put there.
+                    ClearAreaProfileWriteConflict();
                     CloseAreaProfileFileOperation();
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Success,
                         "AREA 配置已另存为",
                         $"已创建 {result.Draft.ProfileName}.txt；原文件和当前应用范围均未改变。");
-                    RenderAreaProfiles(reloadProfiles: true);
+                    AdoptSavedAreaProfile(result.Draft);
                     break;
                 }
                 case AreaProfileFileOperation.Rename:
