@@ -80,6 +80,8 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     DateTimeOffset? FileLastModifiedAt,
     WatchAreaFilterProfileAvailability Availability)
 {
+    public bool IsAllAreas { get; init; }
+
     public int MesAreaCount => MesAreas.Count;
 
     public bool IsMissing =>
@@ -120,15 +122,18 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
 
     public bool HasAttention => AttentionText is not null;
 
-    public bool CanSaveAs => CanSaveAsOverride ?? IsValid;
+    public bool CanSaveAs => !IsAllAreas && (CanSaveAsOverride ?? IsValid);
 
     public bool? CanSaveAsOverride { get; init; }
 
-    public bool CanRenameOrDelete => !IsMissing && !BlocksIdentityChangingCommands;
+    public bool CanRenameOrDelete =>
+        !IsAllAreas && !IsMissing && !BlocksIdentityChangingCommands;
 
     public bool BlocksIdentityChangingCommands { get; init; }
 
-    public string MetadataText => IsMissing
+    public string MetadataText => IsAllAreas
+        ? "不限制显示范围"
+        : IsMissing
         ? $"{MesAreaCount:N0} 个 AREA · 已应用快照"
         : $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
 
@@ -137,10 +142,12 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
         new[]
         {
             ProfileName,
-            $"{MesAreaCount:N0} 个 AREA",
+            IsAllAreas ? null : $"{MesAreaCount:N0} 个 AREA",
             IsApplied ? AppliedBadgeText : IsMissing ? "文件已删除" : ValidityText,
             AttentionText,
-            IsMissing ? "已应用快照" : $"{LastModifiedText} 修改",
+            IsAllAreas
+                ? "不限制显示范围"
+                : IsMissing ? "已应用快照" : $"{LastModifiedText} 修改",
         }.Where(part => part is not null));
 }
 
@@ -222,6 +229,8 @@ internal sealed record WatchAreaProfileApplyButtonState(
 
 internal partial class WatchWorkspaceWindow
 {
+    private const string AllAreasProfileDisplayName = "全部 AREA（不筛选）";
+
     private enum AreaProfileFileOperation
     {
         Create,
@@ -251,6 +260,7 @@ internal partial class WatchWorkspaceWindow
     private IReadOnlyList<WatchAreaFilterProfilePresentationRow> _areaProfileRows = [];
     private WatchAreaFilterProfile? _areaProfileDraft;
     private string? _selectedAreaProfileName;
+    private bool _isAllAreasSelected;
     private string? _areaProfileStartupError;
     private bool _areaProfileDraftIsDirty;
     private bool _areaProfileRowsLoaded;
@@ -516,10 +526,12 @@ internal partial class WatchWorkspaceWindow
             _areaProfileRows = _areaProfileRows
                 .Select(row => row with
                 {
-                    IsApplied = string.Equals(
-                        row.ProfileName,
-                        applied.ProfileName,
-                        StringComparison.OrdinalIgnoreCase),
+                    IsApplied = row.IsAllAreas
+                        ? applied.IsAllAreas
+                        : string.Equals(
+                            row.ProfileName,
+                            applied.ProfileName,
+                            StringComparison.OrdinalIgnoreCase),
                 })
                 .ToArray();
 
@@ -530,7 +542,8 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetHelpText(
                 AreaProfileDirectoryText,
                 areaProfileDirectoryPath);
-            if (_selectedAreaProfileName is null
+            if (!_isAllAreasSelected
+                && _selectedAreaProfileName is null
                 && !_areaProfileDraftIsDirty
                 && applied.ProfileName is { } appliedProfileName
                 && _areaProfileRows.FirstOrDefault(row => string.Equals(
@@ -556,6 +569,14 @@ internal partial class WatchWorkspaceWindow
                 }
             }
 
+            if (!_isAllAreasSelected
+                && _selectedAreaProfileName is null
+                && !_areaProfileDraftIsDirty
+                && applied.IsAllAreas)
+            {
+                _isAllAreasSelected = true;
+            }
+
             _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
                 string.Empty,
                 string.Empty);
@@ -566,11 +587,12 @@ internal partial class WatchWorkspaceWindow
                 _areaProfileDraft);
             var searchText = AreaProfileSearchInput.Text.Trim();
             var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
-            var fileCount = _areaProfileRows.Count(row => !row.IsMissing);
-            var invalidCount = _areaProfileRows.Count(row => !row.IsMissing && !row.IsValid);
+            var fileCount = _areaProfileRows.Count(row => !row.IsAllAreas && !row.IsMissing);
+            var invalidCount = _areaProfileRows.Count(row =>
+                !row.IsAllAreas && !row.IsMissing && !row.IsValid);
             AreaProfileListSummaryText.Text = searchText.Length == 0
                 ? $"{fileCount:N0} 个文件 · {invalidCount:N0} 个需要修复"
-                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个配置"
+                : $"显示 {visibleRows.Count(row => !row.IsAllAreas):N0} / {fileCount:N0} 个配置"
                     + $" · {invalidCount:N0} 个需要修复";
 
             AreaProfileAppliedStateText.Text = applied.AppliedAt is { } appliedAt
@@ -582,10 +604,13 @@ internal partial class WatchWorkspaceWindow
                     ? AreaProfileAppliedStateText.Text
                     : $"{AreaProfileAppliedStateText.Text}；AREA {string.Join('、', applied.MesAreas)}");
             AreaProfileList.ItemsSource = visibleRows;
-            AreaProfileList.SelectedItem = visibleRows.FirstOrDefault(row => string.Equals(
-                row.ProfileName,
-                _selectedAreaProfileName,
-                StringComparison.OrdinalIgnoreCase));
+            AreaProfileList.SelectedItem = visibleRows.FirstOrDefault(row =>
+                row.IsAllAreas
+                    ? _isAllAreasSelected
+                    : string.Equals(
+                        row.ProfileName,
+                        _selectedAreaProfileName,
+                        StringComparison.OrdinalIgnoreCase));
 
             if (!string.Equals(AreaProfileNameInput.Text, _areaProfileDraft.ProfileName, StringComparison.Ordinal))
             {
@@ -606,25 +631,35 @@ internal partial class WatchWorkspaceWindow
             }
             UpdateAreaProfileLineNumbers(AreaProfileEditor.Text);
 
-            AreaProfileValidationGrid.ItemsSource = _areaProfileDraft.Diagnostics;
+            AreaProfileEditor.IsReadOnly = _isAllAreasSelected;
+            AreaProfileValidationGrid.ItemsSource = _isAllAreasSelected
+                ? Array.Empty<WatchAreaFilterProfileDiagnostic>()
+                : _areaProfileDraft.Diagnostics;
             var contentByteCount = Encoding.UTF8.GetByteCount(_areaProfileDraft.Content);
-            AreaProfileFileTitleText.Text = string.IsNullOrWhiteSpace(_areaProfileDraft.ProfileName)
-                ? "新建 AREA 配置"
-                : $"{_areaProfileDraft.ProfileName}.txt";
-            AreaProfileValidCountText.Text = _areaProfileDraft.IsValid
-                ? $"✓ {_areaProfileDraft.MesAreas.Count:N0} 个有效 AREA"
-                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 无效";
+            AreaProfileFileTitleText.Text = _isAllAreasSelected
+                ? AllAreasProfileDisplayName
+                : string.IsNullOrWhiteSpace(_areaProfileDraft.ProfileName)
+                    ? "新建 AREA 配置"
+                    : $"{_areaProfileDraft.ProfileName}.txt";
+            AreaProfileValidCountText.Text = _isAllAreasSelected
+                ? "不限制显示范围"
+                : _areaProfileDraft.IsValid
+                    ? $"✓ {_areaProfileDraft.MesAreas.Count:N0} 个有效 AREA"
+                    : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 无效";
             AreaProfileValidCountPill.SetResourceReference(
                 FrameworkElement.StyleProperty,
-                _areaProfileDraft.IsValid
+                _isAllAreasSelected || _areaProfileDraft.IsValid
                     ? "StatusPillSuccess"
                     : "StatusPillCritical");
-            AreaProfileValidationSummaryText.Text = applyState.BlockedReason
-                ?? (_areaProfileDraft.IsValid
-                    ? $"✓ 格式有效 · {contentByteCount:N0} B"
-                    : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用");
+            AreaProfileValidationSummaryText.Text = _isAllAreasSelected
+                ? "显示所有 AREA，不应用 TXT 筛选"
+                : applyState.BlockedReason
+                    ?? (_areaProfileDraft.IsValid
+                        ? $"✓ 格式有效 · {contentByteCount:N0} B"
+                        : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用");
             AreaProfileDiskStateText.Text = DescribeAreaProfileDiskState();
-            AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
+            AreaProfileValidationExpander.Visibility = _isAllAreasSelected
+                || _areaProfileDraft.IsValid
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             AreaProfileApplyButton.Content = applyState.Content;
@@ -642,7 +677,9 @@ internal partial class WatchWorkspaceWindow
                 && !WatchAreaFilterProfileStore.HasContentDiagnostics(_areaProfileDraft);
             AutomationProperties.SetName(
                 AreaProfileFileTitleText,
-                $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
+                _isAllAreasSelected
+                    ? $"当前 AREA 范围：{AreaProfileFileTitleText.Text}"
+                    : $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
             AutomationProperties.SetName(
                 AreaProfileValidCountText,
                 $"AREA 配置有效数量：{AreaProfileValidCountText.Text}");
@@ -669,6 +706,14 @@ internal partial class WatchWorkspaceWindow
         WatchAppliedAreaFilterProfile applied,
         WatchAreaFilterProfile draft)
     {
+        if (_isAllAreasSelected)
+        {
+            return WatchAreaProfileApplyButtonState.Evaluate(
+                applied.IsAllAreas,
+                WatchAreaProfileFileCondition.Valid,
+                matchesAppliedSnapshot: true);
+        }
+
         var isCurrentApplied = _selectedAreaProfileName is { } selectedName
             && string.Equals(
                 selectedName,
@@ -704,7 +749,8 @@ internal partial class WatchWorkspaceWindow
                 : null,
             BlocksIdentityChangingCommands = IsSelectedAreaProfileRow(row)
                 && _areaProfileDraftIsDirty,
-            HasDrifted = !row.IsMissing
+            HasDrifted = !row.IsAllAreas
+                && !row.IsMissing
                 && row.IsApplied
                 && !applied.MesAreas.SequenceEqual(
                     IsSelectedAreaProfileRow(row) ? draft.MesAreas : row.MesAreas,
@@ -731,6 +777,11 @@ internal partial class WatchWorkspaceWindow
     /// </summary>
     private string DescribeAreaProfileDiskState()
     {
+        if (_isAllAreasSelected)
+        {
+            return "不对应 TXT 文件";
+        }
+
         if (_areaProfileWriteConflictProfileName is not null)
         {
             return "磁盘已变更 · 等待选择";
@@ -799,7 +850,7 @@ internal partial class WatchWorkspaceWindow
         WatchAppliedAreaFilterProfile applied,
         bool reloadSelectedDraft = true)
     {
-        var rows = _areaProfileStore
+        var fileRows = _areaProfileStore
             .EnumerateProfiles()
             .Select(summary =>
             {
@@ -816,6 +867,20 @@ internal partial class WatchWorkspaceWindow
                     summary.Availability);
             })
             .ToArray();
+        var rows = new[]
+        {
+            new WatchAreaFilterProfilePresentationRow(
+                AllAreasProfileDisplayName,
+                [],
+                DiagnosticCount: 0,
+                IsValid: true,
+                IsApplied: applied.IsAllAreas,
+                FileLastModifiedAt: null,
+                WatchAreaFilterProfileAvailability.Present)
+            {
+                IsAllAreas = true,
+            },
+        }.Concat(fileRows).ToArray();
 
         if (_selectedAreaProfileName is { } selectedName)
         {
@@ -857,8 +922,17 @@ internal partial class WatchWorkspaceWindow
             }
             else if (FindAdjacentAreaProfileRow(rows, selectedName) is { } neighbourRow)
             {
-                _selectedAreaProfileName = neighbourRow.ProfileName;
-                _areaProfileDraft = _areaProfileStore.Load(neighbourRow.ProfileName);
+                if (neighbourRow.IsAllAreas)
+                {
+                    _isAllAreasSelected = true;
+                    _selectedAreaProfileName = null;
+                    _areaProfileDraft = null;
+                }
+                else
+                {
+                    _selectedAreaProfileName = neighbourRow.ProfileName;
+                    _areaProfileDraft = _areaProfileStore.Load(neighbourRow.ProfileName);
+                }
             }
             else
             {
@@ -867,7 +941,8 @@ internal partial class WatchWorkspaceWindow
             }
         }
 
-        if (_selectedAreaProfileName is null
+        if (!_isAllAreasSelected
+            && _selectedAreaProfileName is null
             && !_areaProfileDraftIsDirty
             && applied.ProfileName is { } appliedProfileName
             && rows.FirstOrDefault(row => string.Equals(
@@ -887,6 +962,7 @@ internal partial class WatchWorkspaceWindow
 
     private void AbandonDeletedAreaProfileFileIdentity()
     {
+        _isAllAreasSelected = false;
         _selectedAreaProfileName = null;
         _areaProfileDraftLostItsFile = true;
         _areaProfileDraft = _areaProfileDraft is { } orphanedDraft
@@ -943,7 +1019,7 @@ internal partial class WatchWorkspaceWindow
         return searchText.Length == 0
             ? rows
             : rows
-                .Where(row => row.ProfileName.Contains(
+                .Where(row => row.IsAllAreas || row.ProfileName.Contains(
                     searchText,
                     StringComparison.OrdinalIgnoreCase))
                 .ToArray();
@@ -1099,7 +1175,9 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
-        if (string.Equals(
+        if (row.IsAllAreas
+            ? _isAllAreasSelected
+            : !_isAllAreasSelected && string.Equals(
                 _selectedAreaProfileName,
                 row.ProfileName,
                 StringComparison.OrdinalIgnoreCase))
@@ -1123,7 +1201,19 @@ internal partial class WatchWorkspaceWindow
         try
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
+            if (row.IsAllAreas)
+            {
+                _isAllAreasSelected = true;
+                _selectedAreaProfileName = null;
+                _areaProfileDraft = null;
+                _areaProfileDraftIsDirty = false;
+                _areaProfileDraftLostItsFile = false;
+                RenderAreaProfiles();
+                return;
+            }
+
             var selectedDraft = LoadSelectedAreaProfileDraft(row);
+            _isAllAreasSelected = false;
             _selectedAreaProfileName = row.ProfileName;
             _areaProfileDraft = selectedDraft;
             _areaProfileDraftIsDirty = false;
@@ -1377,6 +1467,7 @@ internal partial class WatchWorkspaceWindow
     /// </summary>
     private void AdoptSavedAreaProfile(WatchAreaFilterProfile saved)
     {
+        _isAllAreasSelected = false;
         _selectedAreaProfileName = saved.ProfileName;
         _areaProfileDraft = saved;
         _areaProfileDraftIsDirty = false;
@@ -1698,6 +1789,7 @@ internal partial class WatchWorkspaceWindow
                     // all; keeping the prompt would suspend auto-save for a
                     // profile the editor no longer shows.
                     ClearAreaProfileWriteConflict();
+                    _isAllAreasSelected = false;
                     _selectedAreaProfileName = null;
                     _areaProfileDraft = WatchAreaFilterProfileParser.Parse(profileName, string.Empty);
                     _areaProfileDraftIsDirty = true;
@@ -1762,6 +1854,7 @@ internal partial class WatchWorkspaceWindow
                         throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
                     }
 
+                    _isAllAreasSelected = false;
                     _selectedAreaProfileName = result.Draft.ProfileName;
                     _areaProfileDraft = result.Draft;
                     _areaProfileDraftIsDirty = false;
@@ -1814,6 +1907,7 @@ internal partial class WatchWorkspaceWindow
 
                     if (result.AppliedProfileWasDeleted)
                     {
+                        _isAllAreasSelected = false;
                         _selectedAreaProfileName = result.CurrentApplied.ProfileName;
                         _areaProfileDraft = _areaProfileDraft is { } deletedDraft
                             ? deletedDraft with { FileFingerprint = null }
@@ -1821,6 +1915,7 @@ internal partial class WatchWorkspaceWindow
                     }
                     else
                     {
+                        _isAllAreasSelected = false;
                         _selectedAreaProfileName = null;
                         _areaProfileDraft = WatchAreaFilterProfileParser.Parse(
                             string.Empty,
@@ -1883,6 +1978,12 @@ internal partial class WatchWorkspaceWindow
 
     private void OnAreaProfileApplyClick(object sender, RoutedEventArgs e)
     {
+        if (_isAllAreasSelected)
+        {
+            OnAreaApplyAllAreasClick(sender, e);
+            return;
+        }
+
         AreaProfileOperationTask = RunAreaProfileUiActionAsync(async operation =>
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
@@ -1898,6 +1999,7 @@ internal partial class WatchWorkspaceWindow
                 throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
             }
 
+            _isAllAreasSelected = false;
             _selectedAreaProfileName = result.Draft.ProfileName;
             _areaProfileDraft = result.Draft;
             _areaProfileDraftIsDirty = false;
@@ -1940,6 +2042,10 @@ internal partial class WatchWorkspaceWindow
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
             var result = _areaProfileStore.ApplyAllAreas();
+            _isAllAreasSelected = true;
+            _selectedAreaProfileName = null;
+            _areaProfileDraft = null;
+            _areaProfileDraftIsDirty = false;
             await ApplyAreaContextAsync(
                     result.CurrentApplied.ToDisplayContext(),
                     _lifetimeCancellation.Token)

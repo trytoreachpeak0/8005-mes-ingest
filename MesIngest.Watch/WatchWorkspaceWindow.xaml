@@ -2998,6 +2998,9 @@
                                                     <Setter Property="ContextMenu"
                                                             Value="{StaticResource AreaProfileFileContextMenu}" />
                                                     <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAllAreas}" Value="True">
+                                                            <Setter Property="ContextMenu" Value="{x:Null}" />
+                                                        </DataTrigger>
                                                         <Trigger Property="IsSelected" Value="True">
                                                             <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
                                                             <Setter Property="Foreground" Value="{DynamicResource TextFillColorInverseBrush}" />
@@ -3052,6 +3055,11 @@
                                                     <DataTemplate.Triggers>
                                                         <DataTrigger Binding="{Binding HasAttention}" Value="False">
                                                             <Setter TargetName="AreaProfileRowAttentionText"
+                                                                    Property="Visibility"
+                                                                    Value="Collapsed" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding IsAllAreas}" Value="True">
+                                                            <Setter TargetName="AreaProfileRowValidStatus"
                                                                     Property="Visibility"
                                                                     Value="Collapsed" />
                                                         </DataTrigger>
@@ -3185,14 +3193,15 @@
                                                            Click="OnAreaProfileSaveAsClick"
                                                            AutomationProperties.Name="另存未命名 AREA 草稿"
                                                            AutomationProperties.AutomationId="AreaProfileSaveDraftAsButton" />
-                                                <ui:Button x:Name="AreaApplyAllAreasButton"
-                                                           Content="应用全部 AREA"
-                                                           Appearance="Transparent"
+                                                <ui:Button x:Name="AreaProfileApplyButton"
+                                                           Content="应用此配置"
+                                                           Appearance="Secondary"
+                                                           IsEnabled="False"
                                                            Margin="{StaticResource AreaProfileInlineCommandMargin}"
                                                            KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaApplyAllAreasClick"
-                                                           AutomationProperties.Name="应用全部 AREA 显示范围"
-                                                           AutomationProperties.AutomationId="AreaApplyAllAreasButton" />
+                                                           Click="OnAreaProfileApplyClick"
+                                                           AutomationProperties.Name="应用选中 AREA 配置"
+                                                           AutomationProperties.AutomationId="AreaProfileApplyButton" />
                                             </StackPanel>
                                         </Grid>
                                     </Grid>
@@ -3362,15 +3371,6 @@
                                                                   Style="{StaticResource CaptionText}"
                                                                   VerticalAlignment="Center"
                                                                   AutomationProperties.Name="AREA 配置保存状态" />
-                                                    <ui:Button x:Name="AreaProfileApplyButton"
-                                                               Content="应用此配置"
-                                                               Appearance="Secondary"
-                                                               IsEnabled="False"
-                                                               Margin="4,0,0,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               Click="OnAreaProfileApplyClick"
-                                                               AutomationProperties.Name="应用选中 AREA 配置"
-                                                               AutomationProperties.AutomationId="AreaProfileApplyButton" />
                                                 </StackPanel>
                                             </Grid>
                                             <Expander x:Name="AreaProfileValidationExpander"

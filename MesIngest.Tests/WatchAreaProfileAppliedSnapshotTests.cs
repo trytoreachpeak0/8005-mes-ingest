@@ -224,7 +224,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
         });
 
     [Fact]
-    public void Only_applying_all_areas_releases_the_scope_after_its_profile_file_is_deleted() =>
+    public void Selecting_and_applying_the_all_areas_row_releases_the_scope() =>
         RunWithAppliedProfile((window, directoryPath, events, clock) =>
         {
             File.Delete(Path.Combine(directoryPath, "西区.txt"));
@@ -235,13 +235,19 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
 
-            ApplyAllAreasButton(window).RaiseEvent(
+            SelectAllAreas(ProfileList(window));
+            Assert.Equal("应用此配置", ApplyButton(window).Content);
+            Assert.True(ApplyButton(window).IsEnabled);
+
+            ApplyButton(window).RaiseEvent(
                 new RoutedEventArgs(ButtonBase.ClickEvent));
             PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
 
             Assert.Contains("当前应用：全部 AREA", AppliedState(window).Text, StringComparison.Ordinal);
             Assert.Empty(window.AreaContext.MesAreas);
-            Assert.DoesNotContain(Rows(ProfileList(window)), row => row.IsApplied);
+            Assert.True(AppliedRow(window).IsAllAreas);
+            Assert.Equal("已应用", ApplyButton(window).Content);
+            Assert.False(ApplyButton(window).IsEnabled);
         });
 
     [Fact]
@@ -475,9 +481,6 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
     private static MenuItem FileCommand(WatchWorkspaceWindow window, string automationId) =>
         WatchAreaProfileFileCommandTestHelper.FindSelected(window, automationId);
 
-    private static Wpf.Ui.Controls.Button ApplyAllAreasButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaApplyAllAreasButton"));
-
     private static TextBox TargetNameInput(WatchWorkspaceWindow window) =>
         Assert.IsType<TextBox>(window.FindName("AreaProfileTargetNameInput"));
 
@@ -513,11 +516,17 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
 
     private static WatchAreaFilterProfilePresentationRow AppliedRow(
         WatchWorkspaceWindow window) => Assert.Single(
-        Rows(ProfileList(window)),
+        AllRows(ProfileList(window)),
         row => row.IsApplied);
 
     private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> Rows(ListBox list) =>
+        [.. AllRows(list).Where(row => !row.IsAllAreas)];
+
+    private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> AllRows(ListBox list) =>
         [.. list.Items.Cast<WatchAreaFilterProfilePresentationRow>()];
+
+    private static void SelectAllAreas(ListBox list) =>
+        list.SelectedItem = Assert.Single(AllRows(list), row => row.IsAllAreas);
 
     private static void SelectProfile(ListBox list, string profileName) =>
         list.SelectedItem = Assert.Single(

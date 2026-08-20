@@ -337,7 +337,10 @@ public sealed class WatchAreaProfileWriteConflictTests
             window.FindName("AreaProfileFileTitleText"));
 
     private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> Rows(ListBox list) =>
-        list.Items.Cast<WatchAreaFilterProfilePresentationRow>().ToArray();
+        list.Items
+            .Cast<WatchAreaFilterProfilePresentationRow>()
+            .Where(row => !row.IsAllAreas)
+            .ToArray();
 
     private static void SelectProfile(ListBox list, string profileName) =>
         list.SelectedItem = Assert.Single(

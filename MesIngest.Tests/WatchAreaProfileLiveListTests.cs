@@ -31,6 +31,108 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
+    public void All_areas_stays_first_through_search_and_directory_refreshes() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var search = Assert.IsType<TextBox>(window.FindName("AreaProfileSearchInput"));
+
+            Assert.Collection(
+                AllRows(list),
+                row =>
+                {
+                    Assert.True(row.IsAllAreas);
+                    Assert.Equal("全部 AREA（不筛选）", row.ProfileName);
+                },
+                row => Assert.Equal("西区", row.ProfileName));
+
+            search.Text = "不存在的配置";
+            Assert.True(Assert.Single(AllRows(list)).IsAllAreas);
+
+            WriteProfile(directoryPath, "东区", "B2-2");
+            events.RaiseCreated("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            Assert.True(Assert.Single(AllRows(list)).IsAllAreas);
+
+            search.Clear();
+            Assert.Equal(
+                ["全部 AREA（不筛选）", "东区", "西区"],
+                AllRows(list).Select(row => row.ProfileName));
+
+            File.Delete(Path.Combine(directoryPath, "东区.txt"));
+            events.RaiseDeleted("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+            Assert.Equal(
+                ["全部 AREA（不筛选）", "西区"],
+                AllRows(list).Select(row => row.ProfileName));
+        });
+
+    [Fact]
+    public void One_shared_apply_command_lives_in_the_left_card_and_all_areas_has_no_file_commands() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("AreaFilterNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.UpdateLayout();
+
+            var masterCard = Assert.IsType<Wpf.Ui.Controls.Card>(
+                window.FindName("AreaProfileMasterCard"));
+            var editorCard = Assert.IsType<Wpf.Ui.Controls.Card>(
+                window.FindName("AreaProfileEditorCard"));
+            var apply = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("AreaProfileApplyButton"));
+            Assert.True(IsVisualDescendantOf(apply, masterCard));
+            Assert.False(IsVisualDescendantOf(apply, editorCard));
+            Assert.Null(window.FindName("AreaApplyAllAreasButton"));
+
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            list.UpdateLayout();
+            var allAreas = Assert.Single(AllRows(list), row => row.IsAllAreas);
+            Assert.False(allAreas.CanSaveAs);
+            Assert.False(allAreas.CanRenameOrDelete);
+            var item = Assert.IsType<ListBoxItem>(
+                list.ItemContainerGenerator.ContainerFromItem(allAreas));
+            Assert.Null(item.ContextMenu);
+        });
+
+    [Fact]
+    public void All_areas_uses_the_shared_applied_state_when_it_is_the_current_scope() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var allAreas = Assert.Single(AllRows(list), row => row.IsAllAreas);
+            Assert.Same(allAreas, list.SelectedItem);
+            Assert.True(allAreas.IsApplied);
+            Assert.Contains("当前应用", allAreas.AutomationName, StringComparison.Ordinal);
+
+            var apply = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("AreaProfileApplyButton"));
+            Assert.Equal("已应用", apply.Content);
+            Assert.False(apply.IsEnabled);
+        });
+
+    [Fact]
+    public void Selecting_all_areas_does_not_present_it_as_an_invalid_txt_file() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            Assert.Equal(
+                "全部 AREA（不筛选）",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    window.FindName("AreaProfileFileTitleText")).Text);
+            Assert.Equal(
+                "不限制显示范围",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    window.FindName("AreaProfileValidCountText")).Text);
+            Assert.Equal(
+                "不对应 TXT 文件",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    window.FindName("AreaProfileDiskStateText")).Text);
+            Assert.True(Assert.IsType<TextBox>(
+                window.FindName("AreaProfileEditor")).IsReadOnly);
+        });
+
+    [Fact]
     public void File_commands_live_on_the_left_card_and_each_profile_context_menu() =>
         RunWithAreaProfileWindow((window, _, _, _) =>
         {
@@ -494,6 +596,9 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> Rows(ListBox list) =>
+        [.. AllRows(list).Where(row => !row.IsAllAreas)];
+
+    private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> AllRows(ListBox list) =>
         [.. list.Items.Cast<WatchAreaFilterProfilePresentationRow>()];
 
     private static void AssertMenuItem(
