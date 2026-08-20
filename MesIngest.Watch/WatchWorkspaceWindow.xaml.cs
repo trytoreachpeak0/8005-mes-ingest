@@ -96,7 +96,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         InitializeComponent();
         InitializeDemandSeriesPage();
-        InitializeReadabilityAuditAndAreaProfiles();
+        InitializeReadabilityAuditPage();
+        InitializeAreaFilterProfilePage();
         InitializeDataPageAreaProfileSelectors();
         InitializeTicket22Pages();
         WorkspaceContent.SizeChanged += OnWorkspaceContentSizeChanged;
