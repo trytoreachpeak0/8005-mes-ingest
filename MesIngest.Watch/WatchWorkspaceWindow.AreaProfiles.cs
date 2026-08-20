@@ -231,7 +231,9 @@ internal partial class WatchWorkspaceWindow
         FollowSelectedAreaProfileRename(change.Renames);
         var selectedProfileToReload = !_areaProfileDraftIsDirty
             && _selectedAreaProfileName is { } selectedName
-            && change.ProfileNames.Contains(selectedName, StringComparer.OrdinalIgnoreCase)
+            && change.AffectedProfileNames.Contains(
+                selectedName,
+                StringComparer.OrdinalIgnoreCase)
             && !change.DeletedProfileNames.Contains(
                 selectedName,
                 StringComparer.OrdinalIgnoreCase)
@@ -275,12 +277,12 @@ internal partial class WatchWorkspaceWindow
                 continue;
             }
 
-            _selectedAreaProfileName = rename.ProfileName;
+            _selectedAreaProfileName = rename.NewProfileName;
             if (_areaProfileDraft is not null)
             {
                 _areaProfileDraft = _areaProfileDraft with
                 {
-                    ProfileName = rename.ProfileName,
+                    ProfileName = rename.NewProfileName,
                 };
             }
         }

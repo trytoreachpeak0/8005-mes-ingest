@@ -35,7 +35,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         var change = Assert.Single(changes);
-        Assert.Equal(["西区"], change.ProfileNames);
+        Assert.Equal(["西区"], change.AffectedProfileNames);
         Assert.Equal(
             ["西区"],
             store.EnumerateProfiles().Select(summary => summary.ProfileName));
@@ -69,7 +69,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(TimeSpan.FromTicks(1));
 
         var change = Assert.Single(changes);
-        Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Equal(["焊线区域"], change.AffectedProfileNames);
         Assert.Equal(["焊线区域"], change.DeletedProfileNames);
         Assert.Empty(store.EnumerateProfiles());
     }
@@ -102,7 +102,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         var change = Assert.Single(changes);
-        Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Equal(["焊线区域"], change.AffectedProfileNames);
         Assert.Empty(change.DeletedProfileNames);
         Assert.Empty(change.Renames);
         Assert.Equal("B2-2", store.Load("焊线区域").Content);
@@ -137,7 +137,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
             WatchAreaFilterProfileStore.DeleteConfirmationWindow
                 - WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
-        Assert.Equal(["焊线区域"], Assert.Single(changes).ProfileNames);
+        Assert.Equal(["焊线区域"], Assert.Single(changes).AffectedProfileNames);
         Assert.Equal(["焊线区域"], Assert.Single(changes).DeletedProfileNames);
         Assert.Empty(store.EnumerateProfiles());
     }
@@ -169,7 +169,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         var change = Assert.Single(changes);
-        Assert.Equal(["东区", "北区", "西区"], change.ProfileNames.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["东区", "北区", "西区"],
+            change.AffectedProfileNames.Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -200,7 +202,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         Assert.True(
             changes.Count >= 2,
             $"a continuous stream produced {changes.Count} announcements");
-        Assert.All(changes, change => Assert.Equal(["西区"], change.ProfileNames));
+        Assert.All(
+            changes,
+            change => Assert.Equal(["西区"], change.AffectedProfileNames));
     }
 
     [Fact]
@@ -226,7 +230,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         events.RaiseCreated("西区.txt");
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
-        Assert.Equal(["西区"], Assert.Single(changes).ProfileNames);
+        Assert.Equal(["西区"], Assert.Single(changes).AffectedProfileNames);
     }
 
     [Fact]
@@ -253,7 +257,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         Assert.Equal(2, changes.Count);
-        Assert.All(changes, change => Assert.Equal(["西区"], change.ProfileNames));
+        Assert.All(
+            changes,
+            change => Assert.Equal(["西区"], change.AffectedProfileNames));
     }
 
     [Fact]
@@ -287,7 +293,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         events.RaiseChanged("西区.txt");
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
-        Assert.Equal(["西区"], Assert.Single(changes).ProfileNames);
+        Assert.Equal(["西区"], Assert.Single(changes).AffectedProfileNames);
     }
 
     [Fact]
@@ -459,10 +465,12 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         var change = Assert.Single(changes);
-        Assert.Equal(["新名", "旧名"], change.ProfileNames.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["新名", "旧名"],
+            change.AffectedProfileNames.Order(StringComparer.Ordinal));
         var rename = Assert.Single(change.Renames);
         Assert.Equal("旧名", rename.PreviousProfileName);
-        Assert.Equal("新名", rename.ProfileName);
+        Assert.Equal("新名", rename.NewProfileName);
         Assert.Equal(
             ["新名"],
             store.EnumerateProfiles().Select(summary => summary.ProfileName));

@@ -26,10 +26,10 @@ internal sealed record WatchAreaProfileDirectoryEvent(
 /// </summary>
 internal sealed record WatchAreaProfileRename(
     string PreviousProfileName,
-    string ProfileName);
+    string NewProfileName);
 
 internal sealed record WatchAreaProfileDirectoryChange(
-    IReadOnlyList<string> ProfileNames,
+    IReadOnlyList<string> AffectedProfileNames,
     IReadOnlyList<WatchAreaProfileRename> Renames,
     IReadOnlyList<string> DeletedProfileNames);
 
