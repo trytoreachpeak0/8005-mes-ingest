@@ -69,6 +69,135 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
     }
 
     [Fact]
+    public void An_externally_deleted_applied_profile_stays_as_a_recoverable_snapshot_row() =>
+        RunWithAppliedProfile((window, directoryPath, events, clock) =>
+        {
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+
+            var row = AppliedRow(window);
+            Assert.Equal("西区", row.ProfileName);
+            Assert.Equal(2, row.MesAreaCount);
+            Assert.Equal("文件已删除 · 范围仍生效", row.AttentionText);
+            Assert.Contains(
+                "AREA A1-1、A1-2",
+                AutomationProperties.GetName(AppliedState(window)),
+                StringComparison.Ordinal);
+            Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
+            Assert.Equal("重新应用", ApplyButton(window).Content);
+            Assert.False(ApplyButton(window).IsEnabled);
+            Assert.Contains(
+                "文件已删除",
+                AutomationProperties.GetName(ApplyButton(window)),
+                StringComparison.Ordinal);
+            Assert.True(SaveAsButton(window).IsEnabled);
+            Assert.False(RenameButton(window).IsEnabled);
+            Assert.False(DeleteButton(window).IsEnabled);
+
+            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Equal("西区", TargetNameInput(window).Text);
+        });
+
+    [Fact]
+    public void Deleting_the_applied_profile_in_the_page_keeps_the_same_scope_and_recovery_row() =>
+        RunWithAppliedProfile((window, directoryPath, _, _) =>
+        {
+            DeleteButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Contains(
+                "范围仍生效",
+                FileOperationPrompt(window).Text,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "回退为全部 AREA",
+                FileOperationPrompt(window).Text,
+                StringComparison.Ordinal);
+
+            ConfirmFileOperationButton(window).RaiseEvent(
+                new RoutedEventArgs(ButtonBase.ClickEvent));
+            PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
+
+            Assert.False(File.Exists(Path.Combine(directoryPath, "西区.txt")));
+            Assert.Equal("文件已删除 · 范围仍生效", AppliedRow(window).AttentionText);
+            Assert.Contains(
+                "AREA A1-1、A1-2",
+                AutomationProperties.GetName(AppliedState(window)),
+                StringComparison.Ordinal);
+            Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
+            Assert.True(SaveAsButton(window).IsEnabled);
+        });
+
+    [Fact]
+    public void A_deleted_applied_profile_can_be_restored_under_the_same_name_without_moving_scope() =>
+        RunWithAppliedProfile((window, directoryPath, events, clock) =>
+        {
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+
+            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.Equal("西区", TargetNameInput(window).Text);
+            ConfirmFileOperationButton(window).RaiseEvent(
+                new RoutedEventArgs(ButtonBase.ClickEvent));
+            PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
+
+            Assert.Equal(AppliedContent, ReadProfile(directoryPath, "西区"));
+            Assert.Null(AppliedRow(window).AttentionText);
+            Assert.Equal("已应用", ApplyButton(window).Content);
+            Assert.Contains(
+                "AREA A1-1、A1-2",
+                AutomationProperties.GetName(AppliedState(window)),
+                StringComparison.Ordinal);
+            Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
+        });
+
+    [Fact]
+    public void Selecting_an_unselected_missing_applied_row_restores_from_its_snapshot_not_the_other_editor() =>
+        RunWithAppliedProfile((window, directoryPath, events, clock) =>
+        {
+            WriteProfile(directoryPath, "东区", "B2-2");
+            events.RaiseCreated("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            SelectProfile(ProfileList(window), "东区");
+            Assert.Equal("B2-2", Editor(window).Text);
+
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+            Assert.Equal("B2-2", Editor(window).Text);
+
+            SelectProfile(ProfileList(window), "西区");
+
+            Assert.Equal(AppliedContent, Editor(window).Text);
+            Assert.True(SaveAsButton(window).IsEnabled);
+            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.Equal("西区", TargetNameInput(window).Text);
+        });
+
+    [Fact]
+    public void Only_applying_all_areas_releases_the_scope_after_its_profile_file_is_deleted() =>
+        RunWithAppliedProfile((window, directoryPath, events, clock) =>
+        {
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+            Assert.Contains(
+                "AREA A1-1、A1-2",
+                AutomationProperties.GetName(AppliedState(window)),
+                StringComparison.Ordinal);
+
+            ApplyAllAreasButton(window).RaiseEvent(
+                new RoutedEventArgs(ButtonBase.ClickEvent));
+            PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
+
+            Assert.Contains("当前应用：全部 AREA", AppliedState(window).Text, StringComparison.Ordinal);
+            Assert.Empty(window.AreaContext.MesAreas);
+            Assert.DoesNotContain(Rows(ProfileList(window)), row => row.IsApplied);
+        });
+
+    [Fact]
     public void Editing_the_applied_profile_leaves_the_display_scope_where_the_snapshot_put_it() =>
         RunWithAppliedProfile((window, directoryPath, _, clock) =>
         {
@@ -290,6 +419,29 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
     private static Wpf.Ui.Controls.Button ApplyButton(WatchWorkspaceWindow window) =>
         Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileApplyButton"));
 
+    private static Wpf.Ui.Controls.Button SaveAsButton(WatchWorkspaceWindow window) =>
+        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileSaveAsButton"));
+
+    private static Wpf.Ui.Controls.Button RenameButton(WatchWorkspaceWindow window) =>
+        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileRenameButton"));
+
+    private static Wpf.Ui.Controls.Button DeleteButton(WatchWorkspaceWindow window) =>
+        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileDeleteButton"));
+
+    private static Wpf.Ui.Controls.Button ApplyAllAreasButton(WatchWorkspaceWindow window) =>
+        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaApplyAllAreasButton"));
+
+    private static TextBox TargetNameInput(WatchWorkspaceWindow window) =>
+        Assert.IsType<TextBox>(window.FindName("AreaProfileTargetNameInput"));
+
+    private static Wpf.Ui.Controls.Button ConfirmFileOperationButton(
+        WatchWorkspaceWindow window) => Assert.IsType<Wpf.Ui.Controls.Button>(
+        window.FindName("AreaProfileFileOperationConfirmButton"));
+
+    private static Wpf.Ui.Controls.TextBlock FileOperationPrompt(
+        WatchWorkspaceWindow window) => Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+        window.FindName("AreaProfileFileOperationPromptText"));
+
     private static TextBox Editor(WatchWorkspaceWindow window) =>
         Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
 
@@ -355,6 +507,20 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             DispatcherPriority.ApplicationIdle,
             () => frame.Continue = false);
         Dispatcher.PushFrame(frame);
+    }
+
+    private static void PumpUntilCompleted(Dispatcher dispatcher, Task task)
+    {
+        while (!task.IsCompleted)
+        {
+            var frame = new DispatcherFrame();
+            dispatcher.BeginInvoke(
+                DispatcherPriority.Background,
+                () => frame.Continue = false);
+            Dispatcher.PushFrame(frame);
+        }
+
+        task.GetAwaiter().GetResult();
     }
 
     /// <summary>

@@ -368,11 +368,12 @@ public sealed class WatchAreaFilterProfileTests
     }
 
     [Fact]
-    public void Delete_removes_the_txt_and_explicitly_falls_back_from_an_applied_profile_to_all_areas()
+    public void Delete_removes_the_applied_txt_but_preserves_its_persisted_scope_snapshot()
     {
         using var temporary = new TemporaryDirectory();
         var store = new WatchAreaFilterProfileStore(temporary.Path);
         Assert.True(store.Apply("东区", "A1-1\nA1-2\n").Applied);
+        var appliedBeforeDelete = store.LoadApplied();
 
         var result = store.Delete("东区", Fingerprint(store, "东区"));
         var restored = new WatchAreaFilterProfileStore(temporary.Path).LoadApplied();
@@ -381,17 +382,18 @@ public sealed class WatchAreaFilterProfileTests
         Assert.Equal("东区", result.ProfileName);
         Assert.True(result.AppliedProfileWasDeleted);
         Assert.Empty(result.Diagnostics);
-        Assert.True(result.CurrentApplied.IsAllAreas);
-        Assert.NotNull(result.CurrentApplied.AppliedAt);
-        Assert.Equal(result.CurrentApplied.ProfileName, restored.ProfileName);
-        Assert.Equal(result.CurrentApplied.MesAreas, restored.MesAreas);
-        Assert.Equal(result.CurrentApplied.AppliedAt, restored.AppliedAt);
+        Assert.Equal(appliedBeforeDelete.ProfileName, result.CurrentApplied.ProfileName);
+        Assert.Equal(appliedBeforeDelete.MesAreas, result.CurrentApplied.MesAreas);
+        Assert.Equal(appliedBeforeDelete.AppliedAt, result.CurrentApplied.AppliedAt);
+        Assert.Equal(appliedBeforeDelete.ProfileName, restored.ProfileName);
+        Assert.Equal(appliedBeforeDelete.MesAreas, restored.MesAreas);
+        Assert.Equal(appliedBeforeDelete.AppliedAt, restored.AppliedAt);
         Assert.False(File.Exists(Path.Combine(temporary.Path, "东区.txt")));
         Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));
     }
 
     [Fact]
-    public void Delete_falls_back_when_an_externally_case_renamed_file_is_the_applied_profile()
+    public void Delete_preserves_the_applied_snapshot_after_an_external_case_only_file_rename()
     {
         using var temporary = new TemporaryDirectory();
         var store = new WatchAreaFilterProfileStore(temporary.Path);
@@ -407,9 +409,48 @@ public sealed class WatchAreaFilterProfileTests
 
         Assert.True(result.Deleted);
         Assert.True(result.AppliedProfileWasDeleted);
-        Assert.True(result.CurrentApplied.IsAllAreas);
-        Assert.True(restored.IsAllAreas);
+        Assert.Equal("ActiveScope", result.CurrentApplied.ProfileName);
+        Assert.Equal(["A1-1"], result.CurrentApplied.MesAreas);
+        Assert.Equal(result.CurrentApplied.ProfileName, restored.ProfileName);
+        Assert.Equal(result.CurrentApplied.MesAreas, restored.MesAreas);
+        Assert.Equal(result.CurrentApplied.AppliedAt, restored.AppliedAt);
         Assert.False(File.Exists(externallyRenamedPath));
+    }
+
+    [Fact]
+    public void Enumerate_keeps_the_applied_profile_identity_after_its_txt_is_deleted_externally()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("西区", "A1-1\nA1-2\n").Applied);
+        File.Delete(Path.Combine(temporary.Path, "西区.txt"));
+
+        var summary = Assert.Single(store.EnumerateProfiles());
+
+        Assert.Equal("西区", summary.ProfileName);
+        Assert.True(summary.IsApplied);
+        Assert.True(summary.IsMissing);
+    }
+
+    [Fact]
+    public void Delete_of_a_non_applied_profile_leaves_the_current_snapshot_untouched()
+    {
+        using var temporary = new TemporaryDirectory();
+        var store = new WatchAreaFilterProfileStore(temporary.Path);
+        Assert.True(store.Apply("西区", "A1-1\nA1-2\n").Applied);
+        Assert.True(store.SaveAs("东区", "B2-2\n").Saved);
+        var appliedBeforeDelete = store.LoadApplied();
+
+        var result = store.Delete("东区", Fingerprint(store, "东区"));
+        var restored = store.LoadApplied();
+
+        Assert.True(result.Deleted);
+        Assert.False(result.AppliedProfileWasDeleted);
+        Assert.Equal(appliedBeforeDelete.ProfileName, restored.ProfileName);
+        Assert.Equal(appliedBeforeDelete.MesAreas, restored.MesAreas);
+        Assert.Equal(appliedBeforeDelete.AppliedAt, restored.AppliedAt);
+        Assert.False(File.Exists(Path.Combine(temporary.Path, "东区.txt")));
+        Assert.True(File.Exists(Path.Combine(temporary.Path, "西区.txt")));
     }
 
     [Fact]

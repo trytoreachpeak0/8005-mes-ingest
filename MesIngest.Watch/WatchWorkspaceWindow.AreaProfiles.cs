@@ -77,9 +77,13 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     int DiagnosticCount,
     bool IsValid,
     bool IsApplied,
-    DateTimeOffset LastModifiedAt)
+    DateTimeOffset? FileLastModifiedAt,
+    WatchAreaFilterProfileAvailability Availability)
 {
     public int MesAreaCount => MesAreas.Count;
+
+    public bool IsMissing =>
+        Availability == WatchAreaFilterProfileAvailability.AppliedSnapshotWithoutFile;
 
     /// <summary>
     /// The file no longer parses to the AREA sequence the display scope was
@@ -87,7 +91,9 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     /// </summary>
     public bool HasDrifted { get; init; }
 
-    public string LastModifiedText => WatchTimeDisplay.Format(LastModifiedAt);
+    public string? LastModifiedText => FileLastModifiedAt is { } lastModifiedAt
+        ? WatchTimeDisplay.Format(lastModifiedAt)
+        : null;
 
     /// <summary>
     /// The badge belongs to "currently applied" and to nothing else. Invalid
@@ -105,6 +111,7 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
 
     public string? AttentionText => this switch
     {
+        { IsMissing: true } => "文件已删除 · 范围仍生效",
         { IsValid: false, IsApplied: true } => "内容非法 · 待重新应用",
         { IsValid: false } => "内容非法 · 需修复",
         { IsApplied: true, HasDrifted: true } => "待重新应用",
@@ -113,8 +120,9 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
 
     public bool HasAttention => AttentionText is not null;
 
-    public string MetadataText =>
-        $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
+    public string MetadataText => IsMissing
+        ? $"{MesAreaCount:N0} 个 AREA · 已应用快照"
+        : $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
 
     public string AutomationName => string.Join(
         '；',
@@ -122,9 +130,9 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
         {
             ProfileName,
             $"{MesAreaCount:N0} 个 AREA",
-            IsApplied ? AppliedBadgeText : ValidityText,
+            IsApplied ? AppliedBadgeText : IsMissing ? "文件已删除" : ValidityText,
             AttentionText,
-            $"{LastModifiedText} 修改",
+            IsMissing ? "已应用快照" : $"{LastModifiedText} 修改",
         }.Where(part => part is not null));
 }
 
@@ -550,10 +558,11 @@ internal partial class WatchWorkspaceWindow
                 _areaProfileDraft);
             var searchText = AreaProfileSearchInput.Text.Trim();
             var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
-            var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
+            var fileCount = _areaProfileRows.Count(row => !row.IsMissing);
+            var invalidCount = _areaProfileRows.Count(row => !row.IsMissing && !row.IsValid);
             AreaProfileListSummaryText.Text = searchText.Length == 0
-                ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
-                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个文件"
+                ? $"{fileCount:N0} 个文件 · {invalidCount:N0} 个需要修复"
+                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个配置"
                     + $" · {invalidCount:N0} 个需要修复";
 
             AreaProfileAppliedStateText.Text = applied.AppliedAt is { } appliedAt
@@ -611,6 +620,7 @@ internal partial class WatchWorkspaceWindow
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             var isNewProfile = _selectedAreaProfileName is null;
+            var selectedProfileIsMissing = IsSelectedAreaProfileMissing();
             AreaProfileApplyButton.Content = applyState.Content;
             AreaProfileApplyButton.IsEnabled = applyState.IsEnabled;
             AutomationProperties.SetName(
@@ -622,8 +632,10 @@ internal partial class WatchWorkspaceWindow
             AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid
                 || (_areaProfileDraftLostItsFile
                     && !WatchAreaFilterProfileStore.HasContentDiagnostics(_areaProfileDraft));
-            AreaProfileRenameButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
-            AreaProfileDeleteButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
+            AreaProfileRenameButton.IsEnabled =
+                !isNewProfile && !selectedProfileIsMissing && !_areaProfileDraftIsDirty;
+            AreaProfileDeleteButton.IsEnabled =
+                !isNewProfile && !selectedProfileIsMissing && !_areaProfileDraftIsDirty;
             AutomationProperties.SetName(
                 AreaProfileFileTitleText,
                 $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
@@ -658,7 +670,7 @@ internal partial class WatchWorkspaceWindow
                 selectedName,
                 applied.ProfileName,
                 StringComparison.OrdinalIgnoreCase);
-        var condition = isCurrentApplied && !HasAreaProfileRow(_selectedAreaProfileName)
+        var condition = isCurrentApplied && IsSelectedAreaProfileMissing()
             ? WatchAreaProfileFileCondition.Missing
             : draft.IsValid
                 ? WatchAreaProfileFileCondition.Valid
@@ -683,7 +695,8 @@ internal partial class WatchWorkspaceWindow
         WatchAreaFilterProfile draft) => rows
         .Select(row => row with
         {
-            HasDrifted = row.IsApplied
+            HasDrifted = !row.IsMissing
+                && row.IsApplied
                 && !applied.MesAreas.SequenceEqual(
                     IsSelectedAreaProfileRow(row) ? draft.MesAreas : row.MesAreas,
                     StringComparer.Ordinal),
@@ -696,24 +709,40 @@ internal partial class WatchWorkspaceWindow
         _selectedAreaProfileName,
         StringComparison.OrdinalIgnoreCase);
 
-    private bool HasAreaProfileRow(string? profileName) => _areaProfileRows.Any(
-        row => string.Equals(
+    private bool IsSelectedAreaProfileMissing() => _areaProfileRows.Any(row =>
+        row.IsMissing
+        && string.Equals(
             row.ProfileName,
-            profileName,
+            _selectedAreaProfileName,
             StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// One sentence for where the editor buffer stands relative to its file.
     /// The states are ordered by what the user has to act on first.
     /// </summary>
-    private string DescribeAreaProfileDiskState() => this switch
+    private string DescribeAreaProfileDiskState()
     {
-        { _areaProfileWriteConflictProfileName: not null } => "磁盘已变更 · 等待选择",
-        { _areaProfileDraftLostItsFile: true } => "文件已删除 · 未命名草稿",
-        { _areaProfileDraftIsDirty: true } => "未落盘 · 即将自动保存",
-        { _selectedAreaProfileName: null } => "尚未保存",
-        _ => "已自动保存",
-    };
+        if (_areaProfileWriteConflictProfileName is not null)
+        {
+            return "磁盘已变更 · 等待选择";
+        }
+
+        if (_areaProfileDraftLostItsFile)
+        {
+            return "文件已删除 · 未命名草稿";
+        }
+
+        if (IsSelectedAreaProfileMissing())
+        {
+            return "文件已删除 · 范围仍生效";
+        }
+
+        return _areaProfileDraftIsDirty
+            ? "未落盘 · 即将自动保存"
+            : _selectedAreaProfileName is null
+                ? "尚未保存"
+                : "已自动保存";
+    }
 
     private AreaProfileEditorViewState CaptureAreaProfileEditorViewState()
     {
@@ -765,14 +794,17 @@ internal partial class WatchWorkspaceWindow
             .EnumerateProfiles()
             .Select(summary =>
             {
-                var parsed = _areaProfileStore.Load(summary.ProfileName);
+                var parsed = summary.IsMissing
+                    ? CreateMissingAppliedProfileDraft(applied)
+                    : _areaProfileStore.Load(summary.ProfileName);
                 return new WatchAreaFilterProfilePresentationRow(
                     summary.ProfileName,
                     parsed.MesAreas,
                     parsed.Diagnostics.Count,
                     parsed.IsValid,
                     summary.IsApplied,
-                    summary.LastModifiedAt);
+                    summary.FileLastModifiedAt,
+                    summary.Availability);
             })
             .ToArray();
 
@@ -783,10 +815,27 @@ internal partial class WatchWorkspaceWindow
                     selectedName,
                     StringComparison.OrdinalIgnoreCase)) is { } selectedRow)
             {
-                _selectedAreaProfileName = selectedRow.ProfileName;
-                if (!_areaProfileDraftIsDirty && reloadSelectedDraft)
+                if (selectedRow.IsMissing && _areaProfileDraftIsDirty)
                 {
-                    _areaProfileDraft = _areaProfileStore.Load(selectedRow.ProfileName);
+                    AbandonDeletedAreaProfileFileIdentity();
+                }
+                else
+                {
+                    _selectedAreaProfileName = selectedRow.ProfileName;
+                    if (selectedRow.IsMissing)
+                    {
+                        _areaProfileDraft = _areaProfileDraft is { } existingDraft
+                            && string.Equals(
+                                existingDraft.ProfileName,
+                                selectedRow.ProfileName,
+                                StringComparison.OrdinalIgnoreCase)
+                                ? existingDraft with { FileFingerprint = null }
+                                : CreateMissingAppliedProfileDraft(applied);
+                    }
+                    else if (!_areaProfileDraftIsDirty && reloadSelectedDraft)
+                    {
+                        _areaProfileDraft = _areaProfileStore.Load(selectedRow.ProfileName);
+                    }
                 }
             }
             else if (_areaProfileDraftIsDirty)
@@ -795,14 +844,7 @@ internal partial class WatchWorkspaceWindow
                 // unwritten input. Dropping the buffer here would throw away
                 // what they typed, so it becomes an unnamed draft that only
                 // "save as" can put back on disk.
-                _selectedAreaProfileName = null;
-                _areaProfileDraftLostItsFile = true;
-                _areaProfileDraft = _areaProfileDraft is { } orphanedDraft
-                    ? WatchAreaFilterProfileParser.Parse(
-                        string.Empty,
-                        orphanedDraft.Content)
-                    : null;
-                ClearAreaProfileWriteConflict();
+                AbandonDeletedAreaProfileFileIdentity();
             }
             else if (FindAdjacentAreaProfileRow(rows, selectedName) is { } neighbourRow)
             {
@@ -825,12 +867,29 @@ internal partial class WatchWorkspaceWindow
                 StringComparison.OrdinalIgnoreCase)) is { } appliedRow)
         {
             _selectedAreaProfileName = appliedRow.ProfileName;
-            _areaProfileDraft = _areaProfileStore.Load(appliedRow.ProfileName);
+            _areaProfileDraft = appliedRow.IsMissing
+                ? CreateMissingAppliedProfileDraft(applied)
+                : _areaProfileStore.Load(appliedRow.ProfileName);
         }
 
         _areaProfileRows = rows;
         _areaProfileRowsLoaded = true;
     }
+
+    private void AbandonDeletedAreaProfileFileIdentity()
+    {
+        _selectedAreaProfileName = null;
+        _areaProfileDraftLostItsFile = true;
+        _areaProfileDraft = _areaProfileDraft is { } orphanedDraft
+            ? WatchAreaFilterProfileParser.Parse(string.Empty, orphanedDraft.Content)
+            : null;
+        ClearAreaProfileWriteConflict();
+    }
+
+    private static WatchAreaFilterProfile CreateMissingAppliedProfileDraft(
+        WatchAppliedAreaFilterProfile applied) => WatchAreaFilterProfileParser.Parse(
+        applied.ProfileName ?? string.Empty,
+        string.Join('\n', applied.MesAreas));
 
     /// <summary>
     /// Picks the row that takes the place of one that left the list, so a
@@ -1050,8 +1109,9 @@ internal partial class WatchWorkspaceWindow
         try
         {
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
+            var selectedDraft = LoadSelectedAreaProfileDraft(row);
             _selectedAreaProfileName = row.ProfileName;
-            _areaProfileDraft = _areaProfileStore.Load(row.ProfileName);
+            _areaProfileDraft = selectedDraft;
             _areaProfileDraftIsDirty = false;
             _areaProfileDraftLostItsFile = false;
             RenderAreaProfiles();
@@ -1065,6 +1125,32 @@ internal partial class WatchWorkspaceWindow
                 "无法读取 AREA TXT 配置",
                 exception.Message);
         }
+    }
+
+    private WatchAreaFilterProfile LoadSelectedAreaProfileDraft(
+        WatchAreaFilterProfilePresentationRow row)
+    {
+        if (!row.IsMissing)
+        {
+            return _areaProfileStore.Load(row.ProfileName);
+        }
+
+        var appliedState = _areaProfileStore.LoadAppliedState();
+        if (appliedState.Diagnostic is { } diagnostic)
+        {
+            throw new InvalidOperationException(diagnostic.Message);
+        }
+
+        if (!string.Equals(
+                appliedState.CurrentApplied.ProfileName,
+                row.ProfileName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "该缺失配置已不再是当前应用范围；请重新选择后再恢复。");
+        }
+
+        return CreateMissingAppliedProfileDraft(appliedState.CurrentApplied);
     }
 
     private void OnAreaProfileDraftChanged(object sender, TextChangedEventArgs e)
@@ -1316,7 +1402,9 @@ internal partial class WatchWorkspaceWindow
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.SaveAs,
             "另存为",
-            string.Empty,
+            IsSelectedAreaProfileMissing()
+                ? _selectedAreaProfileName ?? string.Empty
+                : string.Empty,
             sender as IInputElement);
 
     private void OnAreaProfileRenameClick(object sender, RoutedEventArgs e) =>
@@ -1432,7 +1520,7 @@ internal partial class WatchWorkspaceWindow
         {
             AreaProfileFileOperation.Rename => $"重命名“{sourceProfileName}.txt”",
             AreaProfileFileOperation.Delete =>
-                $"再次确认删除“{sourceProfileName}.txt”；若确认时该配置为当前应用，删除将回退为全部 AREA，并扩大概览、需求系列和资格审计范围",
+                $"再次确认删除“{sourceProfileName}.txt”；若该配置为当前应用，删除后已应用 AREA 快照与显示范围仍生效",
             _ => prompt,
         };
         AreaProfileFileOperationConfirmButton.Content = operation switch
@@ -1655,28 +1743,32 @@ internal partial class WatchWorkspaceWindow
                         throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
                     }
 
-                    _selectedAreaProfileName = null;
-                    _areaProfileDraft = WatchAreaFilterProfileParser.Parse(string.Empty, string.Empty);
-                    _areaProfileDraftIsDirty = false;
-                    CloseAreaProfileFileOperation(focusFallback: AreaProfileNewButton);
                     if (result.AppliedProfileWasDeleted)
                     {
-                        await ApplyAreaContextAsync(
-                                result.CurrentApplied.ToDisplayContext(),
-                                _lifetimeCancellation.Token)
-                            .ConfigureAwait(true);
-                        if (!IsCurrentAreaProfileOperation(operation))
-                        {
-                            return;
-                        }
-
+                        _selectedAreaProfileName = result.CurrentApplied.ProfileName;
+                        _areaProfileDraft = _areaProfileDraft is { } deletedDraft
+                            ? deletedDraft with { FileFingerprint = null }
+                            : CreateMissingAppliedProfileDraft(result.CurrentApplied);
                     }
+                    else
+                    {
+                        _selectedAreaProfileName = null;
+                        _areaProfileDraft = WatchAreaFilterProfileParser.Parse(
+                            string.Empty,
+                            string.Empty);
+                    }
+
+                    _areaProfileDraftIsDirty = false;
+                    CloseAreaProfileFileOperation(
+                        focusFallback: result.AppliedProfileWasDeleted
+                            ? AreaProfileSaveAsButton
+                            : AreaProfileNewButton);
 
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Success,
                         "AREA 配置已删除",
                         result.AppliedProfileWasDeleted
-                            ? $"{selectedName}.txt 已删除；该配置原为当前应用范围，现已明确回退到全部 AREA。"
+                            ? $"{selectedName}.txt 已删除；已应用 AREA 快照与当前显示范围仍生效，可按原名另存恢复。"
                             : $"{selectedName}.txt 已删除；当前应用范围未改变。");
                     RenderAreaProfiles(reloadProfiles: true);
                     await Dispatcher.InvokeAsync(

@@ -24,11 +24,21 @@ internal sealed record WatchAreaFilterProfile(
     public string? FileFingerprint { get; init; }
 }
 
+internal enum WatchAreaFilterProfileAvailability
+{
+    Present,
+    AppliedSnapshotWithoutFile,
+}
+
 internal sealed record WatchAreaFilterProfileSummary(
     string ProfileName,
-    DateTimeOffset LastModifiedAt,
-    bool IsApplied)
+    DateTimeOffset? FileLastModifiedAt,
+    bool IsApplied,
+    WatchAreaFilterProfileAvailability Availability)
 {
+    public bool IsMissing =>
+        Availability == WatchAreaFilterProfileAvailability.AppliedSnapshotWithoutFile;
+
     public string DisplaySummary => IsApplied
         ? $"{ProfileName} · 当前应用"
         : ProfileName;
@@ -352,8 +362,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return [];
         }
 
-        var appliedProfileName = LoadAppliedStateNoLock().CurrentApplied.ProfileName;
-        return Directory
+        var applied = LoadAppliedStateNoLock().CurrentApplied;
+        var summaries = Directory
             .EnumerateFiles(DirectoryPath, $"*{ProfileExtension}", SearchOption.TopDirectoryOnly)
             .Select(path => new
             {
@@ -368,8 +378,25 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 File.GetLastWriteTimeUtc(item.Path),
                 IsApplied: string.Equals(
                     item.ProfileName,
-                    appliedProfileName,
-                    StringComparison.OrdinalIgnoreCase)))
+                    applied.ProfileName,
+                    StringComparison.OrdinalIgnoreCase),
+                WatchAreaFilterProfileAvailability.Present))
+            .ToList();
+        if (applied.ProfileName is { } appliedProfileName
+            && !summaries.Any(summary => string.Equals(
+                summary.ProfileName,
+                appliedProfileName,
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            summaries.Add(new WatchAreaFilterProfileSummary(
+                appliedProfileName,
+                FileLastModifiedAt: null,
+                IsApplied: true,
+                WatchAreaFilterProfileAvailability.AppliedSnapshotWithoutFile));
+        }
+
+        return summaries
+            .OrderBy(summary => summary.ProfileName, StringComparer.Ordinal)
             .ToArray();
     }
 
@@ -734,7 +761,6 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         using var transactionLock = AcquireProfileTransactionLock();
         var appliedState = LoadAppliedStateNoLock();
         var currentApplied = appliedState.CurrentApplied;
-        var appliedBeforeDelete = currentApplied;
         var nameCheck = WatchAreaFilterProfileParser.Parse(profileName, "A1-1");
         if (!nameCheck.IsValid)
         {
@@ -780,21 +806,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             currentApplied.ProfileName,
             nameCheck.ProfileName,
             StringComparison.OrdinalIgnoreCase);
-        var activeMarkerChanged = false;
         try
         {
-            if (appliedProfileWasDeleted)
-            {
-                var appliedAt = _timeProvider.GetUtcNow();
-                currentApplied = new WatchAppliedAreaFilterProfile(null, [], appliedAt);
-                WriteActiveMarker(new ActiveMarkerDocument(
-                    ActiveMarkerVersion,
-                    ProfileName: null,
-                    MesAreas: [],
-                    AppliedAt: appliedAt));
-                activeMarkerChanged = true;
-            }
-
             _deleteProfileFile(tombstonePath);
         }
         catch
@@ -802,15 +815,6 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             if (File.Exists(tombstonePath) && !File.Exists(path))
             {
                 File.Move(tombstonePath, path);
-            }
-
-            if (activeMarkerChanged)
-            {
-                WriteActiveMarker(new ActiveMarkerDocument(
-                    ActiveMarkerVersion,
-                    appliedBeforeDelete.ProfileName,
-                    appliedBeforeDelete.MesAreas,
-                    appliedBeforeDelete.AppliedAt!.Value));
             }
 
             throw;
