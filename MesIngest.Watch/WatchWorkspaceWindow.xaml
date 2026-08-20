@@ -40,8 +40,12 @@
         <sys:Double x:Key="DemandSeriesMasterDetailStackBreakpoint">1080</sys:Double>
         <wpf:GridLength x:Key="DemandSeriesMasterDefaultHeight">1.2*</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesDetailDefaultHeight">0.8*</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesSplitterHeight">8</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesExpandedPagingHeight">Auto</wpf:GridLength>
+        <wpf:GridLength x:Key="DemandSeriesMasterOnlyHeight">1*</wpf:GridLength>
+        <wpf:GridLength x:Key="DemandSeriesCollapsedHeight">0</wpf:GridLength>
+        <wpf:GridLength x:Key="DemandSeriesAutoHeight">Auto</wpf:GridLength>
+        <wpf:GridLength x:Key="DemandSeriesSplitterHitTargetHeight">32</wpf:GridLength>
+        <sys:Double x:Key="DemandSeriesSplitterMinHitTargetHeight">32</sys:Double>
+        <sys:Double x:Key="DemandSeriesSplitterVisualHeight">4</sys:Double>
         <wpf:GridLength x:Key="DemandSeriesMesObservationHeight">220</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesEvidenceShortHeight">110</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesEvidenceMediumHeight">120</wpf:GridLength>
@@ -93,7 +97,9 @@
         <wpf:Thickness x:Key="DemandSeriesPagingTopPadding">0,12,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesPagingDividerThickness">0,1,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesInfoContentMargin">0,8,0,0</wpf:Thickness>
-        <wpf:Thickness x:Key="DemandSeriesInfoSummaryMargin">0,3,12,0</wpf:Thickness>
+        <wpf:Thickness x:Key="DemandSeriesInfoSummaryMargin">0,4,12,0</wpf:Thickness>
+        <wpf:Thickness x:Key="DemandSeriesMasterHeaderMargin">16,12</wpf:Thickness>
+        <wpf:Thickness x:Key="DemandSeriesHeadingSubtitleMargin">0,4,0,0</wpf:Thickness>
         <!-- ReadabilityAudit and AREA page geometry stays tokenized so the shared
              integration train can calibrate the two master-detail workspaces. -->
         <sys:Double x:Key="ReadabilityStateFilterWidth">165</sys:Double>
@@ -457,7 +463,7 @@
                                     </Grid>
 
                                 <StackPanel Grid.Row="2">
-                                <Expander x:Name="DemandSeriesInfoExpander"
+                                <ui:CardExpander x:Name="DemandSeriesInfoExpander"
                                           IsExpanded="False"
                                           Visibility="Collapsed"
                                           HorizontalContentAlignment="Stretch"
@@ -465,7 +471,7 @@
                                           KeyboardNavigation.IsTabStop="True"
                                           AutomationProperties.Name="需求系列顶部说明区"
                                           AutomationProperties.AutomationId="DemandSeriesInfoExpander">
-                                    <Expander.Header>
+                                    <ui:CardExpander.Header>
                                         <StackPanel>
                                             <ui:TextBlock x:Name="DemandSeriesInfoHeaderTitle"
                                                           Text="来源快照比较"
@@ -488,14 +494,14 @@
                                                 </ui:TextBlock.Style>
                                             </ui:TextBlock>
                                         </StackPanel>
-                                    </Expander.Header>
+                                    </ui:CardExpander.Header>
                                     <ui:InfoBar x:Name="DemandSeriesInfoBar"
                                                 IsOpen="False"
                                                 IsClosable="False"
                                                 Severity="Informational"
                                                 Margin="{StaticResource DemandSeriesInfoContentMargin}"
                                                 AutomationProperties.Name="需求系列读取状态" />
-                                </Expander>
+                                </ui:CardExpander>
 
                                 <Border Style="{StaticResource SurfaceCard}"
                                         Padding="12"
@@ -695,7 +701,7 @@
                                         <RowDefinition x:Name="DemandSeriesMasterDetailPrimaryRow"
                                                        Height="{StaticResource DemandSeriesMasterDefaultHeight}" />
                                         <RowDefinition x:Name="DemandSeriesMasterDetailGapRow"
-                                                       Height="{StaticResource DemandSeriesSplitterHeight}" />
+                                                       Height="{StaticResource DemandSeriesSplitterHitTargetHeight}" />
                                         <RowDefinition x:Name="DemandSeriesMasterDetailBottomRow"
                                                        Height="{StaticResource DemandSeriesDetailDefaultHeight}" />
                                     </Grid.RowDefinitions>
@@ -711,9 +717,9 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="*" />
                                                 <RowDefinition x:Name="DemandSeriesPagingRow"
-                                                               Height="{StaticResource DemandSeriesExpandedPagingHeight}" />
+                                                               Height="{StaticResource DemandSeriesAutoHeight}" />
                                             </Grid.RowDefinitions>
-                                            <Grid Margin="16,12">
+                                            <Grid Margin="{StaticResource DemandSeriesMasterHeaderMargin}">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
@@ -725,7 +731,7 @@
                                                     <ui:TextBlock x:Name="DemandSeriesOrderText"
                                                                   Text="Host 固定排序：开始时间降序、SeriesId 升序；坏数据仍保留在运维列表中。"
                                                                   Style="{StaticResource SecondaryText}"
-                                                                  Margin="0,3,0,0"
+                                                                  Margin="{StaticResource DemandSeriesHeadingSubtitleMargin}"
                                                                   AutomationProperties.Name="需求系列固定排序" />
                                                 </StackPanel>
                                                 <ui:ToggleSwitch x:Name="DemandSeriesDetailVisibilityToggle"
@@ -861,18 +867,24 @@
                                         </Grid>
                                     </Border>
 
-                                    <GridSplitter x:Name="DemandSeriesMasterDetailSplitter"
-                                                  Grid.Row="1"
-                                                  HorizontalAlignment="Stretch"
-                                                  VerticalAlignment="Stretch"
-                                                  ResizeDirection="Rows"
-                                                  ResizeBehavior="PreviousAndNext"
-                                                  ShowsPreview="True"
-                                                  Focusable="True"
-                                                  KeyboardNavigation.IsTabStop="True"
-                                                  Background="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                                  AutomationProperties.Name="调整需求系列列表与详情高度"
-                                                  AutomationProperties.AutomationId="DemandSeriesMasterDetailSplitter" />
+                                    <Grid Grid.Row="1">
+                                        <Border Height="{StaticResource DemandSeriesSplitterVisualHeight}"
+                                                VerticalAlignment="Center"
+                                                Background="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                                IsHitTestVisible="False" />
+                                        <GridSplitter x:Name="DemandSeriesMasterDetailSplitter"
+                                                      MinHeight="{StaticResource DemandSeriesSplitterMinHitTargetHeight}"
+                                                      HorizontalAlignment="Stretch"
+                                                      VerticalAlignment="Stretch"
+                                                      ResizeDirection="Rows"
+                                                      ResizeBehavior="PreviousAndNext"
+                                                      ShowsPreview="True"
+                                                      Focusable="True"
+                                                      KeyboardNavigation.IsTabStop="True"
+                                                      Background="Transparent"
+                                                      AutomationProperties.Name="调整需求系列列表与详情高度"
+                                                      AutomationProperties.AutomationId="DemandSeriesMasterDetailSplitter" />
+                                    </Grid>
 
                                     <Border x:Name="DemandSeriesDetailPanel"
                                             Grid.Row="2"

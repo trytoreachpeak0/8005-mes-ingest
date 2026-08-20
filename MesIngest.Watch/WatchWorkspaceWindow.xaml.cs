@@ -835,13 +835,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
             : Visibility.Collapsed;
         DemandSeriesMasterDetailPrimaryRow.Height = showDetail
             ? _demandSeriesExpandedMasterHeight
-            : new GridLength(1, GridUnitType.Star);
+            : (GridLength)FindResource("DemandSeriesMasterOnlyHeight");
         DemandSeriesMasterDetailGapRow.Height = showDetail
-            ? (GridLength)FindResource("DemandSeriesSplitterHeight")
-            : new GridLength(0);
+            ? (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight")
+            : (GridLength)FindResource("DemandSeriesCollapsedHeight");
         DemandSeriesMasterDetailBottomRow.Height = showDetail
             ? _demandSeriesExpandedDetailHeight
-            : new GridLength(0);
+            : (GridLength)FindResource("DemandSeriesCollapsedHeight");
         AutomationProperties.SetName(
             DemandSeriesDetailVisibilityToggle,
             showDetail
@@ -2288,16 +2288,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
         else if (stack)
         {
-            DemandSeriesMasterDetailPrimaryRow.Height = GridLength.Auto;
+            DemandSeriesMasterDetailPrimaryRow.Height =
+                (GridLength)FindResource("DemandSeriesAutoHeight");
             DemandSeriesMasterDetailGapRow.Height =
-                (GridLength)FindResource("DemandSeriesSplitterHeight");
-            DemandSeriesMasterDetailBottomRow.Height = GridLength.Auto;
+                (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight");
+            DemandSeriesMasterDetailBottomRow.Height =
+                (GridLength)FindResource("DemandSeriesAutoHeight");
         }
         else
         {
             DemandSeriesMasterDetailPrimaryRow.Height = _demandSeriesExpandedMasterHeight;
             DemandSeriesMasterDetailGapRow.Height =
-                (GridLength)FindResource("DemandSeriesSplitterHeight");
+                (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight");
             DemandSeriesMasterDetailBottomRow.Height = _demandSeriesExpandedDetailHeight;
         }
 

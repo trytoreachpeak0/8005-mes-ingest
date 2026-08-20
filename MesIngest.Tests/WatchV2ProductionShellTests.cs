@@ -159,7 +159,7 @@ public sealed class WatchV2ProductionShellTests
             var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                 window.FindName("DemandSeriesInfoBar"));
             Assert.Equal("需求系列读取状态", AutomationProperties.GetName(infoBar));
-            var infoExpander = Assert.IsType<Expander>(
+            var infoExpander = Assert.IsType<Wpf.Ui.Controls.CardExpander>(
                 window.FindName("DemandSeriesInfoExpander"));
             Assert.False(infoExpander.IsExpanded);
             Assert.Equal("需求系列顶部说明区", AutomationProperties.GetName(infoExpander));
@@ -322,6 +322,7 @@ public sealed class WatchV2ProductionShellTests
             Assert.Equal("调整需求系列列表与详情高度", AutomationProperties.GetName(splitter));
             Assert.True(splitter.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(splitter));
+            Assert.True(splitter.MinHeight >= 32);
             Assert.Equal(GridResizeDirection.Rows, splitter.ResizeDirection);
             Assert.Equal(GridResizeBehavior.PreviousAndNext, splitter.ResizeBehavior);
             Assert.Equal(0, Grid.GetRow(masterPanel));
