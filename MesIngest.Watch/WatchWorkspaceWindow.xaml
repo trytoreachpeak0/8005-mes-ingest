@@ -2986,6 +2986,7 @@
                                                             <Grid.RowDefinitions>
                                                                 <RowDefinition Height="Auto" />
                                                                 <RowDefinition Height="Auto" />
+                                                                <RowDefinition Height="Auto" />
                                                             </Grid.RowDefinitions>
                                                             <Grid>
                                                                 <Grid.ColumnDefinitions>
@@ -3004,7 +3005,7 @@
                                                                             Style="{StaticResource StatusPillAccent}"
                                                                             Visibility="Collapsed">
                                                                         <ui:TextBlock x:Name="AreaProfileRowStatus"
-                                                                                      Text="{Binding StatusText}"
+                                                                                      Text="{Binding AppliedBadgeText}"
                                                                                       FontTypography="Caption" />
                                                                     </Border>
                                                                 </Grid>
@@ -3014,9 +3015,22 @@
                                                                           Text="{Binding MetadataText}"
                                                                           Style="{StaticResource CaptionText}"
                                                                           Margin="0,5,0,0" />
+                                                            <ui:TextBlock x:Name="AreaProfileRowAttentionText"
+                                                                          Grid.Row="2"
+                                                                          Text="{Binding AttentionText}"
+                                                                          Style="{StaticResource CaptionText}"
+                                                                          Foreground="{DynamicResource SystemFillColorCautionBrush}"
+                                                                          Margin="0,3,0,0" />
                                                         </Grid>
                                                     </Border>
                                                     <DataTemplate.Triggers>
+                                                        <DataTrigger Binding="{Binding HasAttention}" Value="False">
+                                                            <Setter TargetName="AreaProfileRowAttentionText"
+                                                                    Property="Visibility"
+                                                                    Value="Collapsed" />
+                                                        </DataTrigger>
+                                                        <!-- The badge slot carries "currently applied" and nothing else,
+                                                             so a profile that is applied and broken keeps saying both. -->
                                                         <DataTrigger Binding="{Binding IsApplied}" Value="True">
                                                             <Setter TargetName="AreaProfileRowValidStatus"
                                                                     Property="Visibility"
@@ -3029,12 +3043,9 @@
                                                             <Setter TargetName="AreaProfileRowValidStatus"
                                                                     Property="Visibility"
                                                                     Value="Collapsed" />
-                                                            <Setter TargetName="AreaProfileRowStatusPill"
-                                                                    Property="Visibility"
-                                                                    Value="Visible" />
-                                                            <Setter TargetName="AreaProfileRowStatusPill"
-                                                                     Property="Style"
-                                                                     Value="{StaticResource StatusPillCritical}" />
+                                                            <Setter TargetName="AreaProfileRowAttentionText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource SystemFillColorCriticalBrush}" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True">
                                                             <Setter TargetName="AreaProfileRowSurface"
@@ -3049,12 +3060,14 @@
                                                             <Setter TargetName="AreaProfileRowValidStatus"
                                                                     Property="Foreground"
                                                                     Value="{DynamicResource TextFillColorInverseBrush}" />
+                                                            <Setter TargetName="AreaProfileRowAttentionText"
+                                                                    Property="Foreground"
+                                                                    Value="{DynamicResource TextFillColorInverseBrush}" />
                                                         </DataTrigger>
                                                         <MultiDataTrigger>
                                                             <MultiDataTrigger.Conditions>
                                                                 <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" Value="True" />
                                                                 <Condition Binding="{Binding IsApplied}" Value="True" />
-                                                                <Condition Binding="{Binding IsValid}" Value="True" />
                                                             </MultiDataTrigger.Conditions>
                                                             <Setter TargetName="AreaProfileRowStatusPill"
                                                                     Property="Background"
@@ -3353,7 +3366,7 @@
                                                                   VerticalAlignment="Center"
                                                                   AutomationProperties.Name="AREA 配置保存状态" />
                                                     <ui:Button x:Name="AreaProfileApplyButton"
-                                                               Content="保存并应用范围"
+                                                               Content="应用此配置"
                                                                Appearance="Secondary"
                                                                IsEnabled="False"
                                                                Margin="4,0,0,0"

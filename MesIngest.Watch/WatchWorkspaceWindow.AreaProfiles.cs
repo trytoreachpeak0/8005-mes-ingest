@@ -73,29 +73,135 @@ internal sealed class WatchAreaProfileDirectoryLauncher : IWatchAreaProfileDirec
 
 internal sealed record WatchAreaFilterProfilePresentationRow(
     string ProfileName,
-    int MesAreaCount,
+    IReadOnlyList<string> MesAreas,
     int DiagnosticCount,
     bool IsValid,
     bool IsApplied,
     DateTimeOffset LastModifiedAt)
 {
+    public int MesAreaCount => MesAreas.Count;
+
+    /// <summary>
+    /// The file no longer parses to the AREA sequence the display scope was
+    /// taken from. Only carries meaning while <see cref="IsApplied"/>.
+    /// </summary>
+    public bool HasDrifted { get; init; }
+
     public string LastModifiedText => WatchTimeDisplay.Format(LastModifiedAt);
 
-    public string StatusText => IsApplied
-        ? IsValid
-            ? "当前应用"
-            : "当前应用 · 无效"
-        : IsValid
-            ? "有效"
-            : "无效";
+    /// <summary>
+    /// The badge belongs to "currently applied" and to nothing else. Invalid
+    /// content and drift are a second, orthogonal dimension carried by
+    /// <see cref="AttentionText"/>, so neither one can hide the other.
+    /// </summary>
+    public string AppliedBadgeText => "当前应用";
+
+    /// <summary>
+    /// Spoken only. On screen the corner shows 有效 for a healthy profile and
+    /// hands the slot over to the badge or to <see cref="AttentionText"/>
+    /// otherwise, but a screen reader still needs the word said out loud.
+    /// </summary>
+    public string ValidityText => IsValid ? "有效" : "无效";
+
+    public string? AttentionText => this switch
+    {
+        { IsValid: false, IsApplied: true } => "内容非法 · 待重新应用",
+        { IsValid: false } => "内容非法 · 需修复",
+        { IsApplied: true, HasDrifted: true } => "待重新应用",
+        _ => null,
+    };
+
+    public bool HasAttention => AttentionText is not null;
 
     public string MetadataText =>
         $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
 
-    public string DisplaySummary => $"{ProfileName} · {StatusText}";
+    public string AutomationName => string.Join(
+        '；',
+        new[]
+        {
+            ProfileName,
+            $"{MesAreaCount:N0} 个 AREA",
+            IsApplied ? AppliedBadgeText : ValidityText,
+            AttentionText,
+            $"{LastModifiedText} 修改",
+        }.Where(part => part is not null));
+}
 
-    public string AutomationName =>
-        $"{ProfileName}；{MesAreaCount:N0} 个 AREA；{StatusText}；{LastModifiedText} 修改";
+/// <summary>
+/// What the apply button offers for the selected profile. The display scope is
+/// the AREA snapshot taken when the user last pressed apply, so what separates
+/// <see cref="Applied"/> from <see cref="Reapply"/> is that snapshot, never the
+/// file's bytes.
+/// </summary>
+internal enum WatchAreaProfileApplyAction
+{
+    Apply,
+    Applied,
+    Reapply,
+}
+
+/// <summary>
+/// Where the selected profile stands. <see cref="Missing"/> is reserved for a
+/// profile that is still the applied one after its file went away: the scope
+/// outlives the file, so the button keeps naming it instead of vanishing.
+/// </summary>
+internal enum WatchAreaProfileFileCondition
+{
+    Valid,
+    Invalid,
+    Missing,
+}
+
+internal sealed record WatchAreaProfileApplyButtonState(
+    WatchAreaProfileApplyAction Action,
+    bool IsEnabled,
+    string? BlockedReason)
+{
+    public string Content => Action switch
+    {
+        WatchAreaProfileApplyAction.Applied => "已应用",
+        WatchAreaProfileApplyAction.Reapply => "重新应用",
+        _ => "应用此配置",
+    };
+
+    public string AutomationName => Action switch
+    {
+        WatchAreaProfileApplyAction.Applied => "选中 AREA 配置已是当前显示范围",
+        WatchAreaProfileApplyAction.Reapply => "重新应用选中 AREA 配置",
+        _ => "应用选中 AREA 配置",
+    } + (BlockedReason is { } reason ? $"；{reason}" : string.Empty);
+
+    /// <summary>
+    /// The five button appearances the spec fixed: the two blocked 重新应用
+    /// rows look alike and differ only in the reason they carry. Editing a file
+    /// never moves the display scope, so the only thing that turns 已应用 into
+    /// 重新应用 is the parsed AREA sequence drifting away from the snapshot —
+    /// comments and blank lines change the file without changing that sequence.
+    /// </summary>
+    public static WatchAreaProfileApplyButtonState Evaluate(
+        bool isCurrentApplied,
+        WatchAreaProfileFileCondition condition,
+        bool matchesAppliedSnapshot) => (isCurrentApplied, condition) switch
+    {
+        (false, WatchAreaProfileFileCondition.Valid) =>
+            new(WatchAreaProfileApplyAction.Apply, true, null),
+        (false, _) =>
+            new(WatchAreaProfileApplyAction.Apply, false, null),
+        (true, WatchAreaProfileFileCondition.Missing) =>
+            new(
+                WatchAreaProfileApplyAction.Reapply,
+                false,
+                "文件已删除 · 当前显示范围仍生效"),
+        (true, WatchAreaProfileFileCondition.Invalid) =>
+            new(
+                WatchAreaProfileApplyAction.Reapply,
+                false,
+                "内容非法不可应用 · 当前显示范围保持不变"),
+        _ => matchesAppliedSnapshot
+            ? new(WatchAreaProfileApplyAction.Applied, false, null)
+            : new(WatchAreaProfileApplyAction.Reapply, true, null),
+    };
 }
 
 internal partial class WatchWorkspaceWindow
@@ -400,9 +506,6 @@ internal partial class WatchWorkspaceWindow
                         StringComparison.OrdinalIgnoreCase),
                 })
                 .ToArray();
-            var searchText = AreaProfileSearchInput.Text.Trim();
-            var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
-            var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
 
             var areaProfileDirectoryPath = Path.GetFullPath(_areaProfileStore.DirectoryPath);
             AreaProfileDirectoryText.Text = FormatAreaProfileDirectoryCaption(
@@ -411,10 +514,6 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetHelpText(
                 AreaProfileDirectoryText,
                 areaProfileDirectoryPath);
-            AreaProfileListSummaryText.Text = searchText.Length == 0
-                ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
-                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个文件"
-                    + $" · {invalidCount:N0} 个需要修复";
             if (_selectedAreaProfileName is null
                 && !_areaProfileDraftIsDirty
                 && applied.ProfileName is { } appliedProfileName
@@ -441,6 +540,22 @@ internal partial class WatchWorkspaceWindow
                 }
             }
 
+            _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
+                string.Empty,
+                string.Empty);
+            var applyState = EvaluateAreaProfileApplyState(applied, _areaProfileDraft);
+            _areaProfileRows = MarkDriftedAreaProfileRows(
+                _areaProfileRows,
+                applied,
+                _areaProfileDraft);
+            var searchText = AreaProfileSearchInput.Text.Trim();
+            var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
+            var invalidCount = _areaProfileRows.Count(row => !row.IsValid);
+            AreaProfileListSummaryText.Text = searchText.Length == 0
+                ? $"{_areaProfileRows.Count:N0} 个文件 · {invalidCount:N0} 个需要修复"
+                : $"显示 {visibleRows.Count:N0} / {_areaProfileRows.Count:N0} 个文件"
+                    + $" · {invalidCount:N0} 个需要修复";
+
             AreaProfileAppliedStateText.Text = applied.AppliedAt is { } appliedAt
                 ? $"当前应用：{applied.DisplaySummary} · {WatchTimeDisplay.Format(appliedAt)}"
                 : $"当前应用：{applied.DisplaySummary}";
@@ -455,9 +570,6 @@ internal partial class WatchWorkspaceWindow
                 _selectedAreaProfileName,
                 StringComparison.OrdinalIgnoreCase));
 
-            _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
-                string.Empty,
-                string.Empty);
             if (!string.Equals(AreaProfileNameInput.Text, _areaProfileDraft.ProfileName, StringComparison.Ordinal))
             {
                 AreaProfileNameInput.Text = _areaProfileDraft.ProfileName;
@@ -490,24 +602,20 @@ internal partial class WatchWorkspaceWindow
                 _areaProfileDraft.IsValid
                     ? "StatusPillSuccess"
                     : "StatusPillCritical");
-            AreaProfileValidationSummaryText.Text = _areaProfileDraft.IsValid
-                ? $"✓ 格式有效 · {contentByteCount:N0} B"
-                : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用";
+            AreaProfileValidationSummaryText.Text = applyState.BlockedReason
+                ?? (_areaProfileDraft.IsValid
+                    ? $"✓ 格式有效 · {contentByteCount:N0} B"
+                    : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用");
             AreaProfileDiskStateText.Text = DescribeAreaProfileDiskState();
             AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
                 ? Visibility.Collapsed
                 : Visibility.Visible;
             var isNewProfile = _selectedAreaProfileName is null;
-            var isSelectedProfileApplied = !isNewProfile
-                && string.Equals(
-                    _selectedAreaProfileName,
-                    applied.ProfileName,
-                    StringComparison.OrdinalIgnoreCase)
-                && applied.MesAreas.SequenceEqual(
-                    _areaProfileDraft.MesAreas,
-                    StringComparer.Ordinal);
-            AreaProfileApplyButton.IsEnabled = _areaProfileDraft.IsValid
-                && (isNewProfile || _areaProfileDraftIsDirty || !isSelectedProfileApplied);
+            AreaProfileApplyButton.Content = applyState.Content;
+            AreaProfileApplyButton.IsEnabled = applyState.IsEnabled;
+            AutomationProperties.SetName(
+                AreaProfileApplyButton,
+                applyState.AutomationName);
             // "Save as" supplies the name itself, so a draft that only lacks
             // one — the state a file deleted underneath the editor leaves
             // behind — must still be able to reach the disk through it.
@@ -535,6 +643,64 @@ internal partial class WatchWorkspaceWindow
             _isRenderingAreaProfiles = false;
         }
     }
+
+    /// <summary>
+    /// The display scope is a snapshot, so what the apply button offers is
+    /// decided by the selected profile's relation to that snapshot rather than
+    /// by the state of any file.
+    /// </summary>
+    private WatchAreaProfileApplyButtonState EvaluateAreaProfileApplyState(
+        WatchAppliedAreaFilterProfile applied,
+        WatchAreaFilterProfile draft)
+    {
+        var isCurrentApplied = _selectedAreaProfileName is { } selectedName
+            && string.Equals(
+                selectedName,
+                applied.ProfileName,
+                StringComparison.OrdinalIgnoreCase);
+        var condition = isCurrentApplied && !HasAreaProfileRow(_selectedAreaProfileName)
+            ? WatchAreaProfileFileCondition.Missing
+            : draft.IsValid
+                ? WatchAreaProfileFileCondition.Valid
+                : WatchAreaProfileFileCondition.Invalid;
+        return WatchAreaProfileApplyButtonState.Evaluate(
+            isCurrentApplied,
+            condition,
+            applied.MesAreas.SequenceEqual(draft.MesAreas, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Drift is the parsed AREA sequence moving away from the snapshot, so a
+    /// comment-only or blank-line edit never raises it. The selected row is
+    /// judged against the editor buffer rather than against its file, so the
+    /// row and the apply button cannot disagree during the second before
+    /// auto-save lands. What every row <em>displays</em> still comes from its
+    /// file — the list stays a picture of the directory, not of the buffer.
+    /// </summary>
+    private IReadOnlyList<WatchAreaFilterProfilePresentationRow> MarkDriftedAreaProfileRows(
+        IReadOnlyList<WatchAreaFilterProfilePresentationRow> rows,
+        WatchAppliedAreaFilterProfile applied,
+        WatchAreaFilterProfile draft) => rows
+        .Select(row => row with
+        {
+            HasDrifted = row.IsApplied
+                && !applied.MesAreas.SequenceEqual(
+                    IsSelectedAreaProfileRow(row) ? draft.MesAreas : row.MesAreas,
+                    StringComparer.Ordinal),
+        })
+        .ToArray();
+
+    private bool IsSelectedAreaProfileRow(
+        WatchAreaFilterProfilePresentationRow row) => string.Equals(
+        row.ProfileName,
+        _selectedAreaProfileName,
+        StringComparison.OrdinalIgnoreCase);
+
+    private bool HasAreaProfileRow(string? profileName) => _areaProfileRows.Any(
+        row => string.Equals(
+            row.ProfileName,
+            profileName,
+            StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// One sentence for where the editor buffer stands relative to its file.
@@ -602,7 +768,7 @@ internal partial class WatchWorkspaceWindow
                 var parsed = _areaProfileStore.Load(summary.ProfileName);
                 return new WatchAreaFilterProfilePresentationRow(
                     summary.ProfileName,
-                    parsed.MesAreas.Count,
+                    parsed.MesAreas,
                     parsed.Diagnostics.Count,
                     parsed.IsValid,
                     summary.IsApplied,
