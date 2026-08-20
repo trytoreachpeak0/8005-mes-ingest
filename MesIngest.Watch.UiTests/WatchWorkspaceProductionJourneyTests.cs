@@ -814,6 +814,26 @@ public sealed class WatchWorkspaceProductionJourneyTests
             var demandGrid = WaitForRows(window, "DemandSeriesGrid", "DemandSeries rows");
             failedStep = "demand-series-column-resize";
             ExerciseDemandSeriesColumnResize(demandGrid);
+            failedStep = "demand-series-master-only";
+            var detailVisibility = FindRequiredById(
+                    window,
+                    "DemandSeriesDetailVisibilityToggle")
+                .AsToggleButton();
+            Assert.Equal(ToggleState.On, detailVisibility.ToggleState);
+            detailVisibility.Toggle();
+            WaitUntil(
+                () => detailVisibility.ToggleState == ToggleState.Off,
+                "DemandSeries detail collapsed through its production toggle",
+                StepTimeout);
+            CaptureApprovedBaseline(
+                evidence,
+                process.MainWindowHandle,
+                "03a-demand-series-master-only");
+            detailVisibility.Toggle();
+            WaitUntil(
+                () => detailVisibility.ToggleState == ToggleState.On,
+                "DemandSeries detail restored through its production toggle",
+                StepTimeout);
             demandGrid.Select(0);
             var demandGenerationGrid = WaitForRows(
                 window,
