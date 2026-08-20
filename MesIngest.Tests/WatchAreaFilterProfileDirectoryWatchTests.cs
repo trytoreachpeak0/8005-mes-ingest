@@ -361,6 +361,72 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
     }
 
     [Fact]
+    public void A_watcher_failure_after_directory_disappearance_full_rescans_to_an_empty_listing()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("西区", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var stateChanges = new List<WatchAreaProfileDirectoryWatchStateChange>();
+        var directoryChanges = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryWatchStateChanged += (_, change) => stateChanges.Add(change);
+        store.DirectoryChanged += (_, change) => directoryChanges.Add(change);
+        store.StartWatchingDirectory();
+
+        Directory.Delete(directory.Path, recursive: true);
+        events.RaiseFailure(new IOException("目录已消失"));
+
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Degraded,
+            stateChanges[^1].Status);
+        Assert.True(Assert.Single(directoryChanges).RequiresFullRescan);
+        Assert.Empty(store.EnumerateProfiles());
+        Assert.False(Directory.Exists(directory.Path));
+    }
+
+    [Fact]
+    public void An_overflow_full_rescans_even_when_immediate_restart_fails_then_retries()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("西区", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var stateChanges = new List<WatchAreaProfileDirectoryWatchStateChange>();
+        var directoryChanges = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryWatchStateChanged += (_, change) => stateChanges.Add(change);
+        store.DirectoryChanged += (_, change) => directoryChanges.Add(change);
+        store.StartWatchingDirectory();
+        events.FailNextStart = true;
+
+        events.RaiseFailure(new InternalBufferOverflowException("测试溢出"));
+
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Degraded,
+            stateChanges[^1].Status);
+        Assert.True(Assert.Single(directoryChanges).RequiresFullRescan);
+        Assert.Equal(
+            ["西区"],
+            store.EnumerateProfiles().Select(summary => summary.ProfileName));
+
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchRecoveryInterval);
+
+        Assert.True(events.IsStarted);
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Watching,
+            stateChanges[^1].Status);
+        Assert.Equal(2, directoryChanges.Count);
+        Assert.True(directoryChanges[^1].RequiresFullRescan);
+    }
+
+    [Fact]
     public void Repeated_events_for_one_file_raise_one_directory_change_per_window()
     {
         using var directory = new TemporaryProfileDirectory();

@@ -291,9 +291,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     private ITimer? _directoryChangeDebounceTimer;
     private ITimer? _directoryWatchHealthTimer;
     private bool _directoryInitialized;
-    private bool _directoryWatchHasBeenRequested;
-    private bool _directoryWatchRequested;
-    private bool _directoryWatching;
+    private DirectoryWatchLifecycle _directoryWatchLifecycle;
+    private bool _directoryWatchNeedsFullRescan;
     private bool _disposed;
 
     public WatchAreaFilterProfileStore(
@@ -1189,19 +1188,16 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         IWatchAreaProfileDirectoryEventSource source;
-        bool requiresFullRescan;
         lock (_directoryWatchGate)
         {
-            _directoryWatchRequested = true;
-            if (_directoryWatching)
+            if (_directoryWatchLifecycle is not DirectoryWatchLifecycle.Stopped)
             {
                 return;
             }
 
+            _directoryWatchLifecycle = DirectoryWatchLifecycle.Starting;
             source = GetOrCreateDirectoryEventSourceNoLock();
             EnsureDirectoryWatchHealthTimerNoLock();
-            requiresFullRescan = _directoryWatchHasBeenRequested;
-            _directoryWatchHasBeenRequested = true;
         }
 
         try
@@ -1217,7 +1213,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return;
         }
 
-        TryStartDirectoryEventSource(source, requiresFullRescan);
+        TryStartDirectoryEventSource(source, failureRescanAlreadyEmitted: false);
     }
 
     public void StopWatchingDirectory()
@@ -1227,13 +1223,14 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         ITimer[] deleteConfirmationTimers;
         lock (_directoryWatchGate)
         {
-            if (_disposed || !_directoryWatchRequested)
+            if (_disposed
+                || _directoryWatchLifecycle is DirectoryWatchLifecycle.Stopped)
             {
                 return;
             }
 
-            _directoryWatchRequested = false;
-            _directoryWatching = false;
+            _directoryWatchLifecycle = DirectoryWatchLifecycle.Stopped;
+            _directoryWatchNeedsFullRescan = true;
             source = _directoryEventSource;
             debounceTimer = _directoryChangeDebounceTimer;
             _directoryChangeDebounceTimer = null;
@@ -1272,8 +1269,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             }
 
             _disposed = true;
-            _directoryWatchRequested = false;
-            _directoryWatching = false;
+            _directoryWatchLifecycle = DirectoryWatchLifecycle.Stopped;
             source = _directoryEventSource;
             debounceTimer = _directoryChangeDebounceTimer;
             healthTimer = _directoryWatchHealthTimer;
@@ -1310,7 +1306,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     {
         lock (_directoryWatchGate)
         {
-            if (_disposed || !_directoryWatching)
+            if (_disposed
+                || _directoryWatchLifecycle is not DirectoryWatchLifecycle.Watching)
             {
                 return;
             }
@@ -1550,20 +1547,24 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
 
     private void TryStartDirectoryEventSource(
         IWatchAreaProfileDirectoryEventSource source,
-        bool requiresFullRescan)
+        bool failureRescanAlreadyEmitted)
     {
         try
         {
             source.Start(DirectoryPath);
+            bool requiresFullRescan;
             lock (_directoryWatchGate)
             {
-                if (_disposed || !_directoryWatchRequested)
+                if (_disposed
+                    || _directoryWatchLifecycle is not DirectoryWatchLifecycle.Starting)
                 {
                     source.Stop();
                     return;
                 }
 
-                _directoryWatching = true;
+                _directoryWatchLifecycle = DirectoryWatchLifecycle.Watching;
+                requiresFullRescan = _directoryWatchNeedsFullRescan;
+                _directoryWatchNeedsFullRescan = false;
             }
 
             RaiseDirectoryWatchStateChanged(
@@ -1579,7 +1580,16 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             or ArgumentException)
         {
             EnterDirectoryWatchDegraded(
-                $"AREA 配置目录暂时无法监视：{exception.Message}");
+                $"AREA 配置目录暂时无法监视：{exception.Message}",
+                requiresFullRescan: !failureRescanAlreadyEmitted);
+            lock (_directoryWatchGate)
+            {
+                if (!_disposed
+                    && _directoryWatchLifecycle is DirectoryWatchLifecycle.Degraded)
+                {
+                    _directoryWatchNeedsFullRescan = true;
+                }
+            }
         }
     }
 
@@ -1590,59 +1600,64 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         EnterDirectoryWatchDegraded(
             failure.Exception is InternalBufferOverflowException
                 ? "AREA 配置目录事件过多，正在全量重新扫描并重建监视。"
-                : $"AREA 配置目录监视已中断：{failure.Exception.Message}",
-            requiresFullRescan: false);
+                : $"AREA 配置目录监视已中断：{failure.Exception.Message}");
         if (Directory.Exists(DirectoryPath))
         {
-            TryRecoverDirectoryWatch();
+            TryRecoverDirectoryWatch(failureRescanAlreadyEmitted: true);
         }
     }
 
     private void CheckDirectoryWatchHealth()
     {
-        bool watching;
+        DirectoryWatchLifecycle lifecycle;
         lock (_directoryWatchGate)
         {
-            if (_disposed || !_directoryWatchRequested)
+            if (_disposed)
             {
                 return;
             }
 
-            watching = _directoryWatching;
+            lifecycle = _directoryWatchLifecycle;
         }
 
-        if (watching && Directory.Exists(DirectoryPath))
+        if (lifecycle is DirectoryWatchLifecycle.Watching
+            && Directory.Exists(DirectoryPath))
         {
             return;
         }
 
-        if (watching)
+        if (lifecycle is DirectoryWatchLifecycle.Watching)
         {
             EnterDirectoryWatchDegraded(
-                "AREA 配置目录不存在；当前列表可能不是最新的，目录恢复后将自动重新监视。");
+                "AREA 配置目录不存在；目录恢复后将自动重新监视。");
             return;
         }
 
-        TryRecoverDirectoryWatch();
+        if (lifecycle is DirectoryWatchLifecycle.Degraded)
+        {
+            TryRecoverDirectoryWatch(failureRescanAlreadyEmitted: false);
+        }
     }
 
-    private void TryRecoverDirectoryWatch()
+    private void TryRecoverDirectoryWatch(bool failureRescanAlreadyEmitted)
     {
         IWatchAreaProfileDirectoryEventSource? source;
         lock (_directoryWatchGate)
         {
-            if (_disposed || !_directoryWatchRequested || _directoryWatching
+            if (_disposed
+                || _directoryWatchLifecycle is not DirectoryWatchLifecycle.Degraded
                 || !Directory.Exists(DirectoryPath))
             {
                 return;
             }
 
+            _directoryWatchLifecycle = DirectoryWatchLifecycle.Starting;
             source = _directoryEventSource;
         }
 
         if (source is not null)
         {
-            TryStartDirectoryEventSource(source, requiresFullRescan: true);
+            TryStartDirectoryEventSource(source, failureRescanAlreadyEmitted);
         }
     }
 
@@ -1651,20 +1666,26 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         bool requiresFullRescan = true)
     {
         IWatchAreaProfileDirectoryEventSource? source;
-        bool wasWatching;
+        bool shouldStopSource;
         lock (_directoryWatchGate)
         {
-            if (_disposed || !_directoryWatchRequested)
+            if (_disposed
+                || _directoryWatchLifecycle is DirectoryWatchLifecycle.Stopped)
             {
                 return;
             }
 
-            wasWatching = _directoryWatching;
-            _directoryWatching = false;
+            shouldStopSource = _directoryWatchLifecycle is
+                DirectoryWatchLifecycle.Watching or DirectoryWatchLifecycle.Starting;
+            _directoryWatchLifecycle = DirectoryWatchLifecycle.Degraded;
+            if (requiresFullRescan)
+            {
+                _directoryWatchNeedsFullRescan = !Directory.Exists(DirectoryPath);
+            }
             source = _directoryEventSource;
         }
 
-        if (wasWatching)
+        if (shouldStopSource)
         {
             source?.Stop();
         }
@@ -1683,6 +1704,14 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         string message) => DirectoryWatchStateChanged?.Invoke(
             this,
             new WatchAreaProfileDirectoryWatchStateChange(status, message));
+
+    private enum DirectoryWatchLifecycle
+    {
+        Stopped,
+        Starting,
+        Watching,
+        Degraded,
+    }
 
     private void RememberOwnProfileWrite(WatchAreaFilterProfile profile)
     {
