@@ -13,9 +13,17 @@ internal sealed class ManualAreaProfileDirectoryEventSource
 {
     public event EventHandler<WatchAreaProfileDirectoryEvent>? Raised;
 
+    public event EventHandler<WatchAreaProfileDirectoryFailure>? Failed;
+
     public string? StartedDirectoryPath { get; private set; }
 
     public bool IsDisposed { get; private set; }
+
+    public bool IsStarted => StartedDirectoryPath is not null;
+
+    public int StartCount { get; private set; }
+
+    public int StopCount { get; private set; }
 
     /// <summary>
     /// Makes the next <see cref="Start"/> fail the way an unreachable or
@@ -32,6 +40,7 @@ internal sealed class ManualAreaProfileDirectoryEventSource
         }
 
         StartedDirectoryPath = directoryPath;
+        StartCount++;
     }
 
     public void RaiseCreated(string fileName) =>
@@ -49,7 +58,25 @@ internal sealed class ManualAreaProfileDirectoryEventSource
             fileName,
             previousFileName));
 
-    public void Dispose() => IsDisposed = true;
+    public void RaiseFailure(Exception exception) =>
+        Failed?.Invoke(this, new WatchAreaProfileDirectoryFailure(exception));
+
+    public void Stop()
+    {
+        if (StartedDirectoryPath is null)
+        {
+            return;
+        }
+
+        StartedDirectoryPath = null;
+        StopCount++;
+    }
+
+    public void Dispose()
+    {
+        Stop();
+        IsDisposed = true;
+    }
 
     private void Raise(WatchAreaProfileDirectoryEventKind kind, string fileName) =>
         Raised?.Invoke(this, new WatchAreaProfileDirectoryEvent(kind, fileName));

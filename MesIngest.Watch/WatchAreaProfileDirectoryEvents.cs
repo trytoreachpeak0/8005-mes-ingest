@@ -31,13 +31,31 @@ internal sealed record WatchAreaProfileRename(
 internal sealed record WatchAreaProfileDirectoryChange(
     IReadOnlyList<string> AffectedProfileNames,
     IReadOnlyList<WatchAreaProfileRename> Renames,
-    IReadOnlyList<string> DeletedProfileNames);
+    IReadOnlyList<string> DeletedProfileNames,
+    bool RequiresFullRescan = false);
+
+internal sealed record WatchAreaProfileDirectoryFailure(Exception Exception);
+
+internal enum WatchAreaProfileDirectoryWatchStatus
+{
+    Watching,
+    Degraded,
+    Stopped,
+}
+
+internal sealed record WatchAreaProfileDirectoryWatchStateChange(
+    WatchAreaProfileDirectoryWatchStatus Status,
+    string Message);
 
 internal interface IWatchAreaProfileDirectoryEventSource : IDisposable
 {
     event EventHandler<WatchAreaProfileDirectoryEvent>? Raised;
 
+    event EventHandler<WatchAreaProfileDirectoryFailure>? Failed;
+
     void Start(string directoryPath);
+
+    void Stop();
 }
 
 /// <summary>
@@ -52,6 +70,8 @@ internal sealed class WatchAreaProfileDirectoryWatcher : IWatchAreaProfileDirect
     private bool _disposed;
 
     public event EventHandler<WatchAreaProfileDirectoryEvent>? Raised;
+
+    public event EventHandler<WatchAreaProfileDirectoryFailure>? Failed;
 
     public void Start(string directoryPath)
     {
@@ -79,8 +99,16 @@ internal sealed class WatchAreaProfileDirectoryWatcher : IWatchAreaProfileDirect
             Raise(WatchAreaProfileDirectoryEventKind.Deleted, e.Name);
         watcher.Renamed += (_, e) =>
             Raise(WatchAreaProfileDirectoryEventKind.Renamed, e.Name, e.OldName);
+        watcher.Error += (_, e) =>
+            Failed?.Invoke(this, new WatchAreaProfileDirectoryFailure(e.GetException()));
         watcher.EnableRaisingEvents = true;
         _watcher = watcher;
+    }
+
+    public void Stop()
+    {
+        _watcher?.Dispose();
+        _watcher = null;
     }
 
     public void Dispose()
@@ -92,8 +120,8 @@ internal sealed class WatchAreaProfileDirectoryWatcher : IWatchAreaProfileDirect
 
         _disposed = true;
         Raised = null;
-        _watcher?.Dispose();
-        _watcher = null;
+        Failed = null;
+        Stop();
     }
 
     private void Raise(

@@ -102,7 +102,7 @@ public sealed class WatchAreaProfileLiveListTests
         {
             var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
             var allAreas = Assert.Single(AllRows(list), row => row.IsAllAreas);
-            Assert.Same(allAreas, list.SelectedItem);
+            Assert.Equal(allAreas, list.SelectedItem);
             Assert.True(allAreas.IsApplied);
             Assert.Contains("当前应用", allAreas.AutomationName, StringComparison.Ordinal);
 
@@ -572,10 +572,14 @@ public sealed class WatchAreaProfileLiveListTests
                 var window = composition.CreateMainWindow(initializeOnLoaded: false);
                 try
                 {
+                    Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                            window.FindName("AreaFilterNavigationItem"))
+                        .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                     var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                        window.FindName("AreaProfileInfoBar"));
+                        window.FindName("AreaProfileDirectoryWatchInfoBar"));
                     Assert.True(infoBar.IsOpen);
-                    Assert.Equal("无法监视 AREA 配置目录", infoBar.Title);
+                    Assert.Equal("AREA 配置目录监视已降级", infoBar.Title);
+                    Assert.Contains("可能不是最新", infoBar.Message, StringComparison.Ordinal);
                     Assert.Equal(
                         ["西区"],
                         Rows(Assert.IsType<ListBox>(window.FindName("AreaProfileList")))
@@ -593,6 +597,60 @@ public sealed class WatchAreaProfileLiveListTests
                     Directory.Delete(root, recursive: true);
                 }
             }
+        });
+
+    [Fact]
+    public void A_deleted_directory_shows_persistent_degradation_and_clears_it_after_recovery() =>
+        RunWithAreaProfileWindow((window, directoryPath, _, clock) =>
+        {
+            var watchInfoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("AreaProfileDirectoryWatchInfoBar"));
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+
+            Directory.Delete(directoryPath, recursive: true);
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchHealthCheckInterval);
+
+            Assert.True(watchInfoBar.IsOpen);
+            Assert.Equal("AREA 配置目录监视已降级", watchInfoBar.Title);
+            Assert.Contains("可能不是最新", watchInfoBar.Message, StringComparison.Ordinal);
+            Assert.Empty(Rows(list));
+
+            Directory.CreateDirectory(directoryPath);
+            WriteProfile(directoryPath, "东区", "B2-2");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchRecoveryInterval);
+
+            Assert.False(watchInfoBar.IsOpen);
+            Assert.Equal(["东区"], Rows(list).Select(row => row.ProfileName));
+        });
+
+    [Fact]
+    public void Leaving_the_area_page_stops_watching_returning_rescans_and_closing_disposes() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            Assert.True(events.IsStarted);
+
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("OverviewNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.False(events.IsStarted);
+            Assert.Equal(1, events.StopCount);
+            WriteProfile(directoryPath, "东区", "B2-2");
+            events.RaiseCreated("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            Assert.DoesNotContain(Rows(list), row => row.ProfileName == "东区");
+
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("AreaFilterNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.True(events.IsStarted);
+            Assert.Equal(2, events.StartCount);
+            Assert.Contains(Rows(list), row => row.ProfileName == "东区");
+
+            window.Close();
+            Assert.True(events.IsDisposed);
         });
 
     private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> Rows(ListBox list) =>
@@ -734,6 +792,9 @@ public sealed class WatchAreaProfileLiveListTests
                 {
                     window.Show();
                     DrainDispatcher(window.Dispatcher);
+                    Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                            window.FindName("AreaFilterNavigationItem"))
+                        .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                     Assert.Equal(areaProfilesPath, events.StartedDirectoryPath);
                     assert(window, areaProfilesPath, events, clock);
                 }

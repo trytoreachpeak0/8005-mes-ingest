@@ -1607,6 +1607,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         _activePage = page;
+        if (page is WatchWorkspacePage.AreaFilter)
+        {
+            StartWatchingAreaProfileDirectory();
+        }
+        else
+        {
+            _areaProfileStore.StopWatchingDirectory();
+        }
+
         OverviewPage.Visibility = page == WatchWorkspacePage.Overview ? Visibility.Visible : Visibility.Collapsed;
         DemandSeriesPage.Visibility = page == WatchWorkspacePage.DemandSeries ? Visibility.Visible : Visibility.Collapsed;
         ReadabilityAuditPage.Visibility = page == WatchWorkspacePage.ReadabilityAudit ? Visibility.Visible : Visibility.Collapsed;
@@ -2471,6 +2480,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;
         WorkspaceNavigation.PaneClosed -= OnWorkspaceNavigationPaneStateChanged;
         _areaProfileStore.DirectoryChanged -= OnAreaProfileDirectoryChanged;
+        _areaProfileStore.DirectoryWatchStateChanged -=
+            OnAreaProfileDirectoryWatchStateChanged;
         DisposeAreaProfileAutoSave();
         _areaProfileStore.Dispose();
         _lifetimeCancellation.Cancel();

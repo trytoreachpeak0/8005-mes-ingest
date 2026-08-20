@@ -315,6 +315,21 @@ internal partial class WatchWorkspaceWindow
             ScrollViewer.ScrollChangedEvent,
             new ScrollChangedEventHandler(OnAreaProfileEditorScrollChanged));
         RenderAreaProfiles(reloadProfiles: true);
+        _areaProfileStore.DirectoryChanged += OnAreaProfileDirectoryChanged;
+        _areaProfileStore.DirectoryWatchStateChanged +=
+            OnAreaProfileDirectoryWatchStateChanged;
+        try
+        {
+            _areaProfileStore.EnsureDirectoryExists();
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException)
+        {
+            ShowAreaProfileDirectoryWatchDegraded(
+                $"AREA 配置目录暂时无法创建或访问：{exception.Message}");
+        }
+
         if (_areaProfileStartupError is not null)
         {
             ShowAreaProfileInfo(
@@ -323,26 +338,66 @@ internal partial class WatchWorkspaceWindow
                 $"已回退到全部 AREA。{_areaProfileStartupError}");
         }
 
-        StartWatchingAreaProfileDirectory();
     }
 
     private void StartWatchingAreaProfileDirectory()
     {
         try
         {
-            _areaProfileStore.DirectoryChanged += OnAreaProfileDirectoryChanged;
             _areaProfileStore.StartWatchingDirectory();
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
             or ArgumentException)
         {
-            _areaProfileStore.DirectoryChanged -= OnAreaProfileDirectoryChanged;
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Warning,
-                "无法监视 AREA 配置目录",
-                $"列表不会自动跟随目录变化。{exception.Message}");
+            ShowAreaProfileDirectoryWatchDegraded(exception.Message);
         }
+    }
+
+    private void OnAreaProfileDirectoryWatchStateChanged(
+        object? sender,
+        WatchAreaProfileDirectoryWatchStateChange change)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            ApplyAreaProfileDirectoryWatchState(change);
+            return;
+        }
+
+        Dispatcher.BeginInvoke(() => ApplyAreaProfileDirectoryWatchState(change));
+    }
+
+    private void ApplyAreaProfileDirectoryWatchState(
+        WatchAreaProfileDirectoryWatchStateChange change)
+    {
+        if (_disposed || AreaProfileDirectoryWatchInfoBar is null)
+        {
+            return;
+        }
+
+        if (change.Status is WatchAreaProfileDirectoryWatchStatus.Degraded)
+        {
+            ShowAreaProfileDirectoryWatchDegraded(change.Message);
+            return;
+        }
+
+        AreaProfileDirectoryWatchInfoBar.IsOpen = false;
+    }
+
+    private void ShowAreaProfileDirectoryWatchDegraded(string message)
+    {
+        AreaProfileDirectoryWatchInfoBar.Title = "AREA 配置目录监视已降级";
+        AreaProfileDirectoryWatchInfoBar.Message =
+            $"配置列表可能不是最新的。{message}";
+        AreaProfileDirectoryWatchInfoBar.IsOpen = true;
+        AutomationProperties.SetName(
+            AreaProfileDirectoryWatchInfoBar,
+            $"{AreaProfileDirectoryWatchInfoBar.Title}。{AreaProfileDirectoryWatchInfoBar.Message}");
     }
 
     private void OnAreaProfileDirectoryChanged(

@@ -14,6 +14,38 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
         new(2026, 8, 20, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public void First_start_creates_the_missing_profile_directory_and_presents_an_empty_listing()
+    {
+        var root = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"mes-watch-area-first-run-{Guid.NewGuid():N}");
+        var profileDirectory = System.IO.Path.Combine(root, "area-filters");
+        var events = new ManualAreaProfileDirectoryEventSource();
+        try
+        {
+            using var store = new WatchAreaFilterProfileStore(
+                profileDirectory,
+                new ManualTimerTimeProvider(StartedAt),
+                directoryEventSource: events);
+
+            Assert.False(Directory.Exists(profileDirectory));
+
+            store.StartWatchingDirectory();
+
+            Assert.True(Directory.Exists(profileDirectory));
+            Assert.True(events.IsStarted);
+            Assert.Empty(store.EnumerateProfiles());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
     public void A_new_profile_file_reaches_the_directory_change_once_the_debounce_window_closes()
     {
         using var directory = new TemporaryProfileDirectory();
@@ -208,7 +240,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
     }
 
     [Fact]
-    public void A_failed_start_leaves_the_store_startable_again()
+    public void A_failed_start_enters_degraded_mode_and_recovers_without_user_action()
     {
         using var directory = new TemporaryProfileDirectory();
         var clock = new ManualTimerTimeProvider(StartedAt);
@@ -218,19 +250,114 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
             clock,
             directoryEventSource: events);
         var changes = new List<WatchAreaProfileDirectoryChange>();
+        var stateChanges = new List<WatchAreaProfileDirectoryWatchStateChange>();
         store.DirectoryChanged += (_, change) => changes.Add(change);
-
-        Assert.Throws<IOException>(store.StartWatchingDirectory);
-        Assert.Null(events.StartedDirectoryPath);
+        store.DirectoryWatchStateChanged += (_, change) => stateChanges.Add(change);
 
         store.StartWatchingDirectory();
+        Assert.Null(events.StartedDirectoryPath);
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Degraded,
+            stateChanges[^1].Status);
+
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchRecoveryInterval);
         Assert.Equal(directory.Path, events.StartedDirectoryPath);
+        Assert.Equal(2, changes.Count);
+        Assert.All(changes, change => Assert.True(change.RequiresFullRescan));
+        changes.Clear();
 
         directory.WriteProfile("西区", "A1-1");
         events.RaiseCreated("西区.txt");
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         Assert.Equal(["西区"], Assert.Single(changes).AffectedProfileNames);
+    }
+
+    [Fact]
+    public void A_deleted_directory_degrades_to_an_empty_listing_and_recovers_with_a_full_rescan()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("西区", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var stateChanges = new List<WatchAreaProfileDirectoryWatchStateChange>();
+        var directoryChanges = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryWatchStateChanged += (_, change) => stateChanges.Add(change);
+        store.DirectoryChanged += (_, change) => directoryChanges.Add(change);
+        store.StartWatchingDirectory();
+
+        Directory.Delete(directory.Path, recursive: true);
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchHealthCheckInterval);
+
+        Assert.False(events.IsStarted);
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Degraded,
+            stateChanges[^1].Status);
+        Assert.Contains("不存在", stateChanges[^1].Message);
+        Assert.True(Assert.Single(directoryChanges).RequiresFullRescan);
+        Assert.Empty(store.EnumerateProfiles());
+        Assert.False(Directory.Exists(directory.Path));
+
+        Directory.CreateDirectory(directory.Path);
+        directory.WriteProfile("东区", "B2-2");
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchRecoveryInterval);
+
+        Assert.True(events.IsStarted);
+        Assert.Equal(2, events.StartCount);
+        Assert.Equal(
+            WatchAreaProfileDirectoryWatchStatus.Watching,
+            stateChanges[^1].Status);
+        Assert.True(directoryChanges[^1].RequiresFullRescan);
+        Assert.Equal(
+            ["东区"],
+            store.EnumerateProfiles().Select(summary => summary.ProfileName));
+    }
+
+    [Fact]
+    public void An_event_buffer_overflow_rebuilds_the_watcher_and_full_rescans_without_losing_directory_state()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("西区", "A1-1");
+        directory.WriteProfile("东区", "B2-2");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var stateChanges = new List<WatchAreaProfileDirectoryWatchStateChange>();
+        var directoryChanges = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryWatchStateChanged += (_, change) => stateChanges.Add(change);
+        store.DirectoryChanged += (_, change) => directoryChanges.Add(change);
+        store.StartWatchingDirectory();
+
+        events.RaiseFailure(new InternalBufferOverflowException("测试溢出"));
+
+        Assert.Equal(1, events.StopCount);
+        Assert.Equal(2, events.StartCount);
+        Assert.Equal(
+            [
+                WatchAreaProfileDirectoryWatchStatus.Watching,
+                WatchAreaProfileDirectoryWatchStatus.Degraded,
+                WatchAreaProfileDirectoryWatchStatus.Watching,
+            ],
+            stateChanges.Select(change => change.Status));
+        var rescan = Assert.Single(directoryChanges);
+        Assert.True(rescan.RequiresFullRescan);
+        Assert.Equal(
+            ["东区", "西区"],
+            store.EnumerateProfiles().Select(summary => summary.ProfileName));
+
+        directory.WriteProfile("北区", "C3-3");
+        events.RaiseCreated("北区.txt");
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+        Assert.Equal(["北区"], directoryChanges[^1].AffectedProfileNames);
+        Assert.False(directoryChanges[^1].RequiresFullRescan);
     }
 
     [Fact]

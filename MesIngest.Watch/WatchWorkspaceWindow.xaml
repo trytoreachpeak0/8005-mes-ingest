@@ -2875,13 +2875,22 @@
                                                   Margin="0,3,0,0" />
                                 </StackPanel>
                             </Grid>
-                            <ui:InfoBar x:Name="AreaProfileInfoBar"
-                                        Grid.Row="2"
-                                        IsOpen="False"
-                                        IsClosable="True"
-                                        Severity="Informational"
-                                        Margin="0,0,0,12"
-                                        AutomationProperties.Name="AREA 配置操作状态" />
+                            <StackPanel Grid.Row="2">
+                                <ui:InfoBar x:Name="AreaProfileDirectoryWatchInfoBar"
+                                            IsOpen="False"
+                                            IsClosable="False"
+                                            Severity="Warning"
+                                            Title="AREA 配置目录监视已降级"
+                                            Margin="0,0,0,12"
+                                            AutomationProperties.Name="AREA 配置目录监视降级状态"
+                                            AutomationProperties.AutomationId="AreaProfileDirectoryWatchInfoBar" />
+                                <ui:InfoBar x:Name="AreaProfileInfoBar"
+                                            IsOpen="False"
+                                            IsClosable="True"
+                                            Severity="Informational"
+                                            Margin="0,0,0,12"
+                                            AutomationProperties.Name="AREA 配置操作状态" />
+                            </StackPanel>
 
                             <Grid x:Name="AreaProfileBodyGrid"
                                   Grid.Row="3">
