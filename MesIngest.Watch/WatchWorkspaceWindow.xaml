@@ -115,6 +115,7 @@
         <sys:Double x:Key="AreaProfileListMinHeight">300</sys:Double>
         <sys:Double x:Key="AreaProfileEditorMinHeight">260</sys:Double>
         <sys:Double x:Key="AreaProfileValidationGridMinHeight">120</sys:Double>
+        <sys:Double x:Key="AreaProfileOperationTargetMinWidth">100</sys:Double>
         <sys:Double x:Key="ReadabilityMasterDetailStackBreakpoint">1080</sys:Double>
         <sys:Double x:Key="AreaProfileMasterDetailStackBreakpoint">900</sys:Double>
         <wpf:GridLength x:Key="WatchCollapsedGridLength">0</wpf:GridLength>
@@ -122,6 +123,7 @@
         <wpf:GridLength x:Key="ReadabilityMasterColumnWidth">430</wpf:GridLength>
         <wpf:GridLength x:Key="ReadabilityFacetGapWidth">12</wpf:GridLength>
         <wpf:GridLength x:Key="AreaProfileMasterColumnWidth">318</wpf:GridLength>
+        <wpf:GridLength x:Key="AreaProfileOperationPanelGapHeight">8</wpf:GridLength>
         <wpfControls:DataGridLength x:Key="ReadabilityColumn45">45</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="ReadabilityColumn80">80</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="ReadabilityColumn90">90</wpfControls:DataGridLength>
@@ -137,6 +139,10 @@
         <wpfControls:DataGridLength x:Key="AreaProfileDiagnosticCodeColumnWidth">180</wpfControls:DataGridLength>
         <wpf:Thickness x:Key="WatchPageCardPadding">16</wpf:Thickness>
         <wpf:Thickness x:Key="AreaProfileListMargin">0,12,0,12</wpf:Thickness>
+        <wpf:Thickness x:Key="AreaProfileInlineCommandMargin">8,0,0,0</wpf:Thickness>
+        <wpf:Thickness x:Key="AreaProfileOperationPanelMargin">16,12,16,0</wpf:Thickness>
+        <wpf:Thickness x:Key="AreaProfileOperationPanelPadding">12,8</wpf:Thickness>
+        <wpf:CornerRadius x:Key="AreaProfileOperationPanelCornerRadius">4</wpf:CornerRadius>
         <!-- Ticket 22 keeps the two production workspaces on the shared 8/12/16/24
              rhythm. Named geometry is intentionally adjusted by the window's
              responsive reflow instead of introducing page-only visual paths. -->
@@ -2862,23 +2868,11 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <ui:TextBlock Text="AREA 筛选" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock Text="当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="0,3,0,0" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <ui:Button x:Name="AreaProfileOpenDirectoryButton"
-                                               Content="打开配置文件夹"
-                                               Appearance="Secondary"
-                                               Click="OnAreaProfileOpenDirectoryClick"
-                                               AutomationProperties.Name="打开 AREA 配置目录"
-                                               AutomationProperties.AutomationId="AreaProfileOpenDirectoryButton" />
                                 </StackPanel>
                             </Grid>
                             <ui:InfoBar x:Name="AreaProfileInfoBar"
@@ -2919,6 +2913,7 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <Grid Margin="16,13,16,10">
                                             <Grid.ColumnDefinitions>
@@ -2933,14 +2928,24 @@
                                                               Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                               AutomationProperties.Name="AREA 配置列表摘要" />
                                             </StackPanel>
-                                            <ui:Button x:Name="AreaProfileNewButton"
-                                                       Grid.Column="1"
-                                                       Content="新建"
-                                                       Appearance="Secondary"
-                                                       KeyboardNavigation.IsTabStop="True"
-                                                       Click="OnAreaProfileNewClick"
-                                                       AutomationProperties.Name="新建 AREA 配置"
-                                                       AutomationProperties.AutomationId="AreaProfileNewButton" />
+                                            <StackPanel Grid.Column="1"
+                                                        Orientation="Horizontal"
+                                                        VerticalAlignment="Center">
+                                                <ui:Button x:Name="AreaProfileOpenDirectoryButton"
+                                                           Content="打开配置文件夹"
+                                                           Appearance="Transparent"
+                                                           Click="OnAreaProfileOpenDirectoryClick"
+                                                           AutomationProperties.Name="打开 AREA 配置目录"
+                                                           AutomationProperties.AutomationId="AreaProfileOpenDirectoryButton" />
+                                                <ui:Button x:Name="AreaProfileNewButton"
+                                                           Content="新建"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource AreaProfileInlineCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnAreaProfileNewClick"
+                                                           AutomationProperties.Name="新建 AREA 配置"
+                                                           AutomationProperties.AutomationId="AreaProfileNewButton" />
+                                            </StackPanel>
                                         </Grid>
                                         <TextBox x:Name="AreaProfileSearchInput"
                                                  Grid.Row="1"
@@ -2957,12 +2962,41 @@
                                                  KeyboardNavigation.IsTabStop="True"
                                                  AutomationProperties.Name="本机命名 AREA 配置列表"
                                                  AutomationProperties.AutomationId="AreaProfileList">
+                                            <ListBox.Resources>
+                                                <ContextMenu x:Key="AreaProfileFileContextMenu"
+                                                             x:Shared="False"
+                                                             DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
+                                                    <ui:MenuItem Header="另存为"
+                                                                 CommandParameter="{Binding}"
+                                                                 IsEnabled="{Binding CanSaveAs}"
+                                                                 KeyboardNavigation.IsTabStop="True"
+                                                                 Click="OnAreaProfileSaveAsClick"
+                                                                 AutomationProperties.Name="另存此 AREA TXT 配置"
+                                                                 AutomationProperties.AutomationId="AreaProfileSaveAsMenuItem" />
+                                                    <ui:MenuItem Header="重命名"
+                                                                 CommandParameter="{Binding}"
+                                                                 IsEnabled="{Binding CanRenameOrDelete}"
+                                                                 KeyboardNavigation.IsTabStop="True"
+                                                                 Click="OnAreaProfileRenameClick"
+                                                                 AutomationProperties.Name="重命名此 AREA TXT 配置"
+                                                                 AutomationProperties.AutomationId="AreaProfileRenameMenuItem" />
+                                                    <ui:MenuItem Header="删除"
+                                                                 CommandParameter="{Binding}"
+                                                                 IsEnabled="{Binding CanRenameOrDelete}"
+                                                                 KeyboardNavigation.IsTabStop="True"
+                                                                 Click="OnAreaProfileDeleteClick"
+                                                                 AutomationProperties.Name="删除此 AREA TXT 配置"
+                                                                 AutomationProperties.AutomationId="AreaProfileDeleteMenuItem" />
+                                                </ContextMenu>
+                                            </ListBox.Resources>
                                             <ListBox.ItemContainerStyle>
                                                 <Style TargetType="ListBoxItem">
                                                     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                                     <Setter Property="Padding" Value="0" />
                                                     <Setter Property="Background" Value="Transparent" />
                                                     <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+                                                    <Setter Property="ContextMenu"
+                                                            Value="{StaticResource AreaProfileFileContextMenu}" />
                                                     <Style.Triggers>
                                                         <Trigger Property="IsSelected" Value="True">
                                                             <Setter Property="Background" Value="{DynamicResource AccentFillColorDefaultBrush}" />
@@ -3072,7 +3106,63 @@
                                                 </DataTemplate>
                                             </ListBox.ItemTemplate>
                                         </ListBox>
-                                        <Grid Grid.Row="3" Margin="16,10,16,14">
+                                        <Border x:Name="AreaProfileFileOperationPanel"
+                                                Grid.Row="3"
+                                                Visibility="Collapsed"
+                                                Margin="{StaticResource AreaProfileOperationPanelMargin}"
+                                                Padding="{StaticResource AreaProfileOperationPanelPadding}"
+                                                CornerRadius="{StaticResource AreaProfileOperationPanelCornerRadius}"
+                                                Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                                AutomationProperties.Name="AREA 文件操作确认">
+                                            <Grid>
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="{StaticResource AreaProfileOperationPanelGapHeight}" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <ui:TextBlock x:Name="AreaProfileFileOperationPromptText"
+                                                              Grid.ColumnSpan="4"
+                                                              Text="另存为"
+                                                              Style="{StaticResource BodyStrong}"
+                                                              TextTrimming="CharacterEllipsis"
+                                                              VerticalAlignment="Center" />
+                                                <TextBox x:Name="AreaProfileTargetNameInput"
+                                                         Grid.Row="2"
+                                                         Grid.ColumnSpan="2"
+                                                         MinWidth="{StaticResource AreaProfileOperationTargetMinWidth}"
+                                                         ToolTip="文件名（不含 .txt）"
+                                                         KeyboardNavigation.IsTabStop="True"
+                                                         AutomationProperties.Name="AREA 文件操作目标名称"
+                                                         AutomationProperties.AutomationId="AreaProfileTargetNameInput" />
+                                                <ui:Button x:Name="AreaProfileFileOperationConfirmButton"
+                                                           Grid.Row="2"
+                                                           Grid.Column="2"
+                                                           Content="确认"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource AreaProfileInlineCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnAreaProfileFileOperationConfirmClick"
+                                                           AutomationProperties.Name="确认 AREA 文件操作"
+                                                           AutomationProperties.AutomationId="AreaProfileFileOperationConfirmButton" />
+                                                <ui:Button x:Name="AreaProfileFileOperationCancelButton"
+                                                           Grid.Row="2"
+                                                           Grid.Column="3"
+                                                           Content="取消"
+                                                           Appearance="Secondary"
+                                                           Margin="{StaticResource AreaProfileInlineCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnAreaProfileFileOperationCancelClick"
+                                                           AutomationProperties.Name="取消 AREA 文件操作"
+                                                           AutomationProperties.AutomationId="AreaProfileFileOperationCancelButton" />
+                                            </Grid>
+                                        </Border>
+                                        <Grid Grid.Row="4" Margin="16,10,16,14">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
@@ -3084,15 +3174,26 @@
                                                           TextTrimming="CharacterEllipsis"
                                                           VerticalAlignment="Center"
                                                           AutomationProperties.Name="AREA 配置仅影响本机当前用户的显示" />
-                                            <ui:Button x:Name="AreaApplyAllAreasButton"
-                                                       Grid.Column="1"
-                                                       Content="应用全部 AREA"
-                                                       Appearance="Transparent"
-                                                       Margin="8,0,0,0"
-                                                       KeyboardNavigation.IsTabStop="True"
-                                                       Click="OnAreaApplyAllAreasClick"
-                                                       AutomationProperties.Name="应用全部 AREA 显示范围"
-                                                       AutomationProperties.AutomationId="AreaApplyAllAreasButton" />
+                                            <StackPanel Grid.Column="1"
+                                                        Orientation="Horizontal"
+                                                        VerticalAlignment="Center">
+                                                <ui:Button x:Name="AreaProfileSaveDraftAsButton"
+                                                           Content="另存草稿"
+                                                           Appearance="Secondary"
+                                                           Visibility="Collapsed"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnAreaProfileSaveAsClick"
+                                                           AutomationProperties.Name="另存未命名 AREA 草稿"
+                                                           AutomationProperties.AutomationId="AreaProfileSaveDraftAsButton" />
+                                                <ui:Button x:Name="AreaApplyAllAreasButton"
+                                                           Content="应用全部 AREA"
+                                                           Appearance="Transparent"
+                                                           Margin="{StaticResource AreaProfileInlineCommandMargin}"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnAreaApplyAllAreasClick"
+                                                           AutomationProperties.Name="应用全部 AREA 显示范围"
+                                                           AutomationProperties.AutomationId="AreaApplyAllAreasButton" />
+                                            </StackPanel>
                                         </Grid>
                                     </Grid>
                                 </ui:Card>
@@ -3127,7 +3228,7 @@
                                                           Text="新建 AREA 配置"
                                                           Style="{StaticResource SectionTitleText}"
                                                           AutomationProperties.Name="当前 AREA TXT 文件" />
-                                            <StackPanel x:Name="AreaProfileFileCommandLayer"
+                                            <StackPanel x:Name="AreaProfileFileStatusLayer"
                                                         Grid.Column="1"
                                                         Orientation="Horizontal"
                                                         VerticalAlignment="Center">
@@ -3140,29 +3241,6 @@
                                                                   FontTypography="BodyStrong"
                                                                   AutomationProperties.Name="AREA 有效数量" />
                                                 </Border>
-                                                <ui:Button x:Name="AreaProfileSaveAsButton"
-                                                           Content="另存为"
-                                                           Appearance="Secondary"
-                                                           KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaProfileSaveAsClick"
-                                                           AutomationProperties.Name="另存当前 AREA TXT 配置"
-                                                           AutomationProperties.AutomationId="AreaProfileSaveAsButton" />
-                                                <ui:Button x:Name="AreaProfileRenameButton"
-                                                           Content="重命名"
-                                                           Appearance="Secondary"
-                                                           Margin="8,0,0,0"
-                                                           KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaProfileRenameClick"
-                                                           AutomationProperties.Name="重命名当前 AREA TXT 配置"
-                                                           AutomationProperties.AutomationId="AreaProfileRenameButton" />
-                                                <ui:Button x:Name="AreaProfileDeleteButton"
-                                                           Content="删除"
-                                                           Appearance="Secondary"
-                                                           Margin="8,0,0,0"
-                                                           KeyboardNavigation.IsTabStop="True"
-                                                           Click="OnAreaProfileDeleteClick"
-                                                           AutomationProperties.Name="删除当前 AREA TXT 配置"
-                                                           AutomationProperties.AutomationId="AreaProfileDeleteButton" />
                                             </StackPanel>
                                             <ui:TextBlock x:Name="AreaProfileDirectoryText"
                                                           Grid.Row="1"
@@ -3178,63 +3256,6 @@
                                                      TextChanged="OnAreaProfileDraftChanged"
                                                      AutomationProperties.Name="AREA 配置名称"
                                                      AutomationProperties.AutomationId="AreaProfileNameInput" />
-                                            <Border x:Name="AreaProfileFileOperationPanel"
-                                                    Grid.Row="2"
-                                                    Grid.ColumnSpan="2"
-                                                    Visibility="Collapsed"
-                                                    Margin="0,10,0,0"
-                                                    Padding="10,8"
-                                                    CornerRadius="4"
-                                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                                    AutomationProperties.Name="AREA 文件操作确认">
-                                                <Grid>
-                                                    <Grid.RowDefinitions>
-                                                        <RowDefinition Height="Auto" />
-                                                        <RowDefinition Height="8" />
-                                                        <RowDefinition Height="Auto" />
-                                                    </Grid.RowDefinitions>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                        <ColumnDefinition Width="Auto" />
-                                                    </Grid.ColumnDefinitions>
-                                                    <ui:TextBlock x:Name="AreaProfileFileOperationPromptText"
-                                                                  Grid.ColumnSpan="4"
-                                                                  Text="另存为"
-                                                                  Style="{StaticResource BodyStrong}"
-                                                                  TextTrimming="CharacterEllipsis"
-                                                                  VerticalAlignment="Center" />
-                                                    <TextBox x:Name="AreaProfileTargetNameInput"
-                                                             Grid.Row="2"
-                                                             Grid.ColumnSpan="2"
-                                                             MinWidth="120"
-                                                             ToolTip="文件名（不含 .txt）"
-                                                             KeyboardNavigation.IsTabStop="True"
-                                                             AutomationProperties.Name="AREA 文件操作目标名称"
-                                                             AutomationProperties.AutomationId="AreaProfileTargetNameInput" />
-                                                    <ui:Button x:Name="AreaProfileFileOperationConfirmButton"
-                                                               Grid.Row="2"
-                                                               Grid.Column="2"
-                                                               Content="确认"
-                                                               Appearance="Secondary"
-                                                               Margin="12,0,0,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               Click="OnAreaProfileFileOperationConfirmClick"
-                                                               AutomationProperties.Name="确认 AREA 文件操作"
-                                                               AutomationProperties.AutomationId="AreaProfileFileOperationConfirmButton" />
-                                                    <ui:Button x:Name="AreaProfileFileOperationCancelButton"
-                                                               Grid.Row="2"
-                                                               Grid.Column="3"
-                                                               Content="取消"
-                                                               Appearance="Secondary"
-                                                               Margin="8,0,0,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               Click="OnAreaProfileFileOperationCancelClick"
-                                                               AutomationProperties.Name="取消 AREA 文件操作"
-                                                               AutomationProperties.AutomationId="AreaProfileFileOperationCancelButton" />
-                                                </Grid>
-                                            </Border>
                                             <Border x:Name="AreaProfileWriteConflictPanel"
                                                     Grid.Row="2"
                                                     Grid.ColumnSpan="2"

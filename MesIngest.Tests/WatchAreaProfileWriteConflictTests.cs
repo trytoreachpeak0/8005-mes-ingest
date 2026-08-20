@@ -104,7 +104,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             Assert.Equal("B2-2", Editor(window).Text);
             Assert.Equal("新建 AREA 配置", FileTitle(window).Text);
             Assert.Equal("文件已删除 · 未命名草稿", DiskState(window).Text);
-            Assert.True(SaveAsButton(window).IsEnabled);
+            Assert.True(SaveDraftAsButton(window).IsEnabled);
             Assert.False(File.Exists(Path.Combine(directoryPath, "西区.txt")));
         });
 
@@ -117,7 +117,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             events.RaiseDeleted("西区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
 
-            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            SaveDraftAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             TargetNameInput(window).Text = "西区";
             ConfirmButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             DrainDispatcher(window.Dispatcher);
@@ -180,7 +180,12 @@ public sealed class WatchAreaProfileWriteConflictTests
             RaiseExternalWrite(directoryPath, events, clock, "C3-3");
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
-            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            var saveAs = FileCommand(window, "AreaProfileSaveAsMenuItem");
+            Assert.True(saveAs.IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileRenameMenuItem").IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileDeleteMenuItem").IsEnabled);
+            saveAs.RaiseEvent(
+                new RoutedEventArgs(MenuItem.ClickEvent));
             TargetNameInput(window).Text = "东区";
             ConfirmButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             DrainDispatcher(window.Dispatcher);
@@ -309,8 +314,12 @@ public sealed class WatchAreaProfileWriteConflictTests
         Assert.IsType<Wpf.Ui.Controls.Button>(
             window.FindName("AreaProfileUseDiskVersionButton"));
 
-    private static Wpf.Ui.Controls.Button SaveAsButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileSaveAsButton"));
+    private static Wpf.Ui.Controls.Button SaveDraftAsButton(WatchWorkspaceWindow window) =>
+        Assert.IsType<Wpf.Ui.Controls.Button>(
+            window.FindName("AreaProfileSaveDraftAsButton"));
+
+    private static MenuItem FileCommand(WatchWorkspaceWindow window, string automationId) =>
+        WatchAreaProfileFileCommandTestHelper.FindSelected(window, automationId);
 
     private static Wpf.Ui.Controls.Button ConfirmButton(WatchWorkspaceWindow window) =>
         Assert.IsType<Wpf.Ui.Controls.Button>(

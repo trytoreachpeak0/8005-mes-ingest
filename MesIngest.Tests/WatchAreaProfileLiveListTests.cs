@@ -1,5 +1,6 @@
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
@@ -27,6 +28,99 @@ public sealed class WatchAreaProfileLiveListTests
             Assert.Null(window.FindName("AreaProfileReloadButton"));
             Assert.Null(window.FindName("AreaProfileFileReloadButton"));
             Assert.NotNull(window.FindName("AreaProfileOpenDirectoryButton"));
+        });
+
+    [Fact]
+    public void File_commands_live_on_the_left_card_and_each_profile_context_menu() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("AreaFilterNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.UpdateLayout();
+
+            var masterCard = Assert.IsType<Wpf.Ui.Controls.Card>(
+                window.FindName("AreaProfileMasterCard"));
+            var editorCard = Assert.IsType<Wpf.Ui.Controls.Card>(
+                window.FindName("AreaProfileEditorCard"));
+            var openDirectory = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("AreaProfileOpenDirectoryButton"));
+            var create = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("AreaProfileNewButton"));
+            var confirmationPanel = Assert.IsType<Border>(
+                window.FindName("AreaProfileFileOperationPanel"));
+
+            Assert.True(IsVisualDescendantOf(openDirectory, masterCard));
+            Assert.True(IsVisualDescendantOf(create, masterCard));
+            Assert.True(IsVisualDescendantOf(confirmationPanel, masterCard));
+            Assert.False(IsVisualDescendantOf(openDirectory, editorCard));
+            Assert.Null(window.FindName("AreaProfileSaveAsButton"));
+            Assert.Null(window.FindName("AreaProfileRenameButton"));
+            Assert.Null(window.FindName("AreaProfileDeleteButton"));
+
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            list.UpdateLayout();
+            var row = Assert.Single(Rows(list));
+            var item = Assert.IsType<ListBoxItem>(
+                list.ItemContainerGenerator.ContainerFromItem(row));
+            var menu = Assert.IsType<ContextMenu>(item.ContextMenu);
+            Assert.Collection(
+                menu.Items.Cast<MenuItem>(),
+                menuItem => AssertMenuItem(
+                    menuItem,
+                    "另存为",
+                    "AreaProfileSaveAsMenuItem"),
+                menuItem => AssertMenuItem(
+                    menuItem,
+                    "重命名",
+                    "AreaProfileRenameMenuItem"),
+                menuItem => AssertMenuItem(
+                    menuItem,
+                    "删除",
+                    "AreaProfileDeleteMenuItem"));
+        });
+
+    [Fact]
+    public void A_context_menu_command_targets_its_own_row_and_keeps_the_confirmation_flow() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            WriteProfile(directoryPath, "东区", "B2-2");
+            events.RaiseCreated("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("AreaFilterNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.UpdateLayout();
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            Assert.Equal(
+                "西区",
+                Assert.IsType<WatchAreaFilterProfilePresentationRow>(list.SelectedItem)
+                    .ProfileName);
+
+            var rename = FileCommand(
+                window,
+                "东区",
+                "AreaProfileRenameMenuItem");
+            Assert.True(rename.IsEnabled);
+            rename.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.Equal(
+                "东区",
+                Assert.IsType<WatchAreaFilterProfilePresentationRow>(list.SelectedItem)
+                    .ProfileName);
+            Assert.Equal(
+                "东区",
+                Assert.IsType<TextBox>(window.FindName("AreaProfileTargetNameInput")).Text);
+            Assert.Contains(
+                "重命名“东区.txt”",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    window.FindName("AreaProfileFileOperationPromptText")).Text,
+                StringComparison.Ordinal);
+            Assert.Equal(
+                Visibility.Visible,
+                Assert.IsType<Border>(
+                    window.FindName("AreaProfileFileOperationPanel")).Visibility);
         });
 
     [Fact]
@@ -401,6 +495,40 @@ public sealed class WatchAreaProfileLiveListTests
 
     private static IReadOnlyList<WatchAreaFilterProfilePresentationRow> Rows(ListBox list) =>
         [.. list.Items.Cast<WatchAreaFilterProfilePresentationRow>()];
+
+    private static void AssertMenuItem(
+        MenuItem menuItem,
+        string expectedHeader,
+        string expectedAutomationId)
+    {
+        Assert.Equal(expectedHeader, menuItem.Header);
+        Assert.Equal(expectedAutomationId, AutomationProperties.GetAutomationId(menuItem));
+    }
+
+    private static MenuItem FileCommand(
+        WatchWorkspaceWindow window,
+        string profileName,
+        string automationId) => WatchAreaProfileFileCommandTestHelper.Find(
+            window,
+            profileName,
+            automationId);
+
+    private static bool IsVisualDescendantOf(
+        DependencyObject candidate,
+        DependencyObject ancestor)
+    {
+        for (var current = candidate;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static void WriteProfile(string directoryPath, string profileName, string content) =>
         File.WriteAllText(

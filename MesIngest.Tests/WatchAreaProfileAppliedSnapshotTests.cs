@@ -134,11 +134,12 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 "文件已删除",
                 AutomationProperties.GetName(ApplyButton(window)),
                 StringComparison.Ordinal);
-            Assert.True(SaveAsButton(window).IsEnabled);
-            Assert.False(RenameButton(window).IsEnabled);
-            Assert.False(DeleteButton(window).IsEnabled);
+            Assert.True(FileCommand(window, "AreaProfileSaveAsMenuItem").IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileRenameMenuItem").IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileDeleteMenuItem").IsEnabled);
 
-            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            FileCommand(window, "AreaProfileSaveAsMenuItem").RaiseEvent(
+                new RoutedEventArgs(MenuItem.ClickEvent));
 
             Assert.Equal("西区", TargetNameInput(window).Text);
         });
@@ -147,7 +148,8 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
     public void Deleting_the_applied_profile_in_the_page_keeps_the_same_scope_and_recovery_row() =>
         RunWithAppliedProfile((window, directoryPath, _, _) =>
         {
-            DeleteButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            FileCommand(window, "AreaProfileDeleteMenuItem").RaiseEvent(
+                new RoutedEventArgs(MenuItem.ClickEvent));
 
             Assert.Contains(
                 "范围仍生效",
@@ -169,7 +171,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
             Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
-            Assert.True(SaveAsButton(window).IsEnabled);
+            Assert.True(FileCommand(window, "AreaProfileSaveAsMenuItem").IsEnabled);
         });
 
     [Fact]
@@ -180,7 +182,8 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             events.RaiseDeleted("西区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
 
-            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            FileCommand(window, "AreaProfileSaveAsMenuItem").RaiseEvent(
+                new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Equal("西区", TargetNameInput(window).Text);
             ConfirmFileOperationButton(window).RaiseEvent(
                 new RoutedEventArgs(ButtonBase.ClickEvent));
@@ -214,8 +217,9 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             SelectProfile(ProfileList(window), "西区");
 
             Assert.Equal(AppliedContent, Editor(window).Text);
-            Assert.True(SaveAsButton(window).IsEnabled);
-            SaveAsButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.True(FileCommand(window, "AreaProfileSaveAsMenuItem").IsEnabled);
+            FileCommand(window, "AreaProfileSaveAsMenuItem").RaiseEvent(
+                new RoutedEventArgs(MenuItem.ClickEvent));
             Assert.Equal("西区", TargetNameInput(window).Text);
         });
 
@@ -372,6 +376,9 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             var row = AppliedRow(window);
             Assert.True(row.IsValid);
             Assert.Equal(2, row.MesAreaCount);
+            Assert.False(FileCommand(window, "AreaProfileSaveAsMenuItem").IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileRenameMenuItem").IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileDeleteMenuItem").IsEnabled);
             Assert.Contains(
                 "1 个文件 · 0 个需要修复",
                 ListSummary(window).Text,
@@ -420,6 +427,9 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
 
             Assert.Equal("应用此配置", ApplyButton(window).Content);
             Assert.False(ApplyButton(window).IsEnabled);
+            Assert.False(FileCommand(window, "AreaProfileSaveAsMenuItem").IsEnabled);
+            Assert.True(FileCommand(window, "AreaProfileRenameMenuItem").IsEnabled);
+            Assert.True(FileCommand(window, "AreaProfileDeleteMenuItem").IsEnabled);
             Assert.Equal(
                 "内容非法 · 需修复",
                 Assert.Single(Rows(ProfileList(window)), row => row.ProfileName == "东区")
@@ -462,14 +472,8 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
     private static Wpf.Ui.Controls.Button ApplyButton(WatchWorkspaceWindow window) =>
         Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileApplyButton"));
 
-    private static Wpf.Ui.Controls.Button SaveAsButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileSaveAsButton"));
-
-    private static Wpf.Ui.Controls.Button RenameButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileRenameButton"));
-
-    private static Wpf.Ui.Controls.Button DeleteButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaProfileDeleteButton"));
+    private static MenuItem FileCommand(WatchWorkspaceWindow window, string automationId) =>
+        WatchAreaProfileFileCommandTestHelper.FindSelected(window, automationId);
 
     private static Wpf.Ui.Controls.Button ApplyAllAreasButton(WatchWorkspaceWindow window) =>
         Assert.IsType<Wpf.Ui.Controls.Button>(window.FindName("AreaApplyAllAreasButton"));

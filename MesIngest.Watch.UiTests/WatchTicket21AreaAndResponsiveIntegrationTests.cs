@@ -393,22 +393,22 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(2, east.MesAreaCount);
                 Assert.True(east.IsValid);
                 Assert.True(east.IsApplied);
-                Assert.Equal("当前应用", east.StatusText);
-                Assert.NotEqual(default, east.LastModifiedAt);
+                Assert.Equal("当前应用", east.AppliedBadgeText);
+                Assert.NotEqual(default, east.FileLastModifiedAt);
                 Assert.Contains("2 个 AREA", east.MetadataText, StringComparison.Ordinal);
 
                 var west = Assert.Single(rows, row => row.ProfileName == "西区");
                 Assert.Equal(1, west.MesAreaCount);
                 Assert.True(west.IsValid);
                 Assert.False(west.IsApplied);
-                Assert.Equal("有效", west.StatusText);
+                Assert.Equal("有效", west.ValidityText);
 
                 var invalid = Assert.Single(rows, row => row.ProfileName == "临时范围");
                 Assert.Equal(1, invalid.MesAreaCount);
                 Assert.Equal(1, invalid.DiagnosticCount);
                 Assert.False(invalid.IsValid);
                 Assert.False(invalid.IsApplied);
-                Assert.Equal("无效", invalid.StatusText);
+                Assert.Equal("无效", invalid.ValidityText);
 
                 var welding = Assert.Single(rows, row => row.ProfileName == "焊线区域");
                 Assert.Equal(24, welding.MesAreaCount);
@@ -540,21 +540,27 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     4,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileAppliedCommandRow")));
 
-                var saveAsFile = Find<ButtonBase>(window, "AreaProfileSaveAsButton");
-                var renameFile = Find<ButtonBase>(window, "AreaProfileRenameButton");
-                var deleteFile = Find<ButtonBase>(window, "AreaProfileDeleteButton");
+                var saveAsFile = AreaProfileFileCommand(
+                    window,
+                    "AreaProfileSaveAsMenuItem");
+                var renameFile = AreaProfileFileCommand(
+                    window,
+                    "AreaProfileRenameMenuItem");
+                var deleteFile = AreaProfileFileCommand(
+                    window,
+                    "AreaProfileDeleteMenuItem");
                 AssertInteractiveAutomation(
                     saveAsFile,
-                    "AreaProfileSaveAsButton",
-                    "另存当前 AREA TXT 配置");
+                    "AreaProfileSaveAsMenuItem",
+                    "另存此 AREA TXT 配置");
                 AssertInteractiveAutomation(
                     renameFile,
-                    "AreaProfileRenameButton",
-                    "重命名当前 AREA TXT 配置");
+                    "AreaProfileRenameMenuItem",
+                    "重命名此 AREA TXT 配置");
                 AssertInteractiveAutomation(
                     deleteFile,
-                    "AreaProfileDeleteButton",
-                    "删除当前 AREA TXT 配置");
+                    "AreaProfileDeleteMenuItem",
+                    "删除此 AREA TXT 配置");
                 Assert.Null(window.FindName("AreaProfileFileReloadButton"));
 
                 Assert.Null(window.FindName("AreaProfileDiscardButton"));
@@ -689,22 +695,21 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Transparent, allAreas.Appearance);
                 Assert.True(allAreas.ActualWidth < master.ActualWidth / 2);
 
-                var saveAs = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileSaveAsButton");
-                var rename = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileRenameButton");
-                var delete = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileDeleteButton");
-                Assert.Equal("另存为", saveAs.Content);
-                Assert.Equal("重命名", rename.Content);
-                Assert.Equal("删除", delete.Content);
+                var saveAs = AreaProfileFileCommand(window, "AreaProfileSaveAsMenuItem");
+                var rename = AreaProfileFileCommand(window, "AreaProfileRenameMenuItem");
+                var delete = AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem");
+                Assert.Equal("另存为", saveAs.Header);
+                Assert.Equal("重命名", rename.Header);
+                Assert.Equal("删除", delete.Header);
                 Assert.True(saveAs.IsEnabled);
                 Assert.True(rename.IsEnabled);
                 Assert.True(delete.IsEnabled);
-                var fileCommandLayer = Find<StackPanel>(
-                    window,
-                    "AreaProfileFileCommandLayer");
-                Assert.Equal(1, Grid.GetColumn(fileCommandLayer));
-                Assert.Equal(
-                    new UIElement[] { saveAs, rename, delete },
-                    fileCommandLayer.Children.Cast<UIElement>());
+                Assert.Null(window.FindName("AreaProfileSaveAsButton"));
+                Assert.Null(window.FindName("AreaProfileRenameButton"));
+                Assert.Null(window.FindName("AreaProfileDeleteButton"));
+                Assert.True(IsDescendantOrSelf(
+                    Find<FrameworkElement>(window, "AreaProfileFileOperationPanel"),
+                    master));
                 Assert.Equal(
                     Visibility.Collapsed,
                     Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
@@ -757,7 +762,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal("东区副本.txt", Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
                 Assert.Equal(Visibility.Collapsed, operationPanel.Visibility);
 
-                Click(rename);
+                Click(AreaProfileFileCommand(window, "AreaProfileRenameMenuItem"));
                 operationTarget.Text = "东区副本重命名";
                 Click(operationConfirm);
                 await window.AreaProfileOperationTask.WaitAsync(
@@ -769,7 +774,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "东区副本重命名.txt",
                     Find<TextBlock>(window, "AreaProfileFileTitleText").Text);
 
-                Click(delete);
+                Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 Assert.True(File.Exists(Path.Combine(files.AreaProfilesPath, "东区副本重命名.txt")));
                 Assert.Equal(Visibility.Visible, operationPanel.Visibility);
                 Assert.Equal(
@@ -824,7 +829,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
                     row => row.ProfileName == "ProfileA");
 
-                Click(Find<ButtonBase>(window, "AreaProfileRenameButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileRenameMenuItem"));
                 var panel = Find<FrameworkElement>(window, "AreaProfileFileOperationPanel");
                 var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
                 var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
@@ -866,7 +871,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 profileList.SelectedItem = Assert.Single(
                     profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
                     row => row.ProfileName == "ProfileB");
-                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 Assert.Contains("ProfileB.txt", prompt.Text, StringComparison.Ordinal);
                 Assert.Contains("概览、需求系列和资格审计", prompt.Text, StringComparison.Ordinal);
                 Assert.Contains("全部 AREA", prompt.Text, StringComparison.Ordinal);
@@ -891,7 +896,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
-                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 Assert.Equal(Visibility.Visible, panel.Visibility);
                 var settingsNavigation = Find<Wpf.Ui.Controls.NavigationViewItem>(
                     window,
@@ -980,8 +985,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
     }
 
     [Theory]
-    [InlineData("AreaProfileRenameButton")]
-    [InlineData("AreaProfileDeleteButton")]
+    [InlineData("AreaProfileRenameMenuItem")]
+    [InlineData("AreaProfileDeleteMenuItem")]
     public async Task Destructive_confirmation_refuses_an_unreadable_applied_marker(
         string commandName)
     {
@@ -1006,7 +1011,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 File.WriteAllText(files.ActiveMarkerPath, "not json", new UTF8Encoding(false));
 
-                Click(Find<ButtonBase>(window, commandName));
+                Click(AreaProfileFileCommand(window, commandName));
 
                 Assert.Equal(
                     Visibility.Collapsed,
@@ -1050,7 +1055,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 window.UpdateLayout();
                 Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
-                var rename = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileRenameButton");
+                var rename = AreaProfileFileCommand(
+                    window,
+                    "AreaProfileRenameMenuItem");
                 var cancel = Find<Wpf.Ui.Controls.Button>(
                     window,
                     "AreaProfileFileOperationCancelButton");
@@ -1066,13 +1073,14 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Click(cancel);
                 Assert.Same(create, Keyboard.FocusedElement);
 
+                var profileList = Find<ListBox>(window, "AreaProfileList");
                 rename.Focus();
                 Click(rename);
                 cancel.Focus();
                 Click(cancel);
-                Assert.Same(rename, Keyboard.FocusedElement);
+                Assert.Same(profileList, Keyboard.FocusedElement);
 
-                Click(rename);
+                Click(AreaProfileFileCommand(window, "AreaProfileRenameMenuItem"));
                 target.Text = "RenamedFocusScope";
                 confirm.Focus();
                 Click(confirm);
@@ -1080,7 +1088,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
 
-                Assert.Same(rename, Keyboard.FocusedElement);
+                Assert.Same(profileList, Keyboard.FocusedElement);
                 Assert.True(File.Exists(Path.Combine(
                     files.AreaProfilesPath,
                     "RenamedFocusScope.txt")));
@@ -1120,7 +1128,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     FileAccess.ReadWrite,
                     FileShare.None);
 
-                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
 
                 Assert.Equal(
                     Visibility.Collapsed,
@@ -1168,7 +1176,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 profiles.SelectedItem = Assert.Single(
                     profiles.Items.Cast<WatchAreaFilterProfilePresentationRow>(),
                     row => row.ProfileName == "DeleteTarget");
-                Click(Find<ButtonBase>(window, "AreaProfileDeleteButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
                 var confirm = Find<Wpf.Ui.Controls.Button>(
                     window,
@@ -1421,9 +1429,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     "未落盘 · 即将自动保存",
                     Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
-                Assert.True(Find<ButtonBase>(
+                Assert.True(AreaProfileFileCommand(
                     firstWindow,
-                    "AreaProfileSaveAsButton").IsEnabled);
+                    "AreaProfileSaveAsMenuItem").IsEnabled);
                 var failure = Find<Wpf.Ui.Controls.InfoBar>(
                     firstWindow,
                     "AreaProfileInfoBar");
@@ -1469,11 +1477,11 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 window.Show();
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 SelectProfile(window, "SourceScope");
-                Click(Find<ButtonBase>(
+                Click(AreaProfileFileCommand(
                     window,
                     operation == "rename"
-                        ? "AreaProfileRenameButton"
-                        : "AreaProfileDeleteButton"));
+                        ? "AreaProfileRenameMenuItem"
+                        : "AreaProfileDeleteMenuItem"));
                 var panel = Find<FrameworkElement>(window, "AreaProfileFileOperationPanel");
                 Assert.Equal(Visibility.Visible, panel.Visibility);
                 if (operation == "rename")
@@ -1545,11 +1553,11 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "C3-3\n",
                     loadedByExternalStore.FileFingerprint!).Saved);
 
-                Click(Find<ButtonBase>(
+                Click(AreaProfileFileCommand(
                     window,
                     operation == "rename"
-                        ? "AreaProfileRenameButton"
-                        : "AreaProfileDeleteButton"));
+                        ? "AreaProfileRenameMenuItem"
+                        : "AreaProfileDeleteMenuItem"));
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
@@ -1775,8 +1783,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
                 Assert.True(row.IsApplied);
                 Assert.False(row.IsValid);
-                Assert.Equal("当前应用 · 无效", row.StatusText);
-                Assert.Contains("当前应用 · 无效", row.AutomationName, StringComparison.Ordinal);
+                Assert.Equal("当前应用", row.AppliedBadgeText);
+                Assert.Equal("内容非法 · 待重新应用", row.AttentionText);
+                Assert.Contains("当前应用", row.AutomationName, StringComparison.Ordinal);
+                Assert.Contains("内容非法", row.AutomationName, StringComparison.Ordinal);
 
                 profileList.SelectedItem = row;
                 window.UpdateLayout();
@@ -1789,16 +1799,16 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     border => border.Visibility == Visibility.Visible
                         && ReferenceEquals(
                             border.Style,
-                            window.FindResource("StatusPillCritical"))));
+                            window.FindResource("StatusPillAccent"))));
                 var statusText = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                     FindVisualDescendant<Wpf.Ui.Controls.TextBlock>(
                         statusPill,
-                        text => text.Text == "当前应用 · 无效"));
+                        text => text.Text == "当前应用"));
                 Assert.Same(
-                    window.FindResource("SystemFillColorCriticalBackgroundBrush"),
+                    window.FindResource("ControlFillColorDefaultBrush"),
                     statusPill.Background);
                 Assert.Same(
-                    window.FindResource("SystemFillColorCriticalBrush"),
+                    window.FindResource("AccentTextFillColorPrimaryBrush"),
                     statusText.Foreground);
                 Assert.Same(
                     window.FindResource("AccentFillColorDefaultBrush"),
@@ -1954,7 +1964,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.InRange(areaEditor.ActualWidth, 1, areaPage.ActualWidth);
 
                 Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
-                Click(Find<ButtonBase>(window, "AreaProfileRenameButton"));
+                Click(AreaProfileFileCommand(window, "AreaProfileRenameMenuItem"));
                 window.UpdateLayout();
                 var prompt = Find<TextBlock>(window, "AreaProfileFileOperationPromptText");
                 var target = Find<TextBox>(window, "AreaProfileTargetNameInput");
@@ -2141,8 +2151,33 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         }
     }
 
-    private static void Click(UIElement element) =>
-        element.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+    private static void Click(UIElement element) => element.RaiseEvent(
+        new RoutedEventArgs(
+            element is MenuItem
+                ? MenuItem.ClickEvent
+                : ButtonBase.ClickEvent));
+
+    private static MenuItem AreaProfileFileCommand(
+        WatchWorkspaceWindow window,
+        string automationId)
+    {
+        var profiles = Find<ListBox>(window, "AreaProfileList");
+        profiles.UpdateLayout();
+        var row = Assert.IsType<WatchAreaFilterProfilePresentationRow>(
+            profiles.SelectedItem);
+        var item = Assert.IsType<ListBoxItem>(
+            profiles.ItemContainerGenerator.ContainerFromItem(row));
+        var menu = Assert.IsType<ContextMenu>(item.ContextMenu);
+        menu.PlacementTarget = item;
+        menu.IsOpen = true;
+        window.UpdateLayout();
+        return Assert.Single(
+            menu.Items.Cast<MenuItem>(),
+            menuItem => string.Equals(
+                AutomationProperties.GetAutomationId(menuItem),
+                automationId,
+                StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// The explicit write that replaced the save button: Ctrl+S, bound on the
@@ -2200,6 +2235,23 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         Assert.True(
             origin.X + element.ActualWidth <= page.ActualWidth + 0.5,
             $"{element.Name} ends outside the page at {origin.X + element.ActualWidth}");
+    }
+
+    private static bool IsDescendantOrSelf(
+        DependencyObject candidate,
+        DependencyObject ancestor)
+    {
+        for (DependencyObject? current = candidate;
+             current is not null;
+             current = VisualTreeHelper.GetParent(current))
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static T Find<T>(FrameworkElement root, string name)

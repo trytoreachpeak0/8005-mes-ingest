@@ -120,6 +120,14 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
 
     public bool HasAttention => AttentionText is not null;
 
+    public bool CanSaveAs => CanSaveAsOverride ?? IsValid;
+
+    public bool? CanSaveAsOverride { get; init; }
+
+    public bool CanRenameOrDelete => !IsMissing && !BlocksIdentityChangingCommands;
+
+    public bool BlocksIdentityChangingCommands { get; init; }
+
     public string MetadataText => IsMissing
         ? $"{MesAreaCount:N0} 个 AREA · 已应用快照"
         : $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
@@ -619,23 +627,19 @@ internal partial class WatchWorkspaceWindow
             AreaProfileValidationExpander.Visibility = _areaProfileDraft.IsValid
                 ? Visibility.Collapsed
                 : Visibility.Visible;
-            var isNewProfile = _selectedAreaProfileName is null;
-            var selectedProfileIsMissing = IsSelectedAreaProfileMissing();
             AreaProfileApplyButton.Content = applyState.Content;
             AreaProfileApplyButton.IsEnabled = applyState.IsEnabled;
             AutomationProperties.SetName(
                 AreaProfileApplyButton,
                 applyState.AutomationName);
-            // "Save as" supplies the name itself, so a draft that only lacks
-            // one — the state a file deleted underneath the editor leaves
-            // behind — must still be able to reach the disk through it.
-            AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid
-                || (_areaProfileDraftLostItsFile
-                    && !WatchAreaFilterProfileStore.HasContentDiagnostics(_areaProfileDraft));
-            AreaProfileRenameButton.IsEnabled =
-                !isNewProfile && !selectedProfileIsMissing && !_areaProfileDraftIsDirty;
-            AreaProfileDeleteButton.IsEnabled =
-                !isNewProfile && !selectedProfileIsMissing && !_areaProfileDraftIsDirty;
+            // A file-backed draft uses the row context menu. Once an external
+            // delete has taken away the row, the surviving unnamed buffer gets
+            // one recovery command in the same left card instead.
+            AreaProfileSaveDraftAsButton.Visibility = _areaProfileDraftLostItsFile
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            AreaProfileSaveDraftAsButton.IsEnabled = _areaProfileDraftLostItsFile
+                && !WatchAreaFilterProfileStore.HasContentDiagnostics(_areaProfileDraft);
             AutomationProperties.SetName(
                 AreaProfileFileTitleText,
                 $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
@@ -695,6 +699,11 @@ internal partial class WatchWorkspaceWindow
         WatchAreaFilterProfile draft) => rows
         .Select(row => row with
         {
+            CanSaveAsOverride = IsSelectedAreaProfileRow(row)
+                ? draft.IsValid
+                : null,
+            BlocksIdentityChangingCommands = IsSelectedAreaProfileRow(row)
+                && _areaProfileDraftIsDirty,
             HasDrifted = !row.IsMissing
                 && row.IsApplied
                 && !applied.MesAreas.SequenceEqual(
@@ -1403,24 +1412,43 @@ internal partial class WatchWorkspaceWindow
         _areaProfileAutoSaveTimer = null;
     }
 
-    private void OnAreaProfileSaveAsClick(object sender, RoutedEventArgs e) =>
+    private void OnAreaProfileSaveAsClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectAreaProfileFileCommandTarget(sender, out var invoker))
+        {
+            return;
+        }
+
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.SaveAs,
             "另存为",
             IsSelectedAreaProfileMissing()
                 ? _selectedAreaProfileName ?? string.Empty
                 : string.Empty,
-            sender as IInputElement);
+            invoker);
+    }
 
-    private void OnAreaProfileRenameClick(object sender, RoutedEventArgs e) =>
+    private void OnAreaProfileRenameClick(object sender, RoutedEventArgs e)
+    {
+        if (!SelectAreaProfileFileCommandTarget(sender, out var invoker))
+        {
+            return;
+        }
+
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.Rename,
             "重命名",
             _selectedAreaProfileName ?? string.Empty,
-            sender as IInputElement);
+            invoker);
+    }
 
     private void OnAreaProfileDeleteClick(object sender, RoutedEventArgs e)
     {
+        if (!SelectAreaProfileFileCommandTarget(sender, out var invoker))
+        {
+            return;
+        }
+
         if (_selectedAreaProfileName is not { } selectedName)
         {
             return;
@@ -1430,7 +1458,43 @@ internal partial class WatchWorkspaceWindow
             AreaProfileFileOperation.Delete,
             $"再次确认删除“{selectedName}.txt”",
             selectedName,
-            sender as IInputElement);
+            invoker);
+    }
+
+    private bool SelectAreaProfileFileCommandTarget(
+        object sender,
+        out IInputElement? invoker)
+    {
+        invoker = sender as IInputElement;
+        if (sender is not MenuItem
+            {
+                CommandParameter: WatchAreaFilterProfilePresentationRow target,
+            })
+        {
+            return true;
+        }
+
+        // Context-menu items disappear as soon as they invoke a command. The
+        // list is the stable keyboard origin to restore after the inline
+        // confirmation closes, whether the operation keeps or replaces the row.
+        invoker = AreaProfileList;
+
+        if (!string.Equals(
+                _selectedAreaProfileName,
+                target.ProfileName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            AreaProfileList.SelectedItem = _areaProfileRows.FirstOrDefault(row =>
+                string.Equals(
+                    row.ProfileName,
+                    target.ProfileName,
+                    StringComparison.OrdinalIgnoreCase));
+        }
+
+        return string.Equals(
+            _selectedAreaProfileName,
+            target.ProfileName,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     private void BeginAreaProfileFileOperation(
@@ -1766,7 +1830,7 @@ internal partial class WatchWorkspaceWindow
                     _areaProfileDraftIsDirty = false;
                     CloseAreaProfileFileOperation(
                         focusFallback: result.AppliedProfileWasDeleted
-                            ? AreaProfileSaveAsButton
+                            ? AreaProfileList
                             : AreaProfileNewButton);
 
                     ShowAreaProfileInfo(
