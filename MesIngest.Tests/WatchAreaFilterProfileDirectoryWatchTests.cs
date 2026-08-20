@@ -42,7 +42,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
     }
 
     [Fact]
-    public void A_deleted_profile_file_reaches_the_directory_change_and_leaves_the_listing()
+    public void A_deleted_profile_file_is_not_announced_until_the_confirmation_window_closes()
     {
         using var directory = new TemporaryProfileDirectory();
         var clock = new ManualTimerTimeProvider(StartedAt);
@@ -59,10 +59,83 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
 
         directory.DeleteProfile("焊线区域");
         events.RaiseDeleted("焊线区域.txt");
+
+        clock.Advance(
+            WatchAreaFilterProfileStore.DeleteConfirmationWindow
+                - TimeSpan.FromTicks(1));
+
+        Assert.Empty(changes);
+
+        clock.Advance(TimeSpan.FromTicks(1));
+
+        var change = Assert.Single(changes);
+        Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Empty(store.EnumerateProfiles());
+    }
+
+    [Fact]
+    public void An_editor_atomic_replace_is_announced_as_content_update_without_a_transient_delete()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("焊线区域", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var changes = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryChanged += (_, change) => changes.Add(change);
+        store.StartWatchingDirectory();
+
+        directory.DeleteProfile("焊线区域");
+        events.RaiseDeleted("焊线区域.txt");
+        clock.Advance(
+            WatchAreaFilterProfileStore.DeleteConfirmationWindow
+                - TimeSpan.FromMilliseconds(50));
+
+        Assert.Empty(changes);
+
+        directory.WriteProfile("焊线区域", "B2-2");
+        events.RaiseCreated("焊线区域.txt");
         clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
         var change = Assert.Single(changes);
         Assert.Equal(["焊线区域"], change.ProfileNames);
+        Assert.Empty(change.Renames);
+        Assert.Equal("B2-2", store.Load("焊线区域").Content);
+        Assert.Equal(
+            ["焊线区域"],
+            store.EnumerateProfiles().Select(summary => summary.ProfileName));
+    }
+
+    [Fact]
+    public void A_changed_event_immediately_followed_by_delete_cannot_bypass_delete_confirmation()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("焊线区域", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var changes = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryChanged += (_, change) => changes.Add(change);
+        store.StartWatchingDirectory();
+
+        events.RaiseChanged("焊线区域.txt");
+        directory.DeleteProfile("焊线区域");
+        events.RaiseDeleted("焊线区域.txt");
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+        Assert.Empty(changes);
+
+        clock.Advance(
+            WatchAreaFilterProfileStore.DeleteConfirmationWindow
+                - WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+        Assert.Equal(["焊线区域"], Assert.Single(changes).ProfileNames);
         Assert.Empty(store.EnumerateProfiles());
     }
 
@@ -364,7 +437,7 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
     }
 
     [Fact]
-    public void A_rename_announces_both_the_old_and_the_new_profile_name()
+    public void A_rename_announces_the_old_and_new_identity_and_the_sorted_listing()
     {
         using var directory = new TemporaryProfileDirectory();
         var clock = new ManualTimerTimeProvider(StartedAt);
@@ -384,6 +457,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
 
         var change = Assert.Single(changes);
         Assert.Equal(["新名", "旧名"], change.ProfileNames.Order(StringComparer.Ordinal));
+        var rename = Assert.Single(change.Renames);
+        Assert.Equal("旧名", rename.PreviousProfileName);
+        Assert.Equal("新名", rename.ProfileName);
         Assert.Equal(
             ["新名"],
             store.EnumerateProfiles().Select(summary => summary.ProfileName));

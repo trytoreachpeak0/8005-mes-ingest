@@ -24,7 +24,13 @@ internal sealed record WatchAreaProfileDirectoryEvent(
 /// One interpreted directory change: the profile names whose files appeared,
 /// disappeared, or changed inside a single debounce window.
 /// </summary>
-internal sealed record WatchAreaProfileDirectoryChange(IReadOnlyList<string> ProfileNames);
+internal sealed record WatchAreaProfileRename(
+    string PreviousProfileName,
+    string ProfileName);
+
+internal sealed record WatchAreaProfileDirectoryChange(
+    IReadOnlyList<string> ProfileNames,
+    IReadOnlyList<WatchAreaProfileRename> Renames);
 
 internal interface IWatchAreaProfileDirectoryEventSource : IDisposable
 {

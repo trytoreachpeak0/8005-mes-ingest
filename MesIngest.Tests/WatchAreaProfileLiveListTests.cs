@@ -60,11 +60,103 @@ public sealed class WatchAreaProfileLiveListTests
 
             File.Delete(Path.Combine(directoryPath, "东区.txt"));
             events.RaiseDeleted("东区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
+
+            Assert.Equal(
+                ["西区"],
+                Rows(list).Select(row => row.ProfileName));
+        });
+
+    [Fact]
+    public void An_externally_renamed_selected_profile_follows_the_new_name_and_resorts_without_a_deleted_warning() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            var title = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileFileTitleText"));
+            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("AreaProfileInfoBar"));
+            WriteProfile(directoryPath, "北区", "B2-2");
+            events.RaiseCreated("北区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            var originalContent = editor.Text;
+
+            File.Move(
+                Path.Combine(directoryPath, "西区.txt"),
+                Path.Combine(directoryPath, "东区.txt"));
+            events.RaiseRenamed("东区.txt", "西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+            Assert.Equal(
+                ["东区", "北区"],
+                Rows(list).Select(row => row.ProfileName));
+            Assert.Equal(
+                "东区",
+                Assert.IsType<WatchAreaFilterProfilePresentationRow>(list.SelectedItem)
+                    .ProfileName);
+            Assert.Equal("东区.txt", title.Text);
+            Assert.Equal(originalContent, editor.Text);
+            Assert.False(infoBar.IsOpen && infoBar.Title.Contains("删除", StringComparison.Ordinal));
+        });
+
+    [Fact]
+    public void An_editor_atomic_replace_keeps_the_selected_row_visible_and_reloads_the_clean_editor() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("AreaProfileInfoBar"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+
+            File.Delete(Path.Combine(directoryPath, "西区.txt"));
+            events.RaiseDeleted("西区.txt");
+            clock.Advance(
+                WatchAreaFilterProfileStore.DeleteConfirmationWindow
+                    - TimeSpan.FromMilliseconds(50));
+
+            Assert.Equal(
+                ["西区"],
+                Rows(list).Select(row => row.ProfileName));
+            Assert.Equal("A1-1\nA1-2", editor.Text);
+
+            WriteProfile(directoryPath, "西区", "B2-2\nB2-3");
+            events.RaiseCreated("西区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
             Assert.Equal(
                 ["西区"],
                 Rows(list).Select(row => row.ProfileName));
+            Assert.Equal("B2-2\nB2-3", editor.Text);
+            Assert.False(infoBar.IsOpen && infoBar.Title.Contains("删除", StringComparison.Ordinal));
+        });
+
+    [Fact]
+    public void An_externally_renamed_profile_keeps_the_local_dirty_buffer_under_the_new_name() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            var title = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileFileTitleText"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            editor.Text += "\n# 本机尚未保存";
+            var dirtyBuffer = editor.Text;
+
+            File.Move(
+                Path.Combine(directoryPath, "西区.txt"),
+                Path.Combine(directoryPath, "东区.txt"));
+            events.RaiseRenamed("东区.txt", "西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+            Assert.Equal(
+                "东区",
+                Assert.IsType<WatchAreaFilterProfilePresentationRow>(list.SelectedItem)
+                    .ProfileName);
+            Assert.Equal("东区.txt", title.Text);
+            Assert.Equal(dirtyBuffer, editor.Text);
         });
 
     [Fact]

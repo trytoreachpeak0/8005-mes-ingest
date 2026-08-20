@@ -272,6 +272,9 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     private readonly object _directoryWatchGate = new();
     private readonly SortedSet<string> _pendingChangedProfileNames =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<WatchAreaProfileRename> _pendingProfileRenames = [];
+    private readonly Dictionary<string, ITimer> _pendingDeleteConfirmations =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, OwnProfileWrite> _ownProfileWrites =
         new(StringComparer.OrdinalIgnoreCase);
     private IWatchAreaProfileDirectoryEventSource? _directoryEventSource;
@@ -300,6 +303,9 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     /// </summary>
     public static TimeSpan DirectoryChangeDebounceWindow { get; } =
         TimeSpan.FromMilliseconds(250);
+
+    public static TimeSpan DeleteConfirmationWindow { get; } =
+        TimeSpan.FromMilliseconds(500);
 
     public static TimeSpan OwnWriteSuppressionWindow { get; } =
         TimeSpan.FromSeconds(2);
@@ -1062,6 +1068,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     {
         IWatchAreaProfileDirectoryEventSource? source;
         ITimer? debounceTimer;
+        ITimer[] deleteConfirmationTimers;
         lock (_directoryWatchGate)
         {
             if (_disposed)
@@ -1075,6 +1082,9 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             _directoryEventSource = null;
             _directoryChangeDebounceTimer = null;
             _pendingChangedProfileNames.Clear();
+            _pendingProfileRenames.Clear();
+            deleteConfirmationTimers = [.. _pendingDeleteConfirmations.Values];
+            _pendingDeleteConfirmations.Clear();
             _ownProfileWrites.Clear();
         }
 
@@ -1086,24 +1096,70 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         }
 
         debounceTimer?.Dispose();
+        foreach (var timer in deleteConfirmationTimers)
+        {
+            timer.Dispose();
+        }
     }
 
     private void OnDirectoryEventRaised(
         object? sender,
         WatchAreaProfileDirectoryEvent directoryEvent)
     {
-        var changedProfileNames = new List<string>(capacity: 2);
-        AddChangedProfileName(changedProfileNames, directoryEvent.FileName);
         if (directoryEvent.Kind is WatchAreaProfileDirectoryEventKind.Renamed)
         {
-            AddChangedProfileName(changedProfileNames, directoryEvent.PreviousFileName);
+            InterpretRename(directoryEvent);
+            return;
         }
 
-        if (changedProfileNames.Count == 0)
+        if (!TryGetProfileName(directoryEvent.FileName, out var profileName))
         {
             return;
         }
 
+        if (directoryEvent.Kind is WatchAreaProfileDirectoryEventKind.Deleted)
+        {
+            ScheduleDeleteConfirmation(profileName);
+            return;
+        }
+
+        CancelDeleteConfirmation(profileName);
+        QueueDirectoryChange([profileName]);
+    }
+
+    private void InterpretRename(WatchAreaProfileDirectoryEvent directoryEvent)
+    {
+        var hasNewProfileName = TryGetProfileName(
+            directoryEvent.FileName,
+            out var profileName);
+        var hasPreviousProfileName = TryGetProfileName(
+            directoryEvent.PreviousFileName,
+            out var previousProfileName);
+        if (hasNewProfileName && hasPreviousProfileName)
+        {
+            CancelDeleteConfirmation(previousProfileName);
+            CancelDeleteConfirmation(profileName);
+            QueueDirectoryChange(
+                [previousProfileName, profileName],
+                new WatchAreaProfileRename(previousProfileName, profileName));
+            return;
+        }
+
+        if (hasNewProfileName)
+        {
+            CancelDeleteConfirmation(profileName);
+            QueueDirectoryChange([profileName]);
+        }
+        else if (hasPreviousProfileName)
+        {
+            ScheduleDeleteConfirmation(previousProfileName);
+        }
+    }
+
+    private void QueueDirectoryChange(
+        IReadOnlyList<string> changedProfileNames,
+        WatchAreaProfileRename? rename = null)
+    {
         lock (_directoryWatchGate)
         {
             if (_disposed || _directoryEventSource is null)
@@ -1115,6 +1171,10 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             foreach (var profileName in changedProfileNames)
             {
                 _pendingChangedProfileNames.Add(profileName);
+            }
+            if (rename is not null && !_pendingProfileRenames.Contains(rename))
+            {
+                _pendingProfileRenames.Add(rename);
             }
 
             if (windowAlreadyOpen)
@@ -1133,26 +1193,83 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         }
     }
 
-    private void AddChangedProfileName(List<string> changedProfileNames, string? fileName)
+    private bool TryGetProfileName(string? fileName, out string profileName)
     {
         if (fileName is null)
         {
-            return;
+            profileName = string.Empty;
+            return false;
         }
 
         var name = Path.GetFileName(fileName);
         if (!IsProfileFileName(name)
             || HasCompanionFileAttributes(Path.Combine(DirectoryPath, name)))
         {
-            return;
+            profileName = string.Empty;
+            return false;
         }
 
-        changedProfileNames.Add(Path.GetFileNameWithoutExtension(name));
+        profileName = Path.GetFileNameWithoutExtension(name);
+        return true;
+    }
+
+    private void ScheduleDeleteConfirmation(string profileName)
+    {
+        lock (_directoryWatchGate)
+        {
+            if (_disposed || _directoryEventSource is null
+                || _pendingDeleteConfirmations.ContainsKey(profileName))
+            {
+                return;
+            }
+
+            // A watcher can report Changed immediately before Deleted for the
+            // same editor save. Once deletion is observed, its confirmation
+            // window owns this identity; an older debounced change must not
+            // refresh the list while the file is temporarily absent.
+            _pendingChangedProfileNames.Remove(profileName);
+            _pendingDeleteConfirmations[profileName] = _timeProvider.CreateTimer(
+                _ => ConfirmDelete(profileName),
+                state: null,
+                DeleteConfirmationWindow,
+                Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void CancelDeleteConfirmation(string profileName)
+    {
+        ITimer? timer = null;
+        lock (_directoryWatchGate)
+        {
+            if (_pendingDeleteConfirmations.Remove(profileName, out var pendingTimer))
+            {
+                timer = pendingTimer;
+            }
+        }
+
+        timer?.Dispose();
+    }
+
+    private void ConfirmDelete(string profileName)
+    {
+        ITimer? timer;
+        lock (_directoryWatchGate)
+        {
+            if (_disposed
+                || !_pendingDeleteConfirmations.Remove(profileName, out timer))
+            {
+                return;
+            }
+        }
+
+        timer.Dispose();
+        RaiseDirectoryChange([profileName], []);
     }
 
     private void RaisePendingDirectoryChange()
     {
         string[] profileNames;
+        WatchAreaProfileRename[] renames;
         lock (_directoryWatchGate)
         {
             if (_disposed || _pendingChangedProfileNames.Count == 0)
@@ -1161,18 +1278,29 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             }
 
             profileNames = [.. _pendingChangedProfileNames];
+            renames = [.. _pendingProfileRenames];
             _pendingChangedProfileNames.Clear();
+            _pendingProfileRenames.Clear();
         }
 
         profileNames = profileNames
             .Where(profileName => !ShouldSuppressOwnProfileWrite(profileName))
             .ToArray();
-        if (profileNames.Length == 0)
+        RaiseDirectoryChange(profileNames, renames);
+    }
+
+    private void RaiseDirectoryChange(
+        IReadOnlyList<string> profileNames,
+        IReadOnlyList<WatchAreaProfileRename> renames)
+    {
+        if (profileNames.Count == 0 && renames.Count == 0)
         {
             return;
         }
 
-        DirectoryChanged?.Invoke(this, new WatchAreaProfileDirectoryChange(profileNames));
+        DirectoryChanged?.Invoke(
+            this,
+            new WatchAreaProfileDirectoryChange(profileNames, renames));
     }
 
     private void RememberOwnProfileWrite(WatchAreaFilterProfile profile)
