@@ -1115,153 +1115,153 @@ internal partial class WatchWorkspaceWindow
             switch (confirmation.Operation)
             {
                 case AreaProfileFileOperation.Create:
-                    {
-                        var profileName = RequireSafeAreaProfileName(targetName);
-                        _selectedAreaProfileName = null;
-                        _areaProfileDraft = WatchAreaFilterProfileParser.Parse(profileName, string.Empty);
-                        _areaProfileDraftIsDirty = true;
-                        CloseAreaProfileFileOperation();
-                        ShowAreaProfileInfo(
-                            InfoBarSeverity.Informational,
-                            "新 AREA 草稿已命名",
-                            "请填写至少一个有效 AREA，然后保存；尚未创建或应用本机 TXT 文件。");
-                        RenderAreaProfiles();
-                        AreaProfileEditor.Focus();
-                        break;
-                    }
+                {
+                    var profileName = RequireSafeAreaProfileName(targetName);
+                    _selectedAreaProfileName = null;
+                    _areaProfileDraft = WatchAreaFilterProfileParser.Parse(profileName, string.Empty);
+                    _areaProfileDraftIsDirty = true;
+                    CloseAreaProfileFileOperation();
+                    ShowAreaProfileInfo(
+                        InfoBarSeverity.Informational,
+                        "新 AREA 草稿已命名",
+                        "请填写至少一个有效 AREA，然后保存；尚未创建或应用本机 TXT 文件。");
+                    RenderAreaProfiles();
+                    AreaProfileEditor.Focus();
+                    break;
+                }
                 case AreaProfileFileOperation.SaveAs:
+                {
+                    var draft = CurrentAreaProfileDraft();
+                    var result = _areaProfileStore.SaveAs(
+                        targetName,
+                        draft.Content);
+                    if (!result.Saved)
                     {
-                        var draft = CurrentAreaProfileDraft();
-                        var result = _areaProfileStore.SaveAs(
-                            targetName,
-                            draft.Content);
-                        if (!result.Saved)
-                        {
-                            throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
-                        }
-
-                        _selectedAreaProfileName = result.Draft.ProfileName;
-                        _areaProfileDraft = result.Draft;
-                        _areaProfileDraftIsDirty = false;
-                        CloseAreaProfileFileOperation();
-                        ShowAreaProfileInfo(
-                            InfoBarSeverity.Success,
-                            "AREA 配置已另存为",
-                            $"已创建 {result.Draft.ProfileName}.txt；原文件和当前应用范围均未改变。");
-                        RenderAreaProfiles(reloadProfiles: true);
-                        break;
+                        throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
                     }
+
+                    _selectedAreaProfileName = result.Draft.ProfileName;
+                    _areaProfileDraft = result.Draft;
+                    _areaProfileDraftIsDirty = false;
+                    CloseAreaProfileFileOperation();
+                    ShowAreaProfileInfo(
+                        InfoBarSeverity.Success,
+                        "AREA 配置已另存为",
+                        $"已创建 {result.Draft.ProfileName}.txt；原文件和当前应用范围均未改变。");
+                    RenderAreaProfiles(reloadProfiles: true);
+                    break;
+                }
                 case AreaProfileFileOperation.Rename:
+                {
+                    var selectedName = confirmation.SourceProfileName
+                        ?? throw new InvalidOperationException("请先选择要重命名的 AREA TXT 配置。");
+                    if (_areaProfileDraftIsDirty)
                     {
-                        var selectedName = confirmation.SourceProfileName
-                            ?? throw new InvalidOperationException("请先选择要重命名的 AREA TXT 配置。");
-                        if (_areaProfileDraftIsDirty)
-                        {
-                            CloseAreaProfileFileOperation();
-                            throw new InvalidOperationException("请先保存或放弃未保存修改，再重命名当前 AREA TXT 配置。");
-                        }
-
-                        var result = _areaProfileStore.Rename(
-                            selectedName,
-                            targetName,
-                            confirmation.SourceFileFingerprint
-                                ?? throw new InvalidOperationException(
-                                    "重命名确认缺少源文件指纹；请重新选择并确认。"));
-                        if (!result.Renamed)
-                        {
-                            if (HasAreaProfileDiagnostic(
-                                    result.Diagnostics,
-                                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk))
-                            {
-                                CloseAreaProfileFileOperation(restoreInvokerFocus: false);
-                            }
-
-                            throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
-                        }
-
-                        _selectedAreaProfileName = result.Draft.ProfileName;
-                        _areaProfileDraft = result.Draft;
-                        _areaProfileDraftIsDirty = false;
                         CloseAreaProfileFileOperation();
-                        if (string.Equals(
-                                result.CurrentApplied.ProfileName,
-                                result.Draft.ProfileName,
-                                StringComparison.OrdinalIgnoreCase)
-                            && _areaContext.MesAreas.SequenceEqual(
-                                result.CurrentApplied.MesAreas,
-                                StringComparer.Ordinal))
-                        {
-                            _areaContext = result.CurrentApplied.ToDisplayContext();
-                            RenderWorkspace();
-                        }
-
-                        ShowAreaProfileInfo(
-                            InfoBarSeverity.Success,
-                            "AREA 配置已重命名",
-                            $"{selectedName}.txt 已重命名为 {result.Draft.ProfileName}.txt；AREA 内容未改变。");
-                        RenderAreaProfiles(reloadProfiles: true);
-                        break;
+                        throw new InvalidOperationException("请先保存或放弃未保存修改，再重命名当前 AREA TXT 配置。");
                     }
-                case AreaProfileFileOperation.Delete:
+
+                    var result = _areaProfileStore.Rename(
+                        selectedName,
+                        targetName,
+                        confirmation.SourceFileFingerprint
+                            ?? throw new InvalidOperationException(
+                                "重命名确认缺少源文件指纹；请重新选择并确认。"));
+                    if (!result.Renamed)
                     {
-                        var selectedName = confirmation.SourceProfileName
-                            ?? throw new InvalidOperationException("请先选择要删除的 AREA TXT 配置。");
-                        if (_areaProfileDraftIsDirty)
+                        if (HasAreaProfileDiagnostic(
+                                result.Diagnostics,
+                                WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk))
                         {
-                            CloseAreaProfileFileOperation();
-                            throw new InvalidOperationException("请先保存或放弃未保存修改，再删除当前 AREA TXT 配置。");
+                            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
                         }
 
-                        var result = _areaProfileStore.Delete(
-                            selectedName,
-                            confirmation.SourceFileFingerprint
-                                ?? throw new InvalidOperationException(
-                                    "删除确认缺少源文件指纹；请重新选择并确认。"));
-                        if (!result.Deleted)
-                        {
-                            if (HasAreaProfileDiagnostic(
-                                    result.Diagnostics,
-                                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk))
-                            {
-                                CloseAreaProfileFileOperation(restoreInvokerFocus: false);
-                            }
-
-                            throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
-                        }
-
-                        _selectedAreaProfileName = null;
-                        _areaProfileDraft = WatchAreaFilterProfileParser.Parse(string.Empty, string.Empty);
-                        _areaProfileDraftIsDirty = false;
-                        CloseAreaProfileFileOperation(focusFallback: AreaProfileNewButton);
-                        if (result.AppliedProfileWasDeleted)
-                        {
-                            await ApplyAreaContextAsync(
-                                    result.CurrentApplied.ToDisplayContext(),
-                                    _lifetimeCancellation.Token)
-                                .ConfigureAwait(true);
-                            if (!IsCurrentAreaProfileOperation(operation))
-                            {
-                                return;
-                            }
-
-                        }
-
-                        ShowAreaProfileInfo(
-                            InfoBarSeverity.Success,
-                            "AREA 配置已删除",
-                            result.AppliedProfileWasDeleted
-                                ? $"{selectedName}.txt 已删除；该配置原为当前应用范围，现已明确回退到全部 AREA。"
-                                : $"{selectedName}.txt 已删除；当前应用范围未改变。");
-                        RenderAreaProfiles(reloadProfiles: true);
-                        await Dispatcher.InvokeAsync(
-                            () =>
-                            {
-                                AreaProfileList.BringIntoView();
-                                Keyboard.Focus(AreaProfileList);
-                            },
-                            DispatcherPriority.Input);
-                        break;
+                        throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
                     }
+
+                    _selectedAreaProfileName = result.Draft.ProfileName;
+                    _areaProfileDraft = result.Draft;
+                    _areaProfileDraftIsDirty = false;
+                    CloseAreaProfileFileOperation();
+                    if (string.Equals(
+                            result.CurrentApplied.ProfileName,
+                            result.Draft.ProfileName,
+                            StringComparison.OrdinalIgnoreCase)
+                        && _areaContext.MesAreas.SequenceEqual(
+                            result.CurrentApplied.MesAreas,
+                            StringComparer.Ordinal))
+                    {
+                        _areaContext = result.CurrentApplied.ToDisplayContext();
+                        RenderWorkspace();
+                    }
+
+                    ShowAreaProfileInfo(
+                        InfoBarSeverity.Success,
+                        "AREA 配置已重命名",
+                        $"{selectedName}.txt 已重命名为 {result.Draft.ProfileName}.txt；AREA 内容未改变。");
+                    RenderAreaProfiles(reloadProfiles: true);
+                    break;
+                }
+                case AreaProfileFileOperation.Delete:
+                {
+                    var selectedName = confirmation.SourceProfileName
+                        ?? throw new InvalidOperationException("请先选择要删除的 AREA TXT 配置。");
+                    if (_areaProfileDraftIsDirty)
+                    {
+                        CloseAreaProfileFileOperation();
+                        throw new InvalidOperationException("请先保存或放弃未保存修改，再删除当前 AREA TXT 配置。");
+                    }
+
+                    var result = _areaProfileStore.Delete(
+                        selectedName,
+                        confirmation.SourceFileFingerprint
+                            ?? throw new InvalidOperationException(
+                                "删除确认缺少源文件指纹；请重新选择并确认。"));
+                    if (!result.Deleted)
+                    {
+                        if (HasAreaProfileDiagnostic(
+                                result.Diagnostics,
+                                WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk))
+                        {
+                            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
+                        }
+
+                        throw new InvalidOperationException(ProjectAreaDiagnostics(result.Diagnostics));
+                    }
+
+                    _selectedAreaProfileName = null;
+                    _areaProfileDraft = WatchAreaFilterProfileParser.Parse(string.Empty, string.Empty);
+                    _areaProfileDraftIsDirty = false;
+                    CloseAreaProfileFileOperation(focusFallback: AreaProfileNewButton);
+                    if (result.AppliedProfileWasDeleted)
+                    {
+                        await ApplyAreaContextAsync(
+                                result.CurrentApplied.ToDisplayContext(),
+                                _lifetimeCancellation.Token)
+                            .ConfigureAwait(true);
+                        if (!IsCurrentAreaProfileOperation(operation))
+                        {
+                            return;
+                        }
+
+                    }
+
+                    ShowAreaProfileInfo(
+                        InfoBarSeverity.Success,
+                        "AREA 配置已删除",
+                        result.AppliedProfileWasDeleted
+                            ? $"{selectedName}.txt 已删除；该配置原为当前应用范围，现已明确回退到全部 AREA。"
+                            : $"{selectedName}.txt 已删除；当前应用范围未改变。");
+                    RenderAreaProfiles(reloadProfiles: true);
+                    await Dispatcher.InvokeAsync(
+                        () =>
+                        {
+                            AreaProfileList.BringIntoView();
+                            Keyboard.Focus(AreaProfileList);
+                        },
+                        DispatcherPriority.Input);
+                    break;
+                }
                 default:
                     throw new ArgumentOutOfRangeException(
                         nameof(confirmation),
