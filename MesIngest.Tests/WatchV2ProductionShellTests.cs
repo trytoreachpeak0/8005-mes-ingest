@@ -159,6 +159,12 @@ public sealed class WatchV2ProductionShellTests
             var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                 window.FindName("DemandSeriesInfoBar"));
             Assert.Equal("需求系列读取状态", AutomationProperties.GetName(infoBar));
+            var infoExpander = Assert.IsType<Expander>(
+                window.FindName("DemandSeriesInfoExpander"));
+            Assert.False(infoExpander.IsExpanded);
+            Assert.Equal("需求系列顶部说明区", AutomationProperties.GetName(infoExpander));
+            Assert.True(infoExpander.Focusable);
+            Assert.True(KeyboardNavigation.GetIsTabStop(infoExpander));
 
             var filters = new (string Name, Type Type, string AutomationName)[]
             {
@@ -184,6 +190,10 @@ public sealed class WatchV2ProductionShellTests
                     KeyboardNavigation.GetIsTabStop(control),
                     $"{name} must participate in tab navigation");
             }
+            var pageSize = Assert.IsType<ComboBox>(
+                window.FindName("DemandSeriesPageSizeFilter"));
+            Assert.True(pageSize.Width >= 76);
+            Assert.Equal(VerticalAlignment.Center, pageSize.VerticalContentAlignment);
 
             var commandNames = new Dictionary<string, string>
             {
@@ -229,6 +239,12 @@ public sealed class WatchV2ProductionShellTests
             Assert.False(seriesGrid.CanUserSortColumns);
             Assert.True(seriesGrid.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(seriesGrid));
+            Assert.True(seriesGrid.CanUserResizeColumns);
+            Assert.All(seriesGrid.Columns, column =>
+            {
+                Assert.True(column.CanUserResize);
+                Assert.Equal(DataGridLengthUnitType.SizeToCells, column.Width.UnitType);
+            });
             Assert.Equal(DataGridSelectionUnit.FullRow, seriesGrid.SelectionUnit);
             // The list carries the approved DemandSeriesPage prototype hierarchy (restored
             // in 0024945). Per-generation status, readability, the last sequence and the
@@ -268,9 +284,25 @@ public sealed class WatchV2ProductionShellTests
                 AutomationProperties.GetAutomationId(pageNumber));
             Assert.True(pageNumber.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(pageNumber));
+            Assert.True(pageNumber.MinWidth >= 100);
+            Assert.Equal(VerticalAlignment.Center, pageNumber.VerticalContentAlignment);
             Assert.False(pageNumber.IsEnabled);
             Assert.False(Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesGoToPageButton")).IsEnabled);
+            var pagingRow = Assert.IsType<RowDefinition>(
+                window.FindName("DemandSeriesPagingRow"));
+            Assert.True(pagingRow.Height.IsAuto);
+            foreach (var name in new[]
+            {
+                "DemandSeriesPreviousButton",
+                "DemandSeriesGoToPageButton",
+                "DemandSeriesNextButton",
+            })
+            {
+                var pagingButton = Assert.IsAssignableFrom<Control>(window.FindName(name));
+                Assert.Equal(HorizontalAlignment.Center, pagingButton.HorizontalContentAlignment);
+                Assert.Equal(VerticalAlignment.Center, pagingButton.VerticalContentAlignment);
+            }
             var emptyState = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                 window.FindName("DemandSeriesEmptyState"));
             Assert.Equal(Visibility.Collapsed, emptyState.Visibility);
@@ -280,12 +312,52 @@ public sealed class WatchV2ProductionShellTests
                 window.FindName("DemandSeriesMasterPanel"));
             var detailPanel = Assert.IsType<Border>(
                 window.FindName("DemandSeriesDetailPanel"));
+            var detailToggle = Assert.IsType<Wpf.Ui.Controls.ToggleSwitch>(
+                window.FindName("DemandSeriesDetailVisibilityToggle"));
+            var splitter = Assert.IsType<GridSplitter>(
+                window.FindName("DemandSeriesMasterDetailSplitter"));
             Assert.Equal("需求系列主列表", AutomationProperties.GetName(masterPanel));
             Assert.Equal("需求系列详情与证据", AutomationProperties.GetName(detailPanel));
+            Assert.Equal("需求系列详情已展开；关闭可让主列表占满可用高度", AutomationProperties.GetName(detailToggle));
+            Assert.Equal("调整需求系列列表与详情高度", AutomationProperties.GetName(splitter));
+            Assert.True(splitter.Focusable);
+            Assert.True(KeyboardNavigation.GetIsTabStop(splitter));
+            Assert.Equal(GridResizeDirection.Rows, splitter.ResizeDirection);
+            Assert.Equal(GridResizeBehavior.PreviousAndNext, splitter.ResizeBehavior);
             Assert.Equal(0, Grid.GetRow(masterPanel));
             Assert.Equal(2, Grid.GetRow(detailPanel));
             Assert.InRange(masterPanel.ActualWidth, 1, scrollViewer.ActualWidth);
             Assert.InRange(detailPanel.ActualWidth, 1, scrollViewer.ActualWidth);
+
+            window.Width = 1440;
+            window.UpdateLayout();
+            var masterDetailGrid = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesMasterDetailGrid"));
+            var expandedMasterHeight = new GridLength(1.6, GridUnitType.Star);
+            var expandedDetailHeight = new GridLength(0.4, GridUnitType.Star);
+            masterDetailGrid.RowDefinitions[0].Height = expandedMasterHeight;
+            masterDetailGrid.RowDefinitions[2].Height = expandedDetailHeight;
+            detailToggle.IsChecked = false;
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Collapsed, detailPanel.Visibility);
+            Assert.Equal(Visibility.Collapsed, splitter.Visibility);
+            Assert.Equal(new GridLength(1, GridUnitType.Star), masterDetailGrid.RowDefinitions[0].Height);
+            Assert.Equal(new GridLength(0), masterDetailGrid.RowDefinitions[2].Height);
+            Assert.Equal("需求系列详情已收起；打开可恢复上次高度比例", AutomationProperties.GetName(detailToggle));
+            detailToggle.IsChecked = true;
+            window.UpdateLayout();
+            Assert.Equal(Visibility.Visible, detailPanel.Visibility);
+            Assert.Equal(Visibility.Visible, splitter.Visibility);
+            Assert.Equal(expandedMasterHeight, masterDetailGrid.RowDefinitions[0].Height);
+            Assert.Equal(expandedDetailHeight, masterDetailGrid.RowDefinitions[2].Height);
+
+            Assert.IsType<NavigationViewItem>(window.FindName("OverviewNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.IsType<NavigationViewItem>(window.FindName("DemandSeriesNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.UpdateLayout();
+            Assert.Equal(expandedMasterHeight, masterDetailGrid.RowDefinitions[0].Height);
+            Assert.Equal(expandedDetailHeight, masterDetailGrid.RowDefinitions[2].Height);
 
             var detailHeading = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesDetailHeadingText"));

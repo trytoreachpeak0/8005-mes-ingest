@@ -2,6 +2,7 @@ using System.IO;
 using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -60,6 +61,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private string? _demandSeriesLifecycleDraft;
     private WatchWorkspacePage _activePage = WatchWorkspacePage.Overview;
     private bool _isRenderingDemandSeries;
+    private GridLength _demandSeriesExpandedMasterHeight;
+    private GridLength _demandSeriesExpandedDetailHeight;
     private long _demandSeriesOperationGeneration;
     private bool _initialized;
     private bool _isWatchingSystemTheme;
@@ -479,6 +482,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void InitializeDemandSeriesPage()
     {
+        _demandSeriesExpandedMasterHeight =
+            (GridLength)FindResource("DemandSeriesMasterDefaultHeight");
+        _demandSeriesExpandedDetailHeight =
+            (GridLength)FindResource("DemandSeriesDetailDefaultHeight");
+        DemandSeriesDetailVisibilityToggle.Checked += OnDemandSeriesDetailVisibilityChanged;
+        DemandSeriesDetailVisibilityToggle.Unchecked += OnDemandSeriesDetailVisibilityChanged;
+        DemandSeriesMasterDetailSplitter.DragCompleted += OnDemandSeriesMasterDetailSplitterDragCompleted;
+        ApplyDemandSeriesDetailVisibility();
+
         WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesGenerationGrid, preserveSelectionUnit: true);
         WatchGridClipboardBehavior.Attach(DemandSeriesGenerationEvidenceGrid, preserveSelectionUnit: true);
@@ -787,6 +799,56 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
+    private void OnDemandSeriesDetailVisibilityChanged(object sender, RoutedEventArgs e) =>
+        ApplyDemandSeriesDetailVisibility();
+
+    private void OnDemandSeriesMasterDetailSplitterDragCompleted(
+        object sender,
+        DragCompletedEventArgs e)
+    {
+        if (DemandSeriesDetailVisibilityToggle.IsChecked != true)
+        {
+            return;
+        }
+
+        _demandSeriesExpandedMasterHeight = DemandSeriesMasterDetailPrimaryRow.Height;
+        _demandSeriesExpandedDetailHeight = DemandSeriesMasterDetailBottomRow.Height;
+    }
+
+    private void ApplyDemandSeriesDetailVisibility()
+    {
+        var showDetail = DemandSeriesDetailVisibilityToggle.IsChecked == true;
+        if (!showDetail
+            && DemandSeriesDetailPanel.Visibility == Visibility.Visible
+            && !DemandSeriesMasterDetailPrimaryRow.Height.IsAuto
+            && !DemandSeriesMasterDetailBottomRow.Height.IsAuto)
+        {
+            _demandSeriesExpandedMasterHeight = DemandSeriesMasterDetailPrimaryRow.Height;
+            _demandSeriesExpandedDetailHeight = DemandSeriesMasterDetailBottomRow.Height;
+        }
+
+        DemandSeriesDetailPanel.Visibility = showDetail
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DemandSeriesMasterDetailSplitter.Visibility = showDetail
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        DemandSeriesMasterDetailPrimaryRow.Height = showDetail
+            ? _demandSeriesExpandedMasterHeight
+            : new GridLength(1, GridUnitType.Star);
+        DemandSeriesMasterDetailGapRow.Height = showDetail
+            ? (GridLength)FindResource("DemandSeriesSplitterHeight")
+            : new GridLength(0);
+        DemandSeriesMasterDetailBottomRow.Height = showDetail
+            ? _demandSeriesExpandedDetailHeight
+            : new GridLength(0);
+        AutomationProperties.SetName(
+            DemandSeriesDetailVisibilityToggle,
+            showDetail
+                ? "需求系列详情已展开；关闭可让主列表占满可用高度"
+                : "需求系列详情已收起；打开可恢复上次高度比例");
+    }
+
     private void OnDemandSeriesFilterDraftChanged(object sender, SelectionChangedEventArgs e) =>
         UpdateDemandSeriesClearFiltersState();
 
@@ -1055,7 +1117,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
             var showSource = presentation.SourceComparison
                 != WatchDemandSeriesSourceComparison.None;
-            DemandSeriesInfoBar.IsOpen = presentation.IsInfoOpen || showSource;
+            var showDemandSeriesInfo = presentation.IsInfoOpen || showSource;
+            DemandSeriesInfoBar.IsOpen = showDemandSeriesInfo;
+            DemandSeriesInfoExpander.Visibility = showDemandSeriesInfo
+                ? Visibility.Visible
+                : Visibility.Collapsed;
             DemandSeriesInfoBar.Severity = ToInfoBarSeverity(
                 presentation.IsInfoOpen
                     ? presentation.InfoSeverity
@@ -1070,11 +1136,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 showSource ? presentation.SourceComparisonMessage : null,
             }.Where(value => !string.IsNullOrWhiteSpace(value));
             DemandSeriesInfoBar.Message = string.Join(" ", infoParts);
+            DemandSeriesInfoHeaderTitle.Text = DemandSeriesInfoBar.Title;
+            DemandSeriesInfoHeaderSummary.Text = DemandSeriesInfoBar.Message;
             AutomationProperties.SetName(
                 DemandSeriesInfoBar,
                 DemandSeriesInfoBar.IsOpen
                     ? $"{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}"
                     : "需求系列读取状态");
+            AutomationProperties.SetName(
+                DemandSeriesInfoExpander,
+                showDemandSeriesInfo
+                    ? $"需求系列顶部说明区。{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}"
+                    : "需求系列顶部说明区");
 
             DemandSeriesPageSummaryText.Text = presentation.PageSummary;
             DemandSeriesOrderText.Text = presentation.OrderSummary;
@@ -2204,20 +2277,29 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void ReflowDemandSeries(bool stack, bool useOuterScrolling)
     {
-        var gap = (GridLength)FindResource("DemandSeriesSectionGap");
-
         Grid.SetColumn(DemandSeriesMasterPanel, 0);
         Grid.SetRow(DemandSeriesMasterPanel, 0);
         Grid.SetColumn(DemandSeriesDetailPanel, 0);
         Grid.SetRow(DemandSeriesDetailPanel, 2);
 
-        DemandSeriesMasterDetailPrimaryRow.Height = stack
-            ? GridLength.Auto
-            : new GridLength(0.9, GridUnitType.Star);
-        DemandSeriesMasterDetailGapRow.Height = gap;
-        DemandSeriesMasterDetailBottomRow.Height = stack
-            ? GridLength.Auto
-            : new GridLength(1.1, GridUnitType.Star);
+        if (DemandSeriesDetailVisibilityToggle.IsChecked != true)
+        {
+            ApplyDemandSeriesDetailVisibility();
+        }
+        else if (stack)
+        {
+            DemandSeriesMasterDetailPrimaryRow.Height = GridLength.Auto;
+            DemandSeriesMasterDetailGapRow.Height =
+                (GridLength)FindResource("DemandSeriesSplitterHeight");
+            DemandSeriesMasterDetailBottomRow.Height = GridLength.Auto;
+        }
+        else
+        {
+            DemandSeriesMasterDetailPrimaryRow.Height = _demandSeriesExpandedMasterHeight;
+            DemandSeriesMasterDetailGapRow.Height =
+                (GridLength)FindResource("DemandSeriesSplitterHeight");
+            DemandSeriesMasterDetailBottomRow.Height = _demandSeriesExpandedDetailHeight;
+        }
 
         ConfigureResponsivePageViewport(
             DemandSeriesLayoutGrid,
