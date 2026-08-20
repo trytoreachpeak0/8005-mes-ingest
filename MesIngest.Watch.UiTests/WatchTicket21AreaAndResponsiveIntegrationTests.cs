@@ -439,16 +439,14 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(unsavedDraft, editor.Text);
 
                 files.WriteProfile("西区", "D1-1\nD1-2");
-                Click(Find<ButtonBase>(window, "AreaProfileReloadButton"));
-                await window.AreaProfileOperationTask.WaitAsync(
-                    TimeSpan.FromSeconds(5),
-                    TestContext.Current.CancellationToken);
-                Assert.Equal(unsavedDraft, editor.Text);
-                Assert.Equal(
-                    "AREA 配置已重新加载",
-                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Title);
-
                 search.Clear();
+                await WaitForAreaProfileRowsAsync(
+                    profileList,
+                    candidates => candidates.Length == 4
+                        && candidates.Any(row =>
+                            row.ProfileName == "西区" && row.MesAreaCount == 2));
+                Assert.Equal(unsavedDraft, editor.Text);
+
                 rows = profileList.Items
                     .Cast<WatchAreaFilterProfilePresentationRow>()
                     .ToArray();
@@ -2116,6 +2114,34 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             Items: [],
             NextCursor: null,
             HasMore: false);
+    }
+
+    /// <summary>
+    /// The AREA list follows the directory on its own, so the wait is for the
+    /// real watcher and its debounce window rather than for a command.
+    /// </summary>
+    private static async Task WaitForAreaProfileRowsAsync(
+        ListBox profileList,
+        Func<WatchAreaFilterProfilePresentationRow[], bool> isExpected)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (true)
+        {
+            var rows = profileList.Items
+                .Cast<WatchAreaFilterProfilePresentationRow>()
+                .ToArray();
+            if (isExpected(rows))
+            {
+                return;
+            }
+
+            Assert.True(
+                DateTime.UtcNow < deadline,
+                "AREA 配置列表没有在超时前跟随配置目录的变化。");
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(50),
+                TestContext.Current.CancellationToken);
+        }
     }
 
     private static void Click(UIElement element) =>

@@ -2876,13 +2876,6 @@
                                                Click="OnAreaProfileOpenDirectoryClick"
                                                AutomationProperties.Name="打开 AREA 配置目录"
                                                AutomationProperties.AutomationId="AreaProfileOpenDirectoryButton" />
-                                    <ui:Button x:Name="AreaProfileReloadButton"
-                                               Content="重新加载"
-                                               Appearance="Secondary"
-                                               Margin="8,0,0,0"
-                                               Click="OnAreaProfileReloadClick"
-                                               AutomationProperties.Name="重新加载 AREA 配置"
-                                               AutomationProperties.AutomationId="AreaProfileReloadButton" />
                                 </StackPanel>
                             </Grid>
                             <StackPanel Grid.Row="2">

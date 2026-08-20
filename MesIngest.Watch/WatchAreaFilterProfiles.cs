@@ -249,12 +249,12 @@ internal static class WatchAreaFilterProfileParser
     }
 }
 
-internal sealed class WatchAreaFilterProfileStore
+internal sealed class WatchAreaFilterProfileStore : IDisposable
 {
     private const int ActiveMarkerVersion = 1;
     private const string ActiveMarkerFileName = ".active-profile";
     private const string MarkerTransactionLockFileName = ".area-profiles.lock";
-    private const string ProfileExtension = ".txt";
+    internal const string ProfileExtension = ".txt";
 
     private static readonly UTF8Encoding StrictUtf8 = new(
         encoderShouldEmitUTF8Identifier: false,
@@ -268,18 +268,42 @@ internal sealed class WatchAreaFilterProfileStore
 
     private readonly TimeProvider _timeProvider;
     private readonly Action<string> _deleteProfileFile;
+    private readonly IWatchAreaProfileDirectoryEventSource? _configuredDirectoryEventSource;
+    private readonly object _directoryWatchGate = new();
+    private readonly SortedSet<string> _pendingChangedProfileNames =
+        new(StringComparer.OrdinalIgnoreCase);
+    private IWatchAreaProfileDirectoryEventSource? _directoryEventSource;
+    private ITimer? _directoryChangeDebounceTimer;
+    private bool _disposed;
 
     public WatchAreaFilterProfileStore(
         string? directoryPath = null,
         TimeProvider? timeProvider = null,
-        Action<string>? deleteProfileFile = null)
+        Action<string>? deleteProfileFile = null,
+        IWatchAreaProfileDirectoryEventSource? directoryEventSource = null)
     {
         var selectedPath = directoryPath ?? DefaultDirectoryPath;
         ArgumentException.ThrowIfNullOrWhiteSpace(selectedPath);
         DirectoryPath = Path.GetFullPath(selectedPath);
         _timeProvider = timeProvider ?? TimeProvider.System;
         _deleteProfileFile = deleteProfileFile ?? File.Delete;
+        _configuredDirectoryEventSource = directoryEventSource;
     }
+
+    /// <summary>
+    /// Raw events observed within this window of the first pending one are
+    /// coalesced into a single interpreted change. The window is anchored to
+    /// that first event, so a continuous stream of writes still gets announced
+    /// once per window instead of postponing the change indefinitely.
+    /// </summary>
+    public static TimeSpan DirectoryChangeDebounceWindow { get; } =
+        TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Raised once a debounce window closes, on whichever thread the event
+    /// source uses. Subscribers that touch UI must marshal to their own thread.
+    /// </summary>
+    public event EventHandler<WatchAreaProfileDirectoryChange>? DirectoryChanged;
 
     public static string DefaultDirectoryPath { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -311,7 +335,8 @@ internal sealed class WatchAreaFilterProfileStore
                 Path = path,
                 ProfileName = Path.GetFileNameWithoutExtension(path),
             })
-            .Where(item => WatchAreaFilterProfileParser.IsSafeProfileName(item.ProfileName))
+            .Where(item => IsProfileFileName(Path.GetFileName(item.Path))
+                && !HasCompanionFileAttributes(item.Path))
             .OrderBy(item => item.ProfileName, StringComparer.Ordinal)
             .Select(item => new WatchAreaFilterProfileSummary(
                 item.ProfileName,
@@ -971,6 +996,183 @@ internal sealed class WatchAreaFilterProfileStore
 
     private string GetProfilePath(string profileName) =>
         Path.Combine(DirectoryPath, $"{profileName}{ProfileExtension}");
+
+    /// <summary>
+    /// Starts observing the profile directory. Idempotent; the store owns the
+    /// event source lifetime, so callers only have to dispose the store.
+    /// </summary>
+    public void StartWatchingDirectory()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        IWatchAreaProfileDirectoryEventSource source;
+        lock (_directoryWatchGate)
+        {
+            if (_directoryEventSource is not null)
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(DirectoryPath);
+            source = _configuredDirectoryEventSource ?? new WatchAreaProfileDirectoryWatcher();
+            _directoryEventSource = source;
+        }
+
+        try
+        {
+            source.Raised += OnDirectoryEventRaised;
+            source.Start(DirectoryPath);
+        }
+        catch
+        {
+            source.Raised -= OnDirectoryEventRaised;
+            lock (_directoryWatchGate)
+            {
+                if (ReferenceEquals(_directoryEventSource, source))
+                {
+                    _directoryEventSource = null;
+                }
+            }
+
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        IWatchAreaProfileDirectoryEventSource? source;
+        ITimer? debounceTimer;
+        lock (_directoryWatchGate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            source = _directoryEventSource;
+            debounceTimer = _directoryChangeDebounceTimer;
+            _directoryEventSource = null;
+            _directoryChangeDebounceTimer = null;
+            _pendingChangedProfileNames.Clear();
+        }
+
+        DirectoryChanged = null;
+        if (source is not null)
+        {
+            source.Raised -= OnDirectoryEventRaised;
+            source.Dispose();
+        }
+
+        debounceTimer?.Dispose();
+    }
+
+    private void OnDirectoryEventRaised(
+        object? sender,
+        WatchAreaProfileDirectoryEvent directoryEvent)
+    {
+        var changedProfileNames = new List<string>(capacity: 2);
+        AddChangedProfileName(changedProfileNames, directoryEvent.FileName);
+        if (directoryEvent.Kind is WatchAreaProfileDirectoryEventKind.Renamed)
+        {
+            AddChangedProfileName(changedProfileNames, directoryEvent.PreviousFileName);
+        }
+
+        if (changedProfileNames.Count == 0)
+        {
+            return;
+        }
+
+        lock (_directoryWatchGate)
+        {
+            if (_disposed || _directoryEventSource is null)
+            {
+                return;
+            }
+
+            var windowAlreadyOpen = _pendingChangedProfileNames.Count != 0;
+            foreach (var profileName in changedProfileNames)
+            {
+                _pendingChangedProfileNames.Add(profileName);
+            }
+
+            if (windowAlreadyOpen)
+            {
+                return;
+            }
+
+            _directoryChangeDebounceTimer ??= _timeProvider.CreateTimer(
+                _ => RaisePendingDirectoryChange(),
+                state: null,
+                Timeout.InfiniteTimeSpan,
+                Timeout.InfiniteTimeSpan);
+            _directoryChangeDebounceTimer.Change(
+                DirectoryChangeDebounceWindow,
+                Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void AddChangedProfileName(List<string> changedProfileNames, string? fileName)
+    {
+        if (fileName is null)
+        {
+            return;
+        }
+
+        var name = Path.GetFileName(fileName);
+        if (!IsProfileFileName(name)
+            || HasCompanionFileAttributes(Path.Combine(DirectoryPath, name)))
+        {
+            return;
+        }
+
+        changedProfileNames.Add(Path.GetFileNameWithoutExtension(name));
+    }
+
+    private void RaisePendingDirectoryChange()
+    {
+        string[] profileNames;
+        lock (_directoryWatchGate)
+        {
+            if (_disposed || _pendingChangedProfileNames.Count == 0)
+            {
+                return;
+            }
+
+            profileNames = [.. _pendingChangedProfileNames];
+            _pendingChangedProfileNames.Clear();
+        }
+
+        DirectoryChanged?.Invoke(this, new WatchAreaProfileDirectoryChange(profileNames));
+    }
+
+    /// <summary>
+    /// Revalidates the extension in managed code: the watcher extension filter
+    /// also matches 8.3 short names, so <c>plan.txtbackup</c> can arrive as a
+    /// <c>*.txt</c> event.
+    /// </summary>
+    private static bool IsProfileFileName(string fileName) =>
+        fileName.Length != 0
+        && !fileName.StartsWith('.')
+        && Path.GetExtension(fileName).Equals(ProfileExtension, StringComparison.OrdinalIgnoreCase)
+        && WatchAreaFilterProfileParser.IsSafeProfileName(
+            Path.GetFileNameWithoutExtension(fileName));
+
+    private static bool HasCompanionFileAttributes(string path)
+    {
+        try
+        {
+            var attributes = File.GetAttributes(path);
+            return attributes.HasFlag(FileAttributes.Hidden)
+                || attributes.HasFlag(FileAttributes.System);
+        }
+        catch (Exception exception) when (exception is FileNotFoundException
+            or DirectoryNotFoundException
+            or IOException
+            or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
 
     private sealed record ProfileFileSnapshot(byte[] Bytes, string Fingerprint);
 

@@ -77,7 +77,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         TimeProvider? timeProvider = null,
         bool initializeOnLoaded = true,
         string? areaFilterProfilesDirectoryPath = null,
-        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null)
+        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null,
+        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -92,7 +93,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         InitializeAreaFilterProfiles(
             areaFilterProfilesDirectoryPath,
             timeProvider,
-            areaProfileDirectoryLauncher);
+            areaProfileDirectoryLauncher,
+            areaProfileDirectoryEventSource);
 
         InitializeComponent();
         InitializeDemandSeriesPage();
@@ -2466,6 +2468,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WorkspaceContent.SizeChanged -= OnWorkspaceContentSizeChanged;
         WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;
         WorkspaceNavigation.PaneClosed -= OnWorkspaceNavigationPaneStateChanged;
+        _areaProfileStore.DirectoryChanged -= OnAreaProfileDirectoryChanged;
+        _areaProfileStore.Dispose();
         _lifetimeCancellation.Cancel();
         _autoRefresh.Dispose();
         _session.Dispose();

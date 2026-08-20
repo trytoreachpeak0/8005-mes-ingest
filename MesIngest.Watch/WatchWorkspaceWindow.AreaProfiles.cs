@@ -131,11 +131,13 @@ internal partial class WatchWorkspaceWindow
     private void InitializeAreaFilterProfiles(
         string? areaFilterProfilesDirectoryPath,
         TimeProvider? timeProvider,
-        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher)
+        IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher,
+        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource)
     {
         _areaProfileStore = new WatchAreaFilterProfileStore(
             areaFilterProfilesDirectoryPath,
-            timeProvider);
+            timeProvider,
+            directoryEventSource: areaProfileDirectoryEventSource);
         _areaProfileDirectoryLauncher = areaProfileDirectoryLauncher
             ?? new WatchAreaProfileDirectoryLauncher();
         try
@@ -174,6 +176,74 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Warning,
                 "无法恢复上次 AREA 配置",
                 $"已回退到全部 AREA。{_areaProfileStartupError}");
+        }
+
+        StartWatchingAreaProfileDirectory();
+    }
+
+    private void StartWatchingAreaProfileDirectory()
+    {
+        try
+        {
+            _areaProfileStore.DirectoryChanged += OnAreaProfileDirectoryChanged;
+            _areaProfileStore.StartWatchingDirectory();
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException)
+        {
+            _areaProfileStore.DirectoryChanged -= OnAreaProfileDirectoryChanged;
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Warning,
+                "无法监视 AREA 配置目录",
+                $"列表不会自动跟随目录变化。{exception.Message}");
+        }
+    }
+
+    private void OnAreaProfileDirectoryChanged(
+        object? sender,
+        WatchAreaProfileDirectoryChange change)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            ApplyAreaProfileDirectoryChange();
+            return;
+        }
+
+        Dispatcher.BeginInvoke(ApplyAreaProfileDirectoryChange);
+    }
+
+    /// <summary>
+    /// Re-reads the directory into the list without touching the current
+    /// selection, the editor buffer, or keyboard focus.
+    /// </summary>
+    private void ApplyAreaProfileDirectoryChange()
+    {
+        if (_disposed || AreaProfileList is null)
+        {
+            return;
+        }
+
+        try
+        {
+            ReloadAreaProfileRows(
+                _areaProfileStore.LoadAppliedState().CurrentApplied,
+                reloadSelectedDraft: false);
+            RenderAreaProfiles();
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException)
+        {
+            ShowAreaProfileInfo(
+                InfoBarSeverity.Warning,
+                "无法读取本机 AREA 配置",
+                $"配置列表可能不是最新的。{exception.Message}");
         }
     }
 
@@ -370,7 +440,9 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
-    private void ReloadAreaProfileRows(WatchAppliedAreaFilterProfile applied)
+    private void ReloadAreaProfileRows(
+        WatchAppliedAreaFilterProfile applied,
+        bool reloadSelectedDraft = true)
     {
         var rows = _areaProfileStore
             .EnumerateProfiles()
@@ -395,7 +467,7 @@ internal partial class WatchWorkspaceWindow
                     StringComparison.OrdinalIgnoreCase)) is { } selectedRow)
             {
                 _selectedAreaProfileName = selectedRow.ProfileName;
-                if (!_areaProfileDraftIsDirty)
+                if (!_areaProfileDraftIsDirty && reloadSelectedDraft)
                 {
                     _areaProfileDraft = _areaProfileStore.Load(selectedRow.ProfileName);
                 }
@@ -441,22 +513,6 @@ internal partial class WatchWorkspaceWindow
                 disposition == WatchAreaProfileDirectoryOpenDisposition.Opened
                     ? $"已通过平台文件管理器打开 {directory}。"
                     : $"已确认 {directory} 存在；UI 测试模式未启动文件管理器。");
-            return Task.CompletedTask;
-        });
-    }
-
-    private void OnAreaProfileReloadClick(object sender, RoutedEventArgs e)
-    {
-        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
-        {
-            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
-            var applied = _areaProfileStore.LoadAppliedState().CurrentApplied;
-            ReloadAreaProfileRows(applied);
-            RenderAreaProfiles();
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Success,
-                "AREA 配置已重新加载",
-                $"已从本机 TXT 重新读取 {_areaProfileRows.Count:N0} 个配置；当前选择和未保存草稿已保留。数据库显示范围未改变。");
             return Task.CompletedTask;
         });
     }

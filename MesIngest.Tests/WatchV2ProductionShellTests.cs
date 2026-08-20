@@ -29,7 +29,7 @@ public sealed class WatchV2ProductionShellTests
 
     [Fact]
     public void Production_composition_creates_the_six_page_fluent_v2_shell_without_forbidden_refresh_controls() =>
-        RunInSta(() =>
+        StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-shell-{Guid.NewGuid():N}");
             using var composition = WatchV2ApplicationComposition.Create(
@@ -81,7 +81,7 @@ public sealed class WatchV2ProductionShellTests
 
     [Fact]
     public void Production_shell_keeps_native_caption_commands_accessible_and_reflows_at_720_epx() =>
-        RunInSta(() =>
+        StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-adaptive-{Guid.NewGuid():N}");
             using var composition = WatchV2ApplicationComposition.Create(
@@ -129,7 +129,7 @@ public sealed class WatchV2ProductionShellTests
 
     [Fact]
     public void Demand_series_page_keeps_filter_list_exact_paging_and_evidence_journeys_accessible_at_720_epx() =>
-        RunInSta(() =>
+        StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-demand-series-{Guid.NewGuid():N}");
             using var composition = WatchV2ApplicationComposition.Create(
@@ -477,7 +477,7 @@ public sealed class WatchV2ProductionShellTests
 
     [Fact]
     public void Overview_navigation_preserves_the_exact_first_page_intent_and_routes_to_the_v2_host_page() =>
-        RunInSta(() =>
+        StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-route-{Guid.NewGuid():N}");
             using var composition = WatchV2ApplicationComposition.Create(
@@ -518,7 +518,7 @@ public sealed class WatchV2ProductionShellTests
 
     [Fact]
     public void Automatic_overview_completion_reprojects_the_window_without_a_manual_command() =>
-        RunInSta(() =>
+        StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-auto-ui-{Guid.NewGuid():N}");
             var clock = new ManualTimerTimeProvider(
@@ -555,27 +555,6 @@ public sealed class WatchV2ProductionShellTests
                 Directory.Delete(root, recursive: true);
             }
         });
-
-    private static void RunInSta(Action action)
-    {
-        Exception? caught = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception exception)
-            {
-                caught = exception;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-
-        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "STA test did not finish");
-        Assert.Null(caught);
-    }
 
     private sealed class ChangingOverviewClient : IWatchV2ApiClient
     {
@@ -672,121 +651,6 @@ public sealed class WatchV2ProductionShellTests
 
         public void Dispose()
         {
-        }
-    }
-
-    private sealed class ManualTimerTimeProvider(DateTimeOffset utcNow) : TimeProvider
-    {
-        private readonly object _gate = new();
-        private readonly List<ManualTimer> _timers = [];
-        private DateTimeOffset _utcNow = utcNow;
-
-        public override DateTimeOffset GetUtcNow()
-        {
-            lock (_gate)
-            {
-                return _utcNow;
-            }
-        }
-
-        public override ITimer CreateTimer(
-            TimerCallback callback,
-            object? state,
-            TimeSpan dueTime,
-            TimeSpan period)
-        {
-            var timer = new ManualTimer(this, callback, state);
-            lock (_gate)
-            {
-                _timers.Add(timer);
-            }
-
-            timer.Change(dueTime, period);
-            return timer;
-        }
-
-        public void Advance(TimeSpan elapsed)
-        {
-            if (elapsed < TimeSpan.Zero)
-            {
-                throw new ArgumentOutOfRangeException(nameof(elapsed));
-            }
-
-            lock (_gate)
-            {
-                _utcNow += elapsed;
-            }
-
-            while (TryTakeDueCallback(out var callback))
-            {
-                callback();
-            }
-        }
-
-        private bool TryTakeDueCallback(out Action callback)
-        {
-            lock (_gate)
-            {
-                var timer = _timers.FirstOrDefault(value => value.IsDue(_utcNow));
-                if (timer is null)
-                {
-                    callback = null!;
-                    return false;
-                }
-
-                callback = timer.TakeCallback(_utcNow);
-                return true;
-            }
-        }
-
-        private sealed class ManualTimer(
-            ManualTimerTimeProvider owner,
-            TimerCallback callback,
-            object? state) : ITimer
-        {
-            private DateTimeOffset? _dueAt;
-            private TimeSpan _period = Timeout.InfiniteTimeSpan;
-            private bool _disposed;
-
-            public bool IsDue(DateTimeOffset utcNow) =>
-                !_disposed && _dueAt is { } dueAt && dueAt <= utcNow;
-
-            public bool Change(TimeSpan dueTime, TimeSpan period)
-            {
-                lock (owner._gate)
-                {
-                    ObjectDisposedException.ThrowIf(_disposed, this);
-                    _period = period;
-                    _dueAt = dueTime == Timeout.InfiniteTimeSpan
-                        ? null
-                        : owner._utcNow + dueTime;
-                    return true;
-                }
-            }
-
-            public Action TakeCallback(DateTimeOffset utcNow)
-            {
-                _dueAt = _period == Timeout.InfiniteTimeSpan
-                    ? null
-                    : utcNow + _period;
-                return () => callback(state);
-            }
-
-            public void Dispose()
-            {
-                lock (owner._gate)
-                {
-                    _disposed = true;
-                    _dueAt = null;
-                    owner._timers.Remove(this);
-                }
-            }
-
-            public ValueTask DisposeAsync()
-            {
-                Dispose();
-                return ValueTask.CompletedTask;
-            }
         }
     }
 }
