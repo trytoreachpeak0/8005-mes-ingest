@@ -272,6 +272,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     private readonly object _directoryWatchGate = new();
     private readonly SortedSet<string> _pendingChangedProfileNames =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, OwnProfileWrite> _ownProfileWrites =
+        new(StringComparer.OrdinalIgnoreCase);
     private IWatchAreaProfileDirectoryEventSource? _directoryEventSource;
     private ITimer? _directoryChangeDebounceTimer;
     private bool _disposed;
@@ -298,6 +300,16 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     /// </summary>
     public static TimeSpan DirectoryChangeDebounceWindow { get; } =
         TimeSpan.FromMilliseconds(250);
+
+    public static TimeSpan OwnWriteSuppressionWindow { get; } =
+        TimeSpan.FromSeconds(2);
+
+    public static IReadOnlyList<TimeSpan> ExternalReadRetryDelays { get; } =
+    [
+        TimeSpan.FromMilliseconds(50),
+        TimeSpan.FromMilliseconds(100),
+        TimeSpan.FromMilliseconds(200),
+    ];
 
     /// <summary>
     /// Raised once a debounce window closes, on whichever thread the event
@@ -353,6 +365,11 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         using var transactionLock = AcquireProfileTransactionLock();
         return LoadNoLock(profileName);
     }
+
+    public Task<WatchAreaFilterProfile> LoadAfterExternalChangeAsync(
+        string profileName,
+        CancellationToken cancellationToken = default) =>
+        new ExternalProfileLoadRetry(this, profileName, cancellationToken).Start();
 
     private WatchAreaFilterProfile LoadNoLock(string? profileName)
     {
@@ -439,9 +456,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         {
             AtomicWriteText(path, draft.Content);
         }
-        return new WatchAreaFilterProfileSaveResult(
-            Saved: true,
-            LoadNoLock(draft.ProfileName));
+        return CompleteSuccessfulSaveNoLock(draft.ProfileName);
     }
 
     public WatchAreaFilterProfileSaveResult SaveAs(string? profileName, string content)
@@ -470,9 +485,15 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         }
 
         AtomicCreateText(path, draft.Content);
-        return new WatchAreaFilterProfileSaveResult(
-            Saved: true,
-            LoadNoLock(draft.ProfileName));
+        return CompleteSuccessfulSaveNoLock(draft.ProfileName);
+    }
+
+    private WatchAreaFilterProfileSaveResult CompleteSuccessfulSaveNoLock(
+        string profileName)
+    {
+        var savedDraft = LoadNoLock(profileName);
+        RememberOwnProfileWrite(savedDraft);
+        return new WatchAreaFilterProfileSaveResult(Saved: true, savedDraft);
     }
 
     public WatchAreaFilterProfileRenameResult Rename(
@@ -1054,6 +1075,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             _directoryEventSource = null;
             _directoryChangeDebounceTimer = null;
             _pendingChangedProfileNames.Clear();
+            _ownProfileWrites.Clear();
         }
 
         DirectoryChanged = null;
@@ -1142,7 +1164,85 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             _pendingChangedProfileNames.Clear();
         }
 
+        profileNames = profileNames
+            .Where(profileName => !ShouldSuppressOwnProfileWrite(profileName))
+            .ToArray();
+        if (profileNames.Length == 0)
+        {
+            return;
+        }
+
         DirectoryChanged?.Invoke(this, new WatchAreaProfileDirectoryChange(profileNames));
+    }
+
+    private void RememberOwnProfileWrite(WatchAreaFilterProfile profile)
+    {
+        if (profile.FileFingerprint is not { } fingerprint)
+        {
+            return;
+        }
+
+        lock (_directoryWatchGate)
+        {
+            if (_disposed || _directoryEventSource is null)
+            {
+                return;
+            }
+
+            _ownProfileWrites[profile.ProfileName] = new OwnProfileWrite(
+                fingerprint,
+                _timeProvider.GetUtcNow() + OwnWriteSuppressionWindow);
+        }
+    }
+
+    private bool ShouldSuppressOwnProfileWrite(string profileName)
+    {
+        OwnProfileWrite ownWrite;
+        lock (_directoryWatchGate)
+        {
+            if (!_ownProfileWrites.TryGetValue(profileName, out ownWrite!))
+            {
+                return false;
+            }
+
+            if (ownWrite.ExpiresAt <= _timeProvider.GetUtcNow())
+            {
+                _ownProfileWrites.Remove(profileName);
+                return false;
+            }
+        }
+
+        string currentFingerprint;
+        try
+        {
+            currentFingerprint = ReadProfileFileSnapshot(GetProfilePath(profileName)).Fingerprint;
+        }
+        catch (Exception exception) when (exception is FileNotFoundException
+            or DirectoryNotFoundException
+            or IOException
+            or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        if (string.Equals(
+                currentFingerprint,
+                ownWrite.Fingerprint,
+                StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        lock (_directoryWatchGate)
+        {
+            if (_ownProfileWrites.TryGetValue(profileName, out var current)
+                && current == ownWrite)
+            {
+                _ownProfileWrites.Remove(profileName);
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1175,6 +1275,124 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     }
 
     private sealed record ProfileFileSnapshot(byte[] Bytes, string Fingerprint);
+
+    private sealed record OwnProfileWrite(string Fingerprint, DateTimeOffset ExpiresAt);
+
+    private sealed class ExternalProfileLoadRetry(
+        WatchAreaFilterProfileStore store,
+        string profileName,
+        CancellationToken cancellationToken)
+    {
+        private readonly TaskCompletionSource<WatchAreaFilterProfile> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ITimer? _timer;
+        private CancellationTokenRegistration _cancellationRegistration;
+        private int _nextDelayIndex;
+        private int _completed;
+
+        public Task<WatchAreaFilterProfile> Start()
+        {
+            var registration = cancellationToken.Register(
+                () => CompleteCanceled(cancellationToken));
+            _cancellationRegistration = registration;
+            if (Volatile.Read(ref _completed) != 0)
+            {
+                registration.Dispose();
+            }
+            else
+            {
+                TryLoad();
+            }
+
+            return _completion.Task;
+        }
+
+        private void TryLoad()
+        {
+            if (Volatile.Read(ref _completed) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                var loaded = store.Load(profileName);
+                var transientDiagnostic = loaded.Diagnostics.FirstOrDefault(diagnostic =>
+                    diagnostic.Code is WatchAreaFilterProfileDiagnosticCodes.ProfileNotFound
+                        or WatchAreaFilterProfileDiagnosticCodes.InvalidUtf8);
+                if (transientDiagnostic is not null)
+                {
+                    throw new IOException(transientDiagnostic.Message);
+                }
+
+                Complete(loaded);
+            }
+            catch (IOException exception)
+            {
+                if (_nextDelayIndex >= ExternalReadRetryDelays.Count)
+                {
+                    CompleteException(exception);
+                    return;
+                }
+
+                _timer ??= store._timeProvider.CreateTimer(
+                    static state => ((ExternalProfileLoadRetry)state!).TryLoad(),
+                    this,
+                    Timeout.InfiniteTimeSpan,
+                    Timeout.InfiniteTimeSpan);
+                _timer.Change(
+                    ExternalReadRetryDelays[_nextDelayIndex++],
+                    Timeout.InfiniteTimeSpan);
+            }
+            catch (Exception exception) when (exception is UnauthorizedAccessException
+                or ArgumentException)
+            {
+                CompleteException(exception);
+            }
+        }
+
+        private void Complete(WatchAreaFilterProfile profile)
+        {
+            if (!TryFinish())
+            {
+                return;
+            }
+
+            _completion.TrySetResult(profile);
+        }
+
+        private void CompleteException(Exception exception)
+        {
+            if (!TryFinish())
+            {
+                return;
+            }
+
+            _completion.TrySetException(exception);
+        }
+
+        private void CompleteCanceled(CancellationToken token)
+        {
+            if (!TryFinish())
+            {
+                return;
+            }
+
+            _completion.TrySetCanceled(token);
+        }
+
+        private bool TryFinish()
+        {
+            if (Interlocked.Exchange(ref _completed, 1) != 0)
+            {
+                return false;
+            }
+
+            _timer?.Dispose();
+            _cancellationRegistration.Dispose();
+            return true;
+        }
+    }
 
     private static void AtomicWriteText(string path, string content)
     {

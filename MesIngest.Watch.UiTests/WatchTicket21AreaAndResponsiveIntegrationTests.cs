@@ -538,7 +538,6 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var saveAsFile = Find<ButtonBase>(window, "AreaProfileSaveAsButton");
                 var renameFile = Find<ButtonBase>(window, "AreaProfileRenameButton");
                 var deleteFile = Find<ButtonBase>(window, "AreaProfileDeleteButton");
-                var reloadFile = Find<ButtonBase>(window, "AreaProfileFileReloadButton");
                 AssertInteractiveAutomation(
                     saveAsFile,
                     "AreaProfileSaveAsButton",
@@ -551,10 +550,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     deleteFile,
                     "AreaProfileDeleteButton",
                     "删除当前 AREA TXT 配置");
-                AssertInteractiveAutomation(
-                    reloadFile,
-                    "AreaProfileFileReloadButton",
-                    "从磁盘重新加载当前 AREA TXT");
+                Assert.Null(window.FindName("AreaProfileFileReloadButton"));
 
                 var discard = Find<ButtonBase>(window, "AreaProfileDiscardButton");
                 var save = Find<ButtonBase>(window, "AreaProfileSaveButton");
@@ -710,11 +706,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Visibility.Collapsed,
                     Find<TextBox>(window, "AreaProfileNameInput").Visibility);
 
-                var reloadFromDisk = Find<Wpf.Ui.Controls.Button>(
-                    window,
-                    "AreaProfileFileReloadButton");
                 var saveAndApply = Find<Wpf.Ui.Controls.Button>(window, "AreaProfileApplyButton");
-                Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Transparent, reloadFromDisk.Appearance);
+                Assert.Null(window.FindName("AreaProfileFileReloadButton"));
                 Assert.Equal(Wpf.Ui.Controls.ControlAppearance.Secondary, saveAndApply.Appearance);
                 Assert.Equal(
                     4,

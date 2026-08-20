@@ -1,6 +1,11 @@
 using System.Text;
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using MesIngest.Watch;
 
 namespace MesIngest.Tests;
@@ -20,6 +25,7 @@ public sealed class WatchAreaProfileLiveListTests
         RunWithAreaProfileWindow((window, _, _, _) =>
         {
             Assert.Null(window.FindName("AreaProfileReloadButton"));
+            Assert.Null(window.FindName("AreaProfileFileReloadButton"));
             Assert.NotNull(window.FindName("AreaProfileOpenDirectoryButton"));
         });
 
@@ -110,24 +116,126 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
-    public void A_live_list_refresh_leaves_the_editor_buffer_and_the_caret_alone() =>
+    public void An_external_rewrite_refreshes_a_clean_editor_on_the_ui_thread_without_losing_its_view() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            Assert.IsType<Wpf.Ui.Controls.NavigationViewItem>(
+                    window.FindName("AreaFilterNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.Height = 720;
+            editor.Height = 120;
+            editor.Width = 500;
+            editor.ApplyTemplate();
+            window.UpdateLayout();
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            editor.Focus();
+            editor.CaretIndex = editor.GetCharacterIndexFromLineIndex(50) + 84;
+            for (var index = 0; index < 4; index++)
+            {
+                EditingCommands.SelectLeftByCharacter.Execute(null, editor);
+            }
+            Assert.Equal(4, editor.SelectionLength);
+            editor.ScrollToLine(45);
+            editor.UpdateLayout();
+            var editorScrollViewer = Assert.IsAssignableFrom<ScrollViewer>(
+                FindVisualDescendant<ScrollViewer>(editor));
+            editorScrollViewer.ScrollToHorizontalOffset(160);
+            editor.UpdateLayout();
+            var expectedCaret = editor.CaretIndex;
+            var expectedSelectionStart = editor.SelectionStart;
+            var expectedSelectionLength = editor.SelectionLength;
+            var expectedHorizontalOffset = editorScrollViewer.HorizontalOffset;
+            var expectedVerticalOffset = editorScrollViewer.VerticalOffset;
+            Assert.True(expectedHorizontalOffset > 0);
+            Assert.True(expectedVerticalOffset > 0);
+            var textChangeCount = 0;
+            var everyTextChangeWasOnTheUiThread = true;
+            editor.TextChanged += (_, _) =>
+            {
+                textChangeCount++;
+                everyTextChangeWasOnTheUiThread &= window.Dispatcher.CheckAccess();
+            };
+            var externalContent = ProfileContent("B2", 80);
+
+            WriteProfile(directoryPath, "西区", externalContent);
+            Task.Run(() =>
+            {
+                events.RaiseChanged("西区.txt");
+                clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            }).GetAwaiter().GetResult();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.Equal(externalContent, editor.Text);
+            Assert.Equal(80, Assert.Single(Rows(list), row => row.ProfileName == "西区").MesAreaCount);
+            Assert.Equal(expectedCaret, editor.CaretIndex);
+            Assert.Equal(expectedSelectionStart, editor.SelectionStart);
+            Assert.Equal(expectedSelectionLength, editor.SelectionLength);
+            Assert.Equal(expectedHorizontalOffset, editorScrollViewer.HorizontalOffset, precision: 3);
+            Assert.Equal(expectedVerticalOffset, editorScrollViewer.VerticalOffset, precision: 3);
+            Assert.Equal(1, textChangeCount);
+            Assert.True(everyTextChangeWasOnTheUiThread);
+            Assert.Same(editor, FocusManager.GetFocusedElement(window));
+        }, ProfileContent("A1", 80));
+
+    [Fact]
+    public void An_external_save_with_identical_bytes_does_not_reload_the_editor() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {
             var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
             var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
             list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
-            var loadedContent = editor.Text;
-            editor.CaretIndex = 3;
+            editor.Select(3, 4);
+            var expectedCaret = editor.CaretIndex;
+            var expectedSelectionStart = editor.SelectionStart;
+            var expectedSelectionLength = editor.SelectionLength;
+            var textChangeCount = 0;
+            editor.TextChanged += (_, _) => textChangeCount++;
 
-            // Another editor rewrote the selected file. Following it into the
-            // editor is the live reload ticket; the list follows it here.
-            WriteProfile(directoryPath, "西区", "C3-1\nC3-2\nC3-3");
+            WriteProfile(directoryPath, "西区", editor.Text);
             events.RaiseChanged("西区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
 
-            Assert.Equal(3, Assert.Single(Rows(list), row => row.ProfileName == "西区").MesAreaCount);
-            Assert.Equal(loadedContent, editor.Text);
-            Assert.Equal(3, editor.CaretIndex);
+            Assert.Equal(0, textChangeCount);
+            Assert.Equal(expectedCaret, editor.CaretIndex);
+            Assert.Equal(expectedSelectionStart, editor.SelectionStart);
+            Assert.Equal(expectedSelectionLength, editor.SelectionLength);
+        });
+
+    [Fact]
+    public void A_locked_external_write_reports_an_error_only_after_the_editor_retries_are_exhausted() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("AreaProfileInfoBar"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            var originalContent = editor.Text;
+            using var writer = ExclusiveFileWriter.WriteUtf8AndHold(
+                Path.Combine(directoryPath, "西区.txt"),
+                "B2-2");
+
+            events.RaiseChanged("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+            Assert.False(window.AreaProfileOperationTask.IsCompleted);
+            for (var index = 0;
+                 index < WatchAreaFilterProfileStore.ExternalReadRetryDelays.Count;
+                 index++)
+            {
+                clock.Advance(WatchAreaFilterProfileStore.ExternalReadRetryDelays[index]);
+                if (index + 1 < WatchAreaFilterProfileStore.ExternalReadRetryDelays.Count)
+                {
+                    Assert.NotEqual("无法完成 AREA 配置操作", infoBar.Title);
+                }
+            }
+
+            PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
+
+            Assert.Equal(originalContent, editor.Text);
+            Assert.True(infoBar.IsOpen);
+            Assert.Equal("无法完成 AREA 配置操作", infoBar.Title);
         });
 
     [Fact]
@@ -189,11 +297,69 @@ public sealed class WatchAreaProfileLiveListTests
             content,
             new UTF8Encoding(false));
 
+    private static string ProfileContent(string areaPrefix, int lineCount) =>
+        string.Join(
+            '\n',
+            [
+                .. Enumerable.Range(1, lineCount).Select(index =>
+                    $"# {index:D2} {new string('x', 160)}"),
+                .. Enumerable.Range(1, lineCount).Select(index => $"{areaPrefix}-{index}"),
+            ]);
+
+    private static void DrainDispatcher(Dispatcher dispatcher)
+    {
+        var frame = new DispatcherFrame();
+        dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            () => frame.Continue = false);
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static void PumpUntilCompleted(Dispatcher dispatcher, Task task)
+    {
+        if (!task.IsCompleted)
+        {
+            var frame = new DispatcherFrame();
+            _ = task.ContinueWith(
+                _ => dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    () => frame.Continue = false),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            Dispatcher.PushFrame(frame);
+        }
+
+        task.GetAwaiter().GetResult();
+        DrainDispatcher(dispatcher);
+    }
+
+    private static T? FindVisualDescendant<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T candidate)
+            {
+                return candidate;
+            }
+
+            if (FindVisualDescendant<T>(child) is { } descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
     private static void RunWithAreaProfileWindow(
         Action<WatchWorkspaceWindow,
             string,
             ManualAreaProfileDirectoryEventSource,
-            ManualTimerTimeProvider> assert) =>
+            ManualTimerTimeProvider> assert,
+        string initialContent = "A1-1\nA1-2") =>
         StaTestRunner.Run(() =>
         {
             var root = Path.Combine(
@@ -201,7 +367,7 @@ public sealed class WatchAreaProfileLiveListTests
                 $"watch-area-live-list-{Guid.NewGuid():N}");
             var areaProfilesPath = Path.Combine(root, "area-filters");
             Directory.CreateDirectory(areaProfilesPath);
-            WriteProfile(areaProfilesPath, "西区", "A1-1\nA1-2");
+            WriteProfile(areaProfilesPath, "西区", initialContent);
             var clock = new ManualTimerTimeProvider(StartedAt);
             var events = new ManualAreaProfileDirectoryEventSource();
             try
@@ -223,6 +389,7 @@ public sealed class WatchAreaProfileLiveListTests
                 try
                 {
                     window.Show();
+                    DrainDispatcher(window.Dispatcher);
                     Assert.Equal(areaProfilesPath, events.StartedDirectoryPath);
                     assert(window, areaProfilesPath, events, clock);
                 }

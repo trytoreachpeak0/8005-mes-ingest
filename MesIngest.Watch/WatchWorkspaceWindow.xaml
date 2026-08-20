@@ -3313,14 +3313,6 @@
                                                                   Style="{StaticResource CaptionText}"
                                                                   VerticalAlignment="Center"
                                                                   AutomationProperties.Name="AREA 配置保存状态" />
-                                                    <ui:Button x:Name="AreaProfileFileReloadButton"
-                                                               Content="从磁盘加载"
-                                                               Appearance="Transparent"
-                                                               Margin="8,0,0,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               Click="OnAreaProfileFileReloadClick"
-                                                               AutomationProperties.Name="从磁盘重新加载当前 AREA TXT"
-                                                               AutomationProperties.AutomationId="AreaProfileFileReloadButton" />
                                                     <ui:Button x:Name="AreaProfileApplyButton"
                                                                Content="保存并应用范围"
                                                                Appearance="Secondary"

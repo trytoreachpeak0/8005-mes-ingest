@@ -908,15 +908,6 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 window,
                 FindRequiredById(window, "AreaProfileEditor"),
                 "AREA editor for the production candidate");
-            var areaFileReload = FindRequiredById(
-                    window,
-                    "AreaProfileFileReloadButton")
-                .AsButton();
-            WaitUntil(
-                () => areaFileReload.IsEnabled,
-                "the AREA file reload command",
-                StepTimeout);
-            areaFileReload.Invoke();
             WaitUntil(
                 () => TextValue(FindRequiredById(window, "AreaProfileDiskStateText"))
                         .Contains("磁盘版本未变化", StringComparison.Ordinal)

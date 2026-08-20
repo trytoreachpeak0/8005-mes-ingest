@@ -114,6 +114,14 @@ internal partial class WatchWorkspaceWindow
         string? SourceFileFingerprint,
         IInputElement? Invoker);
 
+    private sealed record AreaProfileEditorViewState(
+        int CaretIndex,
+        int SelectionStart,
+        int SelectionLength,
+        int FirstVisibleLine,
+        double HorizontalOffset,
+        double VerticalOffset);
+
     private WatchAreaFilterProfileStore _areaProfileStore = null!;
     private IWatchAreaProfileDirectoryLauncher _areaProfileDirectoryLauncher = null!;
     private IReadOnlyList<WatchAreaFilterProfilePresentationRow> _areaProfileRows = [];
@@ -211,18 +219,50 @@ internal partial class WatchWorkspaceWindow
 
         if (Dispatcher.CheckAccess())
         {
-            ApplyAreaProfileDirectoryChange();
+            QueueAreaProfileDirectoryChange(change);
             return;
         }
 
-        Dispatcher.BeginInvoke(ApplyAreaProfileDirectoryChange);
+        Dispatcher.BeginInvoke(() => QueueAreaProfileDirectoryChange(change));
+    }
+
+    private void QueueAreaProfileDirectoryChange(WatchAreaProfileDirectoryChange change)
+    {
+        var selectedProfileToReload = !_areaProfileDraftIsDirty
+            && _selectedAreaProfileName is { } selectedName
+            && change.ProfileNames.Contains(selectedName, StringComparer.OrdinalIgnoreCase)
+                ? selectedName
+                : null;
+        if (selectedProfileToReload is null)
+        {
+            ApplyAreaProfileDirectoryChange(reloadedDraft: null);
+            AreaProfileOperationTask = Task.CompletedTask;
+            return;
+        }
+
+        var loadTask = _areaProfileStore.LoadAfterExternalChangeAsync(
+            selectedProfileToReload,
+            _lifetimeCancellation.Token);
+        if (loadTask.IsCompletedSuccessfully)
+        {
+            ApplyAreaProfileDirectoryChange(loadTask.Result);
+            AreaProfileOperationTask = Task.CompletedTask;
+            return;
+        }
+
+        AreaProfileOperationTask = RunAreaProfileUiActionAsync(async () =>
+        {
+            var reloadedDraft = await loadTask.ConfigureAwait(false);
+            await Dispatcher.InvokeAsync(
+                () => ApplyAreaProfileDirectoryChange(reloadedDraft));
+        });
     }
 
     /// <summary>
-    /// Re-reads the directory into the list without touching the current
-    /// selection, the editor buffer, or keyboard focus.
+    /// Re-reads the directory into the list and, when supplied, replaces the
+    /// selected clean editor buffer without changing its view or keyboard focus.
     /// </summary>
-    private void ApplyAreaProfileDirectoryChange()
+    private void ApplyAreaProfileDirectoryChange(WatchAreaFilterProfile? reloadedDraft)
     {
         if (_disposed || AreaProfileList is null)
         {
@@ -231,10 +271,30 @@ internal partial class WatchWorkspaceWindow
 
         try
         {
+            AreaProfileEditorViewState? editorViewState = null;
+            if (reloadedDraft is not null
+                && !_areaProfileDraftIsDirty
+                && _selectedAreaProfileName is { } selectedName
+                && string.Equals(
+                    reloadedDraft.ProfileName,
+                    selectedName,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(
+                        AreaProfileEditor.Text,
+                        reloadedDraft.Content,
+                        StringComparison.Ordinal))
+                {
+                    editorViewState = CaptureAreaProfileEditorViewState();
+                }
+
+                _areaProfileDraft = reloadedDraft;
+            }
+
             ReloadAreaProfileRows(
                 _areaProfileStore.LoadAppliedState().CurrentApplied,
                 reloadSelectedDraft: false);
-            RenderAreaProfiles();
+            RenderAreaProfiles(editorViewState: editorViewState);
         }
         catch (Exception exception) when (exception is IOException
             or UnauthorizedAccessException
@@ -247,7 +307,9 @@ internal partial class WatchWorkspaceWindow
         }
     }
 
-    private void RenderAreaProfiles(bool reloadProfiles = false)
+    private void RenderAreaProfiles(
+        bool reloadProfiles = false,
+        AreaProfileEditorViewState? editorViewState = null)
     {
         if (AreaProfileList is null || _areaProfileStore is null)
         {
@@ -373,8 +435,15 @@ internal partial class WatchWorkspaceWindow
             if (!string.Equals(AreaProfileEditor.Text, _areaProfileDraft.Content, StringComparison.Ordinal))
             {
                 AreaProfileEditor.Text = _areaProfileDraft.Content;
-                AreaProfileEditor.ScrollToHome();
-                AreaProfileLineNumbersText.RenderTransform = new TranslateTransform();
+                if (editorViewState is null)
+                {
+                    AreaProfileEditor.ScrollToHome();
+                    AreaProfileLineNumbersText.RenderTransform = new TranslateTransform();
+                }
+                else
+                {
+                    RestoreAreaProfileEditorViewState(editorViewState);
+                }
             }
             UpdateAreaProfileLineNumbers(AreaProfileEditor.Text);
 
@@ -419,7 +488,6 @@ internal partial class WatchWorkspaceWindow
             AreaProfileSaveAsButton.IsEnabled = _areaProfileDraft.IsValid;
             AreaProfileRenameButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
             AreaProfileDeleteButton.IsEnabled = !isNewProfile && !_areaProfileDraftIsDirty;
-            AreaProfileFileReloadButton.IsEnabled = !isNewProfile;
             AutomationProperties.SetName(
                 AreaProfileFileTitleText,
                 $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
@@ -437,6 +505,48 @@ internal partial class WatchWorkspaceWindow
         finally
         {
             _isRenderingAreaProfiles = false;
+        }
+    }
+
+    private AreaProfileEditorViewState CaptureAreaProfileEditorViewState()
+    {
+        var scrollViewer = FindVisualDescendant<ScrollViewer>(
+            AreaProfileEditor,
+            static _ => true);
+        return new AreaProfileEditorViewState(
+            AreaProfileEditor.CaretIndex,
+            AreaProfileEditor.SelectionStart,
+            AreaProfileEditor.SelectionLength,
+            AreaProfileEditor.GetFirstVisibleLineIndex(),
+            scrollViewer?.HorizontalOffset ?? 0,
+            scrollViewer?.VerticalOffset ?? 0);
+    }
+
+    private void RestoreAreaProfileEditorViewState(AreaProfileEditorViewState state)
+    {
+        var contentLength = AreaProfileEditor.Text.Length;
+        var selectionStart = Math.Min(state.SelectionStart, contentLength);
+        var selectionLength = Math.Min(
+            state.SelectionLength,
+            contentLength - selectionStart);
+        AreaProfileEditor.Select(selectionStart, selectionLength);
+        if (selectionLength == 0)
+        {
+            AreaProfileEditor.CaretIndex = Math.Min(state.CaretIndex, contentLength);
+        }
+
+        AreaProfileEditor.UpdateLayout();
+        if (FindVisualDescendant<ScrollViewer>(
+                AreaProfileEditor,
+                static _ => true) is { } scrollViewer)
+        {
+            scrollViewer.ScrollToHorizontalOffset(state.HorizontalOffset);
+            scrollViewer.ScrollToVerticalOffset(state.VerticalOffset);
+        }
+        else
+        {
+            var lastLine = Math.Max(0, AreaProfileEditor.LineCount - 1);
+            AreaProfileEditor.ScrollToLine(Math.Clamp(state.FirstVisibleLine, 0, lastLine));
         }
     }
 
@@ -699,20 +809,6 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Informational,
                 "已放弃 AREA 草稿修改",
                 "编辑器已恢复为所选 TXT 的磁盘内容；当前应用范围没有改变。");
-            return Task.CompletedTask;
-        });
-    }
-
-    private void OnAreaProfileFileReloadClick(object sender, RoutedEventArgs e)
-    {
-        AreaProfileOperationTask = RunAreaProfileUiActionAsync(() =>
-        {
-            CloseAreaProfileFileOperation(restoreInvokerFocus: false);
-            ReloadSelectedAreaProfileDraft();
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Success,
-                "AREA TXT 已从磁盘加载",
-                "编辑器已读取所选 TXT 的当前磁盘内容；当前应用范围没有改变。");
             return Task.CompletedTask;
         });
     }
@@ -1283,11 +1379,14 @@ internal partial class WatchWorkspaceWindow
         {
             if (operation == Interlocked.Read(ref _areaProfileOperationGeneration))
             {
-                ShowAreaProfileInfo(
-                    InfoBarSeverity.Error,
-                    "无法完成 AREA 配置操作",
-                    exception.Message);
-                RenderAreaProfiles();
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    ShowAreaProfileInfo(
+                        InfoBarSeverity.Error,
+                        "无法完成 AREA 配置操作",
+                        exception.Message);
+                    RenderAreaProfiles();
+                });
             }
         }
     }

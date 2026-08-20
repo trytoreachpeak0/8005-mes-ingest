@@ -181,6 +181,135 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
     }
 
     [Fact]
+    public void Events_from_the_stores_own_atomic_save_are_suppressed_across_repeated_watcher_batches()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        var events = new ManualAreaProfileDirectoryEventSource();
+        directory.WriteProfile("西区", "A1-1");
+        using var store = new WatchAreaFilterProfileStore(
+            directory.Path,
+            clock,
+            directoryEventSource: events);
+        var changes = new List<WatchAreaProfileDirectoryChange>();
+        store.DirectoryChanged += (_, change) => changes.Add(change);
+        store.StartWatchingDirectory();
+        var loaded = store.Load("西区");
+
+        var saved = store.Save("西区", "B2-2", loaded.FileFingerprint);
+        Assert.True(saved.Saved);
+        foreach (var _ in Enumerable.Range(0, 2))
+        {
+            events.RaiseChanged("西区.txt");
+            clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+        }
+
+        Assert.Empty(changes);
+        Assert.Equal("B2-2", store.Load("西区").Content);
+
+        directory.WriteProfile("西区", "C3-3");
+        events.RaiseChanged("西区.txt");
+        clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+
+        Assert.Equal(["西区"], Assert.Single(changes).ProfileNames);
+    }
+
+    [Fact]
+    public async Task A_temporarily_locked_external_write_is_read_after_the_first_backoff()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        using var store = new WatchAreaFilterProfileStore(directory.Path, clock);
+        directory.WriteProfile("西区", "A1-1");
+        var writer = ExclusiveFileWriter.WriteUtf8AndHold(
+            directory.ProfilePath("西区"),
+            "B2-2\nB2-3");
+
+        var loadTask = store.LoadAfterExternalChangeAsync("西区");
+        Assert.False(loadTask.IsCompleted);
+        clock.Advance(WatchAreaFilterProfileStore.ExternalReadRetryDelays[0] - TimeSpan.FromTicks(1));
+        await Task.Yield();
+        Assert.False(loadTask.IsCompleted);
+
+        writer.Dispose();
+        clock.Advance(TimeSpan.FromTicks(1));
+        var loaded = await loadTask;
+
+        Assert.Equal("B2-2\nB2-3", loaded.Content);
+        Assert.Equal(["B2-2", "B2-3"], loaded.MesAreas);
+    }
+
+    [Fact]
+    public async Task A_locked_external_write_reports_the_read_error_only_after_all_backoffs_are_exhausted()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        using var store = new WatchAreaFilterProfileStore(directory.Path, clock);
+        directory.WriteProfile("西区", "A1-1");
+        using var writer = ExclusiveFileWriter.WriteUtf8AndHold(
+            directory.ProfilePath("西区"),
+            "B2-2");
+
+        var loadTask = store.LoadAfterExternalChangeAsync("西区");
+        for (var index = 0;
+             index < WatchAreaFilterProfileStore.ExternalReadRetryDelays.Count;
+             index++)
+        {
+            var delay = WatchAreaFilterProfileStore.ExternalReadRetryDelays[index];
+            clock.Advance(delay - TimeSpan.FromTicks(1));
+            await Task.Yield();
+            Assert.False(loadTask.IsCompleted);
+            clock.Advance(TimeSpan.FromTicks(1));
+            await Task.Yield();
+            if (index + 1 < WatchAreaFilterProfileStore.ExternalReadRetryDelays.Count)
+            {
+                Assert.False(loadTask.IsCompleted);
+            }
+        }
+
+        await Assert.ThrowsAsync<IOException>(async () => await loadTask);
+    }
+
+    [Fact]
+    public async Task A_temporarily_missing_replacement_file_is_retried_instead_of_loaded_as_empty()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        using var store = new WatchAreaFilterProfileStore(directory.Path, clock);
+        directory.WriteProfile("西区", "A1-1");
+        directory.DeleteProfile("西区");
+
+        var loadTask = store.LoadAfterExternalChangeAsync("西区");
+        Assert.False(loadTask.IsCompleted);
+
+        directory.WriteProfile("西区", "B2-2");
+        clock.Advance(WatchAreaFilterProfileStore.ExternalReadRetryDelays[0]);
+        var loaded = await loadTask;
+
+        Assert.Equal("B2-2", loaded.Content);
+        Assert.Equal(["B2-2"], loaded.MesAreas);
+    }
+
+    [Fact]
+    public async Task A_partial_utf8_write_is_retried_instead_of_loaded_as_empty()
+    {
+        using var directory = new TemporaryProfileDirectory();
+        var clock = new ManualTimerTimeProvider(StartedAt);
+        using var store = new WatchAreaFilterProfileStore(directory.Path, clock);
+        directory.WriteRawBytes("西区.txt", [0xE4, 0xB8]);
+
+        var loadTask = store.LoadAfterExternalChangeAsync("西区");
+        Assert.False(loadTask.IsCompleted);
+
+        directory.WriteProfile("西区", "B2-2");
+        clock.Advance(WatchAreaFilterProfileStore.ExternalReadRetryDelays[0]);
+        var loaded = await loadTask;
+
+        Assert.Equal("B2-2", loaded.Content);
+        Assert.Equal(["B2-2"], loaded.MesAreas);
+    }
+
+    [Fact]
     public void Editor_companion_files_never_reach_the_directory_change()
     {
         using var directory = new TemporaryProfileDirectory();
@@ -297,6 +426,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
 
         public string Path { get; }
 
+        public string ProfilePath(string profileName) =>
+            System.IO.Path.Combine(Path, $"{profileName}.txt");
+
         public void WriteProfile(string profileName, string content) =>
             WriteRawFile($"{profileName}.txt", content);
 
@@ -305,6 +437,9 @@ public sealed class WatchAreaFilterProfileDirectoryWatchTests
                 System.IO.Path.Combine(Path, fileName),
                 content,
                 new UTF8Encoding(false));
+
+        public void WriteRawBytes(string fileName, byte[] content) =>
+            File.WriteAllBytes(System.IO.Path.Combine(Path, fileName), content);
 
         public void DeleteProfile(string profileName) =>
             File.Delete(System.IO.Path.Combine(Path, $"{profileName}.txt"));
