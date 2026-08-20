@@ -825,7 +825,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => detailVisibility.ToggleState == ToggleState.Off,
                 "DemandSeries detail collapsed through its production toggle",
                 StepTimeout);
-            CaptureApprovedBaseline(
+            Thread.Sleep(2000);
+            Capture(
                 evidence,
                 process.MainWindowHandle,
                 "03a-demand-series-master-only");
