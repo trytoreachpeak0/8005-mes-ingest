@@ -417,6 +417,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var window = new WatchDemandSeriesInspectorWindow();
 
             window.Update(initial with { Events = [evidence] });
+            window.Show();
+            window.UpdateLayout();
 
             var eventGrid = Assert.IsType<DataGrid>(
                 window.FindName("DemandSeriesInspectorEventGrid"));
@@ -437,6 +439,16 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 eventGrid.Columns
                     .Cast<DataGridBoundColumn>()
                     .Select(column => Assert.IsType<Binding>(column.Binding).Path.Path)
+                    .ToArray());
+            Assert.Equal(
+                [140, 180, 180, 190, 230, 150, 180, 180, 210, 150, 360],
+                eventGrid.Columns
+                    .Select(column => (int)Math.Round(column.ActualWidth))
+                    .ToArray());
+            Assert.Equal(
+                [140, 180, 180, 190, 230, 150, 180, 180, 210, 150, 360],
+                eventGrid.Columns
+                    .Select(column => (int)Math.Round(column.MinWidth))
                     .ToArray());
             var rendered = Assert.IsType<WatchDemandSeriesInspectorEventPresentation>(
                 Assert.Single(eventGrid.Items));
