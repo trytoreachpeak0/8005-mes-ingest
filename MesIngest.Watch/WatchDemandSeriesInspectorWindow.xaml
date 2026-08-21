@@ -85,37 +85,62 @@
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <Grid MinHeight="34"
+            <Grid x:Name="DemandSeriesInspectorContext"
+                  MinHeight="34"
                   AutomationProperties.Name="Series 与冻结快照上下文"
                   AutomationProperties.AutomationId="DemandSeriesInspectorContext">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="0" />
+                </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Grid x:Name="DemandSeriesInspectorPrimaryContext"
+                      VerticalAlignment="Center">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="0" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     <ui:TextBlock x:Name="InspectorSeriesContextText"
                                   FontSize="16"
                                   FontWeight="SemiBold"
-                                  Text="尚未选择 DemandSeries" />
-                    <Border Margin="10,0,0,0"
+                                  Text="尚未选择 DemandSeries"
+                                  TextTrimming="CharacterEllipsis"
+                                  AutomationProperties.AutomationId="DemandSeriesInspectorSeriesIdentity" />
+                    <Border x:Name="DemandSeriesInspectorPresencePill"
+                            Grid.Column="1"
+                            Margin="10,0,0,0"
                             Style="{StaticResource StatusPillSuccess}"
                             VerticalAlignment="Center">
                         <ui:TextBlock x:Name="InspectorPresenceText"
                                       FontSize="11"
                                       FontWeight="SemiBold"
-                                      Text="—" />
+                                      Text="—"
+                                      AutomationProperties.AutomationId="DemandSeriesInspectorCurrentPresence" />
                     </Border>
                     <ui:TextBlock x:Name="InspectorLifecycleText"
+                                  Grid.Column="2"
                                   Margin="12,0,0,0"
                                   Style="{StaticResource SecondaryText}"
                                   VerticalAlignment="Center"
-                                  Text="—" />
-                </StackPanel>
+                                  Text="—"
+                                  TextTrimming="CharacterEllipsis"
+                                  AutomationProperties.AutomationId="DemandSeriesInspectorLifecycle" />
+                </Grid>
                 <ui:TextBlock x:Name="InspectorSnapshotContextText"
                               Grid.Column="1"
                               Style="{StaticResource CaptionText}"
                               VerticalAlignment="Center"
-                              Text="尚无冻结快照" />
+                              Text="尚无冻结快照"
+                              TextWrapping="Wrap"
+                              AutomationProperties.AutomationId="DemandSeriesInspectorFrozenSnapshot" />
             </Grid>
 
             <ui:InfoBar x:Name="DemandSeriesInspectorStatusInfoBar"
@@ -133,6 +158,7 @@
                         Padding="0"
                         Focusable="True"
                         KeyboardNavigation.IsTabStop="True"
+                        KeyboardNavigation.TabIndex="0"
                         AutomationProperties.Name="DemandSeries Inspector 调查任务"
                         AutomationProperties.AutomationId="DemandSeriesInspectorTabs">
                 <TabItem Header="世代分析"
@@ -198,6 +224,7 @@
                                          ScrollViewer.CanContentScroll="True"
                                          VirtualizingStackPanel.IsVirtualizing="True"
                                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                                         KeyboardNavigation.TabIndex="10"
                                          AutomationProperties.Name="Demand 世代导航"
                                          AutomationProperties.AutomationId="DemandSeriesInspectorGenerationList">
                                     <ListBox.ItemTemplate>
@@ -283,21 +310,40 @@
                                         <RowDefinition Height="8" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
-                                    <Grid>
+                                    <Grid x:Name="DemandSeriesInspectorGenerationHeader">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="0" />
+                                        </Grid.RowDefinitions>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Grid x:Name="DemandSeriesInspectorGenerationIdentityContext"
+                                              VerticalAlignment="Center">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="0" />
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationIdentityText"
                                                           Style="{StaticResource SectionTitleText}"
+                                                          TextTrimming="CharacterEllipsis"
                                                           AutomationProperties.Name="选中 Demand 世代身份"
                                                           AutomationProperties.AutomationId="DemandSeriesInspectorGenerationIdentity" />
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationSummaryText"
+                                                          Grid.Column="1"
                                                           Margin="12,2,0,0"
-                                                          Style="{StaticResource SecondaryText}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                          Style="{StaticResource SecondaryText}"
+                                                          TextTrimming="CharacterEllipsis" />
+                                        </Grid>
+                                        <StackPanel x:Name="DemandSeriesInspectorGenerationActions"
+                                                    Grid.Column="1"
+                                                    Orientation="Horizontal"
+                                                    VerticalAlignment="Center">
                                             <Border Padding="10,4"
                                                     CornerRadius="12"
                                                     Background="{DynamicResource SubtleFillColorSecondaryBrush}"
@@ -314,6 +360,7 @@
                                                        Content="相关事件"
                                                        Appearance="Secondary"
                                                        Click="OnRelatedEventsClick"
+                                                       KeyboardNavigation.TabIndex="20"
                                                        AutomationProperties.Name="查看选中世代的相关事件"
                                                        AutomationProperties.AutomationId="DemandSeriesInspectorRelatedEventsButton" />
                                         </StackPanel>
@@ -560,7 +607,11 @@
                             <RowDefinition Height="12" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <Grid>
+                        <Grid x:Name="DemandSeriesInspectorEventHeader">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="0" />
+                            </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
@@ -573,12 +624,16 @@
                                               AutomationProperties.Name="事件 DemandId 过滤上下文"
                                               AutomationProperties.AutomationId="DemandSeriesInspectorEventContext" />
                             </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel x:Name="DemandSeriesInspectorEventFilters"
+                                        Grid.Column="1"
+                                        Orientation="Horizontal"
+                                        VerticalAlignment="Center">
                                 <RadioButton x:Name="DemandSeriesInspectorAllEventsRadio"
                                              Content="全部 Series 事件"
                                              IsChecked="True"
                                              Padding="10,6"
                                              Checked="OnAllEventsChecked"
+                                             KeyboardNavigation.TabIndex="10"
                                              AutomationProperties.Name="显示全部 Series 事件"
                                              AutomationProperties.AutomationId="DemandSeriesInspectorAllEventsFilter" />
                                 <RadioButton x:Name="DemandSeriesInspectorSelectedEventsRadio"
@@ -586,6 +641,7 @@
                                              Content="当前 Demand 相关事件"
                                              Padding="10,6"
                                              Checked="OnSelectedEventsChecked"
+                                             KeyboardNavigation.TabIndex="20"
                                              AutomationProperties.Name="显示当前 Demand 相关事件"
                                              AutomationProperties.AutomationId="DemandSeriesInspectorSelectedEventsFilter" />
                             </StackPanel>
@@ -606,6 +662,7 @@
                                 <DataGrid x:Name="DemandSeriesInspectorEventGrid"
                                           Grid.Row="1"
                                           Style="{StaticResource InspectorReadOnlyGrid}"
+                                          KeyboardNavigation.TabIndex="30"
                                           AutomationProperties.Name="DemandSeries 永久事件"
                                           AutomationProperties.AutomationId="DemandSeriesInspectorEventGrid">
                                     <DataGrid.Columns>

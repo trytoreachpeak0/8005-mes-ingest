@@ -224,6 +224,111 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
         });
 
     [Fact]
+    public void Loaded_state_exposes_dynamic_series_selection_and_reason_to_automation() =>
+        StaTestRunner.Run(() =>
+        {
+            var presentation = FirstObservedPresentation("series-a", "demand-a");
+            var window = RenderInspector(presentation);
+            window.Show();
+            window.UpdateLayout();
+
+            var context = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorContext"));
+            Assert.Contains(
+                "Series series-a",
+                AutomationProperties.GetName(context),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "当前出现状态 VISIBLE",
+                AutomationProperties.GetName(context),
+                StringComparison.Ordinal);
+
+            var identity = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorGenerationIdentityText"));
+            Assert.Equal(
+                "选中世代：DemandId demand-a；第 1 代；状态 VISIBLE；当前世代",
+                AutomationProperties.GetName(identity));
+
+            var reason = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorFormationReasonText"));
+            Assert.Equal(
+                "形成原因：首次观察到；原始原因码：FIRST_OBSERVED",
+                AutomationProperties.GetName(reason));
+            Assert.Equal(
+                AutomationProperties.GetName(reason),
+                AutomationProperties.GetHelpText(reason));
+
+            var selectedContainer = Assert.IsType<ListBoxItem>(
+                Assert.IsType<ListBox>(
+                    window.FindName("DemandSeriesInspectorGenerationList"))
+                    .ItemContainerGenerator.ContainerFromItem(
+                        presentation.FocusedGeneration));
+            Assert.Contains(
+                "当前世代",
+                AutomationProperties.GetName(selectedContainer),
+                StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Target_switch_failure_clears_prior_detail_from_the_automation_contract() =>
+        StaTestRunner.Run(() =>
+        {
+            var prior = FirstObservedPresentation("series-a", "demand-a");
+            var requested = FirstObservedPresentation("series-b", "demand-b");
+            var window = RenderInspector(prior);
+            window.Update(new WatchDemandSeriesInspectorStatePresentation(
+                requested.SeriesId,
+                requested.WorkType,
+                requested.Sublot,
+                requested.Lifecycle,
+                requested.CurrentPresence,
+                requested.FrozenSnapshot,
+                Detail: null,
+                IsLoading: false,
+                IsStale: false,
+                IsPaused: false,
+                WatchPresentationSeverity.Error,
+                "无法读取所选 Series",
+                "Host 返回目标切换失败。"));
+
+            Assert.False(Assert.IsType<TabControl>(
+                window.FindName("DemandSeriesInspectorTabs")).IsEnabled);
+            Assert.Equal(
+                "所选 Series 详情不可用",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorGenerationIdentityText"))));
+            Assert.Equal(
+                "Demand 形成原因不可用",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorFormationReasonText"))));
+            Assert.Equal(
+                "Demand 形成事实不可用",
+                AutomationProperties.GetName(Assert.IsType<ItemsControl>(
+                    window.FindName("DemandSeriesInspectorFormationFacts"))));
+            Assert.Equal(
+                "MES 边界原始行不可用",
+                AutomationProperties.GetName(Assert.IsType<DataGrid>(
+                    window.FindName("DemandSeriesInspectorAfterObservationGrid"))));
+            Assert.Equal(
+                "DemandSeries 永久事件不可用",
+                AutomationProperties.GetName(Assert.IsType<DataGrid>(
+                    window.FindName("DemandSeriesInspectorEventGrid"))));
+            Assert.Contains(
+                "Series series-b",
+                AutomationProperties.GetName(Assert.IsType<Grid>(
+                    window.FindName("DemandSeriesInspectorContext"))),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                "无法读取所选 Series。Host 返回目标切换失败。",
+                AutomationProperties.GetName(Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                    window.FindName("DemandSeriesInspectorStatusInfoBar"))));
+
+            window.Close();
+        });
+
+    [Fact]
     public void Minimum_width_reflows_the_generation_workbench_into_a_scrollable_vertical_layout() =>
         StaTestRunner.Run(() =>
         {
@@ -234,8 +339,17 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             };
 
             window.Update(FirstObservedPresentation("series-a", "demand-a"));
+            window.Show();
             window.UpdateLayout();
 
+            var context = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorContext"));
+            var primaryContext = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorPrimaryContext"));
+            var lifecycleContext = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("InspectorLifecycleText"));
+            var snapshotContext = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("InspectorSnapshotContextText"));
             var workbench = Assert.IsType<Grid>(
                 window.FindName("DemandSeriesInspectorGenerationWorkbench"));
             var navigator = Assert.IsType<Border>(
@@ -244,6 +358,18 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 window.FindName("DemandSeriesInspectorGenerationDetail"));
             var scrollViewer = Assert.IsType<ScrollViewer>(
                 window.FindName("DemandSeriesInspectorGenerationScrollViewer"));
+            var generationHeader = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationHeader"));
+            var generationIdentityContext = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationIdentityContext"));
+            var generationSummary = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorGenerationSummaryText"));
+            var generationActions = Assert.IsType<StackPanel>(
+                window.FindName("DemandSeriesInspectorGenerationActions"));
+            var eventHeader = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorEventHeader"));
+            var eventFilters = Assert.IsType<StackPanel>(
+                window.FindName("DemandSeriesInspectorEventFilters"));
 
             Assert.Equal(0, Grid.GetColumn(navigator));
             Assert.Equal(0, Grid.GetRow(navigator));
@@ -252,6 +378,138 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal(0, workbench.ColumnDefinitions[2].Width.Value);
             Assert.Equal(ScrollBarVisibility.Auto, scrollViewer.VerticalScrollBarVisibility);
             Assert.True(detail.MinHeight >= 480);
+            Assert.Equal(2, context.RowDefinitions.Count);
+            Assert.Equal(2, primaryContext.RowDefinitions.Count);
+            Assert.Equal(0, Grid.GetColumn(lifecycleContext));
+            Assert.Equal(1, Grid.GetRow(lifecycleContext));
+            Assert.Equal(0, Grid.GetColumn(snapshotContext));
+            Assert.Equal(1, Grid.GetRow(snapshotContext));
+            Assert.Equal(2, generationHeader.RowDefinitions.Count);
+            Assert.Equal(2, generationIdentityContext.RowDefinitions.Count);
+            Assert.Equal(0, Grid.GetColumn(generationSummary));
+            Assert.Equal(1, Grid.GetRow(generationSummary));
+            Assert.Equal(0, Grid.GetColumn(generationActions));
+            Assert.Equal(1, Grid.GetRow(generationActions));
+            Assert.Equal(2, eventHeader.RowDefinitions.Count);
+            Assert.Equal(0, Grid.GetColumn(eventFilters));
+            Assert.Equal(1, Grid.GetRow(eventFilters));
+            Assert.Contains(
+                "Series series-a",
+                AutomationProperties.GetName(context),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "冻结快照 snapshot-1",
+                AutomationProperties.GetName(context),
+                StringComparison.Ordinal);
+            var lifecycleTopLeft = lifecycleContext.TranslatePoint(
+                new Point(),
+                primaryContext);
+            Assert.True(
+                lifecycleTopLeft.X + lifecycleContext.ActualWidth
+                    <= primaryContext.ActualWidth + 1,
+                $"The compact lifecycle identity must remain inside the 720 epx context; "
+                + $"right={lifecycleTopLeft.X + lifecycleContext.ActualWidth:0.##}, "
+                + $"contextWidth={primaryContext.ActualWidth:0.##}.");
+            Assert.True(
+                scrollViewer.ScrollableHeight > 0,
+                $"The 720x600 workbench must expose vertical scrolling; "
+                + $"extent={scrollViewer.ExtentHeight:0.##}, "
+                + $"viewport={scrollViewer.ViewportHeight:0.##}.");
+            scrollViewer.ScrollToEnd();
+            window.UpdateLayout();
+            Assert.True(scrollViewer.VerticalOffset > 0);
+
+            Assert.Equal(
+                0,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<TabControl>(
+                    window.FindName("DemandSeriesInspectorTabs"))));
+            Assert.Equal(
+                10,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<ListBox>(
+                    window.FindName("DemandSeriesInspectorGenerationList"))));
+            Assert.Equal(
+                20,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<Wpf.Ui.Controls.Button>(
+                    window.FindName("DemandSeriesInspectorRelatedEventsButton"))));
+            Assert.Equal(
+                10,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<RadioButton>(
+                    window.FindName("DemandSeriesInspectorAllEventsRadio"))));
+            Assert.Equal(
+                20,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<RadioButton>(
+                    window.FindName("DemandSeriesInspectorSelectedEventsRadio"))));
+            Assert.Equal(
+                30,
+                KeyboardNavigation.GetTabIndex(Assert.IsType<DataGrid>(
+                    window.FindName("DemandSeriesInspectorEventGrid"))));
+
+            window.Close();
+        });
+
+    [Theory]
+    [InlineData(1440, 900)]
+    [InlineData(1920, 1080)]
+    public void Common_desktop_sizes_keep_the_e_workbench_compact_and_generation_navigation_virtualized(
+        double width,
+        double height) => StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-1");
+            var generations = Enumerable.Range(1, 80)
+                .Select(index => seed.FocusedGeneration with
+                {
+                    Generation = index,
+                    DemandId = $"demand-{index}",
+                    PredecessorDemandId = index == 1 ? null : $"demand-{index - 1}",
+                    IsCurrent = index == 80,
+                })
+                .ToArray();
+            var window = new WatchDemandSeriesInspectorWindow
+            {
+                Width = width,
+                Height = height,
+            };
+            window.Update(seed with
+            {
+                Generations = generations,
+                FocusedGeneration = generations[39],
+            });
+            window.Show();
+            window.UpdateLayout();
+
+            var context = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorContext"));
+            var snapshotContext = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("InspectorSnapshotContextText"));
+            var workbench = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationWorkbench"));
+            var navigator = Assert.IsType<Border>(
+                window.FindName("DemandSeriesInspectorGenerationNavigator"));
+            var detail = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationDetail"));
+            var scrollViewer = Assert.IsType<ScrollViewer>(
+                window.FindName("DemandSeriesInspectorGenerationScrollViewer"));
+            var generationList = Assert.IsType<ListBox>(
+                window.FindName("DemandSeriesInspectorGenerationList"));
+
+            Assert.Equal(0, context.RowDefinitions[1].Height.Value);
+            Assert.Equal(1, Grid.GetColumn(snapshotContext));
+            Assert.Equal(0, Grid.GetRow(snapshotContext));
+            Assert.Equal(0, Grid.GetColumn(navigator));
+            Assert.Equal(0, Grid.GetRow(navigator));
+            Assert.Equal(2, Grid.GetColumn(detail));
+            Assert.Equal(0, Grid.GetRow(detail));
+            Assert.Equal(300, workbench.ColumnDefinitions[0].ActualWidth, precision: 1);
+            Assert.Equal(
+                ScrollBarVisibility.Disabled,
+                scrollViewer.VerticalScrollBarVisibility);
+            Assert.Equal(80, generationList.Items.Count);
+            Assert.True(VirtualizingStackPanel.GetIsVirtualizing(generationList));
+            Assert.Equal(
+                VirtualizationMode.Recycling,
+                VirtualizingStackPanel.GetVirtualizationMode(generationList));
+            Assert.Same(generations[39], generationList.SelectedItem);
+            Assert.True(generationList.ActualHeight > 300);
 
             window.Close();
         });

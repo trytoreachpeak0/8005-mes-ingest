@@ -108,6 +108,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             InspectorLifecycleText.Text =
                 $"{state.Lifecycle} · {state.WorkType} · {state.Sublot}";
             InspectorPresenceText.Text = state.CurrentPresence;
+            UpdateContextAutomationNames();
             DemandSeriesInspectorStatusInfoBar.IsOpen =
                 !string.IsNullOrWhiteSpace(state.StatusTitle)
                 || !string.IsNullOrWhiteSpace(state.StatusMessage);
@@ -206,12 +207,17 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             InspectorSnapshotContextText.Text = "尚无冻结快照";
             InspectorLifecycleText.Text = "—";
             InspectorPresenceText.Text = "—";
+            UpdateContextAutomationNames();
             DemandSeriesInspectorStatusInfoBar.IsOpen = true;
             DemandSeriesInspectorStatusInfoBar.Severity =
                 Wpf.Ui.Controls.InfoBarSeverity.Informational;
             DemandSeriesInspectorStatusInfoBar.Title = "当前选择已清除";
             DemandSeriesInspectorStatusInfoBar.Message =
                 "所选 Series 已离开最新结果；没有自动选择另一 Series。";
+            AutomationProperties.SetName(
+                DemandSeriesInspectorStatusInfoBar,
+                $"{DemandSeriesInspectorStatusInfoBar.Title}。"
+                + DemandSeriesInspectorStatusInfoBar.Message);
             _filterSelectedGeneration = false;
             DemandSeriesInspectorAllEventsRadio.IsChecked = true;
             DemandSeriesInspectorTabs.SelectedIndex = 0;
@@ -238,6 +244,45 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorFormationReasonCodeText.Text = string.Empty;
         DemandSeriesInspectorMesExplanationText.Text = string.Empty;
         DemandSeriesInspectorEventContextText.Text = "详情尚未提交";
+        ClearDetailAutomationNames();
+    }
+
+    private void ClearDetailAutomationNames()
+    {
+        var stateLabel = _state?.IsLoading == true ? "正在读取" : "不可用";
+        AutomationProperties.SetName(
+            DemandSeriesInspectorGenerationIdentityText,
+            $"所选 Series 详情{stateLabel}");
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationReasonText,
+            $"Demand 形成原因{stateLabel}");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorFormationReasonText,
+            string.Empty);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationFacts,
+            $"Demand 形成事实{stateLabel}");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorFormationFacts,
+            string.Empty);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorScalarBoundaryEvidenceText,
+            $"MES 标量对比边界来源{stateLabel}");
+        AutomationProperties.SetName(
+            DemandSeriesInspectorAfterObservationGrid,
+            $"MES 边界原始行{stateLabel}");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorAfterObservationGrid,
+            string.Empty);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorEventContextText,
+            $"事件 DemandId 过滤上下文{stateLabel}");
+        AutomationProperties.SetName(
+            DemandSeriesInspectorEventGrid,
+            $"DemandSeries 永久事件{stateLabel}");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorEventGrid,
+            string.Empty);
     }
 
     private IReadOnlyList<InspectorViewportOffset> CaptureViewportOffsets()
@@ -301,6 +346,11 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorGenerationIdentityText.Text =
             $"DemandId {generation.DemandId} · 第 {generation.Generation} 代 · "
             + generation.Status;
+        AutomationProperties.SetName(
+            DemandSeriesInspectorGenerationIdentityText,
+            $"选中世代：DemandId {generation.DemandId}；"
+            + $"第 {generation.Generation} 代；状态 {generation.Status}；"
+            + generation.CurrentMarker);
         DemandSeriesInspectorGenerationSummaryText.Text =
             generation.PredecessorDemandId is { } predecessorDemandId
                 ? $"前驱 {predecessorDemandId}"
@@ -308,10 +358,15 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorFormationReasonText.Text = generation.FormationReason.ChineseLabel;
         DemandSeriesInspectorFormationReasonText.ToolTip =
             $"内部原因码：{generation.FormationReason.RawCode}";
+        var formationReasonAutomationName =
+            $"形成原因：{generation.FormationReason.ChineseLabel}；"
+            + $"原始原因码：{generation.FormationReason.RawCode}";
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationReasonText,
+            formationReasonAutomationName);
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorFormationReasonText,
-            $"形成原因：{generation.FormationReason.ChineseLabel}；"
-            + $"原始原因码：{generation.FormationReason.RawCode}");
+            formationReasonAutomationName);
         DemandSeriesInspectorFormationReasonCodeText.Text =
             $"原始原因码：{generation.FormationReason.RawCode}";
         DemandSeriesInspectorFormationFacts.ItemsSource = generation.FormationFacts;
@@ -492,6 +547,56 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         }
 
         var isNarrow = width < ResponsiveBreakpoint;
+        var contextRows = DemandSeriesInspectorContext.RowDefinitions;
+        contextRows[1].Height = isNarrow ? GridLength.Auto : new GridLength(0);
+        Grid.SetColumn(DemandSeriesInspectorPrimaryContext, 0);
+        Grid.SetColumnSpan(DemandSeriesInspectorPrimaryContext, isNarrow ? 2 : 1);
+        DemandSeriesInspectorPrimaryContext.RowDefinitions[1].Height = isNarrow
+            ? GridLength.Auto
+            : new GridLength(0);
+        Grid.SetRow(InspectorLifecycleText, isNarrow ? 1 : 0);
+        Grid.SetColumn(InspectorLifecycleText, isNarrow ? 0 : 2);
+        Grid.SetColumnSpan(InspectorLifecycleText, isNarrow ? 3 : 1);
+        InspectorLifecycleText.Margin = isNarrow
+            ? new Thickness(0, 4, 0, 0)
+            : new Thickness(12, 0, 0, 0);
+        Grid.SetRow(InspectorSnapshotContextText, isNarrow ? 1 : 0);
+        Grid.SetColumn(InspectorSnapshotContextText, isNarrow ? 0 : 1);
+        Grid.SetColumnSpan(InspectorSnapshotContextText, isNarrow ? 2 : 1);
+        InspectorSnapshotContextText.Margin = isNarrow
+            ? new Thickness(0, 6, 0, 0)
+            : new Thickness(12, 0, 0, 0);
+
+        DemandSeriesInspectorGenerationHeader.RowDefinitions[1].Height = isNarrow
+            ? GridLength.Auto
+            : new GridLength(0);
+        DemandSeriesInspectorGenerationIdentityContext.RowDefinitions[1].Height = isNarrow
+            ? GridLength.Auto
+            : new GridLength(0);
+        Grid.SetColumnSpan(
+            DemandSeriesInspectorGenerationIdentityText,
+            isNarrow ? 2 : 1);
+        Grid.SetRow(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 1 : 0);
+        Grid.SetColumn(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 0 : 1);
+        Grid.SetColumnSpan(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 2 : 1);
+        DemandSeriesInspectorGenerationSummaryText.Margin = isNarrow
+            ? new Thickness(0, 2, 0, 0)
+            : new Thickness(12, 2, 0, 0);
+        Grid.SetRow(DemandSeriesInspectorGenerationActions, isNarrow ? 1 : 0);
+        Grid.SetColumn(DemandSeriesInspectorGenerationActions, isNarrow ? 0 : 1);
+        DemandSeriesInspectorGenerationActions.Margin = isNarrow
+            ? new Thickness(0, 8, 0, 0)
+            : new Thickness(0);
+
+        DemandSeriesInspectorEventHeader.RowDefinitions[1].Height = isNarrow
+            ? GridLength.Auto
+            : new GridLength(0);
+        Grid.SetRow(DemandSeriesInspectorEventFilters, isNarrow ? 1 : 0);
+        Grid.SetColumn(DemandSeriesInspectorEventFilters, isNarrow ? 0 : 1);
+        DemandSeriesInspectorEventFilters.Margin = isNarrow
+            ? new Thickness(0, 8, 0, 0)
+            : new Thickness(0);
+
         var columns = DemandSeriesInspectorGenerationWorkbench.ColumnDefinitions;
         var rows = DemandSeriesInspectorGenerationWorkbench.RowDefinitions;
         columns[0].Width = isNarrow
@@ -516,5 +621,27 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             isNarrow
                 ? ScrollBarVisibility.Auto
                 : ScrollBarVisibility.Disabled;
+    }
+
+    private void UpdateContextAutomationNames()
+    {
+        AutomationProperties.SetName(
+            InspectorSeriesContextText,
+            $"Series {InspectorSeriesContextText.Text}");
+        AutomationProperties.SetName(
+            InspectorPresenceText,
+            $"当前出现状态 {InspectorPresenceText.Text}");
+        AutomationProperties.SetName(
+            InspectorLifecycleText,
+            $"生命周期与稳定身份 {InspectorLifecycleText.Text}");
+        AutomationProperties.SetName(
+            InspectorSnapshotContextText,
+            InspectorSnapshotContextText.Text);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorContext,
+            $"Series {InspectorSeriesContextText.Text}；"
+            + $"当前出现状态 {InspectorPresenceText.Text}；"
+            + $"生命周期与稳定身份 {InspectorLifecycleText.Text}；"
+            + InspectorSnapshotContextText.Text);
     }
 }

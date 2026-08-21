@@ -81,6 +81,7 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 WatchDemandMesBoundaryState.Unique,
                 inspectorWindow.Presentation?.FocusedGeneration.MesBoundary.After.State);
             Assert.Equal("显示详情窗口", command.Content);
+            Assert.Equal("显示 DemandSeries 详情窗口", AutomationProperties.GetName(command));
 
             RaiseKey(grid, Key.Enter);
             RaiseDoubleClick(grid);
