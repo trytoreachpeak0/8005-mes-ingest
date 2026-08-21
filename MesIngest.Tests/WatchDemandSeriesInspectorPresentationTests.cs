@@ -237,6 +237,26 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.Equal("poll-create-2", facts[4].PollTraceId);
         Assert.Equal("commit-create-2", facts[4].ProjectionCommitId);
         Assert.Equal(2, facts[4].SeriesSequence);
+
+        var missingPredecessorDetail = Detail(
+            [second],
+            [Event(2, "TRANSPORT_DEMAND_CREATED", "DEMAND", second.DemandId, "poll-create-2", "commit-create-2", "{\"demandId\":\"demand-2\",\"generation\":2,\"predecessorDemandId\":\"demand-1\",\"reason\":\"POSTARCHIVE_REAPPEARANCE\"}", At)],
+            observations: [],
+            lifecycle: DemandSeriesLifecycleContract.Archived,
+            currentPresence: DemandSeriesLifecycleContract.LongGoneButVisible,
+            archivedAt: At.AddHours(-1));
+
+        var missingPredecessorFacts = WatchDemandSeriesInspectorPresentation
+            .Project(missingPredecessorDetail, second.DemandId)
+            .FocusedGeneration
+            .FormationFacts;
+
+        Assert.False(missingPredecessorFacts[0].IsAvailable);
+        Assert.Equal(WatchDemandFormationFactKind.PredecessorIdentity, missingPredecessorFacts[0].Kind);
+        Assert.Null(missingPredecessorFacts[0].OccurredAt);
+        Assert.Null(missingPredecessorFacts[0].PollTraceId);
+        Assert.Null(missingPredecessorFacts[0].ProjectionCommitId);
+        Assert.Null(missingPredecessorFacts[0].SeriesSequence);
     }
 
     [Theory]

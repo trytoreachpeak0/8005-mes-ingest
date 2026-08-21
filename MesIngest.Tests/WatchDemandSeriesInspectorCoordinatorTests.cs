@@ -334,14 +334,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                         IsAvailable: false),
                 ],
             };
-            var presentation = seed with
-            {
-                Generations = [generation],
-                FocusedGeneration = generation,
-            };
-            var window = new WatchDemandSeriesInspectorWindow();
-
-            window.Update(presentation);
+            var window = RenderInspector(FocusedPresentation(seed, generation));
 
             var reason = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText"));
@@ -385,14 +378,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                     "形成原因暂无法确认",
                     IsKnown: false),
             };
-            var presentation = seed with
-            {
-                Generations = [generation],
-                FocusedGeneration = generation,
-            };
-            var window = new WatchDemandSeriesInspectorWindow();
-
-            window.Update(presentation);
+            var window = RenderInspector(FocusedPresentation(seed, generation));
 
             var reason = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText"));
@@ -472,14 +458,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 PredecessorDemandId = "demand-a",
                 MesBoundary = boundary,
             };
-            var presentation = seed with
-            {
-                Generations = [generation],
-                FocusedGeneration = generation,
-            };
-            var window = new WatchDemandSeriesInspectorWindow();
-
-            window.Update(presentation);
+            var window = RenderInspector(FocusedPresentation(seed, generation));
 
             var sources = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorScalarBoundaryEvidenceText"));
@@ -573,14 +552,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 PredecessorDemandId = "demand-a",
                 MesBoundary = boundary,
             };
-            var presentation = seed with
-            {
-                Generations = [generation],
-                FocusedGeneration = generation,
-            };
-            var window = new WatchDemandSeriesInspectorWindow();
-
-            window.Update(presentation);
+            var window = RenderInspector(FocusedPresentation(seed, generation));
 
             Assert.Equal(
                 Visibility.Collapsed,
@@ -605,18 +577,20 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var rawGrid = Assert.IsType<DataGrid>(
                 window.FindName("DemandSeriesInspectorAfterObservationGrid"));
             var rows = rawGrid.Items.Cast<WatchDemandMesBoundaryRawRowPresentation>().ToArray();
-            Assert.Equal([1, 2, 3], rows.Select(row => row.Ordinal).ToArray());
+            Assert.Equal([1, 2, 3], rows.Select(row => row.RawRow.Ordinal).ToArray());
             Assert.Equal(
                 [
                     MesObservationAssignment.Unassigned,
                     MesObservationAssignment.Assigned,
                     MesObservationAssignment.Assigned,
                 ],
-                rows.Select(row => row.Assignment).ToArray());
+                rows.Select(row => row.RawRow.Assignment).ToArray());
             Assert.All(rows, row => Assert.Equal("新世代首次匹配观测", row.BoundaryLabel));
-            Assert.Null(rows[0].SeriesId);
-            Assert.Null(rows[0].DemandId);
-            Assert.Equal(["EQP-U", "EQP-A", "EQP-B"], rows.Select(row => row.Eqp).ToArray());
+            Assert.Null(rows[0].RawRow.SeriesId);
+            Assert.Null(rows[0].RawRow.DemandId);
+            Assert.Equal(
+                ["EQP-U", "EQP-A", "EQP-B"],
+                rows.Select(row => row.RawRow.Eqp).ToArray());
             Assert.Equal(
                 [
                     "边界",
@@ -667,9 +641,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 Generations = generations,
                 FocusedGeneration = focused,
             };
-            var window = new WatchDemandSeriesInspectorWindow();
-
-            window.Update(presentation);
+            var window = RenderInspector(presentation);
             window.Show();
             window.UpdateLayout();
 
@@ -698,6 +670,22 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
 
             window.Close();
         });
+
+    private static WatchDemandSeriesInspectorPresentation FocusedPresentation(
+        WatchDemandSeriesInspectorPresentation seed,
+        WatchDemandSeriesInspectorGenerationPresentation generation) => seed with
+        {
+            Generations = [generation],
+            FocusedGeneration = generation,
+        };
+
+    private static WatchDemandSeriesInspectorWindow RenderInspector(
+        WatchDemandSeriesInspectorPresentation presentation)
+    {
+        var window = new WatchDemandSeriesInspectorWindow();
+        window.Update(presentation);
+        return window;
+    }
 
     private static WatchDemandSeriesInspectorPresentation FirstObservedPresentation(
         string seriesId,

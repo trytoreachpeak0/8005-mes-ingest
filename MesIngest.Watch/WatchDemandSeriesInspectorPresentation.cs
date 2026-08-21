@@ -67,22 +67,7 @@ internal sealed record WatchDemandMesRawRowPresentation(
 
 internal sealed record WatchDemandMesBoundaryRawRowPresentation(
     string BoundaryLabel,
-    WatchDemandMesRawRowPresentation RawRow)
-{
-    public int Ordinal => RawRow.Ordinal;
-    public MesObservationAssignment Assignment => RawRow.Assignment;
-    public string? SeriesId => RawRow.SeriesId;
-    public string? DemandId => RawRow.DemandId;
-    public string? WorkType => RawRow.WorkType;
-    public string? Sublot => RawRow.Sublot;
-    public string? Area => RawRow.Area;
-    public string? Eqp => RawRow.Eqp;
-    public string? Step => RawRow.Step;
-    public DateTimeOffset? MesSourceDate => RawRow.MesSourceDate;
-    public string? Package => RawRow.Package;
-    public string PollTraceId => RawRow.PollTraceId;
-    public string ProjectionCommitId => RawRow.ProjectionCommitId;
-}
+    WatchDemandMesRawRowPresentation RawRow);
 
 internal sealed record WatchDemandMesObservationGroupPresentation(
     string PollTraceId,
@@ -575,11 +560,9 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             StringComparison.Ordinal));
         if (predecessor is null)
         {
-            facts.Add(EventFact(
+            facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorIdentity,
-                "前代 Demand",
-                demand.PredecessorDemandId,
-                creationEvent));
+                "前代 Demand"));
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorLastObservation,
                 "前代最后匹配观测"));

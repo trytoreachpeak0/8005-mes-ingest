@@ -335,7 +335,7 @@
                                                                       Style="{StaticResource CaptionText}"
                                                                       Text="{Binding OccurrenceSummary}"
                                                                       TextTrimming="CharacterEllipsis" />
-                                                        <ui:TextBlock Margin="0,2,0,0"
+                                                        <ui:TextBlock Margin="0,8,0,0"
                                                                       Style="{StaticResource CaptionText}"
                                                                       Text="{Binding EvidenceSummary}"
                                                                       TextTrimming="CharacterEllipsis" />
@@ -485,19 +485,19 @@
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorAfterObservationGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTextColumn Header="边界" Binding="{Binding BoundaryLabel}" Width="150" />
-                                                <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="45" />
-                                                <DataGridTextColumn Header="Assignment" Binding="{Binding Assignment}" Width="105" />
-                                                <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="150" />
-                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="150" />
-                                                <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding WorkType}" Width="130" />
-                                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" />
-                                                <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" />
-                                                <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="110" />
-                                                <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="120" />
-                                                <DataGridTextColumn Header="DATES / MesSourceDate" Binding="{Binding MesSourceDate}" Width="180" />
-                                                <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="120" />
-                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="150" />
-                                                <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="170" />
+                                                <DataGridTextColumn Header="#" Binding="{Binding RawRow.Ordinal}" Width="45" />
+                                                <DataGridTextColumn Header="Assignment" Binding="{Binding RawRow.Assignment}" Width="105" />
+                                                <DataGridTextColumn Header="SeriesId" Binding="{Binding RawRow.SeriesId}" Width="150" />
+                                                <DataGridTextColumn Header="DemandId" Binding="{Binding RawRow.DemandId}" Width="150" />
+                                                <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding RawRow.WorkType}" Width="130" />
+                                                <DataGridTextColumn Header="SUBLOT" Binding="{Binding RawRow.Sublot}" Width="120" />
+                                                <DataGridTextColumn Header="AREA" Binding="{Binding RawRow.Area}" Width="90" />
+                                                <DataGridTextColumn Header="EQP" Binding="{Binding RawRow.Eqp}" Width="110" />
+                                                <DataGridTextColumn Header="STEP" Binding="{Binding RawRow.Step}" Width="120" />
+                                                <DataGridTextColumn Header="DATES / MesSourceDate" Binding="{Binding RawRow.MesSourceDate}" Width="180" />
+                                                <DataGridTextColumn Header="PACKAGE" Binding="{Binding RawRow.Package}" Width="120" />
+                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding RawRow.PollTraceId}" Width="150" />
+                                                <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding RawRow.ProjectionCommitId}" Width="170" />
                                             </DataGrid.Columns>
                                         </DataGrid>
                                     </Grid>
