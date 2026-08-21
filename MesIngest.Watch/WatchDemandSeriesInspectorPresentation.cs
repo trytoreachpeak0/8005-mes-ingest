@@ -1,0 +1,660 @@
+using System.Text.Json;
+using MesIngest.Core.SeriesProjection;
+
+namespace MesIngest.Watch;
+
+internal enum WatchDemandFormationFactKind
+{
+    PredecessorIdentity,
+    PredecessorLastObservation,
+    AuthoritativeGone,
+    Archive,
+    FirstObservation,
+}
+
+internal sealed record WatchDemandFormationReasonPresentation(
+    string RawCode,
+    string ChineseLabel,
+    bool IsKnown);
+
+internal sealed record WatchDemandFormationFactPresentation(
+    WatchDemandFormationFactKind Kind,
+    string Label,
+    string Value,
+    DateTimeOffset OccurredAt,
+    string PollTraceId,
+    string ProjectionCommitId,
+    long? SeriesSequence);
+
+internal enum WatchDemandMesBoundaryState
+{
+    NotApplicable,
+    Missing,
+    Unique,
+    Conflict,
+}
+
+internal sealed record WatchDemandMesRawRowPresentation(
+    int Ordinal,
+    string PollTraceId,
+    string ProjectionCommitId,
+    MesObservationAssignment Assignment,
+    string? SeriesId,
+    string? DemandId,
+    string? WorkType,
+    string? Sublot,
+    string? Area,
+    string? Eqp,
+    string? Step,
+    DateTimeOffset? MesSourceDate,
+    string? Package,
+    DateTimeOffset ObservedAt,
+    string? MesSourceDateRaw);
+
+internal sealed record WatchDemandMesObservationGroupPresentation(
+    string PollTraceId,
+    string ProjectionCommitId,
+    MesObservationAssignment Assignment,
+    IReadOnlyList<WatchDemandMesRawRowPresentation> Rows);
+
+internal sealed record WatchDemandMesBoundarySidePresentation(
+    string Label,
+    string? DemandId,
+    string? PollTraceId,
+    string? ProjectionCommitId,
+    WatchDemandMesBoundaryState State,
+    IReadOnlyList<WatchDemandMesObservationGroupPresentation> ObservationGroups);
+
+internal sealed record WatchDemandMesScalarFieldPresentation(
+    string FieldName,
+    string BeforeValue,
+    string AfterValue,
+    bool IsChanged,
+    DateTimeOffset? BeforeMesSourceDate = null,
+    DateTimeOffset? AfterMesSourceDate = null);
+
+internal sealed record WatchDemandMesBoundaryPresentation(
+    WatchDemandMesBoundarySidePresentation Before,
+    WatchDemandMesBoundarySidePresentation After,
+    bool CanProjectScalarFields,
+    IReadOnlyList<WatchDemandMesScalarFieldPresentation> ScalarFields,
+    string Explanation);
+
+internal sealed record WatchDemandSeriesInspectorEventPresentation(
+    string EventId,
+    string SeriesId,
+    long SeriesSequence,
+    string EventType,
+    DateTimeOffset OccurredAt,
+    string SubjectKind,
+    string? SubjectId,
+    string PollTraceId,
+    string ProjectionCommitId,
+    int PayloadVersion,
+    string PayloadJson,
+    IReadOnlyList<string> RelatedDemandIds);
+
+internal sealed record WatchDemandSeriesFrozenSnapshotPresentation(
+    string SnapshotReference,
+    string ProjectionCommitId,
+    long ProjectionSequence,
+    DateTimeOffset ProjectionCommittedAt,
+    string PollTraceId);
+
+internal sealed record WatchDemandSeriesInspectorGenerationPresentation(
+    int Generation,
+    string DemandId,
+    string? PredecessorDemandId,
+    string Status,
+    bool IsCurrent,
+    WatchDemandFormationReasonPresentation FormationReason,
+    IReadOnlyList<WatchDemandFormationFactPresentation> FormationFacts,
+    WatchDemandMesBoundaryPresentation MesBoundary);
+
+internal sealed record WatchDemandSeriesInspectorPresentation(
+    string SeriesId,
+    string WorkType,
+    string Sublot,
+    string Lifecycle,
+    string CurrentPresence,
+    WatchDemandSeriesFrozenSnapshotPresentation FrozenSnapshot,
+    IReadOnlyList<WatchDemandSeriesInspectorGenerationPresentation> Generations,
+    WatchDemandSeriesInspectorGenerationPresentation FocusedGeneration,
+    IReadOnlyList<WatchDemandSeriesInspectorEventPresentation> Events)
+{
+    private const string DemandCreatedEvent = "TRANSPORT_DEMAND_CREATED";
+
+    public static WatchDemandSeriesInspectorPresentation Project(
+        DemandSeriesDetailSnapshot snapshot,
+        string? focusedDemandId)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        var series = snapshot.Series;
+        var events = series.Events
+            .OrderBy(seriesEvent => seriesEvent.SeriesSequence)
+            .ToArray();
+        var demands = series.Demands
+            .OrderBy(demand => demand.Generation)
+            .ToArray();
+        var generations = demands
+            .Select(demand => ProjectGeneration(series, demand, events))
+            .ToArray();
+        var focused = generations.FirstOrDefault(generation => string.Equals(
+                generation.DemandId,
+                focusedDemandId,
+                StringComparison.Ordinal))
+            ?? generations.First(generation => string.Equals(
+                generation.DemandId,
+                series.CurrentDemand.DemandId,
+                StringComparison.Ordinal));
+
+        return new WatchDemandSeriesInspectorPresentation(
+            series.SeriesId,
+            series.WorkType,
+            series.Sublot,
+            series.Lifecycle,
+            series.CurrentPresence,
+            new WatchDemandSeriesFrozenSnapshotPresentation(
+                snapshot.SnapshotReference,
+                snapshot.Snapshot.ProjectionCommitId,
+                snapshot.Snapshot.ProjectionSequence,
+                snapshot.Snapshot.ProjectionCommittedAt,
+                snapshot.Snapshot.PollTraceId),
+            generations,
+            focused,
+            events.Select(seriesEvent => ProjectEvent(seriesEvent, demands)).ToArray());
+    }
+
+    public IReadOnlyList<WatchDemandSeriesInspectorEventPresentation> EventsForDemand(
+        string? demandId) => string.IsNullOrWhiteSpace(demandId)
+        ? Events
+        : Events
+            .Where(seriesEvent => seriesEvent.RelatedDemandIds.Contains(
+                demandId,
+                StringComparer.Ordinal))
+            .ToArray();
+
+    private static WatchDemandSeriesInspectorEventPresentation ProjectEvent(
+        DemandSeriesEventSnapshot seriesEvent,
+        IReadOnlyList<TransportDemandSnapshot> demands) => new(
+        seriesEvent.EventId,
+        seriesEvent.SeriesId,
+        seriesEvent.SeriesSequence,
+        seriesEvent.EventType,
+        seriesEvent.OccurredAt,
+        seriesEvent.SubjectKind,
+        seriesEvent.SubjectId,
+        seriesEvent.PollTraceId,
+        seriesEvent.ProjectionCommitId,
+        seriesEvent.PayloadVersion,
+        seriesEvent.PayloadJson,
+        ReadRelatedDemandIds(seriesEvent, demands));
+
+    private static IReadOnlyList<string> ReadRelatedDemandIds(
+        DemandSeriesEventSnapshot seriesEvent,
+        IReadOnlyList<TransportDemandSnapshot> demands)
+    {
+        var knownDemandIds = demands
+            .Select(demand => demand.DemandId)
+            .ToHashSet(StringComparer.Ordinal);
+        var related = new HashSet<string>(StringComparer.Ordinal);
+        if (seriesEvent.SubjectId is { } subjectId && knownDemandIds.Contains(subjectId))
+        {
+            related.Add(subjectId);
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(seriesEvent.PayloadJson);
+            AddPayloadDemandId("demandId");
+            AddPayloadDemandId("predecessorDemandId");
+
+            void AddPayloadDemandId(string propertyName)
+            {
+                if (document.RootElement.TryGetProperty(propertyName, out var value)
+                    && value.ValueKind == JsonValueKind.String
+                    && value.GetString() is { } demandId
+                    && knownDemandIds.Contains(demandId))
+                {
+                    related.Add(demandId);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // The immutable raw payload remains available; malformed filter metadata stays empty.
+        }
+
+        return related.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static WatchDemandSeriesInspectorGenerationPresentation ProjectGeneration(
+        DemandSeriesSnapshot series,
+        TransportDemandSnapshot demand,
+        IReadOnlyList<DemandSeriesEventSnapshot> events)
+    {
+        var creationEvents = events
+            .Where(seriesEvent => IsDemandEvent(seriesEvent, DemandCreatedEvent, demand.DemandId))
+            .ToArray();
+        var creationEvent = creationEvents.Length == 1 ? creationEvents[0] : null;
+        var reason = ProjectReason(demand, creationEvents);
+        var facts = ProjectFormationFacts(series, demand, reason.RawCode, creationEvent, events);
+
+        return new WatchDemandSeriesInspectorGenerationPresentation(
+            demand.Generation,
+            demand.DemandId,
+            demand.PredecessorDemandId,
+            demand.Status,
+            string.Equals(demand.DemandId, series.CurrentDemand.DemandId, StringComparison.Ordinal),
+            reason,
+            facts,
+            ProjectMesBoundary(series, demand));
+    }
+
+    private static WatchDemandMesBoundaryPresentation ProjectMesBoundary(
+        DemandSeriesSnapshot series,
+        TransportDemandSnapshot demand)
+    {
+        var predecessor = string.IsNullOrWhiteSpace(demand.PredecessorDemandId)
+            ? null
+            : series.Demands.FirstOrDefault(candidate => string.Equals(
+                candidate.DemandId,
+                demand.PredecessorDemandId,
+                StringComparison.Ordinal));
+        var beforeProjection = predecessor is null
+            ? new BoundarySideProjection(
+                new WatchDemandMesBoundarySidePresentation(
+                    "前代最后匹配观测",
+                    DemandId: null,
+                    PollTraceId: null,
+                    ProjectionCommitId: null,
+                    WatchDemandMesBoundaryState.NotApplicable,
+                    ObservationGroups: []),
+                UniqueAssignedRow: null)
+            : ProjectBoundarySide(
+                "前代最后匹配观测",
+                predecessor.DemandId,
+                predecessor.LatestObservationPollTraceId,
+                predecessor.LatestObservationProjectionCommitId,
+                series.RawObservations);
+        var afterProjection = ProjectBoundarySide(
+            demand.Generation == 1 ? "首次匹配观测" : "新世代首次匹配观测",
+            demand.DemandId,
+            demand.CreatedPollTraceId,
+            demand.CreatedProjectionCommitId,
+            series.RawObservations);
+        var before = beforeProjection.Presentation;
+        var after = afterProjection.Presentation;
+        var beforeUnique = before.State is WatchDemandMesBoundaryState.NotApplicable
+            or WatchDemandMesBoundaryState.Unique;
+        var canProjectScalars = beforeUnique && after.State == WatchDemandMesBoundaryState.Unique;
+        var fields = canProjectScalars
+            ? ProjectScalarFields(
+                beforeProjection.UniqueAssignedRow,
+                afterProjection.UniqueAssignedRow!)
+            : [];
+
+        return new WatchDemandMesBoundaryPresentation(
+            before,
+            after,
+            canProjectScalars,
+            fields,
+            "MES 字段变化只是边界两侧的观察证据，不是 DemandId 形成原因。");
+    }
+
+    private static BoundarySideProjection ProjectBoundarySide(
+        string label,
+        string demandId,
+        string? pollTraceId,
+        string? projectionCommitId,
+        IReadOnlyList<DemandRawObservationSnapshot> observations)
+    {
+        if (string.IsNullOrWhiteSpace(pollTraceId)
+            || string.IsNullOrWhiteSpace(projectionCommitId))
+        {
+            return new BoundarySideProjection(
+                new WatchDemandMesBoundarySidePresentation(
+                    label,
+                    demandId,
+                    pollTraceId,
+                    projectionCommitId,
+                    WatchDemandMesBoundaryState.Missing,
+                    ObservationGroups: []),
+                UniqueAssignedRow: null);
+        }
+
+        var matchingPoll = observations
+            .Where(observation => string.Equals(
+                    observation.PollTraceId,
+                    pollTraceId,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    observation.ProjectionCommitId,
+                    projectionCommitId,
+                    StringComparison.Ordinal))
+            .OrderBy(observation => observation.Ordinal)
+            .ToArray();
+        var groups = matchingPoll
+            .GroupBy(observation => observation.Assignment)
+            .OrderBy(group => group.Key)
+            .Select(group => new WatchDemandMesObservationGroupPresentation(
+                pollTraceId,
+                projectionCommitId,
+                group.Key,
+                group.Select(ProjectRawRow).ToArray()))
+            .ToArray();
+        var assignedRows = matchingPoll.Where(observation =>
+                observation.Assignment == MesObservationAssignment.Assigned
+                && string.Equals(observation.DemandId, demandId, StringComparison.Ordinal))
+            .ToArray();
+        var state = assignedRows.Length switch
+        {
+            0 => WatchDemandMesBoundaryState.Missing,
+            1 => WatchDemandMesBoundaryState.Unique,
+            _ => WatchDemandMesBoundaryState.Conflict,
+        };
+
+        return new BoundarySideProjection(
+            new WatchDemandMesBoundarySidePresentation(
+                label,
+                demandId,
+                pollTraceId,
+                projectionCommitId,
+                state,
+                groups),
+            assignedRows.Length == 1 ? assignedRows[0] : null);
+    }
+
+    private static WatchDemandMesRawRowPresentation ProjectRawRow(
+        DemandRawObservationSnapshot observation) => new(
+        observation.Ordinal,
+        observation.PollTraceId,
+        observation.ProjectionCommitId,
+        observation.Assignment,
+        observation.SeriesId,
+        observation.DemandId,
+        observation.WorkType,
+        observation.Sublot,
+        observation.Area,
+        observation.Eqp,
+        observation.Step,
+        observation.MesSourceDate,
+        observation.Package,
+        observation.ObservedAt,
+        observation.MesSourceDateRaw);
+
+    private static IReadOnlyList<WatchDemandMesScalarFieldPresentation> ProjectScalarFields(
+        DemandRawObservationSnapshot? before,
+        DemandRawObservationSnapshot after)
+    {
+        var notApplicable = before is null;
+        return
+        [
+            Field("TASK_TYPE", before?.WorkType, after.WorkType),
+            Field("SUBLOT", before?.Sublot, after.Sublot),
+            Field("AREA", before?.Area, after.Area),
+            Field("EQP", before?.Eqp, after.Eqp),
+            Field("STEP", before?.Step, after.Step),
+            new WatchDemandMesScalarFieldPresentation(
+                "DATES / MesSourceDate",
+                notApplicable ? "不适用" : Display(before!.MesSourceDate),
+                Display(after.MesSourceDate),
+                !notApplicable && before!.MesSourceDate != after.MesSourceDate,
+                before?.MesSourceDate,
+                after.MesSourceDate),
+            Field("PACKAGE", before?.Package, after.Package),
+        ];
+
+        WatchDemandMesScalarFieldPresentation Field(
+            string fieldName,
+            string? beforeValue,
+            string? afterValue) => new(
+            fieldName,
+            notApplicable ? "不适用" : Display(beforeValue),
+            Display(afterValue),
+            !notApplicable && !string.Equals(beforeValue, afterValue, StringComparison.Ordinal));
+    }
+
+    private static string Display(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "—" : value;
+
+    private static string Display(DateTimeOffset? value) =>
+        value is null ? "—" : WatchTimeDisplay.Format(value.Value);
+
+    private static WatchDemandFormationReasonPresentation ProjectReason(
+        TransportDemandSnapshot demand,
+        IReadOnlyList<DemandSeriesEventSnapshot> creationEvents)
+    {
+        if (creationEvents.Count != 1)
+        {
+            return UnknownReason(creationEvents.Count == 0 ? "（创建事件缺失）" : "（创建事件冲突）");
+        }
+
+        var payloadReason = ReadReason(creationEvents[0].PayloadJson);
+        if (payloadReason.State == ReasonPayloadState.Malformed)
+        {
+            return UnknownReason("（原因载荷无效）");
+        }
+
+        var rawCode = payloadReason.Value;
+        if (string.IsNullOrWhiteSpace(rawCode) && demand.Generation == 1)
+        {
+            rawCode = "FIRST_OBSERVED";
+        }
+
+        return rawCode switch
+        {
+            "FIRST_OBSERVED" => new(rawCode, "首次观察到", IsKnown: true),
+            "PREARCHIVE_REAPPEARANCE" => new(rawCode, "归档前消失后再现", IsKnown: true),
+            "POSTARCHIVE_REAPPEARANCE" => new(rawCode, "归档后再次出现", IsKnown: true),
+            _ => UnknownReason(string.IsNullOrWhiteSpace(rawCode) ? "（原因码缺失）" : rawCode),
+        };
+    }
+
+    private static IReadOnlyList<WatchDemandFormationFactPresentation> ProjectFormationFacts(
+        DemandSeriesSnapshot series,
+        TransportDemandSnapshot demand,
+        string reasonCode,
+        DemandSeriesEventSnapshot? creationEvent,
+        IReadOnlyList<DemandSeriesEventSnapshot> events)
+    {
+        if (creationEvent is null)
+        {
+            return [];
+        }
+
+        if (string.Equals(reasonCode, "FIRST_OBSERVED", StringComparison.Ordinal))
+        {
+            return [EventFact(
+                WatchDemandFormationFactKind.FirstObservation,
+                "首次匹配观测",
+                demand.DemandId,
+                creationEvent)];
+        }
+
+        var isPrearchiveReappearance = string.Equals(
+            reasonCode,
+            "PREARCHIVE_REAPPEARANCE",
+            StringComparison.Ordinal);
+        var isPostarchiveReappearance = string.Equals(
+            reasonCode,
+            "POSTARCHIVE_REAPPEARANCE",
+            StringComparison.Ordinal);
+        if ((!isPrearchiveReappearance && !isPostarchiveReappearance)
+            || string.IsNullOrWhiteSpace(demand.PredecessorDemandId))
+        {
+            return [EventFact(
+                WatchDemandFormationFactKind.FirstObservation,
+                "创建事件",
+                demand.DemandId,
+                creationEvent)];
+        }
+
+        var predecessor = series.Demands.FirstOrDefault(candidate => string.Equals(
+            candidate.DemandId,
+            demand.PredecessorDemandId,
+            StringComparison.Ordinal));
+        if (predecessor is null)
+        {
+            return [EventFact(
+                WatchDemandFormationFactKind.FirstObservation,
+                "新世代首次匹配观测",
+                demand.DemandId,
+                creationEvent)];
+        }
+
+        var facts = new List<WatchDemandFormationFactPresentation>();
+        var predecessorCreation = events.FirstOrDefault(seriesEvent =>
+            IsDemandEvent(seriesEvent, DemandCreatedEvent, predecessor.DemandId));
+        facts.Add(predecessorCreation is null
+            ? SnapshotFact(
+                WatchDemandFormationFactKind.PredecessorIdentity,
+                "前代 Demand",
+                predecessor.DemandId,
+                predecessor.CreatedAt,
+                predecessor.CreatedPollTraceId,
+                predecessor.CreatedProjectionCommitId)
+            : EventFact(
+                WatchDemandFormationFactKind.PredecessorIdentity,
+                "前代 Demand",
+                predecessor.DemandId,
+                predecessorCreation));
+
+        if (!string.IsNullOrWhiteSpace(predecessor.LatestObservationPollTraceId)
+            && !string.IsNullOrWhiteSpace(predecessor.LatestObservationProjectionCommitId)
+            && predecessor.LatestObservationAt is { } latestObservationAt)
+        {
+            facts.Add(SnapshotFact(
+                WatchDemandFormationFactKind.PredecessorLastObservation,
+                "前代最后匹配观测",
+                predecessor.DemandId,
+                latestObservationAt,
+                predecessor.LatestObservationPollTraceId,
+                predecessor.LatestObservationProjectionCommitId));
+        }
+
+        var goneEvent = events.LastOrDefault(seriesEvent =>
+            IsDemandEvent(seriesEvent, "DEMAND_GONE", predecessor.DemandId)
+            && seriesEvent.SeriesSequence < creationEvent.SeriesSequence);
+        if (goneEvent is not null)
+        {
+            facts.Add(EventFact(
+                WatchDemandFormationFactKind.AuthoritativeGone,
+                "权威缺失 / GONE",
+                predecessor.DemandId,
+                goneEvent));
+        }
+
+        if (isPostarchiveReappearance)
+        {
+            var archiveEvent = events.LastOrDefault(seriesEvent =>
+                string.Equals(
+                    seriesEvent.EventType,
+                    "GONE_TIMEOUT_ARCHIVED",
+                    StringComparison.Ordinal)
+                && seriesEvent.SeriesSequence < creationEvent.SeriesSequence
+                && PayloadReferencesDemand(seriesEvent.PayloadJson, predecessor.DemandId));
+            if (archiveEvent is not null)
+            {
+                facts.Add(EventFact(
+                    WatchDemandFormationFactKind.Archive,
+                    "Series 归档",
+                    predecessor.DemandId,
+                    archiveEvent));
+            }
+        }
+
+        facts.Add(EventFact(
+            WatchDemandFormationFactKind.FirstObservation,
+            "新世代首次匹配观测",
+            demand.DemandId,
+            creationEvent));
+        return facts;
+    }
+
+    private static WatchDemandFormationFactPresentation EventFact(
+        WatchDemandFormationFactKind kind,
+        string label,
+        string value,
+        DemandSeriesEventSnapshot seriesEvent) => new(
+        kind,
+        label,
+        value,
+        seriesEvent.OccurredAt,
+        seriesEvent.PollTraceId,
+        seriesEvent.ProjectionCommitId,
+        seriesEvent.SeriesSequence);
+
+    private static WatchDemandFormationFactPresentation SnapshotFact(
+        WatchDemandFormationFactKind kind,
+        string label,
+        string value,
+        DateTimeOffset occurredAt,
+        string pollTraceId,
+        string projectionCommitId) => new(
+        kind,
+        label,
+        value,
+        occurredAt,
+        pollTraceId,
+        projectionCommitId,
+        SeriesSequence: null);
+
+    private static bool IsDemandEvent(
+        DemandSeriesEventSnapshot seriesEvent,
+        string eventType,
+        string demandId) =>
+        string.Equals(seriesEvent.EventType, eventType, StringComparison.Ordinal)
+        && string.Equals(seriesEvent.SubjectKind, "DEMAND", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(seriesEvent.SubjectId, demandId, StringComparison.Ordinal);
+
+    private static WatchDemandFormationReasonPresentation UnknownReason(string rawCode) =>
+        new(rawCode, "形成原因暂无法确认", IsKnown: false);
+
+    private static bool PayloadReferencesDemand(string payloadJson, string demandId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            return document.RootElement.TryGetProperty("demandId", out var value)
+                && value.ValueKind == JsonValueKind.String
+                && string.Equals(value.GetString(), demandId, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static (ReasonPayloadState State, string? Value) ReadReason(string payloadJson)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(payloadJson);
+            if (!document.RootElement.TryGetProperty("reason", out var reason))
+            {
+                return (ReasonPayloadState.Missing, null);
+            }
+
+            return reason.ValueKind == JsonValueKind.String
+                ? (ReasonPayloadState.Present, reason.GetString())
+                : (ReasonPayloadState.Malformed, null);
+        }
+        catch (JsonException)
+        {
+            return (ReasonPayloadState.Malformed, null);
+        }
+    }
+
+    private enum ReasonPayloadState
+    {
+        Missing,
+        Present,
+        Malformed,
+    }
+
+    private sealed record BoundarySideProjection(
+        WatchDemandMesBoundarySidePresentation Presentation,
+        DemandRawObservationSnapshot? UniqueAssignedRow);
+}
