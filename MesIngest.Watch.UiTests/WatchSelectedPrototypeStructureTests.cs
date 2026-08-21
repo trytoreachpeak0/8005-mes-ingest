@@ -400,30 +400,40 @@ public sealed class WatchSelectedPrototypeStructureTests
                 Assert.NotNull(Find<TextBlock>(window, "ReadabilityLiveMesPackageText"));
 
                 var areaRoot = Find<Grid>(window, "AreaFilterLayoutGrid");
-                AssertSelectedPageRows(areaRoot, secondGap: 12);
+
+                // The AREA page dropped its applied-scope banner, so its content
+                // starts one row earlier than the other selected pages and the
+                // status InfoBars carry their own bottom margin in place of the
+                // second gap row.
+                Assert.Equal(4, areaRoot.RowDefinitions.Count);
+                AssertAuto(areaRoot.RowDefinitions[0].Height);
+                AssertPixel(areaRoot.RowDefinitions[1].Height, 12);
+                AssertAuto(areaRoot.RowDefinitions[2].Height);
+                AssertStar(areaRoot.RowDefinitions[3].Height, 1);
                 var areaBody = Find<Grid>(window, "AreaProfileBodyGrid");
                 Assert.Equal(3, areaBody.ColumnDefinitions.Count);
                 AssertPixel(areaBody.ColumnDefinitions[0].Width, 318);
                 AssertPixel(areaBody.ColumnDefinitions[1].Width, 16);
                 AssertStar(areaBody.ColumnDefinitions[2].Width, 1);
                 Assert.Equal(new Thickness(0), areaRoot.Margin);
+                // The "AREA（每行一个）" label strip is gone, so the editor frame
+                // now owns the first row of its workspace and the space it used
+                // to occupy belongs to the content.
                 var areaEditorWorkspace = Find<Grid>(window, "AreaProfileEditorWorkspaceGrid");
-                Assert.Equal(6, areaEditorWorkspace.RowDefinitions.Count);
-                AssertAuto(areaEditorWorkspace.RowDefinitions[0].Height);
-                AssertPixel(areaEditorWorkspace.RowDefinitions[1].Height, 10);
-                AssertStar(areaEditorWorkspace.RowDefinitions[2].Height, 1);
-                AssertPixel(areaEditorWorkspace.RowDefinitions[3].Height, 12);
-                AssertAuto(areaEditorWorkspace.RowDefinitions[4].Height);
-                AssertAuto(areaEditorWorkspace.RowDefinitions[5].Height);
+                Assert.Equal(4, areaEditorWorkspace.RowDefinitions.Count);
+                AssertStar(areaEditorWorkspace.RowDefinitions[0].Height, 1);
+                AssertPixel(areaEditorWorkspace.RowDefinitions[1].Height, 12);
+                AssertAuto(areaEditorWorkspace.RowDefinitions[2].Height);
+                AssertAuto(areaEditorWorkspace.RowDefinitions[3].Height);
                 var areaEditorBorder = Find<Border>(window, "AreaProfileEditorFrame");
-                Assert.Equal(2, Grid.GetRow(areaEditorBorder));
+                Assert.Equal(0, Grid.GetRow(areaEditorBorder));
                 var areaEditor = Assert.IsType<Grid>(areaEditorBorder.Child);
                 Assert.Equal(3, areaEditor.ColumnDefinitions.Count);
                 AssertPixel(areaEditor.ColumnDefinitions[0].Width, 44);
                 AssertPixel(areaEditor.ColumnDefinitions[1].Width, 1);
                 AssertStar(areaEditor.ColumnDefinitions[2].Width, 1);
                 Assert.Equal(
-                    4,
+                    2,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
                 Assert.Equal(
                     4,
@@ -680,13 +690,13 @@ public sealed class WatchSelectedPrototypeStructureTests
         Assert.Equal(bindingPath, binding.Path.Path);
     }
 
-    private static void AssertSelectedPageRows(Grid grid, double secondGap = 16)
+    private static void AssertSelectedPageRows(Grid grid)
     {
         Assert.Equal(5, grid.RowDefinitions.Count);
         AssertAuto(grid.RowDefinitions[0].Height);
         AssertPixel(grid.RowDefinitions[1].Height, 12);
         AssertAuto(grid.RowDefinitions[2].Height);
-        AssertPixel(grid.RowDefinitions[3].Height, secondGap);
+        AssertPixel(grid.RowDefinitions[3].Height, 16);
         AssertStar(grid.RowDefinitions[4].Height, 1);
     }
 

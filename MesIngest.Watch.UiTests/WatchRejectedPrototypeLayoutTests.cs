@@ -134,8 +134,14 @@ public sealed class WatchRejectedPrototypeLayoutTests
                 Assert.Equal(Path.GetFullPath(areaDirectory), directory.ToolTip);
                 Assert.Equal(Path.GetFullPath(areaDirectory), AutomationProperties.GetHelpText(directory));
 
+                // The pinned all-AREA row owns index 0, so the applied profile
+                // this fixture selects is no longer the first container.
+                var profileList = Find<ListBox>(window, "AreaProfileList");
+                var selectedRow = Assert.IsType<WatchAreaFilterProfilePresentationRow>(
+                    profileList.SelectedItem);
+                Assert.Equal("东区", selectedRow.ProfileName);
                 var selected = Assert.IsType<ListBoxItem>(
-                    Find<ListBox>(window, "AreaProfileList").ItemContainerGenerator.ContainerFromIndex(0));
+                    profileList.ItemContainerGenerator.ContainerFromItem(selectedRow));
                 Assert.Same(window.FindResource("AccentFillColorDefaultBrush"), selected.Background);
                 Assert.Same(window.FindResource("TextFillColorInverseBrush"), selected.Foreground);
             }

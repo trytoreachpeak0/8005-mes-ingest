@@ -870,10 +870,17 @@ public sealed class WatchWorkspaceProductionJourneyTests
             failedStep = "area-filter";
             Navigate(window, "AreaFilterNavigationItem", "AreaFilterPage");
             var profileList = FindRequiredById(window, "AreaProfileList").AsListBox();
+
+            // The all-AREA row is pinned as the first entry and is not a file,
+            // so the four TXT profiles arrive as rows two through five.
             WaitUntil(
-                () => profileList.Items.Length == 4,
-                "the four local AREA TXT profiles",
+                () => profileList.Items.Length == 5,
+                "the pinned all-AREA row and the four local AREA TXT profiles",
                 StepTimeout);
+            Assert.Contains(
+                "全部 AREA",
+                TextValue(profileList.Items[0]),
+                StringComparison.Ordinal);
             var invalidProfile = Assert.Single(
                 profileList.Items,
                 item => TextValue(item).Contains("临时范围", StringComparison.Ordinal));

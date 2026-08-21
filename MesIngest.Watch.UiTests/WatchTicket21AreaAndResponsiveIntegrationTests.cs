@@ -213,8 +213,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(1, auditAreaSelector.SelectedIndex);
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
 
-                var profiles = Find<ListBox>(window, "AreaProfileList");
-                profiles.SelectedIndex = 0;
+                SelectProfile(window, "封装东区");
                 Assert.Equal(WatchWorkspacePage.AreaFilter, window.ActivePage);
                 Assert.Equal(["A1-1"], window.AreaContext.MesAreas);
                 Assert.Equal("封装东区", window.AreaContext.ProfileName);
@@ -302,10 +301,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     diagnostics,
                     diagnostic => diagnostic.Code
                         == WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea);
-                Assert.Contains(
-                    "非法草稿不可应用",
-                    Find<TextBlock>(window, "AreaProfileValidationSummaryText").Text,
-                    StringComparison.Ordinal);
+                // Editing the applied profile into an invalid state blocks the
+                // apply and says so, but the scope the user is looking at comes
+                // from the snapshot and is left alone.
+                Assert.Equal(
+                    "内容非法不可应用 · 当前显示范围保持不变",
+                    Find<TextBlock>(window, "AreaProfileValidationSummaryText").Text);
                 Assert.Equal(["B2-2", "C3-3"], window.AreaContext.MesAreas);
 
                 var beforeSelectorApply = host.Timeline.Count;
@@ -380,9 +381,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             {
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 var profileList = Find<ListBox>(window, "AreaProfileList");
-                var rows = profileList.Items
-                    .Cast<WatchAreaFilterProfilePresentationRow>()
-                    .ToArray();
+                var rows = FileRows(profileList);
                 Assert.Equal(4, rows.Length);
                 Assert.Contains(
                     "4 个文件 · 1 个需要修复",
@@ -429,15 +428,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var search = Find<TextBox>(window, "AreaProfileSearchInput");
                 search.Text = "西区";
-                var searchedValid = Assert.Single(
-                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                var searchedValid = Assert.Single(FileRows(profileList));
                 Assert.Equal("西区", searchedValid.ProfileName);
                 Assert.True(searchedValid.IsValid);
                 Assert.Equal(unsavedDraft, editor.Text);
 
                 search.Text = "临时";
-                var searchedInvalid = Assert.Single(
-                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                var searchedInvalid = Assert.Single(FileRows(profileList));
                 Assert.Equal("临时范围", searchedInvalid.ProfileName);
                 Assert.False(searchedInvalid.IsValid);
                 Assert.Equal(unsavedDraft, editor.Text);
@@ -451,9 +448,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                             row.ProfileName == "西区" && row.MesAreaCount == 2));
                 Assert.Equal(unsavedDraft, editor.Text);
 
-                rows = profileList.Items
-                    .Cast<WatchAreaFilterProfilePresentationRow>()
-                    .ToArray();
+                rows = FileRows(profileList);
                 Assert.Equal(4, rows.Length);
                 Assert.Equal(
                     "焊线区域",
@@ -585,12 +580,24 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                         && ReferenceEquals(
                             border.Style,
                             window.FindResource("StatusPillAccent"))));
-                Assert.NotNull(FindVisualDescendant<Border>(
+                // The badge slot carries "currently applied" and nothing else,
+                // so invalid content states itself in the row's subtitle rather
+                // than competing for the same pill.
+                Assert.Null(FindVisualDescendant<Border>(
                     invalidContainer,
                     border => border.Visibility == Visibility.Visible
                         && ReferenceEquals(
                             border.Style,
-                            window.FindResource("StatusPillCritical"))));
+                            window.FindResource("StatusPillAccent"))));
+                var invalidAttention = FindVisualDescendant<Wpf.Ui.Controls.TextBlock>(
+                    invalidContainer,
+                    text => text.Visibility == Visibility.Visible
+                        && text.Text == "内容非法 · 需修复");
+                Assert.NotNull(invalidAttention);
+                Assert.Equal(
+                    Assert.IsType<SolidColorBrush>(
+                        window.FindResource("SystemFillColorCriticalBrush")).Color,
+                    Assert.IsType<SolidColorBrush>(invalidAttention.Foreground).Color);
                 Assert.NotNull(FindVisualDescendant<Wpf.Ui.Controls.TextBlock>(
                     appliedContainer,
                     text => ReferenceEquals(
@@ -721,8 +728,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.True(IsDescendantOrSelf(saveAndApply, master));
                 Assert.False(IsDescendantOrSelf(saveAndApply, editor));
                 Assert.True(saveAndApply.ActualWidth < master.ActualWidth / 2);
+                // The status strip sits directly under the editor frame and its
+                // gap, with no save/discard row of its own between them.
                 Assert.Equal(
-                    4,
+                    2,
                     Grid.GetRow(Find<Grid>(window, "AreaProfileEditorStatusGrid")));
                 Assert.Null(window.FindName("AreaProfileDiscardButton"));
                 Assert.Null(window.FindName("AreaProfileSaveButton"));
@@ -874,8 +883,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     row => row.ProfileName == "ProfileB");
                 Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 Assert.Contains("ProfileB.txt", prompt.Text, StringComparison.Ordinal);
-                Assert.Contains("概览、需求系列和资格审计", prompt.Text, StringComparison.Ordinal);
-                Assert.Contains("全部 AREA", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    "已应用 AREA 快照与显示范围仍生效",
+                    prompt.Text,
+                    StringComparison.Ordinal);
                 Assert.Equal(
                     "确认删除 ProfileB.txt",
                     AutomationProperties.GetName(confirm));
@@ -949,8 +960,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 window.UpdateLayout();
 
                 var profileList = Find<ListBox>(window, "AreaProfileList");
-                var row = Assert.Single(
-                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                var row = Assert.Single(FileRows(profileList));
                 Assert.Equal("ACTIVESCOPE", row.ProfileName);
                 Assert.True(row.IsApplied);
                 Assert.Equal(
@@ -1009,7 +1019,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
+                // The file commands live in the row's context menu, so the list
+                // has to have realized the row's container before one can be
+                // invoked.
+                window.Show();
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                SelectProfile(window, "ProtectedScope");
+                window.UpdateLayout();
                 File.WriteAllText(files.ActiveMarkerPath, "not json", new UTF8Encoding(false));
 
                 Click(AreaProfileFileCommand(window, commandName));
@@ -1055,7 +1071,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 window.Show();
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
                 window.UpdateLayout();
-                Find<ListBox>(window, "AreaProfileList").SelectedIndex = 0;
+                SelectProfile(window, "FocusScope");
                 var rename = AreaProfileFileCommand(
                     window,
                     "AreaProfileRenameMenuItem");
@@ -1122,7 +1138,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
+                // The file commands live in the row's context menu, so the list
+                // has to have realized the row's container before one can be
+                // invoked.
+                window.Show();
                 Click(Find<Wpf.Ui.Controls.NavigationViewItem>(window, "AreaFilterNavigationItem"));
+                SelectProfile(window, "BusyScope");
+                window.UpdateLayout();
                 using var transactionLock = new FileStream(
                     Path.Combine(files.AreaProfilesPath, ".area-profiles.lock"),
                     FileMode.OpenOrCreate,
@@ -1182,8 +1204,11 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var confirm = Find<Wpf.Ui.Controls.Button>(
                     window,
                     "AreaProfileFileOperationConfirmButton");
-                Assert.Contains("若确认时", prompt.Text, StringComparison.Ordinal);
-                Assert.Contains("概览、需求系列和资格审计", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains("再次确认删除", prompt.Text, StringComparison.Ordinal);
+                Assert.Contains(
+                    "已应用 AREA 快照与显示范围仍生效",
+                    prompt.Text,
+                    StringComparison.Ordinal);
                 Assert.Equal(prompt.Text, AutomationProperties.GetHelpText(confirm));
 
                 Assert.True(new WatchAreaFilterProfileStore(files.AreaProfilesPath)
@@ -1196,13 +1221,23 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     TestContext.Current.CancellationToken);
 
                 Assert.False(File.Exists(files.ProfilePath));
-                Assert.True(store.LoadApplied().IsAllAreas);
+
+                // Deleting the file the other instance just applied does not
+                // widen the scope: the snapshot taken at apply time keeps
+                // standing until someone applies all AREA on purpose.
+                var applied = store.LoadApplied();
+                Assert.False(applied.IsAllAreas);
+                Assert.Equal("DeleteTarget", applied.ProfileName);
+                Assert.Equal(["A1-1"], applied.MesAreas);
+                var missing = Assert.Single(FileRows(profiles), row => row.IsMissing);
+                Assert.Equal("DeleteTarget", missing.ProfileName);
+                Assert.Equal("文件已删除 · 范围仍生效", missing.AttentionText);
                 var focus = Assert.IsAssignableFrom<UIElement>(Keyboard.FocusedElement);
                 Assert.Same(Find<ListBox>(window, "AreaProfileList"), focus);
                 Assert.True(focus.IsVisible);
                 Assert.True(focus.IsEnabled);
                 Assert.Contains(
-                    "回退到全部 AREA",
+                    "已应用 AREA 快照与当前显示范围仍生效",
                     Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Message,
                     StringComparison.Ordinal);
             }
@@ -1427,20 +1462,52 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     "D4-4\n",
                     Find<TextBox>(firstWindow, "AreaProfileEditor").Text);
-                Assert.Equal(
-                    "未落盘 · 即将自动保存",
-                    Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
+                if (saveAndApply)
+                {
+                    // Applying a scope cannot pause on a decision: it either
+                    // writes what the user asked for or reports why it did not,
+                    // and the buffer stays dirty for the next automatic save.
+                    Assert.Equal(
+                        "未落盘 · 即将自动保存",
+                        Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
+                    var failure = Find<Wpf.Ui.Controls.InfoBar>(
+                        firstWindow,
+                        "AreaProfileInfoBar");
+                    Assert.Contains(
+                        WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                        failure.Message,
+                        StringComparison.Ordinal);
+                    Assert.Contains("磁盘", failure.Message, StringComparison.Ordinal);
+                }
+                else
+                {
+                    // A write stops on the two-way choice instead, and automatic
+                    // saving stays suspended until the user picks a side.
+                    Assert.Equal(
+                        "磁盘已变更 · 等待选择",
+                        Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
+                    Assert.Equal(
+                        Visibility.Visible,
+                        Find<FrameworkElement>(
+                            firstWindow,
+                            "AreaProfileWriteConflictPanel").Visibility);
+                    Assert.Contains(
+                        "EditableScope.txt",
+                        Find<Wpf.Ui.Controls.InfoBar>(
+                            firstWindow,
+                            "AreaProfileWriteConflictInfo").Title,
+                        StringComparison.Ordinal);
+                    Assert.True(Find<ButtonBase>(
+                        firstWindow,
+                        "AreaProfileKeepLocalEditButton").IsEnabled);
+                    Assert.True(Find<ButtonBase>(
+                        firstWindow,
+                        "AreaProfileUseDiskVersionButton").IsEnabled);
+                }
+
                 Assert.True(AreaProfileFileCommand(
                     firstWindow,
                     "AreaProfileSaveAsMenuItem").IsEnabled);
-                var failure = Find<Wpf.Ui.Controls.InfoBar>(
-                    firstWindow,
-                    "AreaProfileInfoBar");
-                Assert.Contains(
-                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
-                    failure.Message,
-                    StringComparison.Ordinal);
-                Assert.Contains("磁盘", failure.Message, StringComparison.Ordinal);
             }
             finally
             {
@@ -1782,8 +1849,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 window.UpdateLayout();
 
                 var profileList = Find<ListBox>(window, "AreaProfileList");
-                var row = Assert.Single(
-                    profileList.Items.Cast<WatchAreaFilterProfilePresentationRow>());
+                var row = Assert.Single(FileRows(profileList));
                 Assert.True(row.IsApplied);
                 Assert.False(row.IsValid);
                 Assert.Equal("当前应用", row.AppliedBadgeText);
@@ -2126,6 +2192,17 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
     }
 
     /// <summary>
+    /// The rows that stand for a real TXT in the directory. The all-AREA row is
+    /// pinned as a virtual first entry and survives the search filter, so any
+    /// assertion about what the directory holds has to leave it out.
+    /// </summary>
+    private static WatchAreaFilterProfilePresentationRow[] FileRows(ListBox profileList) =>
+        profileList.Items
+            .Cast<WatchAreaFilterProfilePresentationRow>()
+            .Where(static row => !row.IsAllAreas)
+            .ToArray();
+
+    /// <summary>
     /// The AREA list follows the directory on its own, so the wait is for the
     /// real watcher and its debounce window rather than for a command.
     /// </summary>
@@ -2136,9 +2213,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (true)
         {
-            var rows = profileList.Items
-                .Cast<WatchAreaFilterProfilePresentationRow>()
-                .ToArray();
+            var rows = FileRows(profileList);
             if (isExpected(rows))
             {
                 return;
