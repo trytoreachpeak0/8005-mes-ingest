@@ -19,6 +19,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
         }
 
+        Loaded += OnInspectorLoaded;
         ApplyResponsiveLayout(Width);
     }
 
@@ -88,10 +89,17 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             $"内部原因码：{generation.FormationReason.RawCode}";
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorFormationReasonText,
-            generation.FormationReason.ChineseLabel);
+            $"形成原因：{generation.FormationReason.ChineseLabel}；"
+            + $"原始原因码：{generation.FormationReason.RawCode}");
         DemandSeriesInspectorFormationReasonCodeText.Text =
             $"原始原因码：{generation.FormationReason.RawCode}";
         DemandSeriesInspectorFormationFacts.ItemsSource = generation.FormationFacts;
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationFacts,
+            $"Demand 形成事实，共 {generation.FormationFacts.Count:N0} 项");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorFormationFacts,
+            string.Join("；", generation.FormationFacts.Select(fact => fact.AutomationName)));
 
         var before = generation.MesBoundary.Before;
         DemandSeriesInspectorBeforeEvidenceText.Visibility = before.State
@@ -99,12 +107,34 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 ? Visibility.Collapsed
                 : Visibility.Visible;
         DemandSeriesInspectorBeforeEvidenceText.Text = FormatBoundaryState(before);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorBeforeEvidenceText,
+            FormatBoundaryState(before));
         var after = generation.MesBoundary.After;
         DemandSeriesInspectorAfterEvidenceText.Text = FormatBoundaryState(after);
-        DemandSeriesInspectorAfterObservationGrid.ItemsSource = before.ObservationGroups
-            .Concat(after.ObservationGroups)
-            .SelectMany(group => group.Rows)
+        AutomationProperties.SetName(
+            DemandSeriesInspectorAfterEvidenceText,
+            FormatBoundaryState(after));
+        DemandSeriesInspectorScalarBoundaryEvidenceText.Text = string.Join(
+            "；",
+            new[] { before, after }
+                .Where(side => side.State != WatchDemandMesBoundaryState.NotApplicable)
+                .Select(FormatBoundaryState));
+        AutomationProperties.SetName(
+            DemandSeriesInspectorScalarBoundaryEvidenceText,
+            DemandSeriesInspectorScalarBoundaryEvidenceText.Text);
+        var rawRows = ProjectBoundaryRows(before)
+            .Concat(ProjectBoundaryRows(after))
             .ToArray();
+        DemandSeriesInspectorAfterObservationGrid.ItemsSource = rawRows;
+        AutomationProperties.SetName(
+            DemandSeriesInspectorAfterObservationGrid,
+            $"MES 边界原始行；{FormatBoundaryState(before)}；"
+            + $"{FormatBoundaryState(after)}；共 {rawRows.Length:N0} 行");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorAfterObservationGrid,
+            "保留边界原始行的 Assignment、SeriesId、DemandId、七个 MES 原生字段、"
+            + "PollTrace 与 ProjectionCommit；不挑选 canonical row。");
         DemandSeriesInspectorMesScalarFields.ItemsSource =
             generation.MesBoundary.ScalarFields;
         DemandSeriesInspectorMesFieldCountText.Text =
@@ -128,13 +158,26 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     }
 
     private static string FormatBoundaryState(
-        WatchDemandMesBoundarySidePresentation side) => side.State switch
+        WatchDemandMesBoundarySidePresentation side)
+    {
+        var state = side.State switch
         {
             WatchDemandMesBoundaryState.Missing => $"{side.Label}：缺失",
             WatchDemandMesBoundaryState.Conflict => $"{side.Label}：多行冲突",
             WatchDemandMesBoundaryState.Unique => $"{side.Label}：唯一可信原始行",
             _ => $"{side.Label}：不适用",
         };
+        return string.IsNullOrWhiteSpace(side.PollTraceId)
+            || string.IsNullOrWhiteSpace(side.ProjectionCommitId)
+            ? state
+            : $"{state} · PollTrace {side.PollTraceId} · "
+                + $"ProjectionCommit {side.ProjectionCommitId}";
+    }
+
+    private static IEnumerable<WatchDemandMesBoundaryRawRowPresentation> ProjectBoundaryRows(
+        WatchDemandMesBoundarySidePresentation side) =>
+        side.RawRowsInOrdinalOrder.Select(row =>
+            new WatchDemandMesBoundaryRawRowPresentation(side.Label, row));
 
     private void OnGenerationSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -201,6 +244,15 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
     private void OnInspectorSizeChanged(object sender, SizeChangedEventArgs e) =>
         ApplyResponsiveLayout(e.NewSize.Width);
+
+    private void OnInspectorLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_presentation is not null)
+        {
+            DemandSeriesInspectorGenerationList.ScrollIntoView(
+                _presentation.FocusedGeneration);
+        }
+    }
 
     private void ApplyResponsiveLayout(double width)
     {

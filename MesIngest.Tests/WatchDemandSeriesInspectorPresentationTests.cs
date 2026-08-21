@@ -168,6 +168,77 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.Equal(4, archive.SeriesSequence);
     }
 
+    [Fact]
+    public void Project_Known_reappearance_marks_missing_expected_facts_unavailable_without_placeholder_evidence()
+    {
+        var first = Demand(
+            generation: 1,
+            demandId: "demand-1",
+            predecessorDemandId: null,
+            status: DemandSeriesLifecycleContract.Gone,
+            createdAt: At.AddHours(-16),
+            createdPollTraceId: "poll-create-1",
+            createdProjectionCommitId: "commit-create-1",
+            latestObservationAt: At.AddHours(-15),
+            latestObservationPollTraceId: "poll-seen-1",
+            latestObservationProjectionCommitId: "commit-seen-1",
+            goneConfirmedAt: At.AddHours(-14)) with
+        {
+            LatestObservationAt = null,
+            LatestObservationPollTraceId = null,
+            LatestObservationProjectionCommitId = null,
+        };
+        var second = Demand(
+            generation: 2,
+            demandId: "demand-2",
+            predecessorDemandId: first.DemandId,
+            status: DemandSeriesLifecycleContract.LongGoneButVisible,
+            createdAt: At,
+            createdPollTraceId: "poll-create-2",
+            createdProjectionCommitId: "commit-create-2",
+            latestObservationAt: At,
+            latestObservationPollTraceId: "poll-create-2",
+            latestObservationProjectionCommitId: "commit-create-2");
+        var detail = Detail(
+            [first, second],
+            [
+                Event(1, "TRANSPORT_DEMAND_CREATED", "DEMAND", first.DemandId, "poll-create-1", "commit-create-1", "{\"demandId\":\"demand-1\",\"generation\":1}", At.AddHours(-16)),
+                Event(2, "TRANSPORT_DEMAND_CREATED", "DEMAND", second.DemandId, "poll-create-2", "commit-create-2", "{\"demandId\":\"demand-2\",\"generation\":2,\"predecessorDemandId\":\"demand-1\",\"reason\":\"POSTARCHIVE_REAPPEARANCE\"}", At),
+            ],
+            observations: [],
+            lifecycle: DemandSeriesLifecycleContract.Archived,
+            currentPresence: DemandSeriesLifecycleContract.LongGoneButVisible,
+            archivedAt: At.AddHours(-1));
+
+        var facts = WatchDemandSeriesInspectorPresentation
+            .Project(detail, second.DemandId)
+            .FocusedGeneration
+            .FormationFacts;
+
+        Assert.Equal(
+            [
+                WatchDemandFormationFactKind.PredecessorIdentity,
+                WatchDemandFormationFactKind.PredecessorLastObservation,
+                WatchDemandFormationFactKind.AuthoritativeGone,
+                WatchDemandFormationFactKind.Archive,
+                WatchDemandFormationFactKind.FirstObservation,
+            ],
+            facts.Select(fact => fact.Kind).ToArray());
+        Assert.True(facts[0].IsAvailable);
+        Assert.All(facts.Skip(1).Take(3), fact =>
+        {
+            Assert.False(fact.IsAvailable);
+            Assert.Null(fact.OccurredAt);
+            Assert.Null(fact.PollTraceId);
+            Assert.Null(fact.ProjectionCommitId);
+            Assert.Null(fact.SeriesSequence);
+        });
+        Assert.True(facts[4].IsAvailable);
+        Assert.Equal("poll-create-2", facts[4].PollTraceId);
+        Assert.Equal("commit-create-2", facts[4].ProjectionCommitId);
+        Assert.Equal(2, facts[4].SeriesSequence);
+    }
+
     [Theory]
     [InlineData("{\"reason\":\"FUTURE_REASON\"}", "FUTURE_REASON")]
     [InlineData("{\"generation\":2}", "（原因码缺失）")]
@@ -283,7 +354,9 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.Equal(beforeDate, boundary.ScalarFields[5].BeforeMesSourceDate);
         Assert.Equal(afterDate, boundary.ScalarFields[5].AfterMesSourceDate);
         Assert.Contains("观察证据", boundary.Explanation, StringComparison.Ordinal);
-        Assert.Contains("不是 DemandId 形成原因", boundary.Explanation, StringComparison.Ordinal);
+        Assert.Equal(
+            "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。",
+            boundary.Explanation);
 
         var firstBoundary = WatchDemandSeriesInspectorPresentation
             .Project(detail, first.DemandId)
@@ -296,7 +369,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
     }
 
     [Fact]
-    public void Project_Missing_and_duplicate_boundaries_stop_scalar_projection_and_preserve_grouped_rows()
+    public void Project_Zero_and_multiple_assigned_boundaries_suppress_scalars_and_preserve_global_ordinal_evidence()
     {
         var first = Demand(
             generation: 1,
@@ -330,9 +403,9 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
             ],
             observations:
             [
-                Observation(2, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-B", "STEP-1", At, "PKG-B"),
-                Observation(1, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-A", "STEP-1", At, "PKG-A"),
-                Observation(3, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-UNASSIGNED", "STEP-1", At, "PKG-U", MesObservationAssignment.Unassigned),
+                Observation(3, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-B", "STEP-1", At, "PKG-B"),
+                Observation(1, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-UNASSIGNED", "STEP-1", At, "PKG-U", MesObservationAssignment.Unassigned),
+                Observation(2, "poll-conflict", "commit-conflict", second.DemandId, "WIRE_TO_GATE", "SL-E", "A1", "EQP-A", "STEP-1", At, "PKG-A"),
             ]);
 
         var boundary = WatchDemandSeriesInspectorPresentation
@@ -349,15 +422,23 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
             [MesObservationAssignment.Assigned, MesObservationAssignment.Unassigned],
             boundary.After.ObservationGroups.Select(group => group.Assignment).ToArray());
         Assert.Equal(
-            [1, 2],
+            [2, 3],
             boundary.After.ObservationGroups[0].Rows.Select(row => row.Ordinal).ToArray());
         Assert.Equal(
             ["EQP-A", "EQP-B"],
             boundary.After.ObservationGroups[0].Rows.Select(row => row.Eqp).ToArray());
         var unassigned = Assert.Single(boundary.After.ObservationGroups[1].Rows);
-        Assert.Equal(3, unassigned.Ordinal);
+        Assert.Equal(1, unassigned.Ordinal);
         Assert.Null(unassigned.SeriesId);
         Assert.Null(unassigned.DemandId);
+        Assert.Equal(
+            [1, 2, 3],
+            boundary.After.RawRowsInOrdinalOrder.Select(row => row.Ordinal).ToArray());
+        Assert.All(boundary.After.RawRowsInOrdinalOrder, row =>
+        {
+            Assert.Equal("poll-conflict", row.PollTraceId);
+            Assert.Equal("commit-conflict", row.ProjectionCommitId);
+        });
     }
 
     [Fact]

@@ -128,9 +128,11 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(presentation.FocusedGeneration, generations.SelectedItem);
             Assert.Equal("首次观察到", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText")).Text);
-            Assert.Equal("首次观察到", AutomationProperties.GetHelpText(
-                Assert.IsAssignableFrom<TextBlock>(
-                    window.FindName("DemandSeriesInspectorFormationReasonText"))));
+            Assert.Equal(
+                "形成原因：首次观察到；原始原因码：FIRST_OBSERVED",
+                AutomationProperties.GetHelpText(
+                    Assert.IsAssignableFrom<TextBlock>(
+                        window.FindName("DemandSeriesInspectorFormationReasonText"))));
             var identity = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorGenerationIdentityText"));
             Assert.DoesNotContain("前代", identity.Text, StringComparison.Ordinal);
@@ -293,6 +295,406 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 window.FindName("DemandSeriesInspectorSelectedEventsRadio")).IsChecked);
             Assert.Single(eventGrid.Items);
             Assert.Same(related, eventGrid.Items[0]);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Update_Reappearance_facts_expose_trace_commit_or_explicit_unavailable_state_to_automation() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-a");
+            var generation = seed.FocusedGeneration with
+            {
+                Generation = 2,
+                DemandId = "demand-b",
+                PredecessorDemandId = "demand-a",
+                FormationReason = new WatchDemandFormationReasonPresentation(
+                    "POSTARCHIVE_REAPPEARANCE",
+                    "归档后再次出现",
+                    IsKnown: true),
+                FormationFacts =
+                [
+                    new WatchDemandFormationFactPresentation(
+                        WatchDemandFormationFactKind.Archive,
+                        "Series 归档",
+                        "series-a",
+                        DateTimeOffset.Parse("2026-08-21T01:00:00+08:00"),
+                        "poll-archive",
+                        "commit-archive",
+                        9),
+                    new WatchDemandFormationFactPresentation(
+                        WatchDemandFormationFactKind.AuthoritativeGone,
+                        "权威缺失 / GONE",
+                        "冻结快照中未找到",
+                        OccurredAt: null,
+                        PollTraceId: null,
+                        ProjectionCommitId: null,
+                        SeriesSequence: null,
+                        IsAvailable: false),
+                ],
+            };
+            var presentation = seed with
+            {
+                Generations = [generation],
+                FocusedGeneration = generation,
+            };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+
+            var reason = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorFormationReasonText"));
+            Assert.Equal("归档后再次出现", reason.Text);
+            Assert.Contains("POSTARCHIVE_REAPPEARANCE", reason.ToolTip?.ToString(), StringComparison.Ordinal);
+            Assert.Contains(
+                "POSTARCHIVE_REAPPEARANCE",
+                AutomationProperties.GetHelpText(reason),
+                StringComparison.Ordinal);
+            var facts = Assert.IsType<ItemsControl>(
+                window.FindName("DemandSeriesInspectorFormationFacts"));
+            Assert.Contains(
+                "PollTrace poll-archive",
+                AutomationProperties.GetHelpText(facts),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "ProjectionCommit commit-archive",
+                AutomationProperties.GetHelpText(facts),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "冻结快照中未找到此项事实",
+                AutomationProperties.GetHelpText(facts),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "PollTrace  · ProjectionCommit ",
+                AutomationProperties.GetHelpText(facts),
+                StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Update_Unknown_reason_keeps_neutral_primary_text_and_secondary_raw_code() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-a");
+            var generation = seed.FocusedGeneration with
+            {
+                FormationReason = new WatchDemandFormationReasonPresentation(
+                    "FUTURE_REASON",
+                    "形成原因暂无法确认",
+                    IsKnown: false),
+            };
+            var presentation = seed with
+            {
+                Generations = [generation],
+                FocusedGeneration = generation,
+            };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+
+            var reason = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorFormationReasonText"));
+            Assert.Equal("形成原因暂无法确认", reason.Text);
+            Assert.Equal("内部原因码：FUTURE_REASON", reason.ToolTip);
+            Assert.Contains(
+                "原始原因码：FUTURE_REASON",
+                AutomationProperties.GetHelpText(reason),
+                StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Update_Unique_boundaries_show_sources_all_seven_fields_change_states_and_noncausal_explanation() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-a");
+            var afterRow = seed.FocusedGeneration.MesBoundary.After.RawRowsInOrdinalOrder[0] with
+            {
+                Ordinal = 2,
+                PollTraceId = "poll-after",
+                ProjectionCommitId = "commit-after",
+                DemandId = "demand-b",
+                Eqp = "EQP-NEW",
+                Package = "PKG-NEW",
+            };
+            var beforeRow = afterRow with
+            {
+                Ordinal = 1,
+                PollTraceId = "poll-before",
+                ProjectionCommitId = "commit-before",
+                DemandId = "demand-a",
+                Eqp = "EQP-OLD",
+                Package = "PKG-OLD",
+            };
+            var fields = new[]
+            {
+                new WatchDemandMesScalarFieldPresentation("TASK_TYPE", "WIRE_TO_GATE", "WIRE_TO_GATE", IsChanged: false),
+                new WatchDemandMesScalarFieldPresentation("SUBLOT", "SUB-1", "SUB-1", IsChanged: false),
+                new WatchDemandMesScalarFieldPresentation("AREA", "A1", "A1", IsChanged: false),
+                new WatchDemandMesScalarFieldPresentation("EQP", "EQP-OLD", "EQP-NEW", IsChanged: true),
+                new WatchDemandMesScalarFieldPresentation("STEP", "焊线", "焊线", IsChanged: false),
+                new WatchDemandMesScalarFieldPresentation("DATES / MesSourceDate", "2026-08-20", "2026-08-21", IsChanged: true),
+                new WatchDemandMesScalarFieldPresentation("PACKAGE", "PKG-OLD", "PKG-NEW", IsChanged: true),
+            };
+            var boundary = new WatchDemandMesBoundaryPresentation(
+                new WatchDemandMesBoundarySidePresentation(
+                    "前代最后匹配观测",
+                    "demand-a",
+                    "poll-before",
+                    "commit-before",
+                    WatchDemandMesBoundaryState.Unique,
+                    [new WatchDemandMesObservationGroupPresentation(
+                        "poll-before",
+                        "commit-before",
+                        MesObservationAssignment.Assigned,
+                        [beforeRow])]),
+                new WatchDemandMesBoundarySidePresentation(
+                    "新世代首次匹配观测",
+                    "demand-b",
+                    "poll-after",
+                    "commit-after",
+                    WatchDemandMesBoundaryState.Unique,
+                    [new WatchDemandMesObservationGroupPresentation(
+                        "poll-after",
+                        "commit-after",
+                        MesObservationAssignment.Assigned,
+                        [afterRow])]),
+                CanProjectScalarFields: true,
+                fields,
+                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。");
+            var generation = seed.FocusedGeneration with
+            {
+                Generation = 2,
+                DemandId = "demand-b",
+                PredecessorDemandId = "demand-a",
+                MesBoundary = boundary,
+            };
+            var presentation = seed with
+            {
+                Generations = [generation],
+                FocusedGeneration = generation,
+            };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+
+            var sources = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorScalarBoundaryEvidenceText"));
+            Assert.Contains("PollTrace poll-before", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("ProjectionCommit commit-before", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("PollTrace poll-after", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("ProjectionCommit commit-after", sources.Text, StringComparison.Ordinal);
+            Assert.Equal(
+                "DemandSeriesInspectorScalarBoundaryEvidence",
+                AutomationProperties.GetAutomationId(sources));
+            var scalarFields = Assert.IsType<ItemsControl>(
+                window.FindName("DemandSeriesInspectorMesScalarFields"));
+            Assert.Equal(7, scalarFields.Items.Count);
+            Assert.Contains(
+                scalarFields.Items.Cast<WatchDemandMesScalarFieldPresentation>(),
+                field => field.ChangeLabel == "已变化");
+            Assert.Contains(
+                scalarFields.Items.Cast<WatchDemandMesScalarFieldPresentation>(),
+                field => field.ChangeLabel == "保持不变");
+            Assert.Contains(
+                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。",
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorMesExplanationText")).Text,
+                StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Update_Zero_and_conflict_boundaries_name_absence_and_render_every_raw_row_in_global_ordinal_order() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-a");
+            var template = seed.FocusedGeneration.MesBoundary.After.RawRowsInOrdinalOrder[0];
+            var unassigned = template with
+            {
+                Ordinal = 1,
+                Assignment = MesObservationAssignment.Unassigned,
+                SeriesId = null,
+                DemandId = null,
+                PollTraceId = "poll-conflict",
+                ProjectionCommitId = "commit-conflict",
+                Eqp = "EQP-U",
+            };
+            var assignedA = template with
+            {
+                Ordinal = 2,
+                PollTraceId = "poll-conflict",
+                ProjectionCommitId = "commit-conflict",
+                DemandId = "demand-b",
+                Eqp = "EQP-A",
+            };
+            var assignedB = assignedA with
+            {
+                Ordinal = 3,
+                Eqp = "EQP-B",
+            };
+            var boundary = new WatchDemandMesBoundaryPresentation(
+                new WatchDemandMesBoundarySidePresentation(
+                    "前代最后匹配观测",
+                    "demand-a",
+                    "poll-absence",
+                    "commit-absence",
+                    WatchDemandMesBoundaryState.Missing,
+                    ObservationGroups: []),
+                new WatchDemandMesBoundarySidePresentation(
+                    "新世代首次匹配观测",
+                    "demand-b",
+                    "poll-conflict",
+                    "commit-conflict",
+                    WatchDemandMesBoundaryState.Conflict,
+                    [
+                        new WatchDemandMesObservationGroupPresentation(
+                            "poll-conflict",
+                            "commit-conflict",
+                            MesObservationAssignment.Assigned,
+                            [assignedA, assignedB]),
+                        new WatchDemandMesObservationGroupPresentation(
+                            "poll-conflict",
+                            "commit-conflict",
+                            MesObservationAssignment.Unassigned,
+                            [unassigned]),
+                    ]),
+                CanProjectScalarFields: false,
+                ScalarFields: [],
+                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。");
+            var generation = seed.FocusedGeneration with
+            {
+                Generation = 2,
+                DemandId = "demand-b",
+                PredecessorDemandId = "demand-a",
+                MesBoundary = boundary,
+            };
+            var presentation = seed with
+            {
+                Generations = [generation],
+                FocusedGeneration = generation,
+            };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+
+            Assert.Equal(
+                Visibility.Collapsed,
+                Assert.IsType<Grid>(
+                    window.FindName("DemandSeriesInspectorScalarEvidencePanel")).Visibility);
+            Assert.Equal(
+                Visibility.Visible,
+                Assert.IsType<Grid>(
+                    window.FindName("DemandSeriesInspectorRawEvidencePanel")).Visibility);
+            var before = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorBeforeEvidenceText"));
+            Assert.Contains("缺失", before.Text, StringComparison.Ordinal);
+            Assert.Contains("poll-absence", before.Text, StringComparison.Ordinal);
+            Assert.Contains("缺失", AutomationProperties.GetName(before), StringComparison.Ordinal);
+            var after = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorAfterEvidenceText"));
+            Assert.Contains("多行冲突", after.Text, StringComparison.Ordinal);
+            Assert.Equal(
+                "DemandSeriesInspectorAfterEvidence",
+                AutomationProperties.GetAutomationId(after));
+            Assert.Contains("多行冲突", AutomationProperties.GetName(after), StringComparison.Ordinal);
+            var rawGrid = Assert.IsType<DataGrid>(
+                window.FindName("DemandSeriesInspectorAfterObservationGrid"));
+            var rows = rawGrid.Items.Cast<WatchDemandMesBoundaryRawRowPresentation>().ToArray();
+            Assert.Equal([1, 2, 3], rows.Select(row => row.Ordinal).ToArray());
+            Assert.Equal(
+                [
+                    MesObservationAssignment.Unassigned,
+                    MesObservationAssignment.Assigned,
+                    MesObservationAssignment.Assigned,
+                ],
+                rows.Select(row => row.Assignment).ToArray());
+            Assert.All(rows, row => Assert.Equal("新世代首次匹配观测", row.BoundaryLabel));
+            Assert.Null(rows[0].SeriesId);
+            Assert.Null(rows[0].DemandId);
+            Assert.Equal(["EQP-U", "EQP-A", "EQP-B"], rows.Select(row => row.Eqp).ToArray());
+            Assert.Equal(
+                [
+                    "边界",
+                    "#",
+                    "Assignment",
+                    "SeriesId",
+                    "DemandId",
+                    "TASK_TYPE",
+                    "SUBLOT",
+                    "AREA",
+                    "EQP",
+                    "STEP",
+                    "DATES / MesSourceDate",
+                    "PACKAGE",
+                    "PollTrace",
+                    "ProjectionCommit",
+                ],
+                rawGrid.Columns.Select(column => column.Header?.ToString()).ToArray());
+            Assert.Contains(
+                "前代最后匹配观测：缺失",
+                AutomationProperties.GetName(rawGrid),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "新世代首次匹配观测：多行冲突",
+                AutomationProperties.GetName(rawGrid),
+                StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Update_Many_generations_virtualizes_focused_history_and_preserves_a_distinct_current_marker() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-1");
+            var generations = Enumerable.Range(1, 80)
+                .Select(index => seed.FocusedGeneration with
+                {
+                    Generation = index,
+                    DemandId = $"demand-{index}",
+                    PredecessorDemandId = index == 1 ? null : $"demand-{index - 1}",
+                    IsCurrent = index == 80,
+                })
+                .ToArray();
+            var focused = generations[59];
+            var presentation = seed with
+            {
+                Generations = generations,
+                FocusedGeneration = focused,
+            };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+            window.Show();
+            window.UpdateLayout();
+
+            var list = Assert.IsType<ListBox>(
+                window.FindName("DemandSeriesInspectorGenerationList"));
+            Assert.Equal(80, list.Items.Count);
+            Assert.Same(focused, list.SelectedItem);
+            Assert.False(focused.IsCurrent);
+            Assert.True(generations[^1].IsCurrent);
+            Assert.Equal("历史世代", focused.CurrentMarker);
+            Assert.Equal("当前世代", generations[^1].CurrentMarker);
+            Assert.Contains("第 60 代", focused.NavigationAutomationName, StringComparison.Ordinal);
+            Assert.Contains("历史世代", focused.NavigationAutomationName, StringComparison.Ordinal);
+            Assert.Contains("当前世代", generations[^1].NavigationAutomationName, StringComparison.Ordinal);
+            Assert.True(VirtualizingStackPanel.GetIsVirtualizing(list));
+            Assert.Equal(
+                VirtualizationMode.Recycling,
+                VirtualizingStackPanel.GetVirtualizationMode(list));
+            Assert.True(ScrollViewer.GetCanContentScroll(list));
+            var selectedContainer = Assert.IsType<ListBoxItem>(
+                list.ItemContainerGenerator.ContainerFromItem(focused));
+            Assert.Contains(
+                "第 60 代",
+                AutomationProperties.GetName(selectedContainer),
+                StringComparison.Ordinal);
 
             window.Close();
         });

@@ -46,6 +46,8 @@
                 <Setter Property="Padding" Value="0" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Background" Value="Transparent" />
+                <Setter Property="AutomationProperties.Name"
+                        Value="{Binding NavigationAutomationName}" />
             </Style>
         </ResourceDictionary>
     </ui:FluentWindow.Resources>
@@ -310,15 +312,18 @@
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorFormationFacts">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
-                                                <UniformGrid Rows="1" />
+                                                <WrapPanel />
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Margin="0,0,8,0"
+                                                <Border MinWidth="210"
+                                                        MaxWidth="300"
+                                                        Margin="0,0,8,8"
                                                         Padding="10,7"
                                                         CornerRadius="4"
-                                                        Background="{DynamicResource SubtleFillColorSecondaryBrush}">
+                                                        Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                                                        AutomationProperties.Name="{Binding AutomationName}">
                                                     <StackPanel>
                                                         <ui:TextBlock Text="{Binding Label}"
                                                                       Style="{StaticResource CaptionText}" />
@@ -328,11 +333,12 @@
                                                                       TextTrimming="CharacterEllipsis" />
                                                         <ui:TextBlock Margin="0,2,0,0"
                                                                       Style="{StaticResource CaptionText}"
-                                                                      TextTrimming="CharacterEllipsis">
-                                                            <Run Text="{Binding OccurredAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss}}" />
-                                                            <Run Text=" · #" />
-                                                            <Run Text="{Binding SeriesSequence}" />
-                                                        </ui:TextBlock>
+                                                                      Text="{Binding OccurrenceSummary}"
+                                                                      TextTrimming="CharacterEllipsis" />
+                                                        <ui:TextBlock Margin="0,2,0,0"
+                                                                      Style="{StaticResource CaptionText}"
+                                                                      Text="{Binding EvidenceSummary}"
+                                                                      TextTrimming="CharacterEllipsis" />
                                                     </StackPanel>
                                                 </Border>
                                             </DataTemplate>
@@ -376,9 +382,17 @@
                                     <Grid x:Name="DemandSeriesInspectorScalarEvidencePanel" Grid.Row="2">
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="*" />
                                         </Grid.RowDefinitions>
-                                        <Grid Background="{DynamicResource SubtleFillColorSecondaryBrush}">
+                                        <ui:TextBlock x:Name="DemandSeriesInspectorScalarBoundaryEvidenceText"
+                                                      Margin="0,0,0,8"
+                                                      Style="{StaticResource CaptionText}"
+                                                      TextWrapping="Wrap"
+                                                      AutomationProperties.Name="MES 标量对比边界来源"
+                                                      AutomationProperties.AutomationId="DemandSeriesInspectorScalarBoundaryEvidence" />
+                                        <Grid Grid.Row="1"
+                                              Background="{DynamicResource SubtleFillColorSecondaryBrush}">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="150" />
                                                 <ColumnDefinition Width="*" />
@@ -391,14 +405,15 @@
                                             <ui:TextBlock Grid.Column="3" Margin="10,7" Text="变化" FontSize="12" FontWeight="SemiBold" />
                                         </Grid>
                                         <ItemsControl x:Name="DemandSeriesInspectorMesScalarFields"
-                                                      Grid.Row="1"
+                                                      Grid.Row="2"
                                                       AutomationProperties.Name="MES 查询前后字段差异"
                                                       AutomationProperties.AutomationId="DemandSeriesInspectorMesScalarFields">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Border x:Name="MesDiffRow"
                                                             BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                                            BorderThickness="0,0,0,1">
+                                                            BorderThickness="0,0,0,1"
+                                                            AutomationProperties.Name="{Binding AutomationName}">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="150" />
@@ -428,7 +443,7 @@
                                                             <ui:TextBlock x:Name="MesDiffState"
                                                                           Grid.Column="3"
                                                                           Margin="10,6"
-                                                                          Text="保持不变"
+                                                                          Text="{Binding ChangeLabel}"
                                                                           Style="{StaticResource CaptionText}" />
                                                         </Grid>
                                                     </Border>
@@ -436,7 +451,6 @@
                                                         <DataTrigger Binding="{Binding IsChanged}" Value="True">
                                                             <Setter TargetName="MesDiffMarker" Property="Visibility" Value="Visible" />
                                                             <Setter TargetName="MesDiffRow" Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
-                                                            <Setter TargetName="MesDiffState" Property="Text" Value="已变化" />
                                                             <Setter TargetName="MesDiffState" Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
                                                             <Setter TargetName="MesDiffState" Property="FontWeight" Value="SemiBold" />
                                                         </DataTrigger>
@@ -462,14 +476,19 @@
                                                       Grid.Row="1"
                                                       Margin="0,6,0,8"
                                                       Style="{StaticResource BodyStrong}"
-                                                      AutomationProperties.Name="首次观察 MES 证据" />
+                                                      AutomationProperties.Name="首次观察 MES 证据"
+                                                      AutomationProperties.AutomationId="DemandSeriesInspectorAfterEvidence" />
                                         <DataGrid x:Name="DemandSeriesInspectorAfterObservationGrid"
                                                   Grid.Row="2"
                                                   Style="{StaticResource InspectorReadOnlyGrid}"
                                                   AutomationProperties.Name="MES 边界原始行"
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorAfterObservationGrid">
                                             <DataGrid.Columns>
+                                                <DataGridTextColumn Header="边界" Binding="{Binding BoundaryLabel}" Width="150" />
                                                 <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="45" />
+                                                <DataGridTextColumn Header="Assignment" Binding="{Binding Assignment}" Width="105" />
+                                                <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="150" />
+                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="150" />
                                                 <DataGridTextColumn Header="TASK_TYPE" Binding="{Binding WorkType}" Width="130" />
                                                 <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="120" />
                                                 <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="90" />
