@@ -79,6 +79,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="8" />
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
@@ -115,8 +116,16 @@
                               Text="尚无冻结快照" />
             </Grid>
 
-            <TabControl x:Name="DemandSeriesInspectorTabs"
+            <ui:InfoBar x:Name="DemandSeriesInspectorStatusInfoBar"
                         Grid.Row="2"
+                        IsOpen="False"
+                        IsClosable="False"
+                        Severity="Informational"
+                        Margin="0,0,0,8"
+                        AutomationProperties.Name="DemandSeries Inspector 读取状态" />
+
+            <TabControl x:Name="DemandSeriesInspectorTabs"
+                        Grid.Row="3"
                         Background="Transparent"
                         BorderThickness="0"
                         Padding="0"

@@ -3,6 +3,42 @@ using MesIngest.Core.SeriesProjection;
 
 namespace MesIngest.Watch;
 
+internal sealed record WatchDemandSeriesInspectorStatePresentation(
+    string SeriesId,
+    string WorkType,
+    string Sublot,
+    string Lifecycle,
+    string CurrentPresence,
+    WatchDemandSeriesFrozenSnapshotPresentation FrozenSnapshot,
+    WatchDemandSeriesInspectorPresentation? Detail,
+    bool IsLoading,
+    bool IsStale,
+    bool IsPaused,
+    WatchPresentationSeverity StatusSeverity,
+    string StatusTitle,
+    string StatusMessage)
+{
+    public static WatchDemandSeriesInspectorStatePresentation Loaded(
+        WatchDemandSeriesInspectorPresentation detail)
+    {
+        ArgumentNullException.ThrowIfNull(detail);
+        return new WatchDemandSeriesInspectorStatePresentation(
+            detail.SeriesId,
+            detail.WorkType,
+            detail.Sublot,
+            detail.Lifecycle,
+            detail.CurrentPresence,
+            detail.FrozenSnapshot,
+            detail,
+            IsLoading: false,
+            IsStale: false,
+            IsPaused: false,
+            WatchPresentationSeverity.None,
+            StatusTitle: string.Empty,
+            StatusMessage: string.Empty);
+    }
+}
+
 internal enum WatchDemandFormationFactKind
 {
     PredecessorIdentity,

@@ -69,6 +69,7 @@ internal sealed record WatchV2ViewState<TSnapshot, TDetail>(
     string? Endpoint,
     string? CorrelationId,
     string? SelectedId,
+    string? DetailFocusId,
     TDetail? Detail,
     string? SelectionNotice,
     bool IsDetailLoading,
@@ -100,6 +101,7 @@ internal sealed record WatchV2ViewState<TSnapshot, TDetail>(
         Endpoint: null,
         CorrelationId: null,
         SelectedId: null,
+        DetailFocusId: null,
         Detail: default,
         SelectionNotice: null,
         IsDetailLoading: false,
@@ -341,12 +343,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             "/api/v2/demand-series",
             static (snapshot, selectedId) => snapshot.Items.Any(item =>
                 string.Equals(item.SeriesId, selectedId, StringComparison.Ordinal)),
-            static (client, selectedId, snapshot, token) =>
-                client.FetchDemandSeriesDetailAsync(
-                    selectedId,
-                    snapshot.SnapshotReference,
-                    token),
-            cancellationToken).ConfigureAwait(false);
+            retainDetailWithoutFetch: true,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -397,12 +395,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             "/api/v2/demand-series",
             static (snapshot, selectedId) => snapshot.Items.Any(item =>
                 string.Equals(item.SeriesId, selectedId, StringComparison.Ordinal)),
-            static (client, selectedId, snapshot, token) =>
-                client.FetchDemandSeriesDetailAsync(
-                    selectedId,
-                    snapshot.SnapshotReference,
-                    token),
-            cancellationToken).ConfigureAwait(false);
+            retainDetailWithoutFetch: true,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     public async Task RefreshReadabilityAuditAsync(
@@ -530,10 +524,62 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    public Task SelectDemandSeriesAsync(
+    public void SetDemandSeriesSelection(string? seriesId) =>
+        SetDetailSelection(
+            RequestSlot.DemandSeries,
+            seriesId,
+            state => state.DemandSeries,
+            (state, view) => state with { DemandSeries = view },
+            static (snapshot, selectedId) => snapshot.Items.Any(item =>
+                string.Equals(item.SeriesId, selectedId, StringComparison.Ordinal)));
+
+    public void SetDemandSeriesFocus(string? demandId)
+    {
+        CancellationTokenSource? cancellation;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var current = _state.DemandSeries;
+            var normalized = string.IsNullOrWhiteSpace(demandId) ? null : demandId;
+            if (string.Equals(current.DetailFocusId, normalized, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _detailCancellations.Remove(RequestSlot.DemandSeries, out cancellation);
+            _state = _state with
+            {
+                DemandSeries = current with
+                {
+                    SelectionGeneration = current.SelectionGeneration + 1,
+                    DetailFocusId = normalized,
+                    IsDetailLoading = false,
+                },
+            };
+        }
+
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+    }
+
+    public Task LoadSelectedDemandSeriesDetailAsync(
+        CancellationToken cancellationToken = default)
+    {
+        string? seriesId;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            seriesId = _state.DemandSeries.SelectedId;
+        }
+
+        return LoadDemandSeriesDetailCoreAsync(seriesId, cancellationToken);
+    }
+
+    private async Task LoadDemandSeriesDetailCoreAsync(
         string? seriesId,
-        CancellationToken cancellationToken = default) =>
-        SelectDetailAsync(
+        CancellationToken cancellationToken)
+    {
+        await SelectDetailAsync(
             RequestSlot.DemandSeries,
             seriesId,
             state => state.DemandSeries,
@@ -545,7 +591,113 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                 client.FetchDemandSeriesDetailAsync(selectedId, snapshotReference, token),
             static detail => detail.Snapshot.ContractVersion,
             "/api/v2/demand-series/{seriesId}",
-            cancellationToken);
+            cancellationToken,
+            retainDetailWhileLoading: true).ConfigureAwait(false);
+
+        lock (_gate)
+        {
+            if (_disposed
+                || _state.DemandSeries is not { Detail: { } detail } current
+                || !string.Equals(current.SelectedId, seriesId, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(current.DetailFocusId)
+                || detail.Series.Demands.Any(demand => string.Equals(
+                    demand.DemandId,
+                    current.DetailFocusId,
+                    StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            _state = _state with
+            {
+                DemandSeries = current with
+                {
+                    DetailFocusId = detail.Series.CurrentDemand.DemandId,
+                },
+            };
+        }
+    }
+
+    public void CancelDemandSeriesDetail()
+    {
+        CancellationTokenSource? cancellation;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _detailCancellations.Remove(RequestSlot.DemandSeries, out cancellation);
+            var current = _state.DemandSeries;
+            _state = _state with
+            {
+                DemandSeries = current with
+                {
+                    SelectionGeneration = current.SelectionGeneration + 1,
+                    Detail = null,
+                    DetailFocusId = null,
+                    IsDetailLoading = false,
+                    DetailLastFailureAt = null,
+                    DetailFailureKind = WatchHostFailureKind.None,
+                    DetailFailureCode = null,
+                    DetailErrorMessage = null,
+                    DetailEndpoint = null,
+                    DetailCorrelationId = null,
+                },
+            };
+        }
+
+        cancellation?.Cancel();
+        cancellation?.Dispose();
+    }
+
+    private void SetDetailSelection<TSnapshot, TDetail>(
+        RequestSlot slot,
+        string? selectedId,
+        Func<WatchV2WorkspaceState, WatchV2ViewState<TSnapshot, TDetail>> getView,
+        Func<WatchV2WorkspaceState, WatchV2ViewState<TSnapshot, TDetail>, WatchV2WorkspaceState> setView,
+        Func<TSnapshot, string, bool> containsSelected)
+    {
+        CancellationTokenSource? previousDetailCancellation;
+        lock (_gate)
+        {
+            EnsureConnected();
+            var current = getView(_state);
+            var normalizedSelectedId = string.IsNullOrWhiteSpace(selectedId)
+                || current.Snapshot is null
+                || !containsSelected(current.Snapshot, selectedId)
+                    ? null
+                    : selectedId;
+            if (string.Equals(
+                    current.SelectedId,
+                    normalizedSelectedId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _detailCancellations.Remove(slot, out previousDetailCancellation);
+            _state = setView(
+                _state,
+                current with
+                {
+                    SelectionGeneration = current.SelectionGeneration + 1,
+                    SelectedId = normalizedSelectedId,
+                    DetailFocusId = null,
+                    Detail = default,
+                    SelectionNotice = normalizedSelectedId is null && selectedId is not null
+                        ? WatchV2SelectionNotices.NoLongerMatchesRefreshedSnapshot
+                        : null,
+                    IsDetailLoading = false,
+                    DetailLastFailureAt = null,
+                    DetailFailureKind = WatchHostFailureKind.None,
+                    DetailFailureCode = null,
+                    DetailErrorMessage = null,
+                    DetailEndpoint = null,
+                    DetailCorrelationId = null,
+                });
+        }
+
+        previousDetailCancellation?.Cancel();
+        previousDetailCancellation?.Dispose();
+    }
 
     public Task SelectReadabilityDemandAsync(
         string? demandId,
@@ -808,7 +960,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         Func<TSnapshot, string, bool>? containsSelected = null,
         Func<IWatchV2ApiClient, string, TSnapshot, CancellationToken, Task<TDetail>>? fetchDetail = null,
         CancellationToken cancellationToken = default,
-        Action<TSnapshot, string, TDetail>? validateDetail = null)
+        Action<TSnapshot, string, TDetail>? validateDetail = null,
+        bool retainDetailWithoutFetch = false)
     {
         var lease = BeginRequest(slot, queryKey, getView, setView);
         lease.PreviousCancellation?.Cancel();
@@ -908,7 +1061,11 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                         Endpoint = null,
                         CorrelationId = null,
                         SelectedId = selectedId,
-                        Detail = detail,
+                        Detail = selectedId is not null
+                            && fetchDetail is null
+                            && retainDetailWithoutFetch
+                                ? current.Detail
+                                : detail,
                         SelectionNotice = selectionNotice,
                         IsDetailLoading = false,
                         DetailLastFailureAt = null,
@@ -975,7 +1132,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         string endpoint,
         CancellationToken cancellationToken,
         bool isolateDetailFailure = false,
-        Action<TSnapshot, string, TDetail>? validateDetail = null)
+        Action<TSnapshot, string, TDetail>? validateDetail = null,
+        bool retainDetailWhileLoading = false)
     {
         if (string.IsNullOrWhiteSpace(selectedId))
         {
@@ -1021,7 +1179,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             endpoint,
             cancellationToken,
             isolateDetailFailure,
-            validateDetail);
+            validateDetail,
+            retainDetailWhileLoading);
     }
 
     private async Task SelectDetailCoreAsync<TSnapshot, TDetail>(
@@ -1036,7 +1195,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         string endpoint,
         CancellationToken cancellationToken,
         bool isolateDetailFailure,
-        Action<TSnapshot, string, TDetail>? validateDetail)
+        Action<TSnapshot, string, TDetail>? validateDetail,
+        bool retainDetailWhileLoading)
     {
         long selectionGeneration;
         CancellationTokenSource? previousDetailCancellation;
@@ -1076,14 +1236,15 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     detailCancellation,
                     _hostGeneration,
                     current.RequestGeneration,
-                    getSnapshotReference(current.Snapshot));
+                    getSnapshotReference(current.Snapshot),
+                    current.DetailFocusId);
                 _state = setView(
                     _state,
                     current with
                     {
                         SelectionGeneration = selectionGeneration,
                         SelectedId = selectedId,
-                        Detail = default,
+                        Detail = retainDetailWhileLoading ? current.Detail : default,
                         SelectionNotice = null,
                         IsDetailLoading = true,
                         DetailLastFailureAt = null,
@@ -1125,6 +1286,10 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                     || detailLease.RequestGeneration != current.RequestGeneration
                     || selectionGeneration != current.SelectionGeneration
                     || !string.Equals(current.SelectedId, selectedId, StringComparison.Ordinal)
+                    || !string.Equals(
+                        current.DetailFocusId,
+                        detailLease.FocusId,
+                        StringComparison.Ordinal)
                     || current.Snapshot is null
                     || !string.Equals(
                         getSnapshotReference(current.Snapshot),
@@ -1220,6 +1385,10 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
                 || detailLease.RequestGeneration != current.RequestGeneration
                 || selectionGeneration != current.SelectionGeneration
                 || !string.Equals(current.SelectedId, selectedId, StringComparison.Ordinal)
+                || !string.Equals(
+                    current.DetailFocusId,
+                    detailLease.FocusId,
+                    StringComparison.Ordinal)
                 || current.Snapshot is null
                 || !string.Equals(
                     getSnapshotReference(current.Snapshot),
@@ -1500,7 +1669,8 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         CancellationTokenSource Cancellation,
         long HostGeneration,
         long RequestGeneration,
-        string SnapshotReference);
+        string SnapshotReference,
+        string? FocusId);
 
     internal sealed record DemandSeriesLatestPageRequest(
         DemandSeriesBrowseFilter Filter,

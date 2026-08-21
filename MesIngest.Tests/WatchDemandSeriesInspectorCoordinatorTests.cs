@@ -552,6 +552,25 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal([1L, 3L], EventSequences(eventGrid));
             Assert.Same(relatedFirst, eventGrid.Items[0]);
             Assert.Same(relatedLast, eventGrid.Items[1]);
+            eventGrid.SelectedItem = relatedLast;
+            eventGrid.Columns[0].Width = new DataGridLength(143);
+
+            var refreshedRelatedFirst = relatedFirst with { PayloadJson = "{\"refresh\":1}" };
+            var refreshedRelatedLast = relatedLast with { PayloadJson = "{\"refresh\":2}" };
+            window.Update(presentation with
+            {
+                FrozenSnapshot = presentation.FrozenSnapshot with
+                {
+                    SnapshotReference = "snapshot-2",
+                },
+                Events = [refreshedRelatedFirst, unrelated, refreshedRelatedLast],
+            });
+
+            Assert.Equal(1, Assert.IsType<TabControl>(
+                window.FindName("DemandSeriesInspectorTabs")).SelectedIndex);
+            Assert.True(currentDemandEvents.IsChecked);
+            Assert.Equal(refreshedRelatedLast, eventGrid.SelectedItem);
+            Assert.Equal(143, eventGrid.Columns[0].Width.Value);
             Assert.Equal(0, outwardRequestCount);
 
             window.Close();

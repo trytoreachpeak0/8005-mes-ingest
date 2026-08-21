@@ -17,7 +17,9 @@ internal interface IWatchDemandSeriesInspectorWindow
 
     bool IsVisible { get; }
 
-    void Update(WatchDemandSeriesInspectorPresentation presentation);
+    void Update(WatchDemandSeriesInspectorStatePresentation presentation);
+
+    void Clear();
 
     void Show();
 
@@ -47,7 +49,7 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
     internal event EventHandler<WatchDemandSeriesGenerationFocusRequestedEventArgs>?
         GenerationFocusRequested;
 
-    internal void OpenOrShow(WatchDemandSeriesInspectorPresentation presentation)
+    internal void OpenOrShow(WatchDemandSeriesInspectorStatePresentation presentation)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(presentation);
@@ -62,12 +64,20 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
         window.Activate();
     }
 
-    internal void Update(WatchDemandSeriesInspectorPresentation presentation)
+    internal void OpenOrShow(WatchDemandSeriesInspectorPresentation presentation) =>
+        OpenOrShow(WatchDemandSeriesInspectorStatePresentation.Loaded(presentation));
+
+    internal void Update(WatchDemandSeriesInspectorStatePresentation presentation)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(presentation);
         _window?.Update(presentation);
     }
+
+    internal void Update(WatchDemandSeriesInspectorPresentation presentation) =>
+        Update(WatchDemandSeriesInspectorStatePresentation.Loaded(presentation));
+
+    internal void Clear() => _window?.Clear();
 
     internal bool ShowExisting()
     {
@@ -85,6 +95,8 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
         window.Activate();
         return true;
     }
+
+    internal void CloseCurrent() => _window?.Close();
 
     public void Dispose()
     {

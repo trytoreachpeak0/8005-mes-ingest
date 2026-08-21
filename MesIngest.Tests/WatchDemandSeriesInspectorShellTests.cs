@@ -13,6 +13,37 @@ namespace MesIngest.Tests;
 public sealed class WatchDemandSeriesInspectorShellTests
 {
     [Fact]
+    public void Closed_inspector_navigation_and_selection_do_not_fetch_invisible_detail()
+        => StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-closed-no-fetch-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+
+            var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
+            Assert.Equal("series-a", window.WorkspaceState.DemandSeries.SelectedId);
+            Assert.Equal(0, client.DetailFetchCount);
+
+            grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
+                .Single(row => row.SeriesId == "series-b");
+
+            Assert.Equal("series-b", window.WorkspaceState.DemandSeries.SelectedId);
+            Assert.Equal(0, client.DetailFetchCount);
+            Assert.False(inspector.IsOpen);
+
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
     public void First_row_is_selected_and_explicit_enter_and_double_click_reuse_the_inspector() =>
         StaTestRunner.Run(() =>
         {
@@ -154,6 +185,40 @@ public sealed class WatchDemandSeriesInspectorShellTests
         });
 
     [Fact]
+    public void Refresh_that_loses_open_target_clears_inspector_body_without_choosing_another_series() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-open-selection-loss-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesOpenInspectorButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.Equal("series-a", inspectorWindow.Presentation?.SeriesId);
+
+            client.RemoveFirstSeries = true;
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesApplyFiltersButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.True(inspector.IsOpen);
+            Assert.Null(window.WorkspaceState.DemandSeries.SelectedId);
+            Assert.Null(inspectorWindow.State);
+            Assert.Null(inspectorWindow.Presentation);
+
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
     public void Double_click_during_a_new_selection_load_opens_the_still_current_series_after_commit() =>
         StaTestRunner.Run(() =>
         {
@@ -178,16 +243,21 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 window.Show();
                 window.UpdateLayout();
 
-                var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
-                grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
-                    .Single(row => row.SeriesId == "series-b");
-                Assert.True(window.WorkspaceState.DemandSeries.IsDetailLoading);
+            var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
+            grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
+                .Single(row => row.SeriesId == "series-b");
+            Assert.False(window.WorkspaceState.DemandSeries.IsDetailLoading);
+            Assert.Equal(0, client.DetailFetchCount);
 
-                RaiseDoubleClick(grid);
+            RaiseDoubleClick(grid);
 
-                Assert.False(inspector.IsOpen);
-                client.ReleaseSeriesBDetail();
-                PumpDispatcherUntil(() => inspector.IsOpen);
+            Assert.True(inspector.IsOpen);
+            Assert.Equal("series-b", inspectorWindow.State?.SeriesId);
+            Assert.Null(inspectorWindow.Presentation);
+            Assert.True(window.WorkspaceState.DemandSeries.IsDetailLoading);
+            Assert.Equal(1, client.DetailFetchCount);
+            client.ReleaseSeriesBDetail();
+            PumpDispatcherUntil(() => inspectorWindow.Presentation is not null);
 
                 Assert.Equal("series-b", inspectorWindow.Presentation?.SeriesId);
                 Assert.Equal(1, inspectorWindow.ShowCount);
@@ -200,6 +270,223 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 SynchronizationContext.SetSynchronizationContext(previousContext);
                 TryDelete(root);
             }
+        });
+
+    [Fact]
+    public void Closing_inspector_cancels_pending_detail_and_rejects_its_late_body() =>
+        StaTestRunner.Run(() =>
+        {
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            var previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new DispatcherSynchronizationContext(dispatcher));
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-close-cancel-{Guid.NewGuid():N}");
+            try
+            {
+                var client = new DemandSeriesClient(itemCount: 2)
+                {
+                    DelaySeriesBDetail = true,
+                };
+                var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+                using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+                using var window = CreateWindow(root, client, inspector);
+                window.InitializeAsync().GetAwaiter().GetResult();
+                window.NavigateFromOverview(
+                    new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+                window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+                window.Show();
+                window.UpdateLayout();
+
+                var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
+                grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
+                    .Single(row => row.SeriesId == "series-b");
+                RaiseDoubleClick(grid);
+                Assert.True(window.WorkspaceState.DemandSeries.IsDetailLoading);
+
+                inspectorWindow.SimulateClose();
+                PumpDispatcherUntil(() => client.DetailCancellationCount == 1);
+                client.ReleaseSeriesBDetail();
+                PumpDispatcherUntil(() => !window.WorkspaceState.DemandSeries.IsDetailLoading);
+
+                Assert.False(inspector.IsOpen);
+                Assert.Null(window.WorkspaceState.DemandSeries.Detail);
+                window.Close();
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                TryDelete(root);
+            }
+        });
+
+    [Fact]
+    public void Same_series_refresh_failure_keeps_the_last_body_and_marks_it_stale() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-stale-retain-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            window.Show();
+            window.UpdateLayout();
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesOpenInspectorButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            var retained = Assert.IsType<WatchDemandSeriesInspectorPresentation>(
+                inspectorWindow.Presentation);
+
+            client.FailNextDetail = true;
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesApplyFiltersButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Equal(retained.SeriesId, inspectorWindow.Presentation?.SeriesId);
+            Assert.Equal(
+                retained.FocusedGeneration.DemandId,
+                inspectorWindow.Presentation?.FocusedGeneration.DemandId);
+            Assert.True(inspectorWindow.State?.IsStale);
+            Assert.Equal("详情刷新失败，已保留上次证据", inspectorWindow.State?.StatusTitle);
+            Assert.Equal(retained.FrozenSnapshot, inspectorWindow.State?.FrozenSnapshot);
+
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
+    public void Exact_overview_drill_locates_series_opens_inspector_and_carries_source_fence() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-exact-overview-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+
+            window.NavigateFromOverview(new OverviewNavigationIntent(
+                OverviewNavigationTargets.DemandSeriesDetail,
+                SeriesId: "series-b"));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+
+            Assert.Equal("series-b", window.WorkspaceState.DemandSeries.SelectedId);
+            Assert.True(inspector.IsOpen);
+            Assert.Equal("series-b", inspectorWindow.Presentation?.SeriesId);
+            Assert.Contains("概览", inspectorWindow.State?.StatusMessage, StringComparison.Ordinal);
+            Assert.Contains("overview-commit", inspectorWindow.State?.StatusMessage, StringComparison.Ordinal);
+
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
+    public async Task Focus_change_invalidates_pending_detail_before_it_can_commit()
+    {
+        var client = new DemandSeriesClient(itemCount: 2)
+        {
+            DelaySeriesBDetail = true,
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(new WatchHostSettings("http://host-a", "secret", 30));
+        await session.RefreshLatestDemandSeriesPageAsync(
+            new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter()));
+        session.SetDemandSeriesSelection("series-b");
+        session.SetDemandSeriesFocus("demand-b");
+
+        var pending = session.LoadSelectedDemandSeriesDetailAsync();
+        Assert.True(session.State.DemandSeries.IsDetailLoading);
+
+        session.SetDemandSeriesFocus("demand-other");
+        await pending;
+
+        Assert.Equal(1, client.DetailCancellationCount);
+        Assert.Equal("demand-other", session.State.DemandSeries.DetailFocusId);
+        Assert.False(session.State.DemandSeries.IsDetailLoading);
+        Assert.Null(session.State.DemandSeries.Detail);
+    }
+
+    [Fact]
+    public void Switching_series_to_a_failed_target_never_keeps_the_previous_body() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-switch-failure-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            window.Show();
+            window.UpdateLayout();
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesOpenInspectorButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            Assert.Equal("series-a", inspectorWindow.Presentation?.SeriesId);
+
+            client.FailNextDetail = true;
+            var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
+            grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
+                .Single(row => row.SeriesId == "series-b");
+
+            Assert.Equal("series-b", inspectorWindow.State?.SeriesId);
+            Assert.Null(inspectorWindow.Presentation);
+            Assert.Equal("详情读取失败", inspectorWindow.State?.StatusTitle);
+
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
+    public void Leaving_demand_series_pauses_page_refresh_and_keeps_inspector_snapshot() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-page-pause-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 2);
+            var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+            using var window = CreateWindow(root, client, inspector);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            window.Show();
+            window.UpdateLayout();
+            Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesOpenInspectorButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            var retainedSnapshot = inspectorWindow.State?.FrozenSnapshot;
+            var fetchCount = client.DetailFetchCount;
+
+            Assert.IsAssignableFrom<ButtonBase>(window.FindName("OverviewNavigationItem"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Equal(WatchWorkspacePage.Overview, window.ActivePage);
+            Assert.True(inspectorWindow.State?.IsPaused);
+            Assert.Equal(retainedSnapshot, inspectorWindow.State?.FrozenSnapshot);
+            Assert.Equal(fetchCount, client.DetailFetchCount);
+            Assert.Contains(
+                "返回 DemandSeries 页面后恢复刷新",
+                inspectorWindow.State?.StatusMessage,
+                StringComparison.Ordinal);
+
+            window.Close();
+            TryDelete(root);
         });
 
     private static WatchWorkspaceWindow CreateWindow(
@@ -270,6 +557,14 @@ public sealed class WatchDemandSeriesInspectorShellTests
 
         public bool DelaySeriesBDetail { get; init; }
 
+        public int DetailFetchCount { get; private set; }
+
+        public int DetailCancellationCount { get; private set; }
+
+        public bool FailNextDetail { get; set; }
+
+        private int ListFetchCount { get; set; }
+
         private TaskCompletionSource<DemandSeriesDetailSnapshot>? DelayedSeriesBDetail { get; set; }
 
         private DemandSeriesDetailSnapshot? SeriesBDetail { get; set; }
@@ -297,6 +592,7 @@ public sealed class WatchDemandSeriesInspectorShellTests
             DemandSeriesBrowseQuery query,
             CancellationToken cancellationToken = default)
         {
+            ListFetchCount++;
             var items = new[] { "series-a", "series-b" }
                 .Take(itemCount)
                 .Where(seriesId => !RemoveFirstSeries || seriesId != "series-a")
@@ -304,7 +600,7 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 .ToArray();
             return Task.FromResult(new DemandSeriesListSnapshot(
                 new DemandSeriesSnapshotIdentity("commit-list", 2, At, "poll-list"),
-                "snapshot-list",
+                $"snapshot-list-{ListFetchCount}",
                 query.Filter,
                 DemandSeriesBrowseOrder.Default,
                 items.Length,
@@ -322,6 +618,18 @@ public sealed class WatchDemandSeriesInspectorShellTests
             string snapshotReference,
             CancellationToken cancellationToken = default)
         {
+            DetailFetchCount++;
+            if (FailNextDetail)
+            {
+                FailNextDetail = false;
+                return Task.FromException<DemandSeriesDetailSnapshot>(
+                    new WatchHostQueryException(
+                        WatchHostFailureKind.ServerQuery,
+                        "/api/v2/demand-series/{seriesId}",
+                        "detail-failed",
+                        "DemandSeries detail refresh failed."));
+            }
+
             var demandId = $"demand-{seriesId[^1]}";
             var demand = new TransportDemandSnapshot(
                 demandId,
@@ -395,7 +703,11 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 SeriesBDetail = detail;
                 DelayedSeriesBDetail = new TaskCompletionSource<DemandSeriesDetailSnapshot>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                cancellationToken.Register(() => DelayedSeriesBDetail.TrySetCanceled(cancellationToken));
+                cancellationToken.Register(() =>
+                {
+                    DetailCancellationCount++;
+                    DelayedSeriesBDetail.TrySetCanceled(cancellationToken);
+                });
                 return DelayedSeriesBDetail.Task;
             }
 

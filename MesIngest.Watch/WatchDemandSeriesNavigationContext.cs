@@ -32,7 +32,8 @@ internal sealed record WatchDemandSeriesNavigationContext(
     DateTimeOffset SourceProjectionCommittedAt,
     DateTimeOffset SourceSnapshotAsOf,
     IReadOnlyList<string> RequestedMesAreas,
-    WatchDemandSeriesObjectFacts? SourceFacts = null)
+    WatchDemandSeriesObjectFacts? SourceFacts = null,
+    bool OpenInspector = true)
 {
     public static WatchDemandSeriesNavigationContext? FromOverview(
         WatchOverviewSnapshot? source,
@@ -69,7 +70,11 @@ internal sealed record WatchDemandSeriesNavigationContext(
             source.Snapshot.ProjectionCommittedAt,
             source.Snapshot.SnapshotAsOf,
             (intent.MesAreas ?? source.MesAreas).ToArray(),
-            sourceFacts);
+            sourceFacts,
+            OpenInspector: string.Equals(
+                intent.Target,
+                OverviewNavigationTargets.DemandSeriesDetail,
+                StringComparison.Ordinal));
     }
 
     public static WatchDemandSeriesNavigationContext FromReadabilityAudit(
@@ -144,5 +149,38 @@ internal sealed record WatchDemandSeriesNavigationContext(
             source.Snapshot.ErrorSearchAsOf,
             RequestedMesAreas: [],
             sourceFacts);
+    }
+
+    public static WatchDemandSeriesNavigationContext? FromCurrentAttention(
+        CurrentIngestAttentionSnapshot? source,
+        WatchCurrentIngestAttentionRowPresentation? selected)
+    {
+        if (source is null || selected?.SeriesId is not { Length: > 0 } seriesId)
+        {
+            return null;
+        }
+
+        var sourceFacts = new WatchDemandSeriesObjectFacts(
+            seriesId,
+            selected.Evidence.DemandId,
+            selected.WorkType ?? selected.Evidence.WorkType,
+            Sublot: null,
+            Generation: null,
+            DemandStatus: null,
+            Lifecycle: null,
+            CurrentPresence: null,
+            ExternalReadabilityState: null,
+            ReadabilityBlockers: null);
+        return new WatchDemandSeriesNavigationContext(
+            "当前关注",
+            seriesId,
+            selected.Evidence.DemandId,
+            source.Snapshot.ProjectionCommitId,
+            source.Snapshot.ProjectionSequence,
+            source.Snapshot.ProjectionCommittedAt,
+            source.Snapshot.SnapshotAsOf,
+            RequestedMesAreas: [],
+            sourceFacts,
+            OpenInspector: true);
     }
 }

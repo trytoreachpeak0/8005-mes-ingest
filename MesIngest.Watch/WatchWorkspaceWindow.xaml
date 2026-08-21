@@ -3458,16 +3458,25 @@
                                                           Text="当前页面只呈现仍需关注的四类 Host 事实；不会创建 incident，也没有人工确认或恢复状态。"
                                                           Style="{StaticResource SecondaryText}"
                                                           TextWrapping="Wrap" />
-                                            <ui:Button x:Name="CurrentAttentionOpenErrorSearchButton"
-                                                       Grid.Row="3"
-                                                       Content="在错误检索中打开"
-                                                       Appearance="Secondary"
-                                                       HorizontalAlignment="Left"
-                                                       Focusable="True"
-                                                       KeyboardNavigation.IsTabStop="True"
-                                                       Click="OnCurrentAttentionOpenErrorSearchClick"
-                                                       AutomationProperties.Name="从当前 Series 错误下钻错误检索"
-                                                       AutomationProperties.AutomationId="CurrentAttentionOpenErrorSearchButton" />
+                                            <StackPanel Grid.Row="3" Orientation="Horizontal">
+                                                <ui:Button x:Name="CurrentAttentionOpenDemandSeriesButton"
+                                                           Content="打开 Series 详情"
+                                                           Appearance="Secondary"
+                                                           Focusable="True"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnCurrentAttentionOpenDemandSeriesClick"
+                                                           AutomationProperties.Name="从当前关注项精确打开 DemandSeries Inspector"
+                                                           AutomationProperties.AutomationId="CurrentAttentionOpenDemandSeriesButton" />
+                                                <ui:Button x:Name="CurrentAttentionOpenErrorSearchButton"
+                                                           Margin="8,0,0,0"
+                                                           Content="在错误检索中打开"
+                                                           Appearance="Secondary"
+                                                           Focusable="True"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           Click="OnCurrentAttentionOpenErrorSearchClick"
+                                                           AutomationProperties.Name="从当前 Series 错误下钻错误检索"
+                                                           AutomationProperties.AutomationId="CurrentAttentionOpenErrorSearchButton" />
+                                            </StackPanel>
                                         </Grid>
                                         <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
                                         <Grid Grid.Row="2" Margin="18,12,18,16">

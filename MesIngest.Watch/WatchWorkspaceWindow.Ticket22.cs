@@ -1156,6 +1156,10 @@ internal partial class WatchWorkspaceWindow
             ? []
             : ProjectEvidenceFacts(selected.Evidence);
         CurrentAttentionOpenErrorSearchButton.IsEnabled = selected?.ErrorSearchDrill is not null;
+        CurrentAttentionOpenDemandSeriesButton.IsEnabled =
+            WatchDemandSeriesNavigationContext.FromCurrentAttention(
+                _session.State.CurrentAttention.Snapshot,
+                selected) is not null;
     }
 
     private static IReadOnlyList<WatchEvidenceFactPresentation> ProjectEvidenceFacts(
@@ -1599,6 +1603,21 @@ internal partial class WatchWorkspaceWindow
         SyncErrorSearchFilterControls(query);
         NavigateTo(WatchWorkspacePage.ErrorSearch);
         ErrorSearchNavigationTask = LoadErrorSearchNavigationAsync(_lifetimeCancellation.Token);
+    }
+
+    private void OnCurrentAttentionOpenDemandSeriesClick(object sender, RoutedEventArgs e)
+    {
+        CurrentAttentionOperationTask = RunCurrentAttentionUiActionAsync(async () =>
+        {
+            var navigation = WatchDemandSeriesNavigationContext.FromCurrentAttention(
+                    _session.State.CurrentAttention.Snapshot,
+                    CurrentAttentionGrid.SelectedItem
+                        as WatchCurrentIngestAttentionRowPresentation)
+                ?? throw new InvalidOperationException(
+                    "当前关注项没有可精确定位的 DemandSeries。" );
+            await NavigateToDemandSeriesAsync(navigation, _lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        });
     }
 
     private async Task RunErrorSearchUiActionAsync(Func<Task> action)

@@ -124,6 +124,83 @@ public sealed class WatchDemandSeriesNavigationContextTests
         Assert.Equal(["REQUIRED_MES_FIELD_MISSING"], facts.ReadabilityBlockers);
     }
 
+    [Fact]
+    public void Current_attention_drill_preserves_series_demand_and_source_projection_fence()
+    {
+        var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
+        var identity = new OperationalSnapshotIdentity(
+            "commit-attention-22",
+            ProjectionSequence: 422,
+            at,
+            "poll-attention-22",
+            PollTraceHighWater: 45,
+            CatalogRevision: 9,
+            at.AddSeconds(1));
+        var item = new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.SeriesError,
+            CurrentIngestAttentionSeverities.Error,
+            at,
+            "series-22:REQUIRED_MES_FIELD_MISSING:DEMAND:demand-22:EQP",
+            SeriesId: "series-22",
+            WorkType: "WIRE_TO_GATE",
+            ErrorCode: "REQUIRED_MES_FIELD_MISSING",
+            Target: "DEMAND:demand-22",
+            SubjectKind: "EQP",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                ProjectionCommitId: "commit-attention-22",
+                ProjectionSequence: 422,
+                PollTraceId: "poll-attention-22",
+                PollTraceSequence: 45,
+                SeriesId: "series-22",
+                DemandId: "demand-22",
+                WorkType: "WIRE_TO_GATE"),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.ErrorSearch,
+                SeriesId: "series-22"));
+        var source = new CurrentIngestAttentionSnapshot(
+            identity,
+            ExactTotalItemCount: 1,
+            new CurrentIngestAttentionFacets([], []),
+            CurrentIngestAttentionOrder.Default,
+            PageSize: 100,
+            PageNumber: 1,
+            TotalPages: 1,
+            Kinds: [],
+            Severities: [],
+            Items: [item]);
+        var workspace = WatchV2WorkspaceState.Reset(
+            hostGeneration: 1,
+            baseUrl: "http://host-a",
+            WatchHostConnectionStatus.Connected) with
+        {
+            CurrentAttention = WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail>
+                .Empty(1) with
+            {
+                Snapshot = source,
+                LastSuccessfulAt = at,
+            },
+        };
+        var selected = Assert.Single(
+            WatchCurrentIngestAttentionPresentation.Project(
+                workspace,
+                new CurrentIngestAttentionQuery()).Rows);
+
+        var context = Assert.IsType<WatchDemandSeriesNavigationContext>(
+            WatchDemandSeriesNavigationContext.FromCurrentAttention(source, selected));
+
+        Assert.Equal("当前关注", context.SourceName);
+        Assert.Equal("series-22", context.SeriesId);
+        Assert.Equal("demand-22", context.FocusedDemandId);
+        Assert.Equal("commit-attention-22", context.SourceProjectionCommitId);
+        Assert.Equal(422, context.SourceProjectionSequence);
+        Assert.Equal(at, context.SourceProjectionCommittedAt);
+        Assert.Equal(at.AddSeconds(1), context.SourceSnapshotAsOf);
+        Assert.True(context.OpenInspector);
+        var facts = Assert.IsType<WatchDemandSeriesObjectFacts>(context.SourceFacts);
+        Assert.Equal("WIRE_TO_GATE", facts.WorkType);
+        Assert.Equal("demand-22", facts.DemandId);
+    }
+
     private static (ErrorSearchListSnapshot List, ErrorSearchDetailSnapshot Detail)
         CreateErrorSearchSource()
     {

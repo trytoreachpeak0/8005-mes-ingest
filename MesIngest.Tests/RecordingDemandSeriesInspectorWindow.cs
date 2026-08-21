@@ -16,10 +16,14 @@ internal sealed class RecordingDemandSeriesInspectorWindow :
 
     public int ActivateCount { get; private set; }
 
-    public WatchDemandSeriesInspectorPresentation? Presentation { get; private set; }
+    public WatchDemandSeriesInspectorStatePresentation? State { get; private set; }
 
-    public void Update(WatchDemandSeriesInspectorPresentation presentation) =>
-        Presentation = presentation;
+    public WatchDemandSeriesInspectorPresentation? Presentation => State?.Detail;
+
+    public void Update(WatchDemandSeriesInspectorStatePresentation presentation) =>
+        State = presentation;
+
+    public void Clear() => State = null;
 
     public void Show()
     {

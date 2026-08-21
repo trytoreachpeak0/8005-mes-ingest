@@ -171,6 +171,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     internal Task DemandSeriesNavigationTask { get; private set; } = Task.CompletedTask;
 
+    internal Task DemandSeriesInspectorLoadTask { get; private set; } = Task.CompletedTask;
+
     internal event EventHandler<WatchOverviewNavigationEventArgs>? OverviewNavigationRequested;
 
     internal async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -208,6 +210,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SyncCurrentAttentionFilterControls(_currentAttentionQuery);
         _currentHostSettings = settings;
         _autoRefresh.Deactivate();
+        _demandSeriesInspectorCoordinator.CloseCurrent();
         NavigateTo(WatchWorkspacePage.Overview, activateRefresh: false);
         var apply = _session.ApplyAsync(settings, cancellationToken);
         var expectedHostGeneration = _session.State.HostGeneration;
@@ -396,7 +399,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             DemandSeriesNavigationTask = LoadDemandSeriesNavigationAsync(
                 intent.SeriesId,
-                _lifetimeCancellation.Token);
+                _lifetimeCancellation.Token,
+                openInspector: string.Equals(
+                    intent.Target,
+                    OverviewNavigationTargets.DemandSeriesDetail,
+                    StringComparison.Ordinal));
         }
         else if (_activePage == WatchWorkspacePage.ReadabilityAudit
                  && _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
@@ -448,7 +455,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             == WatchHostConnectionStatus.Connected
             ? LoadDemandSeriesNavigationAsync(
                 navigation.SeriesId,
-                cancellationToken)
+                cancellationToken,
+                navigation.OpenInspector)
             : Task.CompletedTask;
         return DemandSeriesNavigationTask;
     }
@@ -508,7 +516,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private async Task LoadDemandSeriesNavigationAsync(
         string? desiredSeriesId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool openInspector = false)
     {
         try
         {
@@ -517,6 +526,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     desiredSeriesId,
                     cancellationToken)
                 .ConfigureAwait(true);
+            if (openInspector
+                && string.Equals(
+                    _session.State.DemandSeries.SelectedId,
+                    desiredSeriesId,
+                    StringComparison.Ordinal)
+                && OpenOrShowDemandSeriesInspector())
+            {
+                await DemandSeriesInspectorLoadTask.ConfigureAwait(true);
+            }
         }
         catch (OperationCanceledException) when (
             cancellationToken.IsCancellationRequested
@@ -604,6 +622,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
         }
+
+        await EnsureOpenDemandSeriesInspectorDetailAsync(cancellationToken)
+            .ConfigureAwait(true);
     }
 
     private async Task RefreshFrozenDemandSeriesAndRenderAsync(
@@ -641,6 +662,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
         }
+
+        await EnsureOpenDemandSeriesInspectorDetailAsync(cancellationToken)
+            .ConfigureAwait(true);
     }
 
     private async Task SelectDemandSeriesAndRenderAsync(
@@ -671,9 +695,22 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        var selection = _session.SelectDemandSeriesAsync(seriesId, cancellationToken);
+        _session.SetDemandSeriesSelection(seriesId);
+        _session.SetDemandSeriesFocus(_focusedDemandId);
         RenderWorkspace();
-        await selection.ConfigureAwait(true);
+        if (_demandSeriesInspectorCoordinator.IsOpen
+            && !string.IsNullOrWhiteSpace(seriesId))
+        {
+            if (CreateDemandSeriesInspectorStatePresentation() is { } loadingTarget)
+            {
+                _demandSeriesInspectorCoordinator.Update(loadingTarget);
+            }
+
+            var detailLoad = _session.LoadSelectedDemandSeriesDetailAsync(cancellationToken);
+            RenderWorkspace();
+            await detailLoad.ConfigureAwait(true);
+        }
+
         if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
         {
             return;
@@ -915,13 +952,66 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
+        void RenderAndSynchronizeInspector()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            RenderWorkspace();
+            if (e.View == WatchV2DataView.DemandSeries
+                && e.Phase == WatchV2AutoRefreshPhase.Completed)
+            {
+                _ = SynchronizeOpenDemandSeriesInspectorSafelyAsync();
+            }
+        }
+
         if (Dispatcher.CheckAccess())
         {
-            RenderWorkspace();
+            RenderAndSynchronizeInspector();
         }
         else
         {
-            _ = Dispatcher.BeginInvoke((Action)RenderWorkspace);
+            _ = Dispatcher.BeginInvoke((Action)RenderAndSynchronizeInspector);
+        }
+    }
+
+    private async Task SynchronizeOpenDemandSeriesInspectorSafelyAsync()
+    {
+        try
+        {
+            await EnsureOpenDemandSeriesInspectorDetailAsync(_lifetimeCancellation.Token)
+                .ConfigureAwait(true);
+        }
+        catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
+        {
+            // Window shutdown is a neutral end to Inspector synchronization.
+        }
+    }
+
+    private async Task EnsureOpenDemandSeriesInspectorDetailAsync(
+        CancellationToken cancellationToken)
+    {
+        if (!_demandSeriesInspectorCoordinator.IsOpen
+            || _session.State.DemandSeries is not { SelectedId: { Length: > 0 } seriesId } view
+            || view.IsDetailLoading
+            || view.Detail is { } detail
+                && string.Equals(detail.Series.SeriesId, seriesId, StringComparison.Ordinal)
+                && string.Equals(
+                    detail.SnapshotReference,
+                    view.Snapshot?.SnapshotReference,
+                    StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var load = _session.LoadSelectedDemandSeriesDetailAsync(cancellationToken);
+        RenderWorkspace();
+        await load.ConfigureAwait(true);
+        if (!_disposed && !cancellationToken.IsCancellationRequested)
+        {
+            RenderWorkspace();
         }
     }
 
@@ -1166,7 +1256,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             DemandSeriesAllAreasConfirmButton.IsEnabled =
                 DemandSeriesAllAreasConfirmPanel.Visibility == Visibility.Visible;
 
-            var inspectorPresentation = CreateDemandSeriesInspectorPresentation();
+            var inspectorPresentation = CreateDemandSeriesInspectorStatePresentation();
             DemandSeriesOpenInspectorButton.IsEnabled = inspectorPresentation is not null;
             DemandSeriesOpenInspectorButton.Content = _demandSeriesInspectorCoordinator.IsOpen
                 ? "显示详情窗口"
@@ -1176,10 +1266,16 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 _demandSeriesInspectorCoordinator.IsOpen
                     ? "显示 DemandSeries 详情窗口"
                     : "打开 DemandSeries 详情窗口");
-            if (inspectorPresentation is not null
-                && _demandSeriesInspectorCoordinator.IsOpen)
+            if (_demandSeriesInspectorCoordinator.IsOpen)
             {
-                _demandSeriesInspectorCoordinator.Update(inspectorPresentation);
+                if (inspectorPresentation is null)
+                {
+                    _demandSeriesInspectorCoordinator.Clear();
+                }
+                else
+                {
+                    _demandSeriesInspectorCoordinator.Update(inspectorPresentation);
+                }
             }
 
             UpdateDemandSeriesClearFiltersState();
@@ -1544,6 +1640,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsNavigationItem.IsActive = page == WatchWorkspacePage.Settings;
         HostNavigationItem.IsActive = false;
 
+        if (_demandSeriesInspectorCoordinator.IsOpen)
+        {
+            RenderDemandSeries(_session.State);
+        }
+
         if (!activateRefresh
             || _session.State.ConnectionStatus != WatchHostConnectionStatus.Connected)
         {
@@ -1884,6 +1985,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         await RunDemandSeriesUiActionAsync(async () =>
         {
+            _demandSeriesNavigation = null;
             _focusedDemandId = null;
             var seriesId = (DemandSeriesGrid.SelectedItem as WatchDemandSeriesRowPresentation)?.SeriesId;
             if (!string.Equals(
@@ -1901,26 +2003,97 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }).ConfigureAwait(true);
     }
 
-    private WatchDemandSeriesInspectorPresentation? CreateDemandSeriesInspectorPresentation()
+    private WatchDemandSeriesInspectorStatePresentation?
+        CreateDemandSeriesInspectorStatePresentation()
     {
         var view = _session.State.DemandSeries;
-        var detail = view.Detail;
-        if (detail is null
-            || view.IsStale
-            || view.IsDetailLoading
-            || !string.Equals(
-                view.SelectedId,
-                detail.Series.SeriesId,
-                StringComparison.Ordinal)
-            || !string.Equals(
-                view.Snapshot?.SnapshotReference,
-                detail.SnapshotReference,
-                StringComparison.Ordinal))
+        var snapshot = view.Snapshot;
+        var item = snapshot?.Items.FirstOrDefault(candidate => string.Equals(
+            candidate.SeriesId,
+            view.SelectedId,
+            StringComparison.Ordinal));
+        if (snapshot is null || item is null)
         {
             return null;
         }
 
-        return WatchDemandSeriesInspectorPresentation.Project(detail, _focusedDemandId);
+        var detail = view.Detail is { } candidateDetail
+            && string.Equals(
+                item.SeriesId,
+                candidateDetail.Series.SeriesId,
+                StringComparison.Ordinal)
+                ? WatchDemandSeriesInspectorPresentation.Project(
+                    candidateDetail,
+                    view.DetailFocusId ?? _focusedDemandId)
+                : null;
+        var frozenSnapshot = detail?.FrozenSnapshot
+            ?? new WatchDemandSeriesFrozenSnapshotPresentation(
+                snapshot.SnapshotReference,
+                snapshot.Snapshot.ProjectionCommitId,
+                snapshot.Snapshot.ProjectionSequence,
+                snapshot.Snapshot.ProjectionCommittedAt,
+                snapshot.Snapshot.PollTraceId);
+        var page = WatchDemandSeriesPresentation.Project(
+            _session.State,
+            _demandSeriesQuery,
+            _areaContext,
+            _demandSeriesNavigation,
+            _focusedDemandId);
+        var statusParts = new[]
+        {
+            view.DetailErrorMessage,
+            view.IsStale ? page.InfoMessage : null,
+            page.SourceComparison == WatchDemandSeriesSourceComparison.None
+                ? null
+                : page.SourceSnapshotSummary,
+            page.SourceComparison == WatchDemandSeriesSourceComparison.None
+                ? null
+                : page.SourceComparisonMessage,
+        }.Where(value => !string.IsNullOrWhiteSpace(value));
+        var isPaused = _activePage != WatchWorkspacePage.DemandSeries;
+        var statusTitle = view.DetailLastFailureAt is not null
+            ? detail is null
+                ? "详情读取失败"
+                : "详情刷新失败，已保留上次证据"
+            : view.IsStale
+                ? "刷新失败，已保留上次证据"
+                : isPaused
+                    ? "DemandSeries 页面刷新已暂停"
+                    : view.IsDetailLoading
+                        ? "正在读取所选 Series 详情"
+                        : page.SourceComparison != WatchDemandSeriesSourceComparison.None
+                            ? "来源快照比较"
+                            : string.Empty;
+        var statusMessage = string.Join(" ", statusParts);
+        if (isPaused)
+        {
+            statusMessage = string.Join(
+                " ",
+                new[]
+                {
+                    $"保留冻结快照 {snapshot.SnapshotReference}；返回 DemandSeries 页面后恢复刷新。",
+                    statusMessage,
+                }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        }
+
+        return new WatchDemandSeriesInspectorStatePresentation(
+            item.SeriesId,
+            item.WorkType,
+            item.Sublot,
+            item.Lifecycle,
+            item.CurrentPresence,
+            frozenSnapshot,
+            detail,
+            view.IsDetailLoading,
+            view.IsStale || view.DetailLastFailureAt is not null,
+            isPaused,
+            view.DetailLastFailureAt is not null || view.IsStale
+                ? detail is null
+                    ? WatchPresentationSeverity.Error
+                    : WatchPresentationSeverity.Warning
+                : page.SourceComparisonSeverity,
+            statusTitle,
+            statusMessage);
     }
 
     private void OnDemandSeriesOpenInspectorClick(object sender, RoutedEventArgs e) =>
@@ -1946,34 +2119,54 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private bool OpenOrShowDemandSeriesInspector()
     {
-        var presentation = CreateDemandSeriesInspectorPresentation();
+        var presentation = CreateDemandSeriesInspectorStatePresentation();
         if (presentation is null)
         {
-            var selectedSeriesId = (DemandSeriesGrid.SelectedItem
-                as WatchDemandSeriesRowPresentation)?.SeriesId;
-            var view = _session.State.DemandSeries;
-            if (!view.IsDetailLoading
-                || string.IsNullOrWhiteSpace(selectedSeriesId)
-                || !string.Equals(view.SelectedId, selectedSeriesId, StringComparison.Ordinal))
-            {
-                return false;
-            }
+            return false;
+        }
 
-            _pendingDemandSeriesInspectorOpenSeriesId = selectedSeriesId;
-            _pendingDemandSeriesInspectorWasOpen =
-                _demandSeriesInspectorCoordinator.IsOpen;
-            if (_pendingDemandSeriesInspectorWasOpen)
-            {
-                _demandSeriesInspectorCoordinator.ShowExisting();
-            }
-
-            return true;
+        if (presentation.Detail is null && !presentation.IsLoading)
+        {
+            var load = _session.LoadSelectedDemandSeriesDetailAsync(
+                _lifetimeCancellation.Token);
+            RenderDemandSeries(_session.State);
+            presentation = CreateDemandSeriesInspectorStatePresentation()
+                ?? presentation;
+            DemandSeriesInspectorLoadTask = CompleteDemandSeriesInspectorLoadAsync(
+                presentation.SeriesId,
+                load,
+                _lifetimeCancellation.Token);
+        }
+        else
+        {
+            DemandSeriesInspectorLoadTask = Task.CompletedTask;
         }
 
         ClearPendingDemandSeriesInspectorOpen();
         _demandSeriesInspectorCoordinator.OpenOrShow(presentation);
         RenderDemandSeries(_session.State);
+
         return true;
+    }
+
+    private async Task CompleteDemandSeriesInspectorLoadAsync(
+        string seriesId,
+        Task load,
+        CancellationToken cancellationToken)
+    {
+        await load.ConfigureAwait(true);
+        if (_disposed
+            || cancellationToken.IsCancellationRequested
+            || !_demandSeriesInspectorCoordinator.IsOpen
+            || !string.Equals(
+                _session.State.DemandSeries.SelectedId,
+                seriesId,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        RenderDemandSeries(_session.State);
     }
 
     private void OnDemandSeriesInspectorStateChanged(object? sender, EventArgs e)
@@ -1982,6 +2175,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
             && _pendingDemandSeriesInspectorWasOpen)
         {
             ClearPendingDemandSeriesInspectorOpen();
+        }
+
+        if (!_demandSeriesInspectorCoordinator.IsOpen && !_disposed)
+        {
+            _session.CancelDemandSeriesDetail();
         }
 
         if (!_disposed)
@@ -1995,6 +2193,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchDemandSeriesGenerationFocusRequestedEventArgs e)
     {
         _focusedDemandId = e.DemandId;
+        _session.SetDemandSeriesFocus(e.DemandId);
         RenderDemandSeries(_session.State);
     }
 
@@ -2006,7 +2205,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        var presentation = CreateDemandSeriesInspectorPresentation();
+        var presentation = CreateDemandSeriesInspectorStatePresentation();
         ClearPendingDemandSeriesInspectorOpen();
         if (presentation is null
             || !string.Equals(
@@ -2072,7 +2271,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         DemandSeriesNavigationTask = LoadDemandSeriesNavigationAsync(
             _demandSeriesQuery.Filter.SeriesId,
-            _lifetimeCancellation.Token);
+            _lifetimeCancellation.Token,
+            openInspector: false);
         await DemandSeriesNavigationTask.ConfigureAwait(true);
     }
 

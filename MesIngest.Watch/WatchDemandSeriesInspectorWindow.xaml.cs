@@ -9,6 +9,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
     private bool _isRendering;
     private bool _filterSelectedGeneration;
+    private WatchDemandSeriesInspectorStatePresentation? _state;
     private WatchDemandSeriesInspectorPresentation? _presentation;
 
     internal WatchDemandSeriesInspectorWindow()
@@ -26,36 +27,60 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     public event EventHandler<WatchDemandSeriesGenerationFocusRequestedEventArgs>?
         GenerationFocusRequested;
 
-    public void Update(WatchDemandSeriesInspectorPresentation presentation)
+    public void Update(WatchDemandSeriesInspectorStatePresentation state)
     {
-        ArgumentNullException.ThrowIfNull(presentation);
+        ArgumentNullException.ThrowIfNull(state);
         _isRendering = true;
         try
         {
             ApplyResponsiveLayout(ActualWidth > 0 ? ActualWidth : Width);
-            var targetChanged = _presentation is null
+            var targetChanged = _state is null
                 || !string.Equals(
-                    _presentation.SeriesId,
-                    presentation.SeriesId,
+                    _state.SeriesId,
+                    state.SeriesId,
                     StringComparison.Ordinal);
+            var selectedEventId = targetChanged
+                ? null
+                : (DemandSeriesInspectorEventGrid.SelectedItem
+                    as WatchDemandSeriesInspectorEventPresentation)?.EventId;
+            var selectedRawEvidence = targetChanged
+                ? null
+                : DemandSeriesInspectorAfterObservationGrid.SelectedItem
+                    as WatchDemandMesBoundaryRawRowPresentation;
+            var generationScrollOffset = targetChanged
+                ? 0
+                : DemandSeriesInspectorGenerationScrollViewer.VerticalOffset;
+            _state = state;
+            var presentation = state.Detail;
             _presentation = presentation;
             DataContext = presentation;
-            Title = $"DemandSeries Inspector · {presentation.SeriesId}";
+            Title = $"DemandSeries Inspector · {state.SeriesId}";
             InspectorTitleBar.Title =
-                $"MesIngest Watch · DemandSeries Inspector · {presentation.SeriesId}";
-            InspectorSeriesContextText.Text = presentation.SeriesId;
+                $"MesIngest Watch · DemandSeries Inspector · {state.SeriesId}";
+            InspectorSeriesContextText.Text = state.SeriesId;
             InspectorSnapshotContextText.Text =
-                $"冻结快照 {presentation.FrozenSnapshot.SnapshotReference} · "
-                + WatchTimeDisplay.Format(presentation.FrozenSnapshot.ProjectionCommittedAt);
+                $"冻结快照 {state.FrozenSnapshot.SnapshotReference} · "
+                + WatchTimeDisplay.Format(state.FrozenSnapshot.ProjectionCommittedAt);
             InspectorLifecycleText.Text =
-                $"{presentation.Lifecycle} · {presentation.WorkType} · {presentation.Sublot}";
-            InspectorPresenceText.Text = presentation.CurrentPresence;
-            DemandSeriesInspectorGenerationCountText.Text =
-                $"{presentation.Generations.Count:N0} 个世代";
-
-            DemandSeriesInspectorGenerationList.ItemsSource = presentation.Generations;
-            DemandSeriesInspectorGenerationList.SelectedItem = presentation.FocusedGeneration;
-            DemandSeriesInspectorGenerationList.ScrollIntoView(presentation.FocusedGeneration);
+                $"{state.Lifecycle} · {state.WorkType} · {state.Sublot}";
+            InspectorPresenceText.Text = state.CurrentPresence;
+            DemandSeriesInspectorStatusInfoBar.IsOpen =
+                !string.IsNullOrWhiteSpace(state.StatusTitle)
+                || !string.IsNullOrWhiteSpace(state.StatusMessage);
+            DemandSeriesInspectorStatusInfoBar.Severity = state.StatusSeverity switch
+            {
+                WatchPresentationSeverity.Error => Wpf.Ui.Controls.InfoBarSeverity.Error,
+                WatchPresentationSeverity.Warning => Wpf.Ui.Controls.InfoBarSeverity.Warning,
+                WatchPresentationSeverity.Success => Wpf.Ui.Controls.InfoBarSeverity.Success,
+                _ => Wpf.Ui.Controls.InfoBarSeverity.Informational,
+            };
+            DemandSeriesInspectorStatusInfoBar.Title = state.StatusTitle;
+            DemandSeriesInspectorStatusInfoBar.Message = state.StatusMessage;
+            AutomationProperties.SetName(
+                DemandSeriesInspectorStatusInfoBar,
+                DemandSeriesInspectorStatusInfoBar.IsOpen
+                    ? $"{state.StatusTitle}。{state.StatusMessage}"
+                    : "DemandSeries Inspector 读取状态：当前无通知");
             if (targetChanged)
             {
                 _filterSelectedGeneration = false;
@@ -63,12 +88,113 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 DemandSeriesInspectorTabs.SelectedIndex = 0;
             }
 
+            if (presentation is null)
+            {
+                ClearDetailBody();
+                return;
+            }
+
+            DemandSeriesInspectorTabs.IsEnabled = true;
+            DemandSeriesInspectorGenerationCountText.Text =
+                $"{presentation.Generations.Count:N0} 个世代";
+
+            var previousFocusedDemandId =
+                DemandSeriesInspectorGenerationList.SelectedItem
+                    is WatchDemandSeriesInspectorGenerationPresentation previous
+                        ? previous.DemandId
+                        : null;
+            DemandSeriesInspectorGenerationList.ItemsSource = presentation.Generations;
+            DemandSeriesInspectorGenerationList.SelectedItem = presentation.FocusedGeneration;
+            if (targetChanged || !string.Equals(
+                    previousFocusedDemandId,
+                    presentation.FocusedGeneration.DemandId,
+                    StringComparison.Ordinal))
+            {
+                DemandSeriesInspectorGenerationList.ScrollIntoView(presentation.FocusedGeneration);
+            }
+
             RenderFocusedGeneration(presentation, presentation.FocusedGeneration);
+            if (!targetChanged)
+            {
+                DemandSeriesInspectorEventGrid.SelectedItem =
+                    DemandSeriesInspectorEventGrid.Items
+                        .Cast<WatchDemandSeriesInspectorEventPresentation>()
+                        .FirstOrDefault(item => string.Equals(
+                            item.EventId,
+                            selectedEventId,
+                            StringComparison.Ordinal));
+                DemandSeriesInspectorAfterObservationGrid.SelectedItem =
+                    DemandSeriesInspectorAfterObservationGrid.Items
+                        .Cast<WatchDemandMesBoundaryRawRowPresentation>()
+                        .FirstOrDefault(item => selectedRawEvidence is not null
+                            && string.Equals(
+                                item.BoundaryLabel,
+                                selectedRawEvidence.BoundaryLabel,
+                                StringComparison.Ordinal)
+                            && item.RawRow.Ordinal == selectedRawEvidence.RawRow.Ordinal
+                            && string.Equals(
+                                item.RawRow.PollTraceId,
+                                selectedRawEvidence.RawRow.PollTraceId,
+                                StringComparison.Ordinal));
+                DemandSeriesInspectorGenerationScrollViewer.ScrollToVerticalOffset(
+                    generationScrollOffset);
+            }
         }
         finally
         {
             _isRendering = false;
         }
+    }
+
+    internal void Update(WatchDemandSeriesInspectorPresentation presentation) =>
+        Update(WatchDemandSeriesInspectorStatePresentation.Loaded(presentation));
+
+    public void Clear()
+    {
+        _isRendering = true;
+        try
+        {
+            _state = null;
+            _presentation = null;
+            DataContext = null;
+            Title = "DemandSeries Inspector";
+            InspectorTitleBar.Title = "MesIngest Watch · DemandSeries Inspector";
+            InspectorSeriesContextText.Text = "尚未选择 DemandSeries";
+            InspectorSnapshotContextText.Text = "尚无冻结快照";
+            InspectorLifecycleText.Text = "—";
+            InspectorPresenceText.Text = "—";
+            DemandSeriesInspectorStatusInfoBar.IsOpen = true;
+            DemandSeriesInspectorStatusInfoBar.Severity =
+                Wpf.Ui.Controls.InfoBarSeverity.Informational;
+            DemandSeriesInspectorStatusInfoBar.Title = "当前选择已清除";
+            DemandSeriesInspectorStatusInfoBar.Message =
+                "所选 Series 已离开最新结果；没有自动选择另一 Series。";
+            _filterSelectedGeneration = false;
+            DemandSeriesInspectorAllEventsRadio.IsChecked = true;
+            DemandSeriesInspectorTabs.SelectedIndex = 0;
+            ClearDetailBody();
+        }
+        finally
+        {
+            _isRendering = false;
+        }
+    }
+
+    private void ClearDetailBody()
+    {
+        DemandSeriesInspectorTabs.IsEnabled = false;
+        DemandSeriesInspectorGenerationCountText.Text = "正在读取世代";
+        DemandSeriesInspectorGenerationList.ItemsSource = null;
+        DemandSeriesInspectorFormationFacts.ItemsSource = null;
+        DemandSeriesInspectorMesScalarFields.ItemsSource = null;
+        DemandSeriesInspectorAfterObservationGrid.ItemsSource = null;
+        DemandSeriesInspectorEventGrid.ItemsSource = null;
+        DemandSeriesInspectorGenerationIdentityText.Text = "正在读取所选 Series 详情";
+        DemandSeriesInspectorGenerationSummaryText.Text = string.Empty;
+        DemandSeriesInspectorFormationReasonText.Text = "—";
+        DemandSeriesInspectorFormationReasonCodeText.Text = string.Empty;
+        DemandSeriesInspectorMesExplanationText.Text = string.Empty;
+        DemandSeriesInspectorEventContextText.Text = "详情尚未提交";
     }
 
     private void RenderFocusedGeneration(
