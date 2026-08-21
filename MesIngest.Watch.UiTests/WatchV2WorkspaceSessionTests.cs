@@ -151,7 +151,8 @@ public sealed class WatchV2WorkspaceSessionTests
         await session.RefreshDemandSeriesAsync(
             new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter()),
             testToken);
-        await session.SelectDemandSeriesAsync("series-a", testToken);
+        session.SetDemandSeriesSelection("series-a");
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
         await session.RefreshReadabilityAuditAsync(
             new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
             testToken);
@@ -537,11 +538,13 @@ public sealed class WatchV2WorkspaceSessionTests
         var seriesQuery = new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter());
         var auditQuery = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
         await session.RefreshDemandSeriesAsync(seriesQuery, testToken);
-        await session.SelectDemandSeriesAsync("series-a", testToken);
+        session.SetDemandSeriesSelection("series-a");
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
         await session.RefreshReadabilityAuditAsync(auditQuery, testToken);
         await session.SelectReadabilityDemandAsync("demand-a", testToken);
 
         await session.RefreshDemandSeriesAsync(seriesQuery, testToken);
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
         await session.RefreshReadabilityAuditAsync(auditQuery, testToken);
 
         Assert.Equal("series-a", session.State.DemandSeries.SelectedId);
@@ -644,7 +647,7 @@ public sealed class WatchV2WorkspaceSessionTests
     }
 
     [Fact]
-    public async Task A_selection_changed_during_refresh_is_relocated_on_the_new_snapshot()
+    public async Task A_selection_changed_during_detail_refresh_is_relocated_on_the_new_snapshot()
     {
         var testToken = TestContext.Current.CancellationToken;
         var oldSelectionDetailStarted = new TaskCompletionSource(
@@ -666,14 +669,17 @@ public sealed class WatchV2WorkspaceSessionTests
         await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
         var query = new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter());
         await session.RefreshDemandSeriesAsync(query, testToken);
-        await session.SelectDemandSeriesAsync("series-a", testToken);
+        session.SetDemandSeriesSelection("series-a");
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
 
-        var refresh = session.RefreshDemandSeriesAsync(query, testToken);
+        await session.RefreshDemandSeriesAsync(query, testToken);
+        var refresh = session.LoadSelectedDemandSeriesDetailAsync(testToken);
         await oldSelectionDetailStarted.Task.WaitAsync(testToken);
-        await session.SelectDemandSeriesAsync("series-b", testToken);
+        session.SetDemandSeriesSelection("series-b");
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
         Assert.Equal("series-b", session.State.DemandSeries.SelectedId);
         Assert.Equal(
-            "ds-1",
+            "ds-2",
             session.State.DemandSeries.Detail!.Snapshot.ProjectionCommitId);
 
         releaseOldSelectionDetail.SetResult(
@@ -709,15 +715,16 @@ public sealed class WatchV2WorkspaceSessionTests
         using var session = new WatchV2WorkspaceSession(_ => client);
         await session.ApplyAsync(new WatchHostSettings("http://host-a", "a", 30), testToken);
         await session.RefreshDemandSeriesAsync(query, testToken);
-        var first = session.SelectDemandSeriesAsync("series-a", testToken);
+        session.SetDemandSeriesSelection("series-a");
+        var first = session.LoadSelectedDemandSeriesDetailAsync(testToken);
         await olderStarted.Task.WaitAsync(testToken);
 
-        await session.SelectDemandSeriesAsync("series-a", testToken);
+        await session.LoadSelectedDemandSeriesDetailAsync(testToken);
         releaseOlder.SetResult(older);
         await first;
 
         Assert.Same(newer, session.State.DemandSeries.Detail);
-        Assert.Equal(2, session.State.DemandSeries.SelectionGeneration);
+        Assert.Equal(3, session.State.DemandSeries.SelectionGeneration);
     }
 
     [Fact]
@@ -976,7 +983,8 @@ public sealed class WatchV2WorkspaceSessionTests
         await session.RefreshDemandSeriesAsync(query, testToken);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(testToken);
 
-        var selection = session.SelectDemandSeriesAsync("series-a", cancellation.Token);
+        session.SetDemandSeriesSelection("series-a");
+        var selection = session.LoadSelectedDemandSeriesDetailAsync(cancellation.Token);
         await detailStarted.Task.WaitAsync(testToken);
         Assert.True(session.State.DemandSeries.IsDetailLoading);
         cancellation.Cancel();
