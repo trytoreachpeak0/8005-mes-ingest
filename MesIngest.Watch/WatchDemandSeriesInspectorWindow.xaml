@@ -521,6 +521,23 @@
                 <TabItem Header="事件"
                          AutomationProperties.Name="事件"
                          AutomationProperties.AutomationId="DemandSeriesInspectorEventsTab">
+                    <TabItem.HeaderTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding}" />
+                                <Border Margin="8,0,0,0"
+                                        Padding="7,1"
+                                        CornerRadius="9"
+                                        Background="{DynamicResource SubtleFillColorSecondaryBrush}">
+                                    <ui:TextBlock Text="{Binding DataContext.Events.Count, RelativeSource={RelativeSource AncestorType={x:Type TabControl}}}"
+                                                  Style="{StaticResource CaptionText}"
+                                                  FontWeight="SemiBold"
+                                                  AutomationProperties.Name="{Binding DataContext.Events.Count, RelativeSource={RelativeSource AncestorType={x:Type TabControl}}, StringFormat='冻结事件总数 {0}'}"
+                                                  AutomationProperties.AutomationId="DemandSeriesInspectorEventTabCount" />
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </TabItem.HeaderTemplate>
                     <Grid Margin="0,12,0,0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -533,18 +550,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <StackPanel Orientation="Horizontal">
-                                    <ui:TextBlock Text="永久事件" Style="{StaticResource SectionTitleText}" />
-                                    <Border Margin="8,0,0,0"
-                                            Padding="7,1"
-                                            CornerRadius="9"
-                                            Background="{DynamicResource SubtleFillColorSecondaryBrush}">
-                                        <ui:TextBlock x:Name="DemandSeriesInspectorEventCountText"
-                                                      FontSize="11"
-                                                      FontWeight="SemiBold"
-                                                      Text="0" />
-                                    </Border>
-                                </StackPanel>
+                                <ui:TextBlock Text="永久事件" Style="{StaticResource SectionTitleText}" />
                                 <ui:TextBlock x:Name="DemandSeriesInspectorEventContextText"
                                               Margin="0,3,0,0"
                                               Style="{StaticResource SecondaryText}"
@@ -553,18 +559,18 @@
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <RadioButton x:Name="DemandSeriesInspectorAllEventsRadio"
-                                             Content="全部事件"
+                                             Content="全部 Series 事件"
                                              IsChecked="True"
                                              Padding="10,6"
                                              Checked="OnAllEventsChecked"
-                                             AutomationProperties.Name="显示全部事件"
+                                             AutomationProperties.Name="显示全部 Series 事件"
                                              AutomationProperties.AutomationId="DemandSeriesInspectorAllEventsFilter" />
                                 <RadioButton x:Name="DemandSeriesInspectorSelectedEventsRadio"
                                              Margin="12,0,0,0"
-                                             Content="仅选中世代"
+                                             Content="当前 Demand 相关事件"
                                              Padding="10,6"
                                              Checked="OnSelectedEventsChecked"
-                                             AutomationProperties.Name="仅显示选中世代相关事件"
+                                             AutomationProperties.Name="显示当前 Demand 相关事件"
                                              AutomationProperties.AutomationId="DemandSeriesInspectorSelectedEventsFilter" />
                             </StackPanel>
                         </Grid>
@@ -587,14 +593,17 @@
                                           AutomationProperties.Name="DemandSeries 永久事件"
                                           AutomationProperties.AutomationId="DemandSeriesInspectorEventGrid">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="序列" Binding="{Binding SeriesSequence}" Width="75" />
-                                        <DataGridTextColumn Header="时间" Binding="{Binding OccurredAt}" Width="165" />
-                                        <DataGridTextColumn Header="事件" Binding="{Binding EventType}" Width="210" />
-                                        <DataGridTextColumn Header="主体" Binding="{Binding SubjectKind}" Width="100" />
-                                        <DataGridTextColumn Header="关联 Demand" Binding="{Binding SubjectId}" Width="150" />
-                                        <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="150" />
-                                        <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="170" />
-                                        <DataGridTextColumn Header="Payload" Binding="{Binding PayloadJson}" Width="*" MinWidth="260" />
+                                        <DataGridTextColumn Header="SeriesSequence" Binding="{Binding SeriesSequence}" Width="110" />
+                                        <DataGridTextColumn Header="EventId" Binding="{Binding EventId}" Width="150" />
+                                        <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="150" />
+                                        <DataGridTextColumn Header="OccurredAt" Binding="{Binding OccurredAt}" Width="165" />
+                                        <DataGridTextColumn Header="EventType" Binding="{Binding EventType}" Width="210" />
+                                        <DataGridTextColumn Header="SubjectKind" Binding="{Binding SubjectKind}" Width="130" />
+                                        <DataGridTextColumn Header="SubjectId" Binding="{Binding SubjectId}" Width="150" />
+                                        <DataGridTextColumn Header="PollTraceId" Binding="{Binding PollTraceId}" Width="150" />
+                                        <DataGridTextColumn Header="ProjectionCommitId" Binding="{Binding ProjectionCommitId}" Width="170" />
+                                        <DataGridTextColumn Header="PayloadVersion" Binding="{Binding PayloadVersion}" Width="115" />
+                                        <DataGridTextColumn Header="PayloadJson" Binding="{Binding PayloadJson}" Width="*" MinWidth="300" />
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </Grid>

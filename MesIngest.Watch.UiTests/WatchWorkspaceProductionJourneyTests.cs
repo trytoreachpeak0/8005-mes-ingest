@@ -941,6 +941,46 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 evidence,
                 inspectorHandle,
                 "03b-demand-series-first-observation");
+            failedStep = "demand-series-related-events";
+            FindRequiredById(
+                    inspector,
+                    "DemandSeriesInspectorRelatedEventsButton")
+                .AsButton()
+                .Invoke();
+            var eventGrid = WaitForRows(
+                inspector,
+                "DemandSeriesInspectorEventGrid",
+                "the selected Demand event evidence");
+            WaitUntil(
+                () => TextValue(FindRequiredById(
+                        inspector,
+                        "DemandSeriesInspectorEventContext"))
+                    .Contains("当前 Demand 相关事件", StringComparison.Ordinal),
+                "the current Demand related-event filter context",
+                StepTimeout);
+            Assert.Equal(
+                [
+                    "SeriesSequence",
+                    "EventId",
+                    "SeriesId",
+                    "OccurredAt",
+                    "EventType",
+                    "SubjectKind",
+                    "SubjectId",
+                    "PollTraceId",
+                    "ProjectionCommitId",
+                    "PayloadVersion",
+                    "PayloadJson",
+                ],
+                eventGrid.FindAllDescendants(
+                        eventGrid.Automation.ConditionFactory.ByControlType(
+                            ControlType.HeaderItem))
+                    .Select(header => header.Name)
+                    .ToArray());
+            Capture(
+                evidence,
+                inspectorHandle,
+                "03c-demand-series-related-events");
             inspector.Close();
 
             failedStep = "readability-audit";

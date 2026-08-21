@@ -52,8 +52,6 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             InspectorPresenceText.Text = presentation.CurrentPresence;
             DemandSeriesInspectorGenerationCountText.Text =
                 $"{presentation.Generations.Count:N0} 个世代";
-            DemandSeriesInspectorEventCountText.Text =
-                presentation.Events.Count.ToString("N0");
 
             DemandSeriesInspectorGenerationList.ItemsSource = presentation.Generations;
             DemandSeriesInspectorGenerationList.SelectedItem = presentation.FocusedGeneration;
@@ -152,8 +150,6 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 + generation.MesBoundary.Explanation
             : $"{generation.FormationReason.ChineseLabel}形成第 {generation.Generation} 代；"
                 + generation.MesBoundary.Explanation;
-        DemandSeriesInspectorSelectedEventsRadio.Content =
-            $"仅 {generation.DemandId}";
         ApplyEventFilter();
     }
 
@@ -232,14 +228,25 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
         var generation = _presentation.FocusedGeneration;
         var relatedEvents = _presentation.EventsForDemand(generation.DemandId);
-        DemandSeriesInspectorEventGrid.ItemsSource = _filterSelectedGeneration
+        var visibleEvents = _filterSelectedGeneration
             ? relatedEvents
             : _presentation.Events;
-        DemandSeriesInspectorEventContextText.Text = _filterSelectedGeneration
-            ? $"DemandId {generation.DemandId} · {relatedEvents.Count:N0} / "
-                + $"{_presentation.Events.Count:N0} 个相关事件"
-            : $"全部事件 · 当前选中 DemandId {generation.DemandId} · "
-                + $"冻结快照内按序列展示 {_presentation.Events.Count:N0} 条";
+        DemandSeriesInspectorEventGrid.ItemsSource = visibleEvents;
+        var context = _filterSelectedGeneration
+            ? $"当前 Demand 相关事件 · DemandId {generation.DemandId} · "
+                + $"{relatedEvents.Count:N0} / {_presentation.Events.Count:N0} 条"
+            : $"全部 Series 事件 · DemandId {generation.DemandId} · "
+                + $"冻结快照内按 SeriesSequence 展示 {_presentation.Events.Count:N0} 条";
+        DemandSeriesInspectorEventContextText.Text = context;
+        AutomationProperties.SetName(DemandSeriesInspectorEventContextText, context);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorEventGrid,
+            $"DemandSeries 永久事件；{context}");
+        AutomationProperties.SetHelpText(
+            DemandSeriesInspectorEventGrid,
+            "事件字段：SeriesSequence、EventId、SeriesId、OccurredAt、EventType、"
+            + "SubjectKind、SubjectId、PollTraceId、ProjectionCommitId、PayloadVersion、PayloadJson。"
+            + "过滤只改变同一冻结事件集合的本地视图。");
     }
 
     private void OnInspectorSizeChanged(object sender, SizeChangedEventArgs e) =>

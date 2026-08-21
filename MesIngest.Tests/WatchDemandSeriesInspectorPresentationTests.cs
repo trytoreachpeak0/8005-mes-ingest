@@ -491,7 +491,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         {
             Event(5, "SERIES_ERROR_PERIOD_STARTED", "ARCHIVED_SERIES_VISIBILITY", second.DemandId, "poll-create-2", "commit-create-2", "{\"demandId\":\"demand-2\"}", At),
             Event(2, "TRANSPORT_DEMAND_CREATED", "DEMAND", first.DemandId, "poll-create-1", "commit-create-1", "{\"demandId\":\"demand-1\",\"generation\":1}", At.AddHours(-4)),
-            Event(4, "TRANSPORT_DEMAND_CREATED", "DEMAND", second.DemandId, "poll-create-2", "commit-create-2", "{\"demandId\":\"demand-2\",\"predecessorDemandId\":\"demand-1\",\"reason\":\"POSTARCHIVE_REAPPEARANCE\"}", At),
+            Event(4, "TRANSPORT_DEMAND_CREATED", "DEMAND", second.DemandId, "poll-create-2", "commit-create-2", "{\"demandId\":\"demand-2\",\"predecessorDemandId\":\"demand-1\",\"reason\":\"POSTARCHIVE_REAPPEARANCE\"}", At, payloadVersion: 7),
             Event(1, "DEMAND_SERIES_STARTED", "SERIES", "series-e", "poll-create-1", "commit-create-1", "{\"seriesId\":\"series-e\"}", At.AddHours(-4)),
             Event(3, "GONE_TIMEOUT_ARCHIVED", "SERIES", "series-e", "poll-archive", "commit-archive", "{\"seriesId\":\"series-e\",\"demandId\":\"demand-1\"}", At.AddHours(-1)),
         };
@@ -512,18 +512,38 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.DoesNotContain(
             presentation.Events,
             item => item.EventType is "DEMAND_REAPPEARED" or "SNAPSHOT_COMMITTED");
+        var secondDemandEvents = presentation.EventsForDemand(second.DemandId);
         Assert.Equal(
             [4L, 5L],
-            presentation.EventsForDemand(second.DemandId).Select(item => item.SeriesSequence).ToArray());
+            secondDemandEvents.Select(item => item.SeriesSequence).ToArray());
+        Assert.Same(presentation.Events[3], secondDemandEvents[0]);
+        Assert.Same(presentation.Events[4], secondDemandEvents[1]);
+        var repeatedSecondDemandEvents = presentation.EventsForDemand(second.DemandId);
+        Assert.Equal(
+            secondDemandEvents,
+            repeatedSecondDemandEvents,
+            ReferenceEqualityComparer.Instance);
         Assert.Equal(
             [2L, 3L, 4L],
             presentation.EventsForDemand(first.DemandId).Select(item => item.SeriesSequence).ToArray());
+        Assert.Same(presentation.Events, presentation.EventsForDemand(demandId: null));
+        Assert.Empty(presentation.EventsForDemand("unknown-demand"));
+
+        var productionEvent = presentation.Events[3];
+        Assert.Equal("event-4", productionEvent.EventId);
+        Assert.Equal("series-e", productionEvent.SeriesId);
+        Assert.Equal(4, productionEvent.SeriesSequence);
+        Assert.Equal("TRANSPORT_DEMAND_CREATED", productionEvent.EventType);
+        Assert.Equal(At, productionEvent.OccurredAt);
+        Assert.Equal("DEMAND", productionEvent.SubjectKind);
+        Assert.Equal(second.DemandId, productionEvent.SubjectId);
+        Assert.Equal("poll-create-2", productionEvent.PollTraceId);
+        Assert.Equal("commit-create-2", productionEvent.ProjectionCommitId);
+        Assert.Equal(7, productionEvent.PayloadVersion);
+        Assert.Equal(events[2].PayloadJson, productionEvent.PayloadJson);
         Assert.Equal(
             [1L, 2L, 3L, 4L, 5L],
-            presentation.EventsForDemand(demandId: null).Select(item => item.SeriesSequence).ToArray());
-        Assert.Equal(events[2].PayloadJson, presentation.Events[3].PayloadJson);
-        Assert.Equal("poll-create-2", presentation.Events[3].PollTraceId);
-        Assert.Equal("commit-create-2", presentation.Events[3].ProjectionCommitId);
+            presentation.Events.Select(item => item.SeriesSequence).ToArray());
     }
 
     private static DemandSeriesDetailSnapshot Detail(
@@ -601,7 +621,8 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         string pollTraceId,
         string projectionCommitId,
         string payloadJson,
-        DateTimeOffset occurredAt) => new(
+        DateTimeOffset occurredAt,
+        int payloadVersion = 1) => new(
         $"event-{sequence}",
         "series-e",
         sequence,
@@ -611,7 +632,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         subjectId,
         pollTraceId,
         projectionCommitId,
-        PayloadVersion: 1,
+        payloadVersion,
         payloadJson);
 
     private static DemandRawObservationSnapshot Observation(
