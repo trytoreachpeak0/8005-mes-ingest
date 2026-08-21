@@ -394,7 +394,7 @@
                                         <Grid Grid.Row="1"
                                               Background="{DynamicResource SubtleFillColorSecondaryBrush}">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="150" />
+                                                <ColumnDefinition Width="190" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="105" />
@@ -416,7 +416,7 @@
                                                             AutomationProperties.Name="{Binding AutomationName}">
                                                         <Grid>
                                                             <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="150" />
+                                                                <ColumnDefinition Width="190" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="*" />
                                                                 <ColumnDefinition Width="105" />
