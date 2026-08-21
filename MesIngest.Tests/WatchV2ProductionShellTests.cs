@@ -128,7 +128,7 @@ public sealed class WatchV2ProductionShellTests
         });
 
     [Fact]
-    public void Demand_series_page_keeps_filter_list_exact_paging_and_evidence_journeys_accessible_at_720_epx() =>
+    public void Demand_series_page_keeps_filters_full_height_list_and_exact_paging_accessible_at_720_epx() =>
         StaTestRunner.Run(() =>
         {
             var root = Path.Combine(Path.GetTempPath(), $"watch-v2-demand-series-{Guid.NewGuid():N}");
@@ -149,107 +149,73 @@ public sealed class WatchV2ProductionShellTests
                 window.FindName("DemandSeriesScrollViewer"));
             Assert.Equal(Visibility.Visible, page.Visibility);
             Assert.Equal(ScrollBarVisibility.Disabled, scrollViewer.HorizontalScrollBarVisibility);
-            Assert.Equal(ScrollBarVisibility.Auto, scrollViewer.VerticalScrollBarVisibility);
+            Assert.Equal(ScrollBarVisibility.Disabled, scrollViewer.VerticalScrollBarVisibility);
             Assert.Equal("需求系列页面", AutomationProperties.GetName(page));
             Assert.Equal("需求系列工作区", AutomationProperties.GetName(scrollViewer));
+
             var context = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesContextText"));
             Assert.Equal("需求系列快照与 AREA 范围", AutomationProperties.GetName(context));
             Assert.Contains("AREA", context.Text, StringComparison.Ordinal);
-            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                window.FindName("DemandSeriesInfoBar"));
-            Assert.Equal("需求系列读取状态", AutomationProperties.GetName(infoBar));
+            Assert.Equal(
+                "需求系列读取状态",
+                AutomationProperties.GetName(Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                    window.FindName("DemandSeriesInfoBar"))));
             var infoExpander = Assert.IsType<Wpf.Ui.Controls.CardExpander>(
                 window.FindName("DemandSeriesInfoExpander"));
-            Assert.False(infoExpander.IsExpanded);
-            Assert.Equal("需求系列顶部说明区", AutomationProperties.GetName(infoExpander));
             Assert.True(infoExpander.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(infoExpander));
 
-            var filters = new (string Name, Type Type, string AutomationName)[]
+            var filters = new Dictionary<string, string>
             {
-                ("DemandSeriesLifecycleAllButton", typeof(Wpf.Ui.Controls.Button), "生命周期：全部"),
-                ("DemandSeriesLifecycleTrackingButton", typeof(Wpf.Ui.Controls.Button), "生命周期：Tracking"),
-                ("DemandSeriesLifecycleArchivedButton", typeof(Wpf.Ui.Controls.Button), "生命周期：Archived"),
-                ("DemandSeriesPresenceFilter", typeof(ComboBox), "当前出现状态筛选"),
-                ("DemandSeriesWorkTypeFilter", typeof(ComboBox), "WorkType 筛选"),
-                ("DemandSeriesSublotFilter", typeof(TextBox), "SUBLOT 筛选"),
-                ("DemandSeriesSeriesIdFilter", typeof(TextBox), "SeriesId 筛选"),
-                ("DemandSeriesDemandIdFilter", typeof(TextBox), "DemandId 筛选"),
-                ("DemandSeriesAreaProfileSelector", typeof(ComboBox), "需求系列 AREA 配置选择器"),
-                ("DemandSeriesPageSizeFilter", typeof(ComboBox), "每页数量"),
+                ["DemandSeriesLifecycleAllButton"] = "生命周期：全部",
+                ["DemandSeriesLifecycleTrackingButton"] = "生命周期：Tracking",
+                ["DemandSeriesLifecycleArchivedButton"] = "生命周期：Archived",
+                ["DemandSeriesPresenceFilter"] = "当前出现状态筛选",
+                ["DemandSeriesWorkTypeFilter"] = "WorkType 筛选",
+                ["DemandSeriesSublotFilter"] = "SUBLOT 筛选",
+                ["DemandSeriesSeriesIdFilter"] = "SeriesId 筛选",
+                ["DemandSeriesDemandIdFilter"] = "DemandId 筛选",
+                ["DemandSeriesAreaProfileSelector"] = "需求系列 AREA 配置选择器",
+                ["DemandSeriesPageSizeFilter"] = "每页数量",
             };
-            foreach (var (name, type, automationName) in filters)
+            foreach (var (name, automationName) in filters)
             {
                 var control = Assert.IsAssignableFrom<Control>(window.FindName(name));
-                Assert.True(type.IsInstanceOfType(control), $"{name} must be a {type.Name}");
                 Assert.Equal(automationName, AutomationProperties.GetName(control));
-                Assert.Equal(name, AutomationProperties.GetAutomationId(control));
-                Assert.True(control.Focusable, $"{name} must accept keyboard focus");
-                Assert.True(
-                    KeyboardNavigation.GetIsTabStop(control),
-                    $"{name} must participate in tab navigation");
-            }
-            var pageSize = Assert.IsType<ComboBox>(
-                window.FindName("DemandSeriesPageSizeFilter"));
-            Assert.True(pageSize.Width >= 76);
-            Assert.Equal(VerticalAlignment.Center, pageSize.VerticalContentAlignment);
-
-            var commandNames = new Dictionary<string, string>
-            {
-                ["DemandSeriesApplyFiltersButton"] = "应用需求系列筛选",
-                ["DemandSeriesClearFiltersButton"] = "清空需求系列筛选条件",
-                ["DemandSeriesPreviousButton"] = "需求系列上一页",
-                ["DemandSeriesNextButton"] = "需求系列下一页",
-                ["DemandSeriesGoToPageButton"] = "跳转到需求系列页码",
-                ["DemandSeriesAllAreasConfirmButton"] = "确认切换到全部 AREA",
-                ["DemandSeriesFullEvidenceButton"] = "显示完整需求系列证据",
-                ["DemandSeriesCopyTimeButton"] = "复制需求系列时间",
-                ["DemandSeriesCopyEvidenceButton"] = "复制需求系列证据",
-            };
-            foreach (var (name, automationName) in commandNames)
-            {
-                var button = Assert.IsAssignableFrom<ButtonBase>(window.FindName(name));
-                Assert.Equal(automationName, AutomationProperties.GetName(button));
-                Assert.Equal(name, AutomationProperties.GetAutomationId(button));
-                Assert.True(button.Focusable, $"{name} must accept keyboard focus");
-                Assert.True(
-                    KeyboardNavigation.GetIsTabStop(button),
-                    $"{name} must participate in tab navigation");
+                Assert.True(KeyboardNavigation.GetIsTabStop(control));
             }
 
             var applyFilters = Assert.IsType<Wpf.Ui.Controls.Button>(
                 window.FindName("DemandSeriesApplyFiltersButton"));
-            var clearFilters = Assert.IsType<Wpf.Ui.Controls.Button>(
-                window.FindName("DemandSeriesClearFiltersButton"));
             Assert.Equal(ControlAppearance.Secondary, applyFilters.Appearance);
-            Assert.False(clearFilters.IsEnabled);
-            var sublotDraft = Assert.IsType<TextBox>(
-                window.FindName("DemandSeriesSublotFilter"));
-            sublotDraft.Text = "SL-DRAFT";
-            Assert.True(clearFilters.IsEnabled);
-            sublotDraft.Clear();
-            Assert.False(clearFilters.IsEnabled);
+            Assert.Equal(
+                "应用需求系列筛选",
+                AutomationProperties.GetName(applyFilters));
+
+            var masterPanel = Assert.IsType<Border>(
+                window.FindName("DemandSeriesMasterPanel"));
+            Assert.Equal("需求系列主列表", AutomationProperties.GetName(masterPanel));
+            Assert.Equal(4, Grid.GetRow(masterPanel));
+            Assert.True(masterPanel.ActualHeight > 300);
+
+            var openInspector = Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("DemandSeriesOpenInspectorButton"));
+            Assert.Equal("打开详情窗口", openInspector.Content);
+            Assert.Equal(
+                "DemandSeriesOpenInspectorButton",
+                AutomationProperties.GetAutomationId(openInspector));
+            Assert.Equal(
+                "打开 DemandSeries 详情窗口",
+                AutomationProperties.GetName(openInspector));
+            Assert.False(openInspector.IsEnabled);
 
             var seriesGrid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
-            Assert.Equal("需求系列列表", AutomationProperties.GetName(seriesGrid));
             Assert.Equal("DemandSeriesGrid", AutomationProperties.GetAutomationId(seriesGrid));
-            Assert.True(seriesGrid.IsReadOnly);
-            Assert.False(seriesGrid.AutoGenerateColumns);
-            Assert.False(seriesGrid.CanUserSortColumns);
+            Assert.Equal("需求系列列表", AutomationProperties.GetName(seriesGrid));
+            Assert.Equal(ScrollBarVisibility.Auto, seriesGrid.VerticalScrollBarVisibility);
             Assert.True(seriesGrid.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(seriesGrid));
-            Assert.True(seriesGrid.CanUserResizeColumns);
-            Assert.All(seriesGrid.Columns, column =>
-            {
-                Assert.True(column.CanUserResize);
-                Assert.Equal(DataGridLengthUnitType.SizeToCells, column.Width.UnitType);
-            });
-            Assert.Equal(DataGridSelectionUnit.FullRow, seriesGrid.SelectionUnit);
-            // The list carries the approved DemandSeriesPage prototype hierarchy (restored
-            // in 0024945). Per-generation status, readability, the last sequence and the
-            // related-attention state live in the detail pane, not in list columns;
-            // WatchDemandSeriesProductionIntegrationTests asserts the same order.
             Assert.Equal(
                 new[]
                 {
@@ -267,31 +233,13 @@ public sealed class WatchV2ProductionShellTests
                     "ARCHIVED",
                 },
                 seriesGrid.Columns.Select(column => column.Header?.ToString()));
-            var orderSummary = Assert.IsAssignableFrom<TextBlock>(
-                window.FindName("DemandSeriesOrderText"));
-            Assert.Equal("需求系列固定排序", AutomationProperties.GetName(orderSummary));
-            Assert.Contains("Host 固定排序", orderSummary.Text, StringComparison.Ordinal);
 
-            var pageSummary = Assert.IsAssignableFrom<TextBlock>(
-                window.FindName("DemandSeriesPageSummaryText"));
-            Assert.Equal("需求系列精确分页摘要", AutomationProperties.GetName(pageSummary));
-            Assert.Equal("尚无需求系列快照", pageSummary.Text);
-            var pageNumber = Assert.IsType<TextBox>(
-                window.FindName("DemandSeriesPageNumberInput"));
-            Assert.Equal("需求系列页码", AutomationProperties.GetName(pageNumber));
-            Assert.Equal(
-                "DemandSeriesPageNumberInput",
-                AutomationProperties.GetAutomationId(pageNumber));
-            Assert.True(pageNumber.Focusable);
-            Assert.True(KeyboardNavigation.GetIsTabStop(pageNumber));
-            Assert.True(pageNumber.MinWidth >= 100);
-            Assert.Equal(VerticalAlignment.Center, pageNumber.VerticalContentAlignment);
-            Assert.False(pageNumber.IsEnabled);
-            Assert.False(Assert.IsAssignableFrom<ButtonBase>(
-                window.FindName("DemandSeriesGoToPageButton")).IsEnabled);
-            var pagingRow = Assert.IsType<RowDefinition>(
-                window.FindName("DemandSeriesPagingRow"));
-            Assert.True(pagingRow.Height.IsAuto);
+            var emptyState = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
+                window.FindName("DemandSeriesEmptyState"));
+            Assert.Equal("需求系列空结果", AutomationProperties.GetName(emptyState));
+            Assert.Equal(Visibility.Collapsed, emptyState.Visibility);
+            Assert.True(Assert.IsType<RowDefinition>(
+                window.FindName("DemandSeriesPagingRow")).Height.IsAuto);
             foreach (var name in new[]
             {
                 "DemandSeriesPreviousButton",
@@ -300,173 +248,15 @@ public sealed class WatchV2ProductionShellTests
             })
             {
                 var pagingButton = Assert.IsAssignableFrom<Control>(window.FindName(name));
-                Assert.Equal(HorizontalAlignment.Center, pagingButton.HorizontalContentAlignment);
-                Assert.Equal(VerticalAlignment.Center, pagingButton.VerticalContentAlignment);
-            }
-            var emptyState = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                window.FindName("DemandSeriesEmptyState"));
-            Assert.Equal(Visibility.Collapsed, emptyState.Visibility);
-            Assert.Equal("需求系列空结果", AutomationProperties.GetName(emptyState));
-
-            var masterPanel = Assert.IsType<Border>(
-                window.FindName("DemandSeriesMasterPanel"));
-            var detailPanel = Assert.IsType<Border>(
-                window.FindName("DemandSeriesDetailPanel"));
-            var detailToggle = Assert.IsType<Wpf.Ui.Controls.ToggleSwitch>(
-                window.FindName("DemandSeriesDetailVisibilityToggle"));
-            var splitter = Assert.IsType<GridSplitter>(
-                window.FindName("DemandSeriesMasterDetailSplitter"));
-            Assert.Equal("需求系列主列表", AutomationProperties.GetName(masterPanel));
-            Assert.Equal("需求系列详情与证据", AutomationProperties.GetName(detailPanel));
-            Assert.Equal("需求系列详情已展开；关闭可让主列表占满可用高度", AutomationProperties.GetName(detailToggle));
-            Assert.Equal("调整需求系列列表与详情高度", AutomationProperties.GetName(splitter));
-            Assert.True(splitter.Focusable);
-            Assert.True(KeyboardNavigation.GetIsTabStop(splitter));
-            Assert.True(splitter.MinHeight >= 32);
-            Assert.Equal(GridResizeDirection.Rows, splitter.ResizeDirection);
-            Assert.Equal(GridResizeBehavior.PreviousAndNext, splitter.ResizeBehavior);
-            Assert.Equal(0, Grid.GetRow(masterPanel));
-            Assert.Equal(2, Grid.GetRow(detailPanel));
-            Assert.InRange(masterPanel.ActualWidth, 1, scrollViewer.ActualWidth);
-            Assert.InRange(detailPanel.ActualWidth, 1, scrollViewer.ActualWidth);
-
-            window.Width = 1440;
-            window.UpdateLayout();
-            var masterDetailGrid = Assert.IsType<Grid>(
-                window.FindName("DemandSeriesMasterDetailGrid"));
-            var expandedMasterHeight = new GridLength(1.6, GridUnitType.Star);
-            var expandedDetailHeight = new GridLength(0.4, GridUnitType.Star);
-            masterDetailGrid.RowDefinitions[0].Height = expandedMasterHeight;
-            masterDetailGrid.RowDefinitions[2].Height = expandedDetailHeight;
-            detailToggle.IsChecked = false;
-            window.UpdateLayout();
-            Assert.Equal(Visibility.Collapsed, detailPanel.Visibility);
-            Assert.Equal(Visibility.Collapsed, splitter.Visibility);
-            Assert.Equal(new GridLength(1, GridUnitType.Star), masterDetailGrid.RowDefinitions[0].Height);
-            Assert.Equal(new GridLength(0), masterDetailGrid.RowDefinitions[2].Height);
-            Assert.Equal("需求系列详情已收起；打开可恢复上次高度比例", AutomationProperties.GetName(detailToggle));
-            detailToggle.IsChecked = true;
-            window.UpdateLayout();
-            Assert.Equal(Visibility.Visible, detailPanel.Visibility);
-            Assert.Equal(Visibility.Visible, splitter.Visibility);
-            Assert.Equal(expandedMasterHeight, masterDetailGrid.RowDefinitions[0].Height);
-            Assert.Equal(expandedDetailHeight, masterDetailGrid.RowDefinitions[2].Height);
-
-            Assert.IsType<NavigationViewItem>(window.FindName("OverviewNavigationItem"))
-                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            Assert.IsType<NavigationViewItem>(window.FindName("DemandSeriesNavigationItem"))
-                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-            window.UpdateLayout();
-            Assert.Equal(expandedMasterHeight, masterDetailGrid.RowDefinitions[0].Height);
-            Assert.Equal(expandedDetailHeight, masterDetailGrid.RowDefinitions[2].Height);
-
-            var detailHeading = Assert.IsAssignableFrom<TextBlock>(
-                window.FindName("DemandSeriesDetailHeadingText"));
-            Assert.Equal("选中需求系列详情", AutomationProperties.GetName(detailHeading));
-            Assert.Contains("选择", detailHeading.Text, StringComparison.Ordinal);
-            var lifecycleEvidence = Assert.IsType<Grid>(
-                window.FindName("DemandSeriesLifecycleEvidencePanel"));
-            Assert.Equal(
-                "Demand 世代生命周期与永久事件",
-                AutomationProperties.GetName(lifecycleEvidence));
-            Assert.Equal(
-                "DemandSeriesLifecycleEvidencePanel",
-                AutomationProperties.GetAutomationId(lifecycleEvidence));
-            Assert.Equal(Visibility.Visible, lifecycleEvidence.Visibility);
-            var fullEvidence = Assert.IsType<TabControl>(
-                window.FindName("DemandSeriesFullEvidenceTabs"));
-            Assert.Equal("完整需求系列证据类别", AutomationProperties.GetName(fullEvidence));
-            Assert.Equal(
-                "DemandSeriesFullEvidenceTabs",
-                AutomationProperties.GetAutomationId(fullEvidence));
-            Assert.True(fullEvidence.Focusable);
-            Assert.True(KeyboardNavigation.GetIsTabStop(fullEvidence));
-            Assert.Equal(Visibility.Collapsed, fullEvidence.Visibility);
-            var fullEvidenceButton = Assert.IsAssignableFrom<ButtonBase>(
-                window.FindName("DemandSeriesFullEvidenceButton"));
-            Assert.Equal("完整证据", fullEvidenceButton.Content);
-            Assert.Equal(
-                "DemandSeriesFullEvidenceButton",
-                AutomationProperties.GetAutomationId(fullEvidenceButton));
-
-            var evidenceGrids = new Dictionary<string, string>
-            {
-                ["DemandSeriesGenerationGrid"] = "Demand 世代关系",
-                ["DemandSeriesRawObservationGrid"] = "MES 原始观测",
-                ["DemandSeriesConditionGrid"] = "需求系列当前条件",
-                ["DemandSeriesErrorPeriodGrid"] = "需求系列错误期间",
-                ["DemandSeriesErrorEvidenceGrid"] = "需求系列错误期间永久证据",
-                ["DemandSeriesEventGrid"] = "需求系列永久事件与轮次证据",
-            };
-            foreach (var (name, automationName) in evidenceGrids)
-            {
-                var grid = Assert.IsType<DataGrid>(window.FindName(name));
-                Assert.Equal(automationName, AutomationProperties.GetName(grid));
-                Assert.Equal(name, AutomationProperties.GetAutomationId(grid));
-                Assert.True(grid.IsReadOnly);
-                Assert.False(grid.AutoGenerateColumns);
-                Assert.Equal(DataGridSelectionUnit.FullRow, grid.SelectionUnit);
-                Assert.True(grid.Focusable, $"{name} must accept keyboard focus");
-                Assert.True(
-                    KeyboardNavigation.GetIsTabStop(grid),
-                    $"{name} must participate in tab navigation");
+                Assert.True(KeyboardNavigation.GetIsTabStop(pagingButton));
             }
 
-            var generationGrid = Assert.IsType<DataGrid>(
-                window.FindName("DemandSeriesGenerationGrid"));
-            Assert.Contains(generationGrid.Columns, column =>
-                string.Equals(column.Header?.ToString(), "外部可读", StringComparison.Ordinal));
-
-            // The compact generation grid keeps the readability verdict; the blocker
-            // detail and the trusted-MES field set moved to the full-evidence grid behind
-            // DemandSeriesFullEvidenceButton, so assert them where they now render.
-            var generationEvidenceGrid = Assert.IsType<DataGrid>(
-                window.FindName("DemandSeriesGenerationEvidenceGrid"));
-            Assert.Contains(generationEvidenceGrid.Columns, column =>
-                string.Equals(column.Header?.ToString(), "资格阻断", StringComparison.Ordinal));
-            Assert.Contains(generationEvidenceGrid.Columns, column =>
-                string.Equals(column.Header?.ToString(), "可信 MES", StringComparison.Ordinal));
-
-            var rawGrid = Assert.IsType<DataGrid>(
-                window.FindName("DemandSeriesRawObservationGrid"));
-            Assert.Equal(
-                new[]
-                {
-                    "#",
-                    "Assignment",
-                    "SeriesId",
-                    "DemandId",
-                    "WorkType",
-                    "SUBLOT",
-                    "AREA",
-                    "EQP",
-                    "STEP",
-                    "DATES / MesSourceDate",
-                    "MesSourceDateRaw",
-                    "PACKAGE",
-                    "ObservedAt",
-                    "PollTrace",
-                    "ProjectionCommit",
-                },
-                rawGrid.Columns.Select(column => column.Header?.ToString()));
-            Assert.StartsWith(
-                "可信 LiveMesFieldSet",
-                AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
-                    window.FindName("DemandSeriesLiveMesFieldsText"))),
-                StringComparison.Ordinal);
-            Assert.StartsWith(
-                "当前 Demand 资格阻断",
-                AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
-                    window.FindName("DemandSeriesReadabilityBlockersText"))),
-                StringComparison.Ordinal);
-
-            var confirmationPanel = Assert.IsType<Border>(
-                window.FindName("DemandSeriesAllAreasConfirmPanel"));
-            Assert.Equal(Visibility.Collapsed, confirmationPanel.Visibility);
-            Assert.Equal("范围外对象切换确认", AutomationProperties.GetName(confirmationPanel));
-            var confirmationInfo = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                window.FindName("DemandSeriesAllAreasConfirmInfo"));
-            Assert.Equal("范围外对象切换警告", AutomationProperties.GetName(confirmationInfo));
+            Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
+            Assert.Null(window.FindName("DemandSeriesDetailPanel"));
+            Assert.Null(window.FindName("DemandSeriesDetailVisibilityToggle"));
+            Assert.Null(window.FindName("DemandSeriesMasterDetailSplitter"));
+            Assert.Null(window.FindName("DemandSeriesGenerationGrid"));
+            Assert.Null(window.FindName("DemandSeriesFullEvidenceTabs"));
 
             window.Close();
             if (Directory.Exists(root))

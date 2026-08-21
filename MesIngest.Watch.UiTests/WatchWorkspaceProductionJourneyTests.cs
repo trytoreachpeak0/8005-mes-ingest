@@ -814,41 +814,42 @@ public sealed class WatchWorkspaceProductionJourneyTests
             var demandGrid = WaitForRows(window, "DemandSeriesGrid", "DemandSeries rows");
             failedStep = "demand-series-column-resize";
             ExerciseDemandSeriesColumnResize(demandGrid);
-            failedStep = "demand-series-master-only";
-            var detailVisibility = FindRequiredById(
-                    window,
-                    "DemandSeriesDetailVisibilityToggle")
-                .AsToggleButton();
-            Assert.Equal(ToggleState.On, detailVisibility.ToggleState);
-            detailVisibility.Toggle();
-            WaitUntil(
-                () => detailVisibility.ToggleState == ToggleState.Off,
-                "DemandSeries detail collapsed through its production toggle",
-                StepTimeout);
+            failedStep = "demand-series-full-height-list";
             Thread.Sleep(2000);
             Capture(
                 evidence,
                 process.MainWindowHandle,
                 "03a-demand-series-master-only");
-            detailVisibility.Toggle();
-            WaitUntil(
-                () => detailVisibility.ToggleState == ToggleState.On,
-                "DemandSeries detail restored through its production toggle",
-                StepTimeout);
             demandGrid.Select(0);
-            var demandGenerationGrid = WaitForRows(
-                window,
-                "DemandSeriesGenerationGrid",
-                "DemandSeries generations");
-            demandGenerationGrid.Focus();
+            FindRequiredById(window, "DemandSeriesOpenInspectorButton")
+                .AsButton()
+                .Invoke();
+            FlaUI.Core.AutomationElements.Window? inspector = null;
             WaitUntil(
-                () => !demandGenerationGrid.Properties.IsOffscreen.ValueOrDefault,
-                "DemandSeries detail evidence in view",
+                () =>
+                {
+                    inspector = application.GetAllTopLevelWindows(automation)
+                        .FirstOrDefault(candidate => string.Equals(
+                            candidate.AutomationId,
+                            "DemandSeriesInspectorWindow",
+                            StringComparison.Ordinal));
+                    return inspector is not null;
+                },
+                "the modeless DemandSeries Inspector",
                 StepTimeout);
+            var demandGenerationList = inspector!.FindFirstDescendant(
+                inspector.ConditionFactory.ByAutomationId(
+                    "DemandSeriesInspectorGenerationList"));
+            Assert.NotNull(demandGenerationList);
+            Assert.False(demandGenerationList.Properties.IsOffscreen.ValueOrDefault);
+            var inspectorHandle = new IntPtr(
+                inspector.Properties.NativeWindowHandle.ValueOrDefault);
+            ApplyJourneyClientSize(inspectorHandle);
             CaptureApprovedBaseline(
                 evidence,
-                process.MainWindowHandle,
+                inspectorHandle,
                 "03-demand-series-detail");
+            inspector.Close();
 
             failedStep = "readability-audit";
             Navigate(window, "ReadabilityAuditNavigationItem", "ReadabilityAuditPage");

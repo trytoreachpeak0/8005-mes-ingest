@@ -2,7 +2,6 @@ using System.IO;
 using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -43,6 +42,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private readonly WatchV2WorkspaceSession _session;
     private readonly WatchV2AutoRefreshCoordinator _autoRefresh;
+    private readonly WatchDemandSeriesInspectorCoordinator _demandSeriesInspectorCoordinator;
     private readonly string _connectionPreferencesPath;
     private readonly string _workspacePreferencesPath;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
@@ -58,11 +58,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private CurrentIngestAttentionQuery _currentAttentionQuery = new();
     private WatchDemandSeriesNavigationContext? _demandSeriesNavigation;
     private string? _focusedDemandId;
+    private string? _pendingDemandSeriesInspectorOpenSeriesId;
+    private bool _pendingDemandSeriesInspectorWasOpen;
     private string? _demandSeriesLifecycleDraft;
     private WatchWorkspacePage _activePage = WatchWorkspacePage.Overview;
     private bool _isRenderingDemandSeries;
-    private GridLength _demandSeriesExpandedMasterHeight;
-    private GridLength _demandSeriesExpandedDetailHeight;
     private long _demandSeriesOperationGeneration;
     private bool _initialized;
     private bool _isWatchingSystemTheme;
@@ -78,7 +78,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         bool initializeOnLoaded = true,
         string? areaFilterProfilesDirectoryPath = null,
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null,
-        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null)
+        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null,
+        WatchDemandSeriesInspectorCoordinator? demandSeriesInspectorCoordinator = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -90,6 +91,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _session,
             preferences.RefreshIntervals,
             timeProvider);
+        _demandSeriesInspectorCoordinator = demandSeriesInspectorCoordinator
+            ?? new WatchDemandSeriesInspectorCoordinator();
+        _demandSeriesInspectorCoordinator.StateChanged += OnDemandSeriesInspectorStateChanged;
+        _demandSeriesInspectorCoordinator.GenerationFocusRequested +=
+            OnDemandSeriesInspectorGenerationFocusRequested;
         InitializeAreaFilterProfiles(
             areaFilterProfilesDirectoryPath,
             timeProvider,
@@ -155,6 +161,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
     internal WatchAreaDisplayContext AreaContext => _areaContext;
 
     internal WatchWorkspacePage ActivePage => _activePage;
+
+    internal WatchDemandSeriesInspectorCoordinator DemandSeriesInspectorCoordinator =>
+        _demandSeriesInspectorCoordinator;
 
     internal OverviewNavigationIntent? LastOverviewNavigationIntent { get; private set; }
 
@@ -485,24 +494,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void InitializeDemandSeriesPage()
     {
-        _demandSeriesExpandedMasterHeight =
-            (GridLength)FindResource("DemandSeriesMasterDefaultHeight");
-        _demandSeriesExpandedDetailHeight =
-            (GridLength)FindResource("DemandSeriesDetailDefaultHeight");
-        DemandSeriesDetailVisibilityToggle.Checked += OnDemandSeriesDetailVisibilityChanged;
-        DemandSeriesDetailVisibilityToggle.Unchecked += OnDemandSeriesDetailVisibilityChanged;
-        DemandSeriesMasterDetailSplitter.DragCompleted += OnDemandSeriesMasterDetailSplitterDragCompleted;
-        ApplyDemandSeriesDetailVisibility();
-
         WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesGenerationGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesGenerationEvidenceGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesRawObservationGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesConditionGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesErrorPeriodGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesErrorEvidenceGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesEventGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(DemandSeriesEventEvidenceGrid, preserveSelectionUnit: true);
         DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(
@@ -539,6 +531,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         string? desiredSeriesId,
         CancellationToken cancellationToken)
     {
+        var priorSelectedSeriesId = _session.State.DemandSeries.SelectedId;
         var operation = BeginDemandSeriesOperation();
         if (!await SuspendDemandSeriesAutoRefreshAsync(
                 operation,
@@ -562,14 +555,39 @@ internal partial class WatchWorkspaceWindow : IDisposable
         if (!view.IsStale && view.Snapshot is { } committed)
         {
             _demandSeriesQuery = CanonicalDemandSeriesAutoRefreshQuery(committed);
-            if (!string.IsNullOrWhiteSpace(desiredSeriesId)
-                && committed.Items.Any(item => string.Equals(
+            var targetSeriesId = committed.Items.Any(item => string.Equals(
                     item.SeriesId,
                     desiredSeriesId,
-                    StringComparison.Ordinal)))
+                    StringComparison.Ordinal))
+                ? desiredSeriesId
+                : committed.Items.Any(item => string.Equals(
+                    item.SeriesId,
+                    priorSelectedSeriesId,
+                    StringComparison.Ordinal))
+                    ? priorSelectedSeriesId
+                    : priorSelectedSeriesId is null
+                        && desiredSeriesId is null
+                        && view.SelectionNotice is null
+                            ? committed.Items.FirstOrDefault()?.SeriesId
+                            : null;
+            if (!string.IsNullOrWhiteSpace(targetSeriesId)
+                && !string.Equals(view.SelectedId, targetSeriesId, StringComparison.Ordinal))
             {
                 await SelectDemandSeriesAndRenderAsync(
-                        desiredSeriesId,
+                        targetSeriesId,
+                        operation,
+                        cancellationToken,
+                        manageAutoRefresh: false)
+                    .ConfigureAwait(true);
+                if (!IsCurrentDemandSeriesOperation(operation, cancellationToken))
+                {
+                    return;
+                }
+            }
+            else if (targetSeriesId is null && priorSelectedSeriesId is not null)
+            {
+                await SelectDemandSeriesAndRenderAsync(
+                        seriesId: null,
                         operation,
                         cancellationToken,
                         manageAutoRefresh: false)
@@ -668,6 +686,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
         }
+
+        CompletePendingDemandSeriesInspectorOpen();
     }
 
     private long BeginDemandSeriesOperation() =>
@@ -800,56 +820,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
             comboBox.SelectedIndex = -1;
             comboBox.Text = value;
         }
-    }
-
-    private void OnDemandSeriesDetailVisibilityChanged(object sender, RoutedEventArgs e) =>
-        ApplyDemandSeriesDetailVisibility();
-
-    private void OnDemandSeriesMasterDetailSplitterDragCompleted(
-        object sender,
-        DragCompletedEventArgs e)
-    {
-        if (DemandSeriesDetailVisibilityToggle.IsChecked != true)
-        {
-            return;
-        }
-
-        _demandSeriesExpandedMasterHeight = DemandSeriesMasterDetailPrimaryRow.Height;
-        _demandSeriesExpandedDetailHeight = DemandSeriesMasterDetailBottomRow.Height;
-    }
-
-    private void ApplyDemandSeriesDetailVisibility()
-    {
-        var showDetail = DemandSeriesDetailVisibilityToggle.IsChecked == true;
-        if (!showDetail
-            && DemandSeriesDetailPanel.Visibility == Visibility.Visible
-            && !DemandSeriesMasterDetailPrimaryRow.Height.IsAuto
-            && !DemandSeriesMasterDetailBottomRow.Height.IsAuto)
-        {
-            _demandSeriesExpandedMasterHeight = DemandSeriesMasterDetailPrimaryRow.Height;
-            _demandSeriesExpandedDetailHeight = DemandSeriesMasterDetailBottomRow.Height;
-        }
-
-        DemandSeriesDetailPanel.Visibility = showDetail
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        DemandSeriesMasterDetailSplitter.Visibility = showDetail
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        DemandSeriesMasterDetailPrimaryRow.Height = showDetail
-            ? _demandSeriesExpandedMasterHeight
-            : (GridLength)FindResource("DemandSeriesMasterOnlyHeight");
-        DemandSeriesMasterDetailGapRow.Height = showDetail
-            ? (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight")
-            : (GridLength)FindResource("DemandSeriesCollapsedHeight");
-        DemandSeriesMasterDetailBottomRow.Height = showDetail
-            ? _demandSeriesExpandedDetailHeight
-            : (GridLength)FindResource("DemandSeriesCollapsedHeight");
-        AutomationProperties.SetName(
-            DemandSeriesDetailVisibilityToggle,
-            showDetail
-                ? "需求系列详情已展开；关闭可让主列表占满可用高度"
-                : "需求系列详情已收起；打开可恢复上次高度比例");
     }
 
     private void OnDemandSeriesFilterDraftChanged(object sender, SelectionChangedEventArgs e) =>
@@ -1196,80 +1166,22 @@ internal partial class WatchWorkspaceWindow : IDisposable
             DemandSeriesAllAreasConfirmButton.IsEnabled =
                 DemandSeriesAllAreasConfirmPanel.Visibility == Visibility.Visible;
 
-            var detail = presentation.Detail;
-            DemandSeriesDetailHeadingText.Text = detail is null
-                ? "选择一个需求系列以查看详情"
-                : detail.SeriesHeading;
-            DemandSeriesDetailSummaryText.Text = detail is null
-                ? "详情与列表绑定同一 SnapshotReference；新轮次不会改写当前证据。"
-                : $"{detail.Lifecycle} · 当前 Demand {detail.FocusedDemandId} · {detail.Generations.Count:N0} 个 Demand 世代 · {detail.Events.Count:N0} 个事件";
-            DemandSeriesDetailPresenceText.Text = detail is null
-                ? "当前 —"
-                : $"当前 {detail.CurrentPresence}";
-            DemandSeriesDetailPresencePill.Tag =
-                detail?.CurrentPresenceSemanticState ?? "Neutral";
-            DemandSeriesDetailPresencePill.Visibility = detail is null
-                ? Visibility.Collapsed
-                : Visibility.Visible;
+            var inspectorPresentation = CreateDemandSeriesInspectorPresentation();
+            DemandSeriesOpenInspectorButton.IsEnabled = inspectorPresentation is not null;
+            DemandSeriesOpenInspectorButton.Content = _demandSeriesInspectorCoordinator.IsOpen
+                ? "显示详情窗口"
+                : "打开详情窗口";
             AutomationProperties.SetName(
-                DemandSeriesDetailHeadingText,
-                detail is null
-                    ? "选中需求系列详情"
-                    : $"选中需求系列详情：{DemandSeriesDetailHeadingText.Text}");
-            DemandSeriesDetailFactsText.Text = detail is null
-                ? "选择后显示 Series 生命周期时间与创建证据。"
-                : $"SeriesStartedAt {detail.StartedAt} · ArchivedAt {detail.ArchivedAt} · 创建 PollTrace {detail.CreatedPollTraceId} · 创建 ProjectionCommit {detail.CreatedProjectionCommitId} · 最近 PollTrace {detail.LatestPollTraceId} · 最近 ProjectionCommit {detail.LatestProjectionCommitId}";
-            AutomationProperties.SetHelpText(
-                DemandSeriesDetailFactsText,
-                DemandSeriesDetailFactsText.Text);
-            DemandSeriesLifecycleEvidencePanel.ToolTip = DemandSeriesDetailFactsText.Text;
-            AutomationProperties.SetHelpText(
-                DemandSeriesLifecycleEvidencePanel,
-                DemandSeriesDetailFactsText.Text);
-            DemandSeriesGenerationGrid.ItemsSource = detail?.Generations;
-            DemandSeriesGenerationEvidenceGrid.ItemsSource = detail?.Generations;
-            DemandSeriesLifecycleMilestones.ItemsSource = detail?.LifecycleMilestones;
-            DemandSeriesRawObservationGrid.ItemsSource = detail?.RawObservations;
-            var liveMes = detail?.FocusedLiveMesFields;
-            DemandSeriesLiveMesFieldsText.Text = detail is null
-                ? "选择 Demand 后显示唯一可信 LiveMesFieldSet。"
-                : liveMes is null
-                    ? $"DemandId {detail.FocusedDemandId} · 当前无可信 LiveMesFieldSet · {detail.MesSourceDateLabel} {detail.MesSourceDateValue}"
-                    : $"DemandId {detail.FocusedDemandId} · AREA {liveMes.Area} · EQP {liveMes.Eqp} · STEP {liveMes.Step} · {detail.MesSourceDateLabel} {liveMes.MesSourceDate} · PACKAGE {liveMes.Package}";
-            DemandSeriesObservationSummaryText.Text = detail?.ObservationSummary
-                ?? "尚无 Demand 原始观测摘要。";
-            var focusedGeneration = detail?.Generations.FirstOrDefault(row => string.Equals(
-                row.DemandId,
-                detail.FocusedDemandId,
-                StringComparison.Ordinal));
-            DemandSeriesReadabilityBlockersText.Text = focusedGeneration is null
-                ? "尚无当前 Demand 资格结论。"
-                : focusedGeneration.ReadabilityBlockers.Count == 0
-                    ? $"{focusedGeneration.ExternalReadabilityState} · 无资格阻断"
-                    : $"{focusedGeneration.ExternalReadabilityState} · 资格阻断 {string.Join('、', focusedGeneration.ReadabilityBlockers)}";
-            AutomationProperties.SetName(
-                DemandSeriesLiveMesFieldsText,
-                $"可信 LiveMesFieldSet：{DemandSeriesLiveMesFieldsText.Text}");
-            AutomationProperties.SetName(
-                DemandSeriesReadabilityBlockersText,
-                $"当前 Demand 资格阻断：{DemandSeriesReadabilityBlockersText.Text}");
-            DemandSeriesConditionGrid.ItemsSource = detail?.CurrentConditions;
-            var selectedPeriodId = (DemandSeriesErrorPeriodGrid.SelectedItem
-                as WatchDemandErrorPeriodPresentation)?.PeriodId;
-            DemandSeriesErrorPeriodGrid.ItemsSource = detail?.ErrorPeriods;
-            var selectedPeriod = detail?.ErrorPeriods.FirstOrDefault(period => string.Equals(
-                    period.PeriodId,
-                    selectedPeriodId,
-                    StringComparison.Ordinal))
-                ?? detail?.ErrorPeriods.FirstOrDefault();
-            DemandSeriesErrorPeriodGrid.SelectedItem = selectedPeriod;
-            DemandSeriesErrorEvidenceGrid.ItemsSource = selectedPeriod?.Evidence;
-            DemandSeriesEventGrid.ItemsSource = detail?.Events;
-            DemandSeriesEventEvidenceGrid.ItemsSource = detail?.Events;
-            DemandSeriesGenerationGrid.SelectedItem = detail?.Generations.FirstOrDefault(row =>
-                string.Equals(row.DemandId, detail.FocusedDemandId, StringComparison.Ordinal));
-            DemandSeriesCopyTimeButton.IsEnabled = detail is not null;
-            DemandSeriesCopyEvidenceButton.IsEnabled = detail is not null;
+                DemandSeriesOpenInspectorButton,
+                _demandSeriesInspectorCoordinator.IsOpen
+                    ? "显示 DemandSeries 详情窗口"
+                    : "打开 DemandSeries 详情窗口");
+            if (inspectorPresentation is not null
+                && _demandSeriesInspectorCoordinator.IsOpen)
+            {
+                _demandSeriesInspectorCoordinator.Update(inspectorPresentation);
+            }
+
             UpdateDemandSeriesClearFiltersState();
         }
         finally
@@ -1974,6 +1886,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             _focusedDemandId = null;
             var seriesId = (DemandSeriesGrid.SelectedItem as WatchDemandSeriesRowPresentation)?.SeriesId;
+            if (!string.Equals(
+                _pendingDemandSeriesInspectorOpenSeriesId,
+                seriesId,
+                StringComparison.Ordinal))
+            {
+                ClearPendingDemandSeriesInspectorOpen();
+            }
+
             await SelectDemandSeriesAndRenderAsync(
                     seriesId,
                     _lifetimeCancellation.Token)
@@ -1981,76 +1901,138 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }).ConfigureAwait(true);
     }
 
-    private void OnDemandSeriesGenerationSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private WatchDemandSeriesInspectorPresentation? CreateDemandSeriesInspectorPresentation()
     {
-        if (_isRenderingDemandSeries
-            || DemandSeriesGenerationGrid.SelectedItem
-                is not WatchDemandGenerationPresentation generation)
+        var view = _session.State.DemandSeries;
+        var detail = view.Detail;
+        if (detail is null
+            || view.IsStale
+            || view.IsDetailLoading
+            || !string.Equals(
+                view.SelectedId,
+                detail.Series.SeriesId,
+                StringComparison.Ordinal)
+            || !string.Equals(
+                view.Snapshot?.SnapshotReference,
+                detail.SnapshotReference,
+                StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return WatchDemandSeriesInspectorPresentation.Project(detail, _focusedDemandId);
+    }
+
+    private void OnDemandSeriesOpenInspectorClick(object sender, RoutedEventArgs e) =>
+        OpenOrShowDemandSeriesInspector();
+
+    private void OnDemandSeriesGridPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
         {
             return;
         }
 
-        _focusedDemandId = generation.DemandId;
-        RenderWorkspace();
+        e.Handled = OpenOrShowDemandSeriesInspector();
     }
 
-    private void OnDemandSeriesErrorPeriodSelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void OnDemandSeriesGridMouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (_isRenderingDemandSeries)
+        if (e.ChangedButton == MouseButton.Left)
+        {
+            e.Handled = OpenOrShowDemandSeriesInspector();
+        }
+    }
+
+    private bool OpenOrShowDemandSeriesInspector()
+    {
+        var presentation = CreateDemandSeriesInspectorPresentation();
+        if (presentation is null)
+        {
+            var selectedSeriesId = (DemandSeriesGrid.SelectedItem
+                as WatchDemandSeriesRowPresentation)?.SeriesId;
+            var view = _session.State.DemandSeries;
+            if (!view.IsDetailLoading
+                || string.IsNullOrWhiteSpace(selectedSeriesId)
+                || !string.Equals(view.SelectedId, selectedSeriesId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            _pendingDemandSeriesInspectorOpenSeriesId = selectedSeriesId;
+            _pendingDemandSeriesInspectorWasOpen =
+                _demandSeriesInspectorCoordinator.IsOpen;
+            if (_pendingDemandSeriesInspectorWasOpen)
+            {
+                _demandSeriesInspectorCoordinator.ShowExisting();
+            }
+
+            return true;
+        }
+
+        ClearPendingDemandSeriesInspectorOpen();
+        _demandSeriesInspectorCoordinator.OpenOrShow(presentation);
+        RenderDemandSeries(_session.State);
+        return true;
+    }
+
+    private void OnDemandSeriesInspectorStateChanged(object? sender, EventArgs e)
+    {
+        if (!_demandSeriesInspectorCoordinator.IsOpen
+            && _pendingDemandSeriesInspectorWasOpen)
+        {
+            ClearPendingDemandSeriesInspectorOpen();
+        }
+
+        if (!_disposed)
+        {
+            RenderDemandSeries(_session.State);
+        }
+    }
+
+    private void OnDemandSeriesInspectorGenerationFocusRequested(
+        object? sender,
+        WatchDemandSeriesGenerationFocusRequestedEventArgs e)
+    {
+        _focusedDemandId = e.DemandId;
+        RenderDemandSeries(_session.State);
+    }
+
+    private void CompletePendingDemandSeriesInspectorOpen()
+    {
+        var pendingSeriesId = _pendingDemandSeriesInspectorOpenSeriesId;
+        if (pendingSeriesId is null)
         {
             return;
         }
 
-        DemandSeriesErrorEvidenceGrid.ItemsSource =
-            (DemandSeriesErrorPeriodGrid.SelectedItem
-                as WatchDemandErrorPeriodPresentation)?.Evidence;
-    }
-
-    private void OnDemandSeriesFullEvidenceClick(object sender, RoutedEventArgs e)
-    {
-        var showFullEvidence = DemandSeriesFullEvidenceTabs.Visibility != Visibility.Visible;
-        DemandSeriesLifecycleEvidencePanel.Visibility = showFullEvidence
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        DemandSeriesFullEvidenceTabs.Visibility = showFullEvidence
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        DemandSeriesCopyTimeButton.Visibility = showFullEvidence
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        DemandSeriesCopyEvidenceButton.Visibility = showFullEvidence
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-        DemandSeriesFullEvidenceButton.Content = showFullEvidence
-            ? "返回生命周期"
-            : "完整证据";
-        AutomationProperties.SetName(
-            DemandSeriesFullEvidenceButton,
-            showFullEvidence ? "返回需求系列生命周期" : "显示完整需求系列证据");
-    }
-
-    private void OnDemandSeriesCopyTimeClick(object sender, RoutedEventArgs e)
-    {
-        if (_session.State.DemandSeries.Detail?.Series is not { } series)
+        var presentation = CreateDemandSeriesInspectorPresentation();
+        ClearPendingDemandSeriesInspectorOpen();
+        if (presentation is null
+            || !string.Equals(
+                presentation.SeriesId,
+                pendingSeriesId,
+                StringComparison.Ordinal))
         {
             return;
         }
 
-        WatchGridClipboardBehavior.TrySetClipboardText(
-            WatchDemandSeriesClipboard.FormatFocusedDemandTimes(
-                series,
-                _focusedDemandId));
-    }
-
-    private void OnDemandSeriesCopyEvidenceClick(object sender, RoutedEventArgs e)
-    {
-        if (_session.State.DemandSeries.Detail?.Series is not { } series)
+        if (_demandSeriesInspectorCoordinator.IsOpen)
         {
-            return;
+            _demandSeriesInspectorCoordinator.Update(presentation);
+        }
+        else
+        {
+            _demandSeriesInspectorCoordinator.OpenOrShow(presentation);
         }
 
-        WatchGridClipboardBehavior.TrySetClipboardText(
-            WatchDemandSeriesClipboard.FormatSeriesEvidence(series));
+        RenderDemandSeries(_session.State);
+    }
+
+    private void ClearPendingDemandSeriesInspectorOpen()
+    {
+        _pendingDemandSeriesInspectorOpenSeriesId = null;
+        _pendingDemandSeriesInspectorWasOpen = false;
     }
 
     private async Task RunDemandSeriesUiActionAsync(Func<Task> action)
@@ -2254,7 +2236,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsBottomRow.Height = stackSettings ? GridLength.Auto : new GridLength(0);
 
         ReflowDemandSeries(
-            contentWidth < (double)FindResource("DemandSeriesMasterDetailStackBreakpoint"),
             useOuterScrolling);
 
         var stackReadability = contentWidth
@@ -2294,39 +2275,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
             : new Thickness(24, 16, 24, 16);
     }
 
-    private void ReflowDemandSeries(bool stack, bool useOuterScrolling)
-    {
-        Grid.SetColumn(DemandSeriesMasterPanel, 0);
-        Grid.SetRow(DemandSeriesMasterPanel, 0);
-        Grid.SetColumn(DemandSeriesDetailPanel, 0);
-        Grid.SetRow(DemandSeriesDetailPanel, 2);
-
-        if (DemandSeriesDetailVisibilityToggle.IsChecked != true)
-        {
-            ApplyDemandSeriesDetailVisibility();
-        }
-        else if (stack)
-        {
-            DemandSeriesMasterDetailPrimaryRow.Height =
-                (GridLength)FindResource("DemandSeriesAutoHeight");
-            DemandSeriesMasterDetailGapRow.Height =
-                (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight");
-            DemandSeriesMasterDetailBottomRow.Height =
-                (GridLength)FindResource("DemandSeriesAutoHeight");
-        }
-        else
-        {
-            DemandSeriesMasterDetailPrimaryRow.Height = _demandSeriesExpandedMasterHeight;
-            DemandSeriesMasterDetailGapRow.Height =
-                (GridLength)FindResource("DemandSeriesSplitterHitTargetHeight");
-            DemandSeriesMasterDetailBottomRow.Height = _demandSeriesExpandedDetailHeight;
-        }
-
+    private void ReflowDemandSeries(bool useOuterScrolling) =>
         ConfigureResponsivePageViewport(
             DemandSeriesLayoutGrid,
             DemandSeriesScrollViewer,
-            stack || useOuterScrolling);
-    }
+            useOuterScrolling);
 
     private static void ConfigureResponsivePageViewport(
         FrameworkElement pageLayout,
@@ -2482,6 +2435,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Interlocked.Increment(ref _currentAttentionOperationGeneration);
         Wpf.Ui.Appearance.ApplicationThemeManager.Changed -= OnApplicationThemeChanged;
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
+        _demandSeriesInspectorCoordinator.StateChanged -= OnDemandSeriesInspectorStateChanged;
+        _demandSeriesInspectorCoordinator.GenerationFocusRequested -=
+            OnDemandSeriesInspectorGenerationFocusRequested;
         WorkspaceContent.SizeChanged -= OnWorkspaceContentSizeChanged;
         WorkspaceNavigation.PaneOpened -= OnWorkspaceNavigationPaneStateChanged;
         WorkspaceNavigation.PaneClosed -= OnWorkspaceNavigationPaneStateChanged;
@@ -2491,6 +2447,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         DisposeAreaProfileAutoSave();
         _areaProfileStore.Dispose();
         _lifetimeCancellation.Cancel();
+        _demandSeriesInspectorCoordinator.Dispose();
         _autoRefresh.Dispose();
         _session.Dispose();
         _lifetimeCancellation.Dispose();

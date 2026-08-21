@@ -285,60 +285,23 @@ public sealed class WatchSelectedPrototypeStructureTests
 
                 var demand = Find<Grid>(window, "DemandSeriesLayoutGrid");
                 AssertSelectedPageRows(demand);
-                var demandBody = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
-                Assert.Equal(4, Grid.GetRow(demandBody));
-                Assert.Equal(3, demandBody.RowDefinitions.Count);
-                AssertStar(demandBody.RowDefinitions[0].Height, 1.2);
-                AssertPixel(demandBody.RowDefinitions[1].Height, 32);
-                AssertStar(demandBody.RowDefinitions[2].Height, 0.8);
-
                 var demandMaster = Find<Border>(window, "DemandSeriesMasterPanel");
-                var demandDetail = Find<Border>(window, "DemandSeriesDetailPanel");
-                Assert.Equal(0, Grid.GetRow(demandMaster));
-                Assert.Equal(2, Grid.GetRow(demandDetail));
+                Assert.Equal(4, Grid.GetRow(demandMaster));
                 var demandMasterGrid = Assert.IsType<Grid>(demandMaster.Child);
                 Assert.Equal(3, demandMasterGrid.RowDefinitions.Count);
                 AssertAuto(demandMasterGrid.RowDefinitions[0].Height);
                 AssertStar(demandMasterGrid.RowDefinitions[1].Height, 1);
                 AssertAuto(demandMasterGrid.RowDefinitions[2].Height);
 
-                var lifecycleEvidence = Find<Grid>(
+                var openInspector = Find<Wpf.Ui.Controls.Button>(
                     window,
-                    "DemandSeriesLifecycleEvidencePanel");
-                Assert.Equal(Visibility.Visible, lifecycleEvidence.Visibility);
-                Assert.Equal(3, lifecycleEvidence.ColumnDefinitions.Count);
-                AssertStar(lifecycleEvidence.ColumnDefinitions[0].Width, 0.95);
-                AssertPixel(lifecycleEvidence.ColumnDefinitions[1].Width, 1);
-                AssertStar(lifecycleEvidence.ColumnDefinitions[2].Width, 1.35);
-                Assert.Equal(
-                    Visibility.Visible,
-                    Find<DataGrid>(window, "DemandSeriesGenerationGrid").Visibility);
-                Assert.Equal(
-                    Visibility.Visible,
-                    Find<DataGrid>(window, "DemandSeriesEventGrid").Visibility);
-
-                var fullEvidence = Find<TabControl>(
-                    window,
-                    "DemandSeriesFullEvidenceTabs");
-                Assert.Equal(Visibility.Collapsed, fullEvidence.Visibility);
-                Assert.Equal(3, fullEvidence.Items.Count);
-                var evidenceToggle = Find<Wpf.Ui.Controls.Button>(
-                    window,
-                    "DemandSeriesFullEvidenceButton");
-                Assert.Equal("完整证据", evidenceToggle.Content);
-                Assert.Equal("Secondary", evidenceToggle.Appearance.ToString());
-
-                evidenceToggle.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-
-                Assert.Equal(Visibility.Collapsed, lifecycleEvidence.Visibility);
-                Assert.Equal(Visibility.Visible, fullEvidence.Visibility);
-                Assert.Equal("返回生命周期", evidenceToggle.Content);
-
-                evidenceToggle.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-
-                Assert.Equal(Visibility.Visible, lifecycleEvidence.Visibility);
-                Assert.Equal(Visibility.Collapsed, fullEvidence.Visibility);
-                Assert.Equal("完整证据", evidenceToggle.Content);
+                    "DemandSeriesOpenInspectorButton");
+                Assert.Equal("打开详情窗口", openInspector.Content);
+                Assert.Equal("Secondary", openInspector.Appearance.ToString());
+                Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
+                Assert.Null(window.FindName("DemandSeriesDetailPanel"));
+                Assert.Null(window.FindName("DemandSeriesDetailVisibilityToggle"));
+                Assert.Null(window.FindName("DemandSeriesMasterDetailSplitter"));
             }
             finally
             {

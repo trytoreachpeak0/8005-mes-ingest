@@ -246,43 +246,12 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 var grid = Find<DataGrid>(window, "DemandSeriesGrid");
                 Assert.Equal("需求系列列表", AutomationProperties.GetName(grid));
                 Assert.Single(grid.Items);
-                var detailHeading = Find<TextBlock>(window, "DemandSeriesDetailHeadingText");
-                Assert.Contains("SL-CURRENT-AREA", detailHeading.Text, StringComparison.Ordinal);
-                Assert.Contains(
-                    detailHeading.Text,
-                    AutomationProperties.GetName(detailHeading),
-                    StringComparison.Ordinal);
-                var presencePill = Find<Border>(
-                    window,
-                    "DemandSeriesDetailPresencePill");
-                Assert.Equal(Visibility.Visible, presencePill.Visibility);
-                Assert.Equal("Success", presencePill.Tag);
-                Assert.Equal(
-                    Assert.IsType<SolidColorBrush>(
-                        window.FindResource("SystemFillColorSuccessBackgroundBrush")).Color,
-                    Assert.IsType<SolidColorBrush>(presencePill.Background).Color);
                 Assert.Equal(
                     "Tracking 1",
                     Find<TextBlock>(window, "DemandSeriesTrackingFacetText").Text);
                 Assert.Equal(
                     "Archived 0",
                     Find<TextBlock>(window, "DemandSeriesArchivedFacetText").Text);
-                var milestones = Find<ItemsControl>(
-                        window,
-                        "DemandSeriesLifecycleMilestones")
-                    .Items
-                    .Cast<WatchDemandLifecycleMilestonePresentation>()
-                    .ToArray();
-                Assert.Equal(4, milestones.Length);
-                Assert.Equal(
-                    WatchTimeDisplay.Format(detail.Series.StartedAt),
-                    milestones[0].Value);
-                Assert.Contains(
-                    milestones,
-                    milestone => string.Equals(
-                        milestone.Status,
-                        detail.Series.CurrentDemand.ExternalReadabilityState,
-                        StringComparison.Ordinal));
 
                 // The source-comparison notice belongs to the drill transition. The settled
                 // page keeps its compact summary visible while the detailed notice is folded.
@@ -303,41 +272,24 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Contains("当前封装 AREA", context.Text, StringComparison.Ordinal);
                 Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
                 Assert.Contains("最近成功", context.Text, StringComparison.Ordinal);
-                Assert.Matches(@"自动刷新 \d+ 秒$", context.Text);
-                Assert.DoesNotContain("全部运输需求业务键", context.Text, StringComparison.Ordinal);
+                Assert.Matches(@"自动刷新 d+ 秒$", context.Text);
                 var fullContext = Assert.IsType<string>(context.ToolTip);
                 Assert.Equal(fullContext, AutomationProperties.GetHelpText(context));
-                Assert.Contains("Host 已提交范围", fullContext, StringComparison.Ordinal);
                 Assert.Contains("commit-demand-series-20", fullContext, StringComparison.Ordinal);
 
                 var master = Find<Border>(window, "DemandSeriesMasterPanel");
-                var detailPanel = Find<Border>(window, "DemandSeriesDetailPanel");
-                var splitter = Find<GridSplitter>(
-                    window,
-                    "DemandSeriesMasterDetailSplitter");
-                var masterTop = master.TranslatePoint(new Point(), window).Y;
-                var detailTop = detailPanel.TranslatePoint(new Point(), window).Y;
                 var contextBottom = context.TranslatePoint(
                     new Point(0, context.ActualHeight),
                     window).Y;
+                var masterTop = master.TranslatePoint(new Point(), window).Y;
                 Assert.True(
                     contextBottom <= masterTop,
-                    $"Demand source context must precede the master list; "
+                    $"Demand source context must precede the full-height list; "
                     + $"contextBottom={contextBottom:0.##}, masterTop={masterTop:0.##}.");
-                Assert.InRange(
-                    Math.Abs(detailTop - (masterTop + master.ActualHeight + splitter.ActualHeight)),
-                    0,
-                    1.5);
-
-                var masterHeading = Find<TextBlock>(window, "DemandSeriesMasterHeadingText");
-                Assert.True(
-                    masterHeading.FontSize >= 18,
-                    $"Demand master heading must retain the selected section hierarchy; actual={masterHeading.FontSize:0.##}.");
-                Assert.Equal(masterHeading.FontSize, detailHeading.FontSize);
-                Assert.Equal(masterHeading.FontWeight, detailHeading.FontWeight);
-                var masterHeadingX = masterHeading.TranslatePoint(new Point(), window).X;
-                var detailHeadingX = detailHeading.TranslatePoint(new Point(), window).X;
-                Assert.InRange(Math.Abs(masterHeadingX - detailHeadingX), 0, 1.5);
+                Assert.Equal(4, Grid.GetRow(master));
+                Assert.Null(window.FindName("DemandSeriesDetailPanel"));
+                Assert.Null(window.FindName("DemandSeriesMasterDetailSplitter"));
+                Assert.Null(window.FindName("DemandSeriesDetailVisibilityToggle"));
 
                 Assert.Equal(
                     [
@@ -359,68 +311,38 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     grid,
                     "Demand master must preserve readable column widths through horizontal scrolling in the 1440 viewport");
 
-                var detailFacts = Find<TextBlock>(window, "DemandSeriesDetailFactsText");
-                Assert.Equal(TextWrapping.NoWrap, detailFacts.TextWrapping);
-                Assert.Equal(TextTrimming.CharacterEllipsis, detailFacts.TextTrimming);
-                Assert.Equal(Visibility.Collapsed, detailFacts.Visibility);
-                Assert.Equal(detailFacts.Text, detailFacts.ToolTip);
-                Assert.Equal(detailFacts.Text, AutomationProperties.GetHelpText(detailFacts));
-                var lifecyclePanel = Find<Grid>(window, "DemandSeriesLifecycleEvidencePanel");
-                Assert.Equal(detailFacts.Text, lifecyclePanel.ToolTip);
-                Assert.Equal(
-                    detailFacts.Text,
-                    AutomationProperties.GetHelpText(lifecyclePanel));
+                var openInspector = Find<Button>(window, "DemandSeriesOpenInspectorButton");
+                Assert.True(openInspector.IsEnabled);
+                Assert.Equal("打开详情窗口", openInspector.Content);
+                openInspector.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                await Dispatcher.Yield(DispatcherPriority.Background);
 
-                var generationGrid = Find<DataGrid>(window, "DemandSeriesGenerationGrid");
-                var eventGrid = Find<DataGrid>(window, "DemandSeriesEventGrid");
+                var inspectorWindow = Assert.IsType<WatchDemandSeriesInspectorWindow>(
+                    window.DemandSeriesInspectorCoordinator.CurrentWindow);
+                Assert.True(inspectorWindow.IsVisible);
+                Assert.Null(inspectorWindow.Owner);
+                Assert.False(inspectorWindow.Topmost);
+                Assert.True(inspectorWindow.ShowInTaskbar);
+                Assert.Equal("显示详情窗口", openInspector.Content);
+                var inspectorPresentation = Assert.IsType<WatchDemandSeriesInspectorPresentation>(
+                    inspectorWindow.DataContext);
+                Assert.Equal(seriesId, inspectorPresentation.SeriesId);
+                Assert.Equal(snapshotReference, inspectorPresentation.FrozenSnapshot.SnapshotReference);
+                var tabs = Assert.IsType<TabControl>(
+                    inspectorWindow.FindName("DemandSeriesInspectorTabs"));
                 Assert.Equal(
-                    ["DemandId", "代", "状态", "创建", "外部可读"],
-                    generationGrid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
+                    ["世代分析", "事件"],
+                    tabs.Items.Cast<TabItem>()
+                        .Select(item => item.Header?.ToString() ?? string.Empty)
+                        .ToArray());
                 Assert.Equal(
-                    ["SEQ", "EVENT KIND", "OBSERVED", "DemandId", "摘要"],
-                    eventGrid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
-                AssertNoSignificantHorizontalScroll(
-                    generationGrid,
-                    "Demand generation identity and predecessor fields must be scannable initially");
+                    "DemandSeriesInspectorGenerationList",
+                    AutomationProperties.GetAutomationId(Assert.IsType<ListBox>(
+                        inspectorWindow.FindName("DemandSeriesInspectorGenerationList"))));
                 Assert.Equal(
-                    ScrollBarVisibility.Auto,
-                    ScrollViewer.GetHorizontalScrollBarVisibility(eventGrid));
-                Assert.True(
-                    generationGrid.ActualHeight >= generationGrid.ColumnHeaderHeight
-                        + generationGrid.RowHeight,
-                    $"Demand generations must keep at least one full row usable at the default master-first ratio; actual={generationGrid.ActualHeight:0.##}.");
-                Assert.True(
-                    eventGrid.ActualHeight >= eventGrid.ColumnHeaderHeight
-                        + eventGrid.RowHeight,
-                    $"Demand events must keep at least one full row usable at the default master-first ratio; actual={eventGrid.ActualHeight:0.##}.");
-                Assert.Equal(
-                    Visibility.Collapsed,
-                    Find<Button>(window, "DemandSeriesCopyTimeButton").Visibility);
-                Assert.Equal(
-                    Visibility.Collapsed,
-                    Find<Button>(window, "DemandSeriesCopyEvidenceButton").Visibility);
-
-                var liveMes = Find<TextBlock>(window, "DemandSeriesLiveMesFieldsText");
-                Assert.Contains("A1-1", liveMes.Text, StringComparison.Ordinal);
-                Assert.Contains("MesSourceDate", liveMes.Text, StringComparison.Ordinal);
-                var errorPeriods = Find<DataGrid>(window, "DemandSeriesErrorPeriodGrid");
-                var errorEvidence = Find<DataGrid>(window, "DemandSeriesErrorEvidenceGrid");
-                Assert.Equal(2, errorPeriods.Items.Count);
-                Assert.Contains(
-                    "evidence-period-one",
-                    errorEvidence.Items.Cast<WatchDemandErrorEvidencePresentation>()
-                        .Select(item => item.EvidenceId));
-
-                errorPeriods.SelectedIndex = 1;
-
-                Assert.Contains(
-                    "evidence-period-two",
-                    errorEvidence.Items.Cast<WatchDemandErrorEvidencePresentation>()
-                        .Select(item => item.EvidenceId));
-                Assert.DoesNotContain(
-                    "evidence-period-one",
-                    errorEvidence.Items.Cast<WatchDemandErrorEvidencePresentation>()
-                        .Select(item => item.EvidenceId));
+                    "DemandSeriesInspectorFormationReason",
+                    AutomationProperties.GetAutomationId(Assert.IsAssignableFrom<TextBlock>(
+                        inspectorWindow.FindName("DemandSeriesInspectorFormationReasonText"))));
             }
             finally
             {

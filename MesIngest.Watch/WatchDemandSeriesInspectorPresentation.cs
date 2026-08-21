@@ -109,7 +109,10 @@ internal sealed record WatchDemandSeriesInspectorGenerationPresentation(
     bool IsCurrent,
     WatchDemandFormationReasonPresentation FormationReason,
     IReadOnlyList<WatchDemandFormationFactPresentation> FormationFacts,
-    WatchDemandMesBoundaryPresentation MesBoundary);
+    WatchDemandMesBoundaryPresentation MesBoundary)
+{
+    public string CurrentMarker => IsCurrent ? "当前世代" : "历史世代";
+}
 
 internal sealed record WatchDemandSeriesInspectorPresentation(
     string SeriesId,

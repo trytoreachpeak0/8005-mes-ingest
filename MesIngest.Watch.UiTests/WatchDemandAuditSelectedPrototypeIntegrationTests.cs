@@ -12,7 +12,7 @@ namespace MesIngest.Watch.UiTests;
 public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
 {
     [Fact]
-    public async Task Demand_wide_real_window_keeps_header_filters_master_and_detail_in_one_viewport()
+    public async Task Demand_wide_real_window_keeps_header_filters_and_full_height_list_in_one_viewport()
     {
         using var files = new WatchErrorSearchProductionIntegrationTests.TemporaryWatchFiles();
 
@@ -32,9 +32,6 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.Width = 1920;
                 window.Height = 1080;
                 window.Show();
-                var ticketViewportAvailable = VisualTreeHelper.GetDpi(window).DpiScaleX == 1
-                    && SystemParameters.PrimaryScreenWidth >= 1920
-                    && SystemParameters.PrimaryScreenHeight >= 1080;
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeries,
                     PageNumber: 1,
@@ -47,18 +44,8 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Equal(ScrollBarVisibility.Disabled, viewport.VerticalScrollBarVisibility);
                 Assert.Equal(0, viewport.VerticalOffset);
 
-                var workspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
-                Assert.Empty(workspace.ColumnDefinitions);
-                Assert.Equal(3, workspace.RowDefinitions.Count);
-                AssertStar(workspace.RowDefinitions[0].Height, 1.2);
-                AssertPixel(workspace.RowDefinitions[1].Height, 32);
-                AssertStar(workspace.RowDefinitions[2].Height, 0.8);
-
                 var master = Find<Border>(window, "DemandSeriesMasterPanel");
-                var detail = Find<Border>(window, "DemandSeriesDetailPanel");
-                Assert.Equal((0, 0), (Grid.GetColumn(master), Grid.GetRow(master)));
-                Assert.Equal((0, 2), (Grid.GetColumn(detail), Grid.GetRow(detail)));
-
+                Assert.Equal((0, 4), (Grid.GetColumn(master), Grid.GetRow(master)));
                 AssertFullyWithin(
                     Find<Wpf.Ui.Controls.TextBlock>(window, "DemandSeriesContextText"),
                     viewport,
@@ -67,48 +54,25 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     Find<ScrollViewer>(window, "DemandSeriesFilterScroller"),
                     viewport,
                     "Demand filters");
-                AssertFullyWithin(master, viewport, "Demand master");
-                if (ticketViewportAvailable)
-                {
-                    AssertFullyWithin(detail, viewport, "Demand detail");
-                }
+                AssertFullyWithin(master, viewport, "Demand full-height list");
                 AssertFullyWithin(
                     Find<Border>(window, "DemandSeriesAllAreasConfirmPanel"),
                     viewport,
                     "Demand all-AREA confirmation");
-                if (ticketViewportAvailable)
-                {
-                    AssertFullyWithin(
-                        Find<DataGrid>(window, "DemandSeriesEventGrid"),
-                        viewport,
-                        "Demand immutable-event evidence");
-                }
 
-                Find<Wpf.Ui.Controls.ToggleSwitch>(
-                    window,
-                    "DemandSeriesDetailVisibilityToggle").IsChecked = false;
-                window.UpdateLayout();
-
-                AssertStar(workspace.RowDefinitions[0].Height, 1);
-                AssertPixel(workspace.RowDefinitions[1].Height, 0);
-                AssertPixel(workspace.RowDefinitions[2].Height, 0);
-                Assert.Equal(Visibility.Collapsed, detail.Visibility);
+                Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
+                Assert.Null(window.FindName("DemandSeriesDetailPanel"));
+                Assert.Null(window.FindName("DemandSeriesDetailVisibilityToggle"));
+                Assert.Null(window.FindName("DemandSeriesMasterDetailSplitter"));
 
                 var demandGrid = Find<DataGrid>(window, "DemandSeriesGrid");
                 var fullRowCapacity = Math.Floor(
                     (demandGrid.ActualHeight - demandGrid.ColumnHeaderHeight)
                     / demandGrid.RowHeight);
-                if (ticketViewportAvailable)
-                {
-                    Assert.True(
-                        fullRowCapacity >= 12,
-                        $"At 1920x1080 with detail collapsed, the master list must fit at least "
-                        + $"12 full rows; capacity={fullRowCapacity:0}, gridHeight={demandGrid.ActualHeight:0.##}.");
-                }
-                else
-                {
-                    Assert.True(fullRowCapacity > 0);
-                }
+                Assert.True(
+                    fullRowCapacity >= 12,
+                    $"At 1920x1080 the full-height master list must fit at least "
+                    + $"12 full rows; capacity={fullRowCapacity:0}, gridHeight={demandGrid.ActualHeight:0.##}.");
 
                 var firstHeader = FindVisualDescendants<DataGridColumnHeader>(demandGrid)
                     .Single(header => ReferenceEquals(header.Column, demandGrid.Columns[0]));
@@ -375,12 +339,12 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 AssertWideScrollablePageReaches(
                     window,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer"),
-                    Find<DataGrid>(window, "DemandSeriesEventGrid"),
-                    "Demand immutable-event evidence");
+                    Find<Border>(window, "DemandSeriesMasterPanel"),
+                    "Demand full-height list");
                 Assert.Equal(
-                    (0, 2),
-                    (Grid.GetColumn(Find<Border>(window, "DemandSeriesDetailPanel")),
-                        Grid.GetRow(Find<Border>(window, "DemandSeriesDetailPanel"))));
+                    (0, 4),
+                    (Grid.GetColumn(Find<Border>(window, "DemandSeriesMasterPanel")),
+                        Grid.GetRow(Find<Border>(window, "DemandSeriesMasterPanel"))));
 
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.ReadabilityAudit,
@@ -470,8 +434,8 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 navigation.IsPaneOpen = false;
                 window.UpdateLayout();
                 var windowWidth = window.ActualWidth;
-                var demandWorkspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
-                AssertStar(demandWorkspace.RowDefinitions[0].Height, 1.2);
+                var demandMaster = Find<Border>(window, "DemandSeriesMasterPanel");
+                var masterHeight = demandMaster.ActualHeight;
                 Assert.Equal(
                     ScrollBarVisibility.Disabled,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
@@ -481,10 +445,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.UpdateLayout();
 
                 Assert.Equal(windowWidth, window.ActualWidth);
-                Assert.True(demandWorkspace.RowDefinitions[0].Height.IsAuto);
-                Assert.True(demandWorkspace.RowDefinitions[2].Height.IsAuto);
+                Assert.InRange(Math.Abs(demandMaster.ActualHeight - masterHeight), 0, 1.5);
                 Assert.Equal(
-                    ScrollBarVisibility.Auto,
+                    ScrollBarVisibility.Disabled,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
                         .VerticalScrollBarVisibility);
 
@@ -492,8 +455,7 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.UpdateLayout();
 
                 Assert.Equal(windowWidth, window.ActualWidth);
-                AssertStar(demandWorkspace.RowDefinitions[0].Height, 1.2);
-                AssertStar(demandWorkspace.RowDefinitions[2].Height, 0.8);
+                Assert.InRange(Math.Abs(demandMaster.ActualHeight - masterHeight), 0, 1.5);
                 Assert.Equal(
                     ScrollBarVisibility.Disabled,
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
@@ -540,13 +502,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     Find<ScrollViewer>(window, "DemandSeriesScrollViewer")
                         .VerticalScrollBarVisibility);
                 var demandMaster = Find<Border>(window, "DemandSeriesMasterPanel");
-                var demandDetail = Find<Border>(window, "DemandSeriesDetailPanel");
-                Assert.Equal((0, 0), (Grid.GetColumn(demandMaster), Grid.GetRow(demandMaster)));
-                Assert.Equal((0, 2), (Grid.GetColumn(demandDetail), Grid.GetRow(demandDetail)));
-                var demandWorkspace = Find<Grid>(window, "DemandSeriesMasterDetailGrid");
-                Assert.True(demandWorkspace.RowDefinitions[0].Height.IsAuto);
-                AssertPixel(demandWorkspace.RowDefinitions[1].Height, 32);
-                Assert.True(demandWorkspace.RowDefinitions[2].Height.IsAuto);
+                Assert.Equal((0, 4), (Grid.GetColumn(demandMaster), Grid.GetRow(demandMaster)));
+                Assert.Null(window.FindName("DemandSeriesDetailPanel"));
+                Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
 
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.ReadabilityAudit,
@@ -664,7 +622,8 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Null(window.FindName("DemandSeriesLifecycleFilter"));
                 Assert.NotNull(Find<Border>(window, "DemandSeriesTrackingFacetPill"));
                 Assert.NotNull(Find<Border>(window, "DemandSeriesArchivedFacetPill"));
-                Assert.NotNull(Find<ItemsControl>(window, "DemandSeriesLifecycleMilestones"));
+                Assert.NotNull(Find<Button>(window, "DemandSeriesOpenInspectorButton"));
+                Assert.Null(window.FindName("DemandSeriesLifecycleMilestones"));
                 var demandFilters = Find<Grid>(window, "DemandSeriesFilterPanel");
                 Assert.Equal(13, demandFilters.ColumnDefinitions.Count);
                 AssertPixel(demandFilters.ColumnDefinitions[1].Width, 12);

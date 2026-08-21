@@ -36,19 +36,7 @@
         <sys:Double x:Key="DemandSeriesPageNumberWidth">112</sys:Double>
         <sys:Double x:Key="DemandSeriesPageSummaryMinWidth">230</sys:Double>
         <sys:Double x:Key="DemandSeriesMasterPanelMinHeight">260</sys:Double>
-        <sys:Double x:Key="DemandSeriesDetailPanelMinHeight">256</sys:Double>
-        <sys:Double x:Key="DemandSeriesMasterDetailStackBreakpoint">1080</sys:Double>
-        <wpf:GridLength x:Key="DemandSeriesMasterDefaultHeight">1.2*</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesDetailDefaultHeight">0.8*</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesMasterOnlyHeight">1*</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesCollapsedHeight">0</wpf:GridLength>
         <wpf:GridLength x:Key="DemandSeriesAutoHeight">Auto</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesSplitterHitTargetHeight">32</wpf:GridLength>
-        <sys:Double x:Key="DemandSeriesSplitterMinHitTargetHeight">32</sys:Double>
-        <sys:Double x:Key="DemandSeriesSplitterVisualHeight">4</sys:Double>
-        <wpf:GridLength x:Key="DemandSeriesMesObservationHeight">220</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesEvidenceShortHeight">110</wpf:GridLength>
-        <wpf:GridLength x:Key="DemandSeriesEvidenceMediumHeight">120</wpf:GridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumnSizeToCells">SizeToCells</wpfControls:DataGridLength>
         <sys:Double x:Key="DemandSeriesSeriesIdColumnMinWidth">120</sys:Double>
         <sys:Double x:Key="DemandSeriesWorkTypeColumnMinWidth">165</sys:Double>
@@ -59,25 +47,19 @@
         <sys:Double x:Key="DemandSeriesCompactColumnMinWidth">72</sys:Double>
         <sys:Double x:Key="DemandSeriesTimeColumnMinWidth">160</sys:Double>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn45">45</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn55">55</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn65">65</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn90">90</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn100">100</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn110">110</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn120">120</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn130">130</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn140">140</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn150">150</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn160">160</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn170">170</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn180">180</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn190">190</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn210">210</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn230">230</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn240">240</wpfControls:DataGridLength>
         <wpfControls:DataGridLength x:Key="DemandSeriesColumn260">260</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn300">300</wpfControls:DataGridLength>
-        <wpfControls:DataGridLength x:Key="DemandSeriesColumn330">330</wpfControls:DataGridLength>
         <wpf:Thickness x:Key="DemandSeriesPageBodyMargin">0,0,8,8</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesSectionTopMargin">0,16,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesControlTopMargin">0,8,0,0</wpf:Thickness>
@@ -85,7 +67,6 @@
         <wpf:Thickness x:Key="DemandSeriesFilterFieldMargin">0,0,8,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesGroupBottomMargin">0,0,0,12</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesRelatedBottomMargin">0,0,0,8</wpf:Thickness>
-        <wpf:Thickness x:Key="DemandSeriesMicroBottomMargin">0,0,0,4</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesCommandTrailingMargin">0,0,8,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesCommandTileMargin">0,0,8,8</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesActionTopMargin">0,12,0,0</wpf:Thickness>
@@ -93,14 +74,11 @@
         <wpf:Thickness x:Key="DemandSeriesCompactCommandMargin">0,4,8,4</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesCompactCommandLastMargin">0,4,0,4</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesPagingSummaryMargin">0,8,16,8</wpf:Thickness>
-        <wpf:Thickness x:Key="DemandSeriesContentMargin">8</wpf:Thickness>
-        <wpf:Thickness x:Key="DemandSeriesPagingTopPadding">0,12,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesPagingDividerThickness">0,1,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesInfoContentMargin">0,8,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesInfoSummaryMargin">0,4,12,0</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesMasterHeaderMargin">16,12</wpf:Thickness>
         <wpf:Thickness x:Key="DemandSeriesHeadingSubtitleMargin">0,4,0,0</wpf:Thickness>
-        <SolidColorBrush x:Key="DemandSeriesSplitterHitTargetBrush" Color="Transparent" />
         <!-- ReadabilityAudit and AREA page geometry stays tokenized so the shared
              integration train can calibrate the two master-detail workspaces. -->
         <sys:Double x:Key="ReadabilityStateFilterWidth">165</sys:Double>
@@ -709,597 +687,172 @@
 
                                 </StackPanel>
 
-                                <Grid x:Name="DemandSeriesMasterDetailGrid" Grid.Row="4">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition x:Name="DemandSeriesMasterDetailPrimaryRow"
-                                                       Height="{StaticResource DemandSeriesMasterDefaultHeight}" />
-                                        <RowDefinition x:Name="DemandSeriesMasterDetailGapRow"
-                                                       Height="{StaticResource DemandSeriesSplitterHitTargetHeight}" />
-                                        <RowDefinition x:Name="DemandSeriesMasterDetailBottomRow"
-                                                       Height="{StaticResource DemandSeriesDetailDefaultHeight}" />
-                                    </Grid.RowDefinitions>
-
-                                    <Border x:Name="DemandSeriesMasterPanel"
-                                            Grid.Row="0"
-                                            Style="{StaticResource SurfaceCard}"
-                                            Padding="0"
-                                            MinHeight="{StaticResource DemandSeriesMasterPanelMinHeight}"
-                                            AutomationProperties.Name="需求系列主列表">
-                                        <Grid>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="*" />
-                                                <RowDefinition x:Name="DemandSeriesPagingRow"
-                                                               Height="{StaticResource DemandSeriesAutoHeight}" />
-                                            </Grid.RowDefinitions>
-                                            <Grid Margin="{StaticResource DemandSeriesMasterHeaderMargin}">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel>
-                                                    <ui:TextBlock x:Name="DemandSeriesMasterHeadingText"
-                                                                  Text="当前范围内的 DemandSeries"
-                                                                  Style="{StaticResource SectionTitleText}" />
-                                                    <ui:TextBlock x:Name="DemandSeriesOrderText"
-                                                                  Text="Host 固定排序：开始时间降序、SeriesId 升序；坏数据仍保留在运维列表中。"
-                                                                  Style="{StaticResource SecondaryText}"
-                                                                  Margin="{StaticResource DemandSeriesHeadingSubtitleMargin}"
-                                                                  AutomationProperties.Name="需求系列固定排序" />
-                                                </StackPanel>
-                                                <ui:ToggleSwitch x:Name="DemandSeriesDetailVisibilityToggle"
-                                                                 Grid.Column="1"
-                                                                 IsChecked="True"
-                                                                 OnContent="已展开"
-                                                                 OffContent="已收起"
-                                                                 VerticalAlignment="Center"
-                                                                 Focusable="True"
-                                                                 KeyboardNavigation.IsTabStop="True"
-                                                                 AutomationProperties.Name="需求系列详情已展开；关闭可让主列表占满可用高度"
-                                                                 AutomationProperties.AutomationId="DemandSeriesDetailVisibilityToggle" />
-                                            </Grid>
-                                            <Grid Grid.Row="1">
-                                               <DataGrid x:Name="DemandSeriesGrid"
+                                <Border x:Name="DemandSeriesMasterPanel"
+                                        Grid.Row="4"
+                                        Style="{StaticResource SurfaceCard}"
+                                        Padding="0"
+                                        MinHeight="{StaticResource DemandSeriesMasterPanelMinHeight}"
+                                        AutomationProperties.Name="需求系列主列表">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition x:Name="DemandSeriesPagingRow"
+                                                           Height="{StaticResource DemandSeriesAutoHeight}" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Margin="{StaticResource DemandSeriesMasterHeaderMargin}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <ui:TextBlock x:Name="DemandSeriesMasterHeadingText"
+                                                              Text="当前范围内的 DemandSeries"
+                                                              Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesOrderText"
+                                                              Text="Host 固定排序：开始时间降序、SeriesId 升序；坏数据仍保留在运维列表中。"
+                                                              Style="{StaticResource SecondaryText}"
+                                                              Margin="{StaticResource DemandSeriesHeadingSubtitleMargin}"
+                                                              AutomationProperties.Name="需求系列固定排序" />
+                                            </StackPanel>
+                                            <ui:Button x:Name="DemandSeriesOpenInspectorButton"
+                                                       Grid.Column="1"
+                                                       Content="打开详情窗口"
+                                                       Appearance="Secondary"
+                                                       VerticalAlignment="Center"
+                                                       IsEnabled="False"
+                                                       Click="OnDemandSeriesOpenInspectorClick"
+                                                       KeyboardNavigation.IsTabStop="True"
+                                                       AutomationProperties.Name="打开 DemandSeries 详情窗口"
+                                                       AutomationProperties.AutomationId="DemandSeriesOpenInspectorButton">
+                                                <ui:Button.Icon>
+                                                    <ui:SymbolIcon Symbol="Open24" />
+                                                </ui:Button.Icon>
+                                            </ui:Button>
+                                        </Grid>
+                                        <Grid Grid.Row="1">
+                                            <DataGrid x:Name="DemandSeriesGrid"
                                                       Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                         CanUserResizeColumns="True"
-                                                         SelectionChanged="OnDemandSeriesSelectionChanged"
+                                                      CanUserResizeColumns="True"
+                                                      SelectionChanged="OnDemandSeriesSelectionChanged"
+                                                      PreviewKeyDown="OnDemandSeriesGridPreviewKeyDown"
+                                                      MouseDoubleClick="OnDemandSeriesGridMouseDoubleClick"
                                                       VerticalScrollBarVisibility="Auto"
-                                                         AutomationProperties.Name="需求系列列表"
-                                                         AutomationProperties.AutomationId="DemandSeriesGrid">
+                                                      AutomationProperties.Name="需求系列列表"
+                                                      AutomationProperties.AutomationId="DemandSeriesGrid">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSeriesIdColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesWorkTypeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSublotColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTemplateColumn Header="生命周期 / 当前出现" SortMemberPath="LifecycleAndPresence" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesLifecycleColumnMinWidth}">
-                                                         <DataGridTemplateColumn.CellTemplate>
-                                                             <DataTemplate>
-                                                                 <StackPanel Orientation="Horizontal" AutomationProperties.Name="{Binding LifecycleAndPresence}">
-                                                                     <ui:SymbolIcon Symbol="Pulse24" Margin="{StaticResource DemandSeriesCommandTrailingMargin}" />
-                                                                     <ui:TextBlock Text="{Binding LifecycleAndPresence}"
-                                                                                   FontTypography="Body"
-                                                                                   VerticalAlignment="Center" />
-                                                                 </StackPanel>
-                                                             </DataTemplate>
-                                                         </DataGridTemplateColumn.CellTemplate>
-                                                     </DataGridTemplateColumn>
-                                                     <DataGridTextColumn Header="当前 AREA" Binding="{Binding LiveMesFields.Area}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesAreaColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="当前 Demand" Binding="{Binding CurrentDemandId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesDemandColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="世代" Binding="{Binding CurrentGeneration}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="事件" Binding="{Binding LastSeriesSequence}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="LAST SEEN" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="GONE SINCE" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                     <DataGridTextColumn Header="ARCHIVED" Binding="{Binding ArchivedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                 </DataGrid.Columns>
-                                             </DataGrid>
-                                                <ui:InfoBar x:Name="DemandSeriesEmptyState"
-                                                            Visibility="Collapsed"
-                                                            IsOpen="False"
-                                                            IsClosable="False"
-                                                            Severity="Informational"
-                                                            Title="当前条件没有 DemandSeries"
-                                                            Message="Host 已返回精确 0 个结果。可调整筛选；若这是跨 AREA 下钻，请使用上方显式范围确认。"
+                                                    <DataGridTemplateColumn Header="生命周期 / 当前出现" SortMemberPath="LifecycleAndPresence" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesLifecycleColumnMinWidth}">
+                                                        <DataGridTemplateColumn.CellTemplate>
+                                                            <DataTemplate>
+                                                                <StackPanel Orientation="Horizontal" AutomationProperties.Name="{Binding LifecycleAndPresence}">
+                                                                    <ui:SymbolIcon Symbol="Pulse24" Margin="{StaticResource DemandSeriesCommandTrailingMargin}" />
+                                                                    <ui:TextBlock Text="{Binding LifecycleAndPresence}"
+                                                                                  FontTypography="Body"
+                                                                                  VerticalAlignment="Center" />
+                                                                </StackPanel>
+                                                            </DataTemplate>
+                                                        </DataGridTemplateColumn.CellTemplate>
+                                                    </DataGridTemplateColumn>
+                                                    <DataGridTextColumn Header="当前 AREA" Binding="{Binding LiveMesFields.Area}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesAreaColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="当前 Demand" Binding="{Binding CurrentDemandId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesDemandColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="世代" Binding="{Binding CurrentGeneration}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="事件" Binding="{Binding LastSeriesSequence}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="LAST SEEN" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="GONE SINCE" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="ARCHIVED" Binding="{Binding ArchivedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                </DataGrid.Columns>
+                                            </DataGrid>
+                                            <ui:InfoBar x:Name="DemandSeriesEmptyState"
+                                                        Visibility="Collapsed"
+                                                        IsOpen="False"
+                                                        IsClosable="False"
+                                                        Severity="Informational"
+                                                        Title="当前条件没有 DemandSeries"
+                                                        Message="Host 已返回精确 0 个结果。可调整筛选；若这是跨 AREA 下钻，请使用上方显式范围确认。"
+                                                        VerticalAlignment="Center"
+                                                        AutomationProperties.Name="需求系列空结果" />
+                                        </Grid>
+                                        <Border Grid.Row="2"
+                                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="{StaticResource DemandSeriesPagingDividerThickness}"
+                                                Padding="12,0">
+                                            <WrapPanel>
+                                                <ui:TextBlock x:Name="DemandSeriesPageSummaryText"
+                                                              Text="精确 0 个 Series · 第 1 / 1 页"
+                                                              Style="{StaticResource SecondaryText}"
+                                                              MinWidth="{StaticResource DemandSeriesPageSummaryMinWidth}"
+                                                              Margin="{StaticResource DemandSeriesPagingSummaryMargin}"
+                                                              AutomationProperties.Name="需求系列精确分页摘要" />
+                                                <StackPanel Orientation="Horizontal"
                                                             VerticalAlignment="Center"
-                                                            AutomationProperties.Name="需求系列空结果" />
-                                            </Grid>
-                                            <Border Grid.Row="2"
-                                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                                    BorderThickness="{StaticResource DemandSeriesPagingDividerThickness}"
-                                                    Padding="12,0">
-                                                <WrapPanel>
-                                                    <ui:TextBlock x:Name="DemandSeriesPageSummaryText"
-                                                                  Text="精确 0 个 Series · 第 1 / 1 页"
-                                                                  Style="{StaticResource SecondaryText}"
-                                                                  MinWidth="{StaticResource DemandSeriesPageSummaryMinWidth}"
-                                                                  Margin="{StaticResource DemandSeriesPagingSummaryMargin}"
-                                                                  AutomationProperties.Name="需求系列精确分页摘要" />
-                                                    <StackPanel Orientation="Horizontal"
-                                                                VerticalAlignment="Center"
-                                                                Margin="0,4,8,4">
-                                                        <ui:TextBlock Text="每页"
-                                                                      Style="{StaticResource CaptionText}"
-                                                                      VerticalAlignment="Center" />
-                                                         <ComboBox x:Name="DemandSeriesPageSizeFilter"
-                                                                   SelectedIndex="2"
-                                                                   Width="{StaticResource DemandSeriesFilterPageSizeWidth}"
-                                                                   Margin="4,0,0,0"
-                                                                   VerticalContentAlignment="Center"
-                                                                  KeyboardNavigation.IsTabStop="True"
-                                                                  AutomationProperties.Name="每页数量"
-                                                                  AutomationProperties.AutomationId="DemandSeriesPageSizeFilter">
-                                                            <ComboBoxItem Content="25" />
-                                                            <ComboBoxItem Content="50" />
-                                                            <ComboBoxItem Content="100" />
-                                                            <ComboBoxItem Content="200" />
-                                                        </ComboBox>
-                                                    </StackPanel>
-                                                     <ui:Button x:Name="DemandSeriesPreviousButton"
-                                                               Content="上一页"
-                                                               Appearance="Secondary"
-                                                                IsEnabled="False"
-                                                                Click="OnDemandSeriesPreviousClick"
-                                                               Margin="{StaticResource DemandSeriesCompactCommandMargin}"
-                                                               HorizontalContentAlignment="Center"
-                                                               VerticalContentAlignment="Center"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                                AutomationProperties.Name="需求系列上一页"
-                                                                AutomationProperties.AutomationId="DemandSeriesPreviousButton" />
-                                                     <TextBox x:Name="DemandSeriesPageNumberInput"
-                                                             Text="1"
-                                                             Width="{StaticResource DemandSeriesPageNumberWidth}"
-                                                             MinWidth="{StaticResource DemandSeriesPageNumberWidth}"
-                                                             Margin="{StaticResource DemandSeriesCompactCommandMargin}"
-                                                             HorizontalContentAlignment="Center"
-                                                             VerticalContentAlignment="Center"
-                                                             KeyboardNavigation.IsTabStop="True"
-                                                             AutomationProperties.Name="需求系列页码"
-                                                             AutomationProperties.AutomationId="DemandSeriesPageNumberInput" />
-                                                     <ui:Button x:Name="DemandSeriesGoToPageButton"
-                                                               Content="跳转"
-                                                                Appearance="Secondary"
-                                                                Click="OnDemandSeriesGoToPageClick"
-                                                               Margin="{StaticResource DemandSeriesCompactCommandMargin}"
-                                                               HorizontalContentAlignment="Center"
-                                                               VerticalContentAlignment="Center"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                                AutomationProperties.Name="跳转到需求系列页码"
-                                                                AutomationProperties.AutomationId="DemandSeriesGoToPageButton" />
-                                                     <ui:Button x:Name="DemandSeriesNextButton"
-                                                               Content="下一页"
-                                                               Appearance="Secondary"
-                                                                IsEnabled="False"
-                                                                Click="OnDemandSeriesNextClick"
-                                                               Margin="{StaticResource DemandSeriesCompactCommandLastMargin}"
-                                                               HorizontalContentAlignment="Center"
-                                                               VerticalContentAlignment="Center"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                                AutomationProperties.Name="需求系列下一页"
-                                                                AutomationProperties.AutomationId="DemandSeriesNextButton" />
-                                                </WrapPanel>
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-
-                                    <Grid Grid.Row="1">
-                                        <Border Height="{StaticResource DemandSeriesSplitterVisualHeight}"
-                                                VerticalAlignment="Center"
-                                                Background="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                                IsHitTestVisible="False" />
-                                        <GridSplitter x:Name="DemandSeriesMasterDetailSplitter"
-                                                      MinHeight="{StaticResource DemandSeriesSplitterMinHitTargetHeight}"
-                                                      HorizontalAlignment="Stretch"
-                                                      VerticalAlignment="Stretch"
-                                                      ResizeDirection="Rows"
-                                                      ResizeBehavior="PreviousAndNext"
-                                                      ShowsPreview="True"
-                                                      Focusable="True"
-                                                      KeyboardNavigation.IsTabStop="True"
-                                                      Background="{StaticResource DemandSeriesSplitterHitTargetBrush}"
-                                                      AutomationProperties.Name="调整需求系列列表与详情高度"
-                                                      AutomationProperties.AutomationId="DemandSeriesMasterDetailSplitter" />
-                                    </Grid>
-
-                                    <Border x:Name="DemandSeriesDetailPanel"
-                                            Grid.Row="2"
-                                            Style="{StaticResource SurfaceCard}"
-                                            Padding="0"
-                                            MinHeight="{StaticResource DemandSeriesDetailPanelMinHeight}"
-                                            AutomationProperties.Name="需求系列详情与证据">
-                                        <Grid>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="1" />
-                                                <RowDefinition Height="*" />
-                                            </Grid.RowDefinitions>
-                                            <Grid Margin="16,11,16,10">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*" />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <StackPanel>
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <ui:TextBlock x:Name="DemandSeriesDetailHeadingText"
-                                                                      Text="选择一个需求系列以查看详情"
-                                                                      Style="{StaticResource SectionTitleText}"
-                                                                      AutomationProperties.Name="选中需求系列详情" />
-                                                        <Border x:Name="DemandSeriesDetailPresencePill"
-                                                                Margin="12,0,0,0"
-                                                                VerticalAlignment="Center"
-                                                                Tag="Neutral"
-                                                                Visibility="Collapsed">
-                                                            <Border.Style>
-                                                                <Style TargetType="Border"
-                                                                       BasedOn="{StaticResource StatusPill}">
-                                                                    <Style.Triggers>
-                                                                        <Trigger Property="Tag" Value="Success">
-                                                                            <Setter Property="Background"
-                                                                                    Value="{DynamicResource SystemFillColorSuccessBackgroundBrush}" />
-                                                                            <Setter Property="TextElement.Foreground"
-                                                                                    Value="{DynamicResource SystemFillColorSuccessBrush}" />
-                                                                        </Trigger>
-                                                                        <Trigger Property="Tag" Value="Caution">
-                                                                            <Setter Property="Background"
-                                                                                    Value="{DynamicResource SystemFillColorCautionBackgroundBrush}" />
-                                                                            <Setter Property="TextElement.Foreground"
-                                                                                    Value="{DynamicResource SystemFillColorCautionBrush}" />
-                                                                        </Trigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </Border.Style>
-                                                            <ui:TextBlock x:Name="DemandSeriesDetailPresenceText"
-                                                                          Text="当前 —"
-                                                                          FontTypography="Caption"
-                                                                          FontWeight="SemiBold" />
-                                                        </Border>
-                                                    </StackPanel>
-                                                    <ui:TextBlock x:Name="DemandSeriesDetailSummaryText"
-                                                                  Text="详情与列表绑定同一 SnapshotReference；新轮次不会改写当前证据。"
-                                                                  Style="{StaticResource SecondaryText}"
-                                                                  Margin="0,3,0,0" />
+                                                            Margin="0,4,8,4">
+                                                    <ui:TextBlock Text="每页"
+                                                                  Style="{StaticResource CaptionText}"
+                                                                  VerticalAlignment="Center" />
+                                                    <ComboBox x:Name="DemandSeriesPageSizeFilter"
+                                                              SelectedIndex="2"
+                                                              Width="{StaticResource DemandSeriesFilterPageSizeWidth}"
+                                                              Margin="4,0,0,0"
+                                                              VerticalContentAlignment="Center"
+                                                              KeyboardNavigation.IsTabStop="True"
+                                                              AutomationProperties.Name="每页数量"
+                                                              AutomationProperties.AutomationId="DemandSeriesPageSizeFilter">
+                                                        <ComboBoxItem Content="25" />
+                                                        <ComboBoxItem Content="50" />
+                                                        <ComboBoxItem Content="100" />
+                                                        <ComboBoxItem Content="200" />
+                                                    </ComboBox>
                                                 </StackPanel>
-                                                <WrapPanel Grid.Column="1" VerticalAlignment="Center">
-                                                    <ui:Button x:Name="DemandSeriesFullEvidenceButton"
-                                                               Content="完整证据"
-                                                               Appearance="Secondary"
-                                                               Click="OnDemandSeriesFullEvidenceClick"
-                                                               Margin="0,0,8,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               AutomationProperties.Name="显示完整需求系列证据"
-                                                               AutomationProperties.AutomationId="DemandSeriesFullEvidenceButton" />
-                                                     <ui:Button x:Name="DemandSeriesCopyTimeButton"
-                                                                Content="复制时间"
-                                                                Appearance="Secondary"
-                                                                Visibility="Collapsed"
-                                                                IsEnabled="False"
-                                                               Click="OnDemandSeriesCopyTimeClick"
-                                                               Margin="0,0,8,0"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               AutomationProperties.Name="复制需求系列时间"
-                                                               AutomationProperties.AutomationId="DemandSeriesCopyTimeButton" />
-                                                     <ui:Button x:Name="DemandSeriesCopyEvidenceButton"
-                                                                Content="复制证据"
-                                                                Appearance="Secondary"
-                                                                Visibility="Collapsed"
-                                                                IsEnabled="False"
-                                                               Click="OnDemandSeriesCopyEvidenceClick"
-                                                               KeyboardNavigation.IsTabStop="True"
-                                                               AutomationProperties.Name="复制需求系列证据"
-                                                               AutomationProperties.AutomationId="DemandSeriesCopyEvidenceButton" />
-                                                </WrapPanel>
-                                            </Grid>
-                                            <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                                            <Grid Grid.Row="2">
-                                                 <Grid x:Name="DemandSeriesLifecycleEvidencePanel"
-                                                      Margin="16,12,16,12"
-                                                      AutomationProperties.Name="Demand 世代生命周期与永久事件"
-                                                      AutomationProperties.AutomationId="DemandSeriesLifecycleEvidencePanel">
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="0.95*" />
-                                                            <ColumnDefinition Width="1" />
-                                                            <ColumnDefinition Width="1.35*" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <Grid Grid.Column="0" Margin="0,0,16,0">
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="*" />
-                                                            </Grid.RowDefinitions>
-                                                            <ui:TextBlock Text="生命周期与 Demand 世代"
-                                                                          Style="{StaticResource BodyStrong}" />
-                                                             <ui:TextBlock x:Name="DemandSeriesDetailFactsText"
-                                                                           Grid.Row="1"
-                                                                           Text="选择后显示 Series 生命周期时间与创建证据。"
-                                                                           Style="{StaticResource SecondaryText}"
-                                                                           Margin="0,3,0,10"
-                                                                           TextWrapping="NoWrap"
-                                                                           TextTrimming="CharacterEllipsis"
-                                                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                                           Visibility="Collapsed"
-                                                                           AutomationProperties.Name="需求系列生命周期与来源证据" />
-                                                            <ItemsControl x:Name="DemandSeriesLifecycleMilestones"
-                                                                          Grid.Row="2"
-                                                                          Margin="0,0,0,10"
-                                                                          AutomationProperties.Name="需求系列四节点生命周期里程碑"
-                                                                          AutomationProperties.AutomationId="DemandSeriesLifecycleMilestones">
-                                                                <ItemsControl.ItemsPanel>
-                                                                    <ItemsPanelTemplate>
-                                                                        <UniformGrid Columns="4" />
-                                                                    </ItemsPanelTemplate>
-                                                                </ItemsControl.ItemsPanel>
-                                                                <ItemsControl.ItemTemplate>
-                                                                    <DataTemplate>
-                                                                        <StackPanel Margin="0,0,8,0"
-                                                                                    AutomationProperties.Name="{Binding AutomationName}">
-                                                                            <Ellipse Width="10"
-                                                                                     Height="10"
-                                                                                     HorizontalAlignment="Left">
-                                                                                <Ellipse.Style>
-                                                                                    <Style TargetType="Ellipse">
-                                                                                        <Setter Property="Fill" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                                                                                        <Style.Triggers>
-                                                                                            <DataTrigger Binding="{Binding SemanticState}" Value="Informational">
-                                                                                                <Setter Property="Fill" Value="{DynamicResource AccentFillColorDefaultBrush}" />
-                                                                                            </DataTrigger>
-                                                                                            <DataTrigger Binding="{Binding SemanticState}" Value="Success">
-                                                                                                <Setter Property="Fill" Value="{DynamicResource SystemFillColorSuccessBrush}" />
-                                                                                            </DataTrigger>
-                                                                                            <DataTrigger Binding="{Binding SemanticState}" Value="Warning">
-                                                                                                <Setter Property="Fill" Value="{DynamicResource SystemFillColorCautionBrush}" />
-                                                                                            </DataTrigger>
-                                                                                        </Style.Triggers>
-                                                                                    </Style>
-                                                                                </Ellipse.Style>
-                                                                            </Ellipse>
-                                                                            <ui:TextBlock Text="{Binding Label}"
-                                                                                          Style="{StaticResource CaptionText}"
-                                                                                          Margin="0,5,0,0"
-                                                                                          TextTrimming="CharacterEllipsis" />
-                                                                            <ui:TextBlock Text="{Binding Value}"
-                                                                                          Style="{StaticResource CodeText}"
-                                                                                          TextTrimming="CharacterEllipsis" />
-                                                                        </StackPanel>
-                                                                    </DataTemplate>
-                                                                </ItemsControl.ItemTemplate>
-                                                            </ItemsControl>
-                                                            <DataGrid x:Name="DemandSeriesGenerationGrid"
-                                                                      Grid.Row="3"
-                                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                      SelectionChanged="OnDemandSeriesGenerationSelectionChanged"
-                                                                      AutomationProperties.Name="Demand 世代关系"
-                                                                      AutomationProperties.AutomationId="DemandSeriesGenerationGrid">
-                                                                <DataGrid.Columns>
-                                                                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="105" />
-                                                                    <DataGridTextColumn Header="代" Binding="{Binding Generation}" Width="42" />
-                                                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70" />
-                                                                    <DataGridTextColumn Header="创建" Binding="{Binding CreatedAt}" Width="118" />
-                                                                    <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="80" />
-                                                                </DataGrid.Columns>
-                                                            </DataGrid>
-                                                        </Grid>
-                                                        <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                                                        <Grid Grid.Column="2" Margin="16,0,0,0">
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="*" />
-                                                            </Grid.RowDefinitions>
-                                                            <ui:TextBlock Text="不可变 DemandSeriesEvent"
-                                                                          Style="{StaticResource BodyStrong}" />
-                                                            <ui:TextBlock Grid.Row="1"
-                                                                          Text="按 SeriesSequence 固定排序，并保留 PollTrace 与 ProjectionCommit 轮次证据。"
-                                                                          Style="{StaticResource SecondaryText}"
-                                                                          Margin="0,3,0,10"
-                                                                          TextWrapping="Wrap" />
-                                                            <DataGrid x:Name="DemandSeriesEventGrid"
-                                                                      Grid.Row="2"
-                                                                      Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                      AutomationProperties.Name="需求系列永久事件与轮次证据"
-                                                                      AutomationProperties.AutomationId="DemandSeriesEventGrid">
-                                                                <DataGrid.Columns>
-                                                                    <DataGridTextColumn Header="SEQ" Binding="{Binding SeriesSequence}" Width="48" />
-                                                                    <DataGridTextColumn Header="EVENT KIND" Binding="{Binding EventType}" Width="245" />
-                                                                    <DataGridTextColumn Header="OBSERVED" Binding="{Binding OccurredAt}" Width="110" />
-                                                                    <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="100" />
-                                                                    <DataGridTextColumn Header="摘要" Binding="{Binding Summary}" Width="*" />
-                                                                </DataGrid.Columns>
-                                                            </DataGrid>
-                                                        </Grid>
-                                                </Grid>
-                                                <TabControl x:Name="DemandSeriesFullEvidenceTabs"
-                                                            Visibility="Collapsed"
-                                                            Focusable="True"
-                                                            KeyboardNavigation.IsTabStop="True"
-                                                            AutomationProperties.Name="完整需求系列证据类别"
-                                                            AutomationProperties.AutomationId="DemandSeriesFullEvidenceTabs">
-                                                <TabItem Header="MES 事实与原始观测"
-                                                         AutomationProperties.Name="实时 MES 事实与原始观测">
-                                                    <Grid Margin="{StaticResource DemandSeriesContentMargin}">
-                                                         <Grid.RowDefinitions>
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="{StaticResource DemandSeriesMesObservationHeight}" />
-                                                             <RowDefinition Height="Auto" />
-                                                         </Grid.RowDefinitions>
-                                                         <ui:TextBlock Text="LiveMesFieldSet 只代表唯一可信观测；重复行按原始形态逐条保留。"
-                                                                       Style="{StaticResource SecondaryText}"
-                                                                       Margin="{StaticResource DemandSeriesRelatedBottomMargin}" />
-                                                        <ui:TextBlock x:Name="DemandSeriesLiveMesFieldsText"
-                                                                      Grid.Row="1"
-                                                                      Text="选择 Demand 后显示唯一可信 LiveMesFieldSet。"
-                                                                      Style="{StaticResource FieldLabel}"
-                                                                      TextWrapping="Wrap"
-                                                                      Margin="{StaticResource DemandSeriesRelatedBottomMargin}"
-                                                                      AutomationProperties.Name="可信 LiveMesFieldSet" />
-                                                        <ui:TextBlock x:Name="DemandSeriesObservationSummaryText"
-                                                                      Grid.Row="2"
-                                                                      Text="尚无 Demand 原始观测摘要。"
-                                                                      Style="{StaticResource SecondaryText}"
-                                                                      Margin="{StaticResource DemandSeriesMicroBottomMargin}"
-                                                                      AutomationProperties.Name="MES 原始观测摘要" />
-                                                        <ui:TextBlock x:Name="DemandSeriesReadabilityBlockersText"
-                                                                      Grid.Row="3"
-                                                                      Text="尚无当前 Demand 资格结论。"
-                                                                      Style="{StaticResource SecondaryText}"
-                                                                      Margin="{StaticResource DemandSeriesRelatedBottomMargin}"
-                                                                      AutomationProperties.Name="当前 Demand 资格阻断" />
-                                                         <DataGrid x:Name="DemandSeriesRawObservationGrid"
-                                                                  Grid.Row="4"
-                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                   AutomationProperties.Name="MES 原始观测"
-                                                                   AutomationProperties.AutomationId="DemandSeriesRawObservationGrid">
-                                                             <DataGrid.Columns>
-                                                                 <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource DemandSeriesColumn45}" />
-                                                                 <DataGridTextColumn Header="Assignment" Binding="{Binding Assignment}" Width="{StaticResource DemandSeriesColumn110}" />
-                                                                 <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                 <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="{StaticResource DemandSeriesColumn100}" />
-                                                                <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="{StaticResource DemandSeriesColumn120}" />
-                                                                <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="{StaticResource DemandSeriesColumn140}" />
-                                                                 <DataGridTextColumn Header="DATES / MesSourceDate" Binding="{Binding MesSourceDate}" Width="{StaticResource DemandSeriesColumn190}" />
-                                                                 <DataGridTextColumn Header="MesSourceDateRaw" Binding="{Binding MesSourceDateRaw}" Width="{StaticResource DemandSeriesColumn190}" />
-                                                                <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="{StaticResource DemandSeriesColumn130}" />
-                                                                <DataGridTextColumn Header="ObservedAt" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                            </DataGrid.Columns>
-                                                        </DataGrid>
-                                                        <ui:TextBlock Grid.Row="5"
-                                                                      Text="DATES 明确显示为 MES 源字段 MesSourceDate，不作为生命周期发生时间。"
-                                                                      Style="{StaticResource SecondaryText}"
-                                                                      Margin="{StaticResource DemandSeriesControlTopMargin}" />
-                                                    </Grid>
-                                                </TabItem>
-                                                <TabItem Header="当前条件与错误"
-                                                         AutomationProperties.Name="当前条件与永久错误期间">
-                                                    <Grid Margin="{StaticResource DemandSeriesContentMargin}">
-                                                         <Grid.RowDefinitions>
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="{StaticResource DemandSeriesEvidenceShortHeight}" />
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="{StaticResource DemandSeriesEvidenceShortHeight}" />
-                                                             <RowDefinition Height="Auto" />
-                                                             <RowDefinition Height="{StaticResource DemandSeriesEvidenceMediumHeight}" />
-                                                        </Grid.RowDefinitions>
-                                                        <ui:TextBlock Text="当前条件" Style="{StaticResource FieldLabel}" Margin="{StaticResource DemandSeriesRelatedBottomMargin}" />
-                                                         <DataGrid x:Name="DemandSeriesConditionGrid"
-                                                                  Grid.Row="1"
-                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                   AutomationProperties.Name="需求系列当前条件"
-                                                                   AutomationProperties.AutomationId="DemandSeriesConditionGrid">
-                                                            <DataGrid.Columns>
-                                                                 <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                                 <DataGridTextColumn Header="分类" Binding="{Binding Category}" Width="{StaticResource DemandSeriesColumn140}" />
-                                                                 <DataGridTextColumn Header="严重性" Binding="{Binding Severity}" Width="{StaticResource DemandSeriesColumn90}" />
-                                                                 <DataGridTextColumn Header="Target" Binding="{Binding Target}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="主体类型" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn140}" />
-                                                                 <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                 <DataGridTextColumn Header="最近证据" Binding="{Binding LatestEvidenceAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                 <DataGridTextColumn Header="当前值" Binding="{Binding ObservedValue}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="期望规则" Binding="{Binding ExpectedRule}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="PollTrace" Binding="{Binding LatestPollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                 <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding LatestProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                            </DataGrid.Columns>
-                                                        </DataGrid>
-                                                        <ui:TextBlock Grid.Row="2" Text="永久错误期间" Style="{StaticResource FieldLabel}" Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}" />
-                                                         <DataGrid x:Name="DemandSeriesErrorPeriodGrid"
-                                                                  Grid.Row="3"
-                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                  SelectionChanged="OnDemandSeriesErrorPeriodSelectionChanged"
-                                                                   AutomationProperties.Name="需求系列错误期间"
-                                                                   AutomationProperties.AutomationId="DemandSeriesErrorPeriodGrid">
-                                                            <DataGrid.Columns>
-                                                                 <DataGridTextColumn Header="PeriodId" Binding="{Binding PeriodId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                                 <DataGridTextColumn Header="Target" Binding="{Binding Target}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="主体类型" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn140}" />
-                                                                 <DataGridTextColumn Header="开始原因" Binding="{Binding StartReason}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                 <DataGridTextColumn Header="结束" Binding="{Binding EndedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                 <DataGridTextColumn Header="结束原因" Binding="{Binding EndReason}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                             </DataGrid.Columns>
-                                                         </DataGrid>
-                                                         <ui:TextBlock Grid.Row="4" Text="选中期间的永久证据" Style="{StaticResource FieldLabel}" Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}" />
-                                                         <DataGrid x:Name="DemandSeriesErrorEvidenceGrid"
-                                                                   Grid.Row="5"
-                                                                   Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                   AutomationProperties.Name="需求系列错误期间永久证据"
-                                                                   AutomationProperties.AutomationId="DemandSeriesErrorEvidenceGrid">
-                                                             <DataGrid.Columns>
-                                                                 <DataGridTextColumn Header="EvidenceId" Binding="{Binding EvidenceId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="类型" Binding="{Binding EvidenceKind}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                 <DataGridTextColumn Header="ObservedAt" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                                 <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="观测值" Binding="{Binding ObservedValue}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="期望规则" Binding="{Binding ExpectedRule}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                                 <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                                 <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                             </DataGrid.Columns>
-                                                         </DataGrid>
-                                                     </Grid>
-                                                </TabItem>
-                                                <TabItem Header="世代与事件完整字段"
-                                                         AutomationProperties.Name="Demand 世代与事件完整字段">
-                                                    <Grid Margin="{StaticResource DemandSeriesContentMargin}">
-                                                        <Grid.RowDefinitions>
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="*" />
-                                                            <RowDefinition Height="Auto" />
-                                                            <RowDefinition Height="*" />
-                                                        </Grid.RowDefinitions>
-                                                        <ui:TextBlock Text="Demand 世代完整字段" Style="{StaticResource FieldLabel}" />
-                                                        <DataGrid x:Name="DemandSeriesGenerationEvidenceGrid"
-                                                                  Grid.Row="1"
-                                                                  Margin="0,6,0,10"
-                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                  AutomationProperties.Name="Demand 世代完整字段">
-                                                            <DataGrid.Columns>
-                                                                <DataGridTextColumn Header="代" Binding="{Binding Generation}" Width="55" />
-                                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="180" />
-                                                                <DataGridTextColumn Header="Predecessor" Binding="{Binding PredecessorDemandId}" Width="180" />
-                                                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90" />
-                                                                <DataGridTextColumn Header="创建" Binding="{Binding CreatedAt}" Width="170" />
-                                                                <DataGridTextColumn Header="DemandLastSeenAt" Binding="{Binding DemandLastSeenAt}" Width="170" />
-                                                                <DataGridTextColumn Header="GoneConfirmedAt" Binding="{Binding GoneConfirmedAt}" Width="170" />
-                                                                <DataGridTextColumn Header="外部可读" Binding="{Binding ExternalReadabilityState}" Width="120" />
-                                                                <DataGridTextColumn Header="资格阻断" Binding="{Binding ReadabilitySummary}" Width="240" />
-                                                                <DataGridTextColumn Header="可信 MES" Binding="{Binding LiveMesSummary}" Width="330" />
-                                                                <DataGridTextColumn Header="创建 PollTrace" Binding="{Binding CreatedPollTraceId}" Width="160" />
-                                                                <DataGridTextColumn Header="创建 ProjectionCommit" Binding="{Binding CreatedProjectionCommitId}" Width="180" />
-                                                                <DataGridTextColumn Header="最近观测" Binding="{Binding LatestObservationAt}" Width="170" />
-                                                                <DataGridTextColumn Header="观测 PollTrace" Binding="{Binding LatestObservationPollTraceId}" Width="160" />
-                                                                <DataGridTextColumn Header="观测 ProjectionCommit" Binding="{Binding LatestObservationProjectionCommitId}" Width="180" />
-                                                            </DataGrid.Columns>
-                                                        </DataGrid>
-                                                        <ui:TextBlock Grid.Row="2" Text="DemandSeriesEvent 完整字段" Style="{StaticResource FieldLabel}" />
-                                                        <DataGrid x:Name="DemandSeriesEventEvidenceGrid"
-                                                                  Grid.Row="3"
-                                                                  Margin="0,6,0,0"
-                                                                  Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                                  AutomationProperties.Name="DemandSeriesEvent 完整字段">
-                                                            <DataGrid.Columns>
-                                                                <DataGridTextColumn Header="SEQ" Binding="{Binding SeriesSequence}" Width="65" />
-                                                                <DataGridTextColumn Header="事件" Binding="{Binding EventType}" Width="210" />
-                                                                <DataGridTextColumn Header="发生时间" Binding="{Binding OccurredAt}" Width="170" />
-                                                                <DataGridTextColumn Header="主体类型" Binding="{Binding SubjectKind}" Width="150" />
-                                                                <DataGridTextColumn Header="主体 ID" Binding="{Binding SubjectId}" Width="180" />
-                                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="160" />
-                                                                <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="180" />
-                                                                <DataGridTextColumn Header="Payload" Binding="{Binding PayloadJson}" Width="300" />
-                                                            </DataGrid.Columns>
-                                                        </DataGrid>
-                                                    </Grid>
-                                                </TabItem>
-                                                </TabControl>
-                                            </Grid>
-                                        </Grid>
-                                    </Border>
-                                </Grid>
+                                                <ui:Button x:Name="DemandSeriesPreviousButton"
+                                                           Content="上一页"
+                                                           Appearance="Secondary"
+                                                           IsEnabled="False"
+                                                           Click="OnDemandSeriesPreviousClick"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                           HorizontalContentAlignment="Center"
+                                                           VerticalContentAlignment="Center"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           AutomationProperties.Name="需求系列上一页"
+                                                           AutomationProperties.AutomationId="DemandSeriesPreviousButton" />
+                                                <TextBox x:Name="DemandSeriesPageNumberInput"
+                                                         Text="1"
+                                                         Width="{StaticResource DemandSeriesPageNumberWidth}"
+                                                         MinWidth="{StaticResource DemandSeriesPageNumberWidth}"
+                                                         Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                         HorizontalContentAlignment="Center"
+                                                         VerticalContentAlignment="Center"
+                                                         KeyboardNavigation.IsTabStop="True"
+                                                         AutomationProperties.Name="需求系列页码"
+                                                         AutomationProperties.AutomationId="DemandSeriesPageNumberInput" />
+                                                <ui:Button x:Name="DemandSeriesGoToPageButton"
+                                                           Content="跳转"
+                                                           Appearance="Secondary"
+                                                           Click="OnDemandSeriesGoToPageClick"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandMargin}"
+                                                           HorizontalContentAlignment="Center"
+                                                           VerticalContentAlignment="Center"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           AutomationProperties.Name="跳转到需求系列页码"
+                                                           AutomationProperties.AutomationId="DemandSeriesGoToPageButton" />
+                                                <ui:Button x:Name="DemandSeriesNextButton"
+                                                           Content="下一页"
+                                                           Appearance="Secondary"
+                                                           IsEnabled="False"
+                                                           Click="OnDemandSeriesNextClick"
+                                                           Margin="{StaticResource DemandSeriesCompactCommandLastMargin}"
+                                                           HorizontalContentAlignment="Center"
+                                                           VerticalContentAlignment="Center"
+                                                           KeyboardNavigation.IsTabStop="True"
+                                                           AutomationProperties.Name="需求系列下一页"
+                                                           AutomationProperties.AutomationId="DemandSeriesNextButton" />
+                                            </WrapPanel>
+                                        </Border>
+                                    </Grid>
+                                </Border>
                             </Grid>
                         </ScrollViewer>
                     </Grid>
