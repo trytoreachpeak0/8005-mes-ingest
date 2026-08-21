@@ -139,6 +139,12 @@
         <wpfControls:DataGridLength x:Key="AreaProfileDiagnosticCodeColumnWidth">180</wpfControls:DataGridLength>
         <wpf:Thickness x:Key="WatchPageCardPadding">16</wpf:Thickness>
         <wpf:Thickness x:Key="AreaProfileListMargin">0,12,0,12</wpf:Thickness>
+        <!-- The editor's text inset. It sits on the content presenter rather
+             than on the TextBox padding so the scroll bars can lie flush with
+             the editor frame. The top inset matches the line-number gutter; the
+             right and bottom ones are wide enough for a bar to lie in without
+             covering text. -->
+        <wpf:Thickness x:Key="AreaProfileEditorTextInset">12,10,16,16</wpf:Thickness>
         <wpf:Thickness x:Key="AreaProfileInlineCommandMargin">8,0,0,0</wpf:Thickness>
         <wpf:Thickness x:Key="AreaProfileOperationPanelMargin">16,12,16,0</wpf:Thickness>
         <wpf:Thickness x:Key="AreaProfileOperationPanelPadding">12,8</wpf:Thickness>
@@ -3334,15 +3340,21 @@
                                                         <ColumnDefinition Width="*" />
                                                     </Grid.ColumnDefinitions>
                                                     <Border Background="{DynamicResource ControlFillColorSecondaryBrush}">
-                                                        <ui:TextBlock x:Name="AreaProfileLineNumbersText"
-                                                                      Text="1"
-                                                                      Style="{StaticResource CodeText}"
-                                                                      FontSize="13"
-                                                                      LineHeight="24"
-                                                                      TextAlignment="Right"
-                                                                      Padding="0,10,9,10"
-                                                                      Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                                                                      AutomationProperties.Name="AREA 编辑器行号" />
+                                                        <!-- The gutter scrolls by RenderTransform, which does not
+                                                             enlarge it. Inside a StackPanel the TextBlock measures
+                                                             against infinite height and formats every line, so the
+                                                             translated gutter still has ink to show. -->
+                                                        <StackPanel>
+                                                            <ui:TextBlock x:Name="AreaProfileLineNumbersText"
+                                                                          Text="1"
+                                                                          Style="{StaticResource CodeText}"
+                                                                          FontSize="13"
+                                                                          LineHeight="24"
+                                                                          TextAlignment="Right"
+                                                                          Padding="0,10,9,10"
+                                                                          Foreground="{DynamicResource TextFillColorTertiaryBrush}"
+                                                                          AutomationProperties.Name="AREA 编辑器行号" />
+                                                        </StackPanel>
                                                     </Border>
                                                     <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
                                                     <TextBox x:Name="AreaProfileEditor"
@@ -3350,7 +3362,7 @@
                                                              AcceptsReturn="True"
                                                              AcceptsTab="False"
                                                              BorderThickness="0"
-                                                             Padding="12,10"
+                                                             Padding="0"
                                                              FontFamily="Consolas"
                                                              FontSize="13"
                                                              TextBlock.LineHeight="24"
@@ -3360,7 +3372,62 @@
                                                              TextChanged="OnAreaProfileDraftChanged"
                                                              ScrollViewer.ScrollChanged="OnAreaProfileEditorScrollChanged"
                                                              AutomationProperties.Name="AREA 配置 TXT 内容编辑器"
-                                                             AutomationProperties.AutomationId="AreaProfileEditor" />
+                                                             AutomationProperties.AutomationId="AreaProfileEditor">
+                                                        <TextBox.Resources>
+                                                            <!-- WPF UI hands PART_ContentHost this style, and the
+                                                                 template behind it carries no scroll bar at all: a
+                                                                 long AREA list then scrolls with nothing on screen
+                                                                 saying so and nothing to drag. Restore the scroll
+                                                                 viewer parts. This replaces WPF UI's own style of the
+                                                                 same key outright rather than deriving from it —
+                                                                 BasedOn cannot name a key it is itself overriding —
+                                                                 so re-read theirs after a WPF UI upgrade. The bars
+                                                                 lie in the inset the editor already reserves rather
+                                                                 than in a track of their own, so showing one never
+                                                                 narrows the text viewport and never moves the caret
+                                                                 or the restored scroll offsets. That inset lives on
+                                                                 the content presenter rather than on Padding, so the
+                                                                 bars still reach the edges of the editor frame. -->
+                                                            <Style x:Key="DefaultTextBoxScrollViewerStyle" TargetType="{x:Type ScrollViewer}">
+                                                                <Setter Property="Template">
+                                                                    <Setter.Value>
+                                                                        <ControlTemplate TargetType="{x:Type ScrollViewer}">
+                                                                            <Grid>
+                                                                                <ScrollContentPresenter Margin="{StaticResource AreaProfileEditorTextInset}"
+                                                                                                        CanContentScroll="{TemplateBinding CanContentScroll}"
+                                                                                                        CanHorizontallyScroll="False"
+                                                                                                        CanVerticallyScroll="False"
+                                                                                                        Content="{TemplateBinding ContentControl.Content}"
+                                                                                                        ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}" />
+                                                                                <ScrollBar x:Name="PART_VerticalScrollBar"
+                                                                                           HorizontalAlignment="Right"
+                                                                                           Orientation="Vertical"
+                                                                                           Cursor="Arrow"
+                                                                                           Minimum="0"
+                                                                                           Maximum="{TemplateBinding ScrollableHeight}"
+                                                                                           ViewportSize="{TemplateBinding ViewportHeight}"
+                                                                                           Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                                                                           Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
+                                                                                           AutomationProperties.Name="AREA 配置内容垂直滚动条"
+                                                                                           AutomationProperties.AutomationId="AreaProfileEditorVerticalScrollBar" />
+                                                                                <ScrollBar x:Name="PART_HorizontalScrollBar"
+                                                                                           VerticalAlignment="Bottom"
+                                                                                           Orientation="Horizontal"
+                                                                                           Cursor="Arrow"
+                                                                                           Minimum="0"
+                                                                                           Maximum="{TemplateBinding ScrollableWidth}"
+                                                                                           ViewportSize="{TemplateBinding ViewportWidth}"
+                                                                                           Value="{Binding HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                                                                           Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
+                                                                                           AutomationProperties.Name="AREA 配置内容水平滚动条"
+                                                                                           AutomationProperties.AutomationId="AreaProfileEditorHorizontalScrollBar" />
+                                                                            </Grid>
+                                                                        </ControlTemplate>
+                                                                    </Setter.Value>
+                                                                </Setter>
+                                                            </Style>
+                                                        </TextBox.Resources>
+                                                    </TextBox>
                                                 </Grid>
                                             </Border>
                                             <Grid x:Name="AreaProfileEditorStatusGrid" Grid.Row="2">

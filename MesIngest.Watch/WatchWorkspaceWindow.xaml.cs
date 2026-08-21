@@ -2273,8 +2273,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ReadabilityAuditPage,
             stackReadability || useOuterScrolling);
 
+        var stackArea = contentWidth
+            < (double)FindResource("AreaProfileMasterDetailStackBreakpoint");
         ReflowMasterDetail(
-            contentWidth < (double)FindResource("AreaProfileMasterDetailStackBreakpoint"),
+            stackArea,
             AreaProfileEditorCard,
             AreaProfileMasterColumn,
             AreaProfileGapColumn,
@@ -2282,6 +2284,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AreaProfileVerticalGap,
             AreaProfileBottomRow,
             (GridLength)FindResource("AreaProfileMasterColumnWidth"));
+        ConfigureResponsivePageViewport(
+            AreaFilterLayoutGrid,
+            AreaFilterPage,
+            stackArea || useOuterScrolling);
         ReflowTicket22Pages(contentWidth, useOuterScrolling);
         WorkspaceContent.Margin = contentWidth < 760
             ? new Thickness(12)

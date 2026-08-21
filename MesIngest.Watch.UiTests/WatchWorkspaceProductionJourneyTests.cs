@@ -926,6 +926,24 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 process.MainWindowHandle,
                 "05-area-filter-profile");
 
+            // The 24-AREA profile is the one that overflows the editor at
+            // 1440x900. It is evidence only: the page must keep its own height
+            // and hand the overflow to the editor's own scrollbar, which no
+            // baseline step covers because every baseline profile fits.
+            var longProfile = Assert.Single(
+                profileList.Items,
+                item => TextValue(item).Contains("焊线区域", StringComparison.Ordinal));
+            longProfile.Select();
+            WaitUntil(
+                () => TextValue(FindRequiredById(window, "AreaProfileValidCountText"))
+                    .Contains("24 个有效 AREA", StringComparison.Ordinal),
+                "the 24-AREA profile loaded into the editor",
+                StepTimeout);
+            CaptureWindowIncludingPopups(
+                evidence,
+                window,
+                "05b-area-filter-long-list");
+
             failedStep = "error-search";
             Navigate(
                 window,

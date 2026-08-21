@@ -66,6 +66,294 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 $"AREA editor height was only {editorFrame.ActualHeight:N0} epx.");
         });
 
+    /// <summary>
+    /// The page viewport is fixed while the window is tall enough, so a profile
+    /// with more AREA lines than fit scrolls inside the editor. Letting the
+    /// editor grow instead pushes the whole page past the viewport and the user
+    /// loses the editor frame, the status bar and the apply row below it.
+    /// </summary>
+    [Fact]
+    public void A_long_area_list_scrolls_inside_the_editor_instead_of_stretching_the_page() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            editor.Text = ManyAreas(60);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var page = Assert.IsType<ScrollViewer>(window.FindName("AreaFilterPage"));
+            var editorFrame = Assert.IsType<Border>(
+                window.FindName("AreaProfileEditorFrame"));
+            var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
+
+            Assert.InRange(page.ScrollableHeight, 0, 0.5);
+            Assert.InRange(editorFrame.ActualHeight, 0, page.ViewportHeight);
+            Assert.True(
+                editorScroll.ScrollableHeight > 0,
+                $"The editor had no scrollable content: viewport "
+                    + $"{editorScroll.ViewportHeight:N0} epx, extent "
+                    + $"{editorScroll.ExtentHeight:N0} epx.");
+        });
+
+    /// <summary>
+    /// WPF UI's text box hands its content to a scroll viewer whose template
+    /// carries no scroll bar at all, so an overflowing AREA list scrolls with
+    /// nothing on screen saying so and nothing to drag. The editor restores a
+    /// real vertical bar against the right edge of its frame.
+    /// </summary>
+    [Fact]
+    public void A_long_area_list_gets_a_vertical_scroll_bar_against_the_right_edge() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Editor(window);
+            var frame = EditorFrame(window);
+            var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
+            Assert.Empty(EditorScrollBars(editor, Orientation.Vertical));
+
+            editor.Text = ManyAreas(60);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var scrollBar = Assert.Single(EditorScrollBars(editor, Orientation.Vertical));
+            Assert.True(
+                scrollBar.ActualWidth > 0 && scrollBar.ActualHeight > 0,
+                $"The scroll bar took no space: {scrollBar.ActualWidth:N1} x "
+                    + $"{scrollBar.ActualHeight:N1} epx.");
+            AssertBarHugsTheFrame(scrollBar, frame, Orientation.Vertical);
+            Assert.Equal(editorScroll.ScrollableHeight, scrollBar.Maximum, 1);
+            Assert.Equal(editorScroll.ViewportHeight, scrollBar.ViewportSize, 1);
+            AssertTheTextKeepsItsRoom(window, frame, editorScroll, Orientation.Vertical);
+
+            ScrollBar.PageDownCommand.Execute(null, scrollBar);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.Equal(editorScroll.ViewportHeight, editorScroll.VerticalOffset, 1);
+            Assert.Equal(editorScroll.VerticalOffset, scrollBar.Value, 1);
+        });
+
+    /// <summary>
+    /// AREA lines are short, but a comment line is free text and the editor
+    /// does not wrap, so the same missing-bar problem reaches sideways too.
+    /// </summary>
+    [Fact]
+    public void A_line_wider_than_the_editor_gets_a_horizontal_scroll_bar_along_the_bottom() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Editor(window);
+            var frame = EditorFrame(window);
+            var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
+            Assert.Empty(EditorScrollBars(editor, Orientation.Horizontal));
+
+            editor.Text = $"# {new string('A', 400)}\n{ManyAreas(60)}";
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var scrollBar = Assert.Single(EditorScrollBars(editor, Orientation.Horizontal));
+            AssertBarHugsTheFrame(scrollBar, frame, Orientation.Horizontal);
+            Assert.Equal(editorScroll.ScrollableWidth, scrollBar.Maximum, 1);
+            AssertTheTextKeepsItsRoom(window, frame, editorScroll, Orientation.Horizontal);
+
+            ScrollBar.PageRightCommand.Execute(null, scrollBar);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.True(
+                editorScroll.HorizontalOffset > 0,
+                "Paging the horizontal bar left the editor where it was.");
+            Assert.Equal(editorScroll.HorizontalOffset, scrollBar.Value, 1);
+        });
+
+    /// <summary>
+    /// The style that restores the bars sits on the editor itself so that it
+    /// outranks the one WPF UI publishes under the same key. This harness
+    /// composes the window without WPF UI's control dictionary, so load it and
+    /// run the whole contract again on the template the application actually
+    /// ships — including that the bar WPF UI styles still fits the inset the
+    /// editor reserves for it instead of covering text.
+    /// </summary>
+    [Fact]
+    public void The_editor_keeps_its_scroll_bar_under_wpf_uis_own_control_dictionary() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Resources.MergedDictionaries.Insert(
+                0,
+                new Wpf.Ui.Markup.ControlsDictionary());
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Editor(window);
+            var frame = EditorFrame(window);
+            var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
+            editor.Text = ManyAreas(60);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var scrollBar = Assert.Single(EditorScrollBars(editor, Orientation.Vertical));
+            Assert.InRange(
+                scrollBar.ActualWidth,
+                1,
+                ((Thickness)window.FindResource("AreaProfileEditorTextInset")).Right);
+            AssertBarHugsTheFrame(scrollBar, frame, Orientation.Vertical);
+            AssertTheTextKeepsItsRoom(window, frame, editorScroll, Orientation.Vertical);
+            Assert.Equal(editorScroll.ScrollableHeight, scrollBar.Maximum, 1);
+            Assert.Equal(editorScroll.ViewportHeight, scrollBar.ViewportSize, 1);
+
+            ScrollBar.PageDownCommand.Execute(null, scrollBar);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.Equal(editorScroll.ViewportHeight, editorScroll.VerticalOffset, 1);
+            Assert.Equal(editorScroll.VerticalOffset, scrollBar.Value, 1);
+        });
+
+    /// <summary>
+    /// The gutter is a single TextBlock translated by the editor's scroll
+    /// offset, so it only shows the lines it was allowed to format. Measured
+    /// against the frame height it formats one viewport worth of them, and
+    /// scrolling then carries every one of those off the top: the gutter goes
+    /// blank exactly when the editor starts scrolling.
+    /// </summary>
+    [Fact]
+    public void The_line_number_gutter_still_carries_ink_after_the_editor_scrolls() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 900;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            editor.Text = ManyAreas(60);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var frame = Assert.IsType<Border>(window.FindName("AreaProfileEditorFrame"));
+            var beforeScroll = LineNumberInkRows(window);
+            Assert.True(
+                beforeScroll.Count > 0
+                    && beforeScroll[^1] >= frame.ActualHeight - 40,
+                "The line-number gutter did not fill the editor frame before scrolling, "
+                    + "so the scrolled assertion below would prove nothing.");
+
+            var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
+            editorScroll.ScrollToEnd();
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var ink = LineNumberInkRows(window);
+
+            Assert.True(
+                ink.Count > 0,
+                "The line-number gutter was blank after the editor scrolled to its end.");
+            Assert.InRange(ink[0], 0, 40);
+            Assert.InRange(ink[^1], frame.ActualHeight - 40, frame.ActualHeight);
+        });
+
+    /// <summary>
+    /// Rows of the editor frame whose line-number gutter carries ink. The
+    /// gutter background is whatever colour dominates the column, so a row
+    /// counts as inked only when it differs from that.
+    /// </summary>
+    private static IReadOnlyList<int> LineNumberInkRows(WatchWorkspaceWindow window)
+    {
+        var frame = Assert.IsType<Border>(window.FindName("AreaProfileEditorFrame"));
+        var width = (int)Math.Round(frame.ActualWidth);
+        var height = (int)Math.Round(frame.ActualHeight);
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+            width,
+            height,
+            96,
+            96,
+            System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(frame);
+        var stride = width * 4;
+        var pixels = new byte[stride * height];
+        bitmap.CopyPixels(pixels, stride, 0);
+
+        const int GutterLeft = 4;
+        const int GutterRight = 40;
+        var histogram = new Dictionary<int, int>();
+        for (var y = 4; y < height - 4; y++)
+        {
+            for (var x = GutterLeft; x < GutterRight; x++)
+            {
+                var offset = (y * stride) + (x * 4);
+                var colour = (pixels[offset] << 16) | (pixels[offset + 1] << 8) | pixels[offset + 2];
+                histogram[colour] = histogram.GetValueOrDefault(colour) + 1;
+            }
+        }
+
+        var background = histogram.MaxBy(entry => entry.Value).Key;
+        var backgroundRed = background & 0xFF;
+        var backgroundGreen = (background >> 8) & 0xFF;
+        var backgroundBlue = (background >> 16) & 0xFF;
+
+        var inkedRows = new List<int>();
+        for (var y = 4; y < height - 4; y++)
+        {
+            for (var x = GutterLeft; x < GutterRight; x++)
+            {
+                var offset = (y * stride) + (x * 4);
+                if (Math.Abs(pixels[offset] - backgroundBlue) > 24
+                    || Math.Abs(pixels[offset + 1] - backgroundGreen) > 24
+                    || Math.Abs(pixels[offset + 2] - backgroundRed) > 24)
+                {
+                    inkedRows.Add(y);
+                    break;
+                }
+            }
+        }
+
+        return inkedRows;
+    }
+
+    /// <summary>
+    /// Below the fixed-viewport height the page hands scrolling back to the
+    /// outer viewport, so the editor keeps its minimum height instead of being
+    /// squeezed away or clipped.
+    /// </summary>
+    [Fact]
+    public void A_short_window_scrolls_the_area_page_itself_again() =>
+        RunWithAppliedProfile((window, _, _, _) =>
+        {
+            window.Width = 1440;
+            window.Height = 640;
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
+            editor.Text = ManyAreas(60);
+            window.UpdateLayout();
+            DrainDispatcher(window.Dispatcher);
+
+            var page = Assert.IsType<ScrollViewer>(window.FindName("AreaFilterPage"));
+            var editorFrame = Assert.IsType<Border>(
+                window.FindName("AreaProfileEditorFrame"));
+
+            Assert.Equal(ScrollBarVisibility.Auto, page.VerticalScrollBarVisibility);
+            Assert.True(
+                editorFrame.ActualHeight >= 260,
+                $"AREA editor height was only {editorFrame.ActualHeight:N0} epx.");
+        });
+
     // One row per line of the ticket's state table. The file condition travels
     // as a string because the enum is internal to MesIngest.Watch and a public
     // xUnit theory method cannot take a less accessible parameter type.
@@ -492,6 +780,65 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
         WatchWorkspaceWindow window) => Assert.IsType<Wpf.Ui.Controls.TextBlock>(
         window.FindName("AreaProfileFileOperationPromptText"));
 
+    private static Border EditorFrame(WatchWorkspaceWindow window) =>
+        Assert.IsType<Border>(window.FindName("AreaProfileEditorFrame"));
+
+    private static IReadOnlyList<ScrollBar> EditorScrollBars(
+        TextBox editor,
+        Orientation orientation) =>
+        VisualDescendants<ScrollBar>(editor)
+            .Where(bar => bar.Orientation == orientation && bar.IsVisible)
+            .ToList();
+
+    /// <summary>
+    /// The bar ends on the frame's inner edge. The allowance is the frame's own
+    /// border plus one epx, because layout rounding lands the edge on a whole
+    /// device pixel and the window under test need not be at 96 DPI.
+    /// </summary>
+    private static void AssertBarHugsTheFrame(
+        ScrollBar scrollBar,
+        Border frame,
+        Orientation orientation)
+    {
+        var farCorner = scrollBar.TranslatePoint(
+            new Point(scrollBar.ActualWidth, scrollBar.ActualHeight),
+            frame);
+        var (gap, border) = orientation == Orientation.Vertical
+            ? (frame.ActualWidth - farCorner.X, frame.BorderThickness.Right)
+            : (frame.ActualHeight - farCorner.Y, frame.BorderThickness.Bottom);
+        Assert.InRange(gap, 0, border + 1);
+    }
+
+    /// <summary>
+    /// The bars lie inside the inset the editor reserves for them instead of
+    /// claiming a track of their own. A track would shrink the text viewport
+    /// the moment the content overflows, which moves the caret and the scroll
+    /// offsets that a live reload is supposed to restore untouched — so the
+    /// text has to end exactly one inset short of the frame, bar or no bar.
+    /// </summary>
+    private static void AssertTheTextKeepsItsRoom(
+        WatchWorkspaceWindow window,
+        Border frame,
+        ScrollViewer editorScroll,
+        Orientation orientation)
+    {
+        var inset = (Thickness)window.FindResource("AreaProfileEditorTextInset");
+        var textArea = VisualDescendants<ScrollContentPresenter>(editorScroll).First();
+        var textAreaFarCorner = textArea.TranslatePoint(
+            new Point(textArea.ActualWidth, textArea.ActualHeight),
+            frame);
+        var (textAreaEdge, expected) = orientation == Orientation.Vertical
+            ? (textAreaFarCorner.X,
+                frame.ActualWidth - frame.BorderThickness.Right - inset.Right)
+            : (textAreaFarCorner.Y,
+                frame.ActualHeight - frame.BorderThickness.Bottom - inset.Bottom);
+        Assert.True(
+            Math.Abs(textAreaEdge - expected) <= 1,
+            $"The text ends at {textAreaEdge:N1} epx instead of {expected:N1}, so "
+                + "the bar took room from the text rather than lying in the "
+                + "inset already reserved for it.");
+    }
+
     private static TextBox Editor(WatchWorkspaceWindow window) =>
         Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
 
@@ -543,6 +890,17 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
         File.ReadAllText(
             Path.Combine(directoryPath, $"{profileName}.txt"),
             new UTF8Encoding(false));
+
+    private static string ManyAreas(int count)
+    {
+        var content = new StringBuilder();
+        for (var index = 1; index <= count; index++)
+        {
+            content.AppendLine($"N1-{index}");
+        }
+
+        return content.ToString();
+    }
 
     private static string NewRoot() => Path.Combine(
         Path.GetTempPath(),
