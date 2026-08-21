@@ -49,6 +49,11 @@
                 <Setter Property="AutomationProperties.Name"
                         Value="{Binding NavigationAutomationName}" />
             </Style>
+            <Style x:Key="InspectorEventGridTextCell"
+                   TargetType="TextBlock"
+                   BasedOn="{StaticResource DataGridTextCell}">
+                <Setter Property="Margin" Value="10,0" />
+            </Style>
         </ResourceDictionary>
     </ui:FluentWindow.Resources>
 
@@ -593,17 +598,17 @@
                                           AutomationProperties.Name="DemandSeries 永久事件"
                                           AutomationProperties.AutomationId="DemandSeriesInspectorEventGrid">
                                     <DataGrid.Columns>
-                                        <DataGridTextColumn Header="SeriesSequence" Binding="{Binding SeriesSequence}" Width="140" MinWidth="140" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="EventId" Binding="{Binding EventId}" Width="180" MinWidth="180" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="180" MinWidth="180" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="OccurredAt" Binding="{Binding OccurredAt}" Width="190" MinWidth="190" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="EventType" Binding="{Binding EventType}" Width="230" MinWidth="230" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="SubjectKind" Binding="{Binding SubjectKind}" Width="150" MinWidth="150" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="SubjectId" Binding="{Binding SubjectId}" Width="180" MinWidth="180" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="PollTraceId" Binding="{Binding PollTraceId}" Width="180" MinWidth="180" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="ProjectionCommitId" Binding="{Binding ProjectionCommitId}" Width="210" MinWidth="210" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="PayloadVersion" Binding="{Binding PayloadVersion}" Width="150" MinWidth="150" ElementStyle="{StaticResource DataGridTextCell}" />
-                                        <DataGridTextColumn Header="PayloadJson" Binding="{Binding PayloadJson}" Width="*" MinWidth="360" ElementStyle="{StaticResource DataGridTextCell}" />
+                                        <DataGridTextColumn Header="SeriesSequence" Binding="{Binding SeriesSequence}" Width="140" MinWidth="140" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="EventId" Binding="{Binding EventId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="OccurredAt" Binding="{Binding OccurredAt}" Width="190" MinWidth="190" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="EventType" Binding="{Binding EventType}" Width="230" MinWidth="230" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="SubjectKind" Binding="{Binding SubjectKind}" Width="150" MinWidth="150" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="SubjectId" Binding="{Binding SubjectId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="PollTraceId" Binding="{Binding PollTraceId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="ProjectionCommitId" Binding="{Binding ProjectionCommitId}" Width="210" MinWidth="210" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="PayloadVersion" Binding="{Binding PayloadVersion}" Width="150" MinWidth="150" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="PayloadJson" Binding="{Binding PayloadJson}" Width="*" MinWidth="360" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                     </DataGrid.Columns>
                                 </DataGrid>
                             </Grid>

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -417,6 +418,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var window = new WatchDemandSeriesInspectorWindow();
 
             window.Update(initial with { Events = [evidence] });
+            Assert.IsType<TabControl>(window.FindName("DemandSeriesInspectorTabs"))
+                .SelectedIndex = 1;
             window.Show();
             window.UpdateLayout();
 
@@ -450,6 +453,20 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 eventGrid.Columns
                     .Select(column => (int)Math.Round(column.MinWidth))
                     .ToArray());
+            var firstHeader = FindVisualDescendants<DataGridColumnHeader>(eventGrid)
+                .Single(header => string.Equals(
+                    header.Content as string,
+                    "SeriesSequence",
+                    StringComparison.Ordinal));
+            var firstHeaderText = Assert.Single(
+                FindVisualDescendants<TextBlock>(firstHeader));
+            var firstCellText = Assert.IsType<TextBlock>(
+                eventGrid.Columns[0].GetCellContent(eventGrid.Items[0]));
+            Assert.InRange(
+                firstHeaderText.TranslatePoint(new Point(), eventGrid).X
+                    - firstCellText.TranslatePoint(new Point(), eventGrid).X,
+                -1,
+                1);
             var rendered = Assert.IsType<WatchDemandSeriesInspectorEventPresentation>(
                 Assert.Single(eventGrid.Items));
             Assert.Same(evidence, rendered);
@@ -1081,6 +1098,24 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
 
         throw new InvalidOperationException(
             $"Visual ancestor '{typeof(T).Name}' was not found.");
+    }
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 
     private static void PressKey(UIElement element, Key key)
