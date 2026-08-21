@@ -336,7 +336,7 @@
                                                           AutomationProperties.AutomationId="DemandSeriesInspectorGenerationIdentity" />
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationSummaryText"
                                                           Grid.Column="1"
-                                                          Margin="12,2,0,0"
+                                                          Margin="12,0,0,0"
                                                           Style="{StaticResource SecondaryText}"
                                                           TextTrimming="CharacterEllipsis" />
                                         </Grid>
@@ -544,6 +544,8 @@
                                         <DataGrid x:Name="DemandSeriesInspectorAfterObservationGrid"
                                                   Grid.Row="2"
                                                   Style="{StaticResource InspectorReadOnlyGrid}"
+                                                  KeyboardNavigation.TabIndex="30"
+                                                  PreviewGotKeyboardFocus="OnScrollableEvidenceGotKeyboardFocus"
                                                   AutomationProperties.Name="MES 边界原始行"
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorAfterObservationGrid">
                                             <DataGrid.Columns>

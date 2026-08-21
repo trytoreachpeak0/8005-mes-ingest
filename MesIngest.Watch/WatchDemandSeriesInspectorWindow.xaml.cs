@@ -1,7 +1,9 @@
 using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace MesIngest.Watch;
 
@@ -241,7 +243,14 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorGenerationIdentityText.Text = "正在读取所选 Series 详情";
         DemandSeriesInspectorGenerationSummaryText.Text = string.Empty;
         DemandSeriesInspectorFormationReasonText.Text = "—";
+        DemandSeriesInspectorFormationReasonText.ToolTip = null;
         DemandSeriesInspectorFormationReasonCodeText.Text = string.Empty;
+        DemandSeriesInspectorScalarBoundaryEvidenceText.Text = string.Empty;
+        DemandSeriesInspectorBeforeEvidenceText.Text = string.Empty;
+        DemandSeriesInspectorAfterEvidenceText.Text = string.Empty;
+        DemandSeriesInspectorMesFieldCountText.Text = "0 个原生字段";
+        DemandSeriesInspectorScalarEvidencePanel.Visibility = Visibility.Visible;
+        DemandSeriesInspectorRawEvidencePanel.Visibility = Visibility.Collapsed;
         DemandSeriesInspectorMesExplanationText.Text = string.Empty;
         DemandSeriesInspectorEventContextText.Text = "详情尚未提交";
         ClearDetailAutomationNames();
@@ -539,6 +548,41 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         }
     }
 
+    private void OnScrollableEvidenceGotKeyboardFocus(
+        object sender,
+        KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is FrameworkElement element)
+        {
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Input,
+                () => BringIntoGenerationViewport(element));
+        }
+    }
+
+    private void BringIntoGenerationViewport(FrameworkElement element)
+    {
+        DemandSeriesInspectorGenerationScrollViewer.UpdateLayout();
+        var top = element.TranslatePoint(
+            new Point(),
+            DemandSeriesInspectorGenerationScrollViewer).Y;
+        var bottom = top + element.ActualHeight;
+        if (top < 0)
+        {
+            DemandSeriesInspectorGenerationScrollViewer.ScrollToVerticalOffset(
+                DemandSeriesInspectorGenerationScrollViewer.VerticalOffset + top);
+        }
+        else if (bottom > DemandSeriesInspectorGenerationScrollViewer.ViewportHeight)
+        {
+            DemandSeriesInspectorGenerationScrollViewer.ScrollToVerticalOffset(
+                DemandSeriesInspectorGenerationScrollViewer.VerticalOffset
+                + bottom
+                - DemandSeriesInspectorGenerationScrollViewer.ViewportHeight);
+        }
+
+        DemandSeriesInspectorGenerationScrollViewer.UpdateLayout();
+    }
+
     private void ApplyResponsiveLayout(double width)
     {
         if (DemandSeriesInspectorGenerationWorkbench is null)
@@ -547,55 +591,52 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         }
 
         var isNarrow = width < ResponsiveBreakpoint;
-        var contextRows = DemandSeriesInspectorContext.RowDefinitions;
-        contextRows[1].Height = isNarrow ? GridLength.Auto : new GridLength(0);
         Grid.SetColumn(DemandSeriesInspectorPrimaryContext, 0);
         Grid.SetColumnSpan(DemandSeriesInspectorPrimaryContext, isNarrow ? 2 : 1);
-        DemandSeriesInspectorPrimaryContext.RowDefinitions[1].Height = isNarrow
-            ? GridLength.Auto
-            : new GridLength(0);
-        Grid.SetRow(InspectorLifecycleText, isNarrow ? 1 : 0);
-        Grid.SetColumn(InspectorLifecycleText, isNarrow ? 0 : 2);
-        Grid.SetColumnSpan(InspectorLifecycleText, isNarrow ? 3 : 1);
-        InspectorLifecycleText.Margin = isNarrow
-            ? new Thickness(0, 4, 0, 0)
-            : new Thickness(12, 0, 0, 0);
-        Grid.SetRow(InspectorSnapshotContextText, isNarrow ? 1 : 0);
-        Grid.SetColumn(InspectorSnapshotContextText, isNarrow ? 0 : 1);
-        Grid.SetColumnSpan(InspectorSnapshotContextText, isNarrow ? 2 : 1);
-        InspectorSnapshotContextText.Margin = isNarrow
-            ? new Thickness(0, 6, 0, 0)
-            : new Thickness(12, 0, 0, 0);
+        ReflowToSecondRow(
+            DemandSeriesInspectorPrimaryContext,
+            InspectorLifecycleText,
+            isNarrow,
+            wideColumn: 2,
+            narrowColumnSpan: 3,
+            narrowMargin: new Thickness(0, 8, 0, 0),
+            wideMargin: new Thickness(12, 0, 0, 0));
+        ReflowToSecondRow(
+            DemandSeriesInspectorContext,
+            InspectorSnapshotContextText,
+            isNarrow,
+            wideColumn: 1,
+            narrowColumnSpan: 2,
+            narrowMargin: new Thickness(0, 8, 0, 0),
+            wideMargin: new Thickness(12, 0, 0, 0));
 
-        DemandSeriesInspectorGenerationHeader.RowDefinitions[1].Height = isNarrow
-            ? GridLength.Auto
-            : new GridLength(0);
-        DemandSeriesInspectorGenerationIdentityContext.RowDefinitions[1].Height = isNarrow
-            ? GridLength.Auto
-            : new GridLength(0);
         Grid.SetColumnSpan(
             DemandSeriesInspectorGenerationIdentityText,
             isNarrow ? 2 : 1);
-        Grid.SetRow(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 1 : 0);
-        Grid.SetColumn(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 0 : 1);
-        Grid.SetColumnSpan(DemandSeriesInspectorGenerationSummaryText, isNarrow ? 2 : 1);
-        DemandSeriesInspectorGenerationSummaryText.Margin = isNarrow
-            ? new Thickness(0, 2, 0, 0)
-            : new Thickness(12, 2, 0, 0);
-        Grid.SetRow(DemandSeriesInspectorGenerationActions, isNarrow ? 1 : 0);
-        Grid.SetColumn(DemandSeriesInspectorGenerationActions, isNarrow ? 0 : 1);
-        DemandSeriesInspectorGenerationActions.Margin = isNarrow
-            ? new Thickness(0, 8, 0, 0)
-            : new Thickness(0);
-
-        DemandSeriesInspectorEventHeader.RowDefinitions[1].Height = isNarrow
-            ? GridLength.Auto
-            : new GridLength(0);
-        Grid.SetRow(DemandSeriesInspectorEventFilters, isNarrow ? 1 : 0);
-        Grid.SetColumn(DemandSeriesInspectorEventFilters, isNarrow ? 0 : 1);
-        DemandSeriesInspectorEventFilters.Margin = isNarrow
-            ? new Thickness(0, 8, 0, 0)
-            : new Thickness(0);
+        ReflowToSecondRow(
+            DemandSeriesInspectorGenerationIdentityContext,
+            DemandSeriesInspectorGenerationSummaryText,
+            isNarrow,
+            wideColumn: 1,
+            narrowColumnSpan: 2,
+            narrowMargin: new Thickness(0, 8, 0, 0),
+            wideMargin: new Thickness(12, 0, 0, 0));
+        ReflowToSecondRow(
+            DemandSeriesInspectorGenerationHeader,
+            DemandSeriesInspectorGenerationActions,
+            isNarrow,
+            wideColumn: 1,
+            narrowColumnSpan: 1,
+            narrowMargin: new Thickness(0, 8, 0, 0),
+            wideMargin: new Thickness(0));
+        ReflowToSecondRow(
+            DemandSeriesInspectorEventHeader,
+            DemandSeriesInspectorEventFilters,
+            isNarrow,
+            wideColumn: 1,
+            narrowColumnSpan: 1,
+            narrowMargin: new Thickness(0, 8, 0, 0),
+            wideMargin: new Thickness(0));
 
         var columns = DemandSeriesInspectorGenerationWorkbench.ColumnDefinitions;
         var rows = DemandSeriesInspectorGenerationWorkbench.RowDefinitions;
@@ -621,6 +662,24 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             isNarrow
                 ? ScrollBarVisibility.Auto
                 : ScrollBarVisibility.Disabled;
+    }
+
+    private static void ReflowToSecondRow(
+        Grid container,
+        FrameworkElement element,
+        bool isNarrow,
+        int wideColumn,
+        int narrowColumnSpan,
+        Thickness narrowMargin,
+        Thickness wideMargin)
+    {
+        container.RowDefinitions[1].Height = isNarrow
+            ? GridLength.Auto
+            : new GridLength(0);
+        Grid.SetRow(element, isNarrow ? 1 : 0);
+        Grid.SetColumn(element, isNarrow ? 0 : wideColumn);
+        Grid.SetColumnSpan(element, isNarrow ? narrowColumnSpan : 1);
+        element.Margin = isNarrow ? narrowMargin : wideMargin;
     }
 
     private void UpdateContextAutomationNames()

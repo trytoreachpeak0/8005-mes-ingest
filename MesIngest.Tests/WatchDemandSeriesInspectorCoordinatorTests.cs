@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 
@@ -299,10 +300,12 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 "所选 Series 详情不可用",
                 AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
                     window.FindName("DemandSeriesInspectorGenerationIdentityText"))));
+            var reason = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorFormationReasonText"));
             Assert.Equal(
                 "Demand 形成原因不可用",
-                AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
-                    window.FindName("DemandSeriesInspectorFormationReasonText"))));
+                AutomationProperties.GetName(reason));
+            Assert.Null(reason.ToolTip);
             Assert.Equal(
                 "Demand 形成事实不可用",
                 AutomationProperties.GetName(Assert.IsType<ItemsControl>(
@@ -324,6 +327,22 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 "无法读取所选 Series。Host 返回目标切换失败。",
                 AutomationProperties.GetName(Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                     window.FindName("DemandSeriesInspectorStatusInfoBar"))));
+            Assert.Equal(
+                string.Empty,
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorScalarBoundaryEvidenceText")).Text);
+            Assert.Equal(
+                string.Empty,
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorBeforeEvidenceText")).Text);
+            Assert.Equal(
+                string.Empty,
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorAfterEvidenceText")).Text);
+            Assert.Equal(
+                "0 个原生字段",
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorMesFieldCountText")).Text);
 
             window.Close();
         });
@@ -607,7 +626,11 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 sequence: 2,
                 "demand-other",
                 ["demand-other"]);
-            var window = new WatchDemandSeriesInspectorWindow();
+            var window = new WatchDemandSeriesInspectorWindow
+            {
+                Width = 720,
+                Height = 600,
+            };
             window.Update(initial with { Events = [related, unrelated] });
             window.Show();
             window.Activate();
@@ -640,6 +663,14 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
 
             var currentDemandEvents = Assert.IsType<RadioButton>(
                 window.FindName("DemandSeriesInspectorSelectedEventsRadio"));
+            Assert.True(allEvents.Focus());
+            Assert.True(allEvents.MoveFocus(
+                new TraversalRequest(FocusNavigationDirection.Next)));
+            Assert.True(currentDemandEvents.IsKeyboardFocused);
+            Assert.True(currentDemandEvents.MoveFocus(
+                new TraversalRequest(FocusNavigationDirection.Next)));
+            Assert.True(eventGrid.IsKeyboardFocusWithin);
+
             Assert.True(currentDemandEvents.Focus());
             PressKey(currentDemandEvents, Key.Space);
             Assert.Equal([1L], EventSequences(eventGrid));
@@ -971,6 +1002,11 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 ],
             };
             var window = RenderInspector(FocusedPresentation(seed, generation));
+            window.Width = 720;
+            window.Height = 600;
+            window.Show();
+            window.Activate();
+            window.UpdateLayout();
 
             var reason = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText"));
@@ -1189,6 +1225,11 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 MesBoundary = boundary,
             };
             var window = RenderInspector(FocusedPresentation(seed, generation));
+            window.Width = 720;
+            window.Height = 600;
+            window.Show();
+            window.Activate();
+            window.UpdateLayout();
 
             Assert.Equal(
                 Visibility.Collapsed,
@@ -1253,6 +1294,38 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 "新世代首次匹配观测：多行冲突",
                 AutomationProperties.GetName(rawGrid),
                 StringComparison.Ordinal);
+            var generationList = Assert.IsType<ListBox>(
+                window.FindName("DemandSeriesInspectorGenerationList"));
+            generationList.ScrollIntoView(generation);
+            window.UpdateLayout();
+            var generationItem = Assert.IsType<ListBoxItem>(
+                generationList.ItemContainerGenerator.ContainerFromItem(generation));
+            var relatedAction = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("DemandSeriesInspectorRelatedEventsButton"));
+            Assert.True(generationItem.Focus());
+            Assert.True(generationItem.MoveFocus(
+                new TraversalRequest(FocusNavigationDirection.Next)));
+            Assert.True(relatedAction.IsKeyboardFocused);
+            Assert.True(relatedAction.MoveFocus(
+                new TraversalRequest(FocusNavigationDirection.Next)));
+            Assert.True(rawGrid.IsKeyboardFocusWithin);
+            window.Dispatcher.Invoke(
+                () => { },
+                DispatcherPriority.ApplicationIdle);
+            window.UpdateLayout();
+            Assert.True(rawGrid.IsVisible);
+            Assert.True(rawGrid.ActualHeight > 0);
+            var generationScroll = Assert.IsType<ScrollViewer>(
+                window.FindName("DemandSeriesInspectorGenerationScrollViewer"));
+            var rawGridTopLeft = rawGrid.TranslatePoint(new Point(), generationScroll);
+            Assert.True(
+                rawGridTopLeft.Y >= 0
+                && rawGridTopLeft.Y + rawGrid.ActualHeight
+                    <= generationScroll.ViewportHeight + 1,
+                $"Tab focus must bring the conflict grid fully into the 720x600 viewport; "
+                + $"top={rawGridTopLeft.Y:0.##}, height={rawGrid.ActualHeight:0.##}, "
+                + $"viewport={generationScroll.ViewportHeight:0.##}, "
+                + $"offset={generationScroll.VerticalOffset:0.##}.");
 
             window.Close();
         });
