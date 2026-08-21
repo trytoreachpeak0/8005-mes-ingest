@@ -1695,7 +1695,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         HostBaseUrlInput.Text = _currentHostSettings.BaseUrl;
         HostCredentialInput.Password = string.Empty;
         RequestTimeoutInput.Text = _currentHostSettings.RequestTimeoutSeconds.ToString();
-        RememberWindowSizeCheckBox.IsChecked = _preferences.Display.RememberWindowLayout;
+        RememberWindowLayoutCheckBox.IsChecked = _preferences.Display.RememberWindowLayout;
         KeepNavigationPaneOpenCheckBox.IsChecked = _preferences.Display.IsNavigationPaneOpen;
     }
 
@@ -1717,10 +1717,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             WatchWindowLayoutService.Apply(
                 this,
                 requested,
-                WatchV2DisplayPreferences.DefaultWindowWidth,
-                WatchV2DisplayPreferences.DefaultWindowHeight,
-                MinWidth,
-                MinHeight);
+                WatchWindowLayoutTokens.Main);
         }
 
         WorkspaceNavigation.IsPaneOpen = display.IsNavigationPaneOpen;
@@ -1789,7 +1786,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 ReadInterval(ErrorSearchIntervalInput),
                 ReadInterval(CurrentAttentionIntervalInput));
             var display = new WatchV2DisplayPreferences(
-                RememberWindowSizeCheckBox.IsChecked == true,
+                RememberWindowLayoutCheckBox.IsChecked == true,
                 Math.Max(MinWidth, Width),
                 Math.Max(MinHeight, Height),
                 KeepNavigationPaneOpenCheckBox.IsChecked == true);
@@ -1797,7 +1794,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             {
                 var mainLayout = WatchWindowLayoutService.Capture(this);
                 display = new WatchV2DisplayPreferences(
-                    rememberWindowSize: true,
+                    rememberWindowLayout: true,
                     windowWidth: mainLayout.Width,
                     windowHeight: mainLayout.Height,
                     isNavigationPaneOpen: display.IsNavigationPaneOpen,
@@ -1829,7 +1826,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var hostGeneration = _session.State.HostGeneration;
             var defaultDisplay = WatchV2DisplayPreferences.Default;
             ApplyLocalPreferences(_preferences.RefreshIntervals, defaultDisplay);
-            RememberWindowSizeCheckBox.IsChecked = defaultDisplay.RememberWindowSize;
+            RememberWindowLayoutCheckBox.IsChecked = defaultDisplay.RememberWindowLayout;
             KeepNavigationPaneOpenCheckBox.IsChecked = defaultDisplay.IsNavigationPaneOpen;
             ApplyDisplayPreferences(defaultDisplay);
             if (_session.State.HostGeneration != hostGeneration)
@@ -2205,6 +2202,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         if (!_demandSeriesInspectorCoordinator.IsOpen && !_disposed)
         {
+            _focusedDemandId = null;
             _session.CancelDemandSeriesDetail();
         }
 
@@ -2595,7 +2593,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             var layout = WatchWindowLayoutService.Capture(this);
             var display = new WatchV2DisplayPreferences(
-                rememberWindowSize: true,
+                rememberWindowLayout: true,
                 windowWidth: Math.Max(MinWidth, layout.Width),
                 windowHeight: Math.Max(MinHeight, layout.Height),
                 isNavigationPaneOpen: WorkspaceNavigation.IsPaneOpen,

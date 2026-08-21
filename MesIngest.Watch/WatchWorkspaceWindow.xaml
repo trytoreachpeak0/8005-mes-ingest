@@ -6,11 +6,12 @@
                  xmlns:sys="clr-namespace:System;assembly=mscorlib"
                  xmlns:wpf="clr-namespace:System.Windows;assembly=WindowsBase"
                  xmlns:wpfControls="clr-namespace:System.Windows.Controls;assembly=PresentationFramework"
+                 xmlns:local="clr-namespace:MesIngest.Watch"
                  Title="MesIngest Watch"
-                 Width="1440"
-                 Height="900"
-                 MinWidth="720"
-                 MinHeight="600"
+                 Width="{x:Static local:WatchWindowLayoutTokens.MainDefaultWidth}"
+                 Height="{x:Static local:WatchWindowLayoutTokens.MainDefaultHeight}"
+                 MinWidth="{x:Static local:WatchWindowLayoutTokens.MinimumWidth}"
+                 MinHeight="{x:Static local:WatchWindowLayoutTokens.MinimumHeight}"
                  ResizeMode="CanResize"
                  WindowStyle="SingleBorderWindow"
                  ExtendsContentIntoTitleBar="True"
@@ -3618,7 +3619,7 @@
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                                 <StackPanel><ui:TextBlock Text="记住窗口布局" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="重启后恢复主窗口和详情窗口布局" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel>
-                                                <ui:ToggleSwitch x:Name="RememberWindowSizeCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口布局" />
+                                                <ui:ToggleSwitch x:Name="RememberWindowLayoutCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口布局" />
                                                 <ui:Button x:Name="RestoreDefaultLayoutButton"
                                                            Grid.Row="2"
                                                            Content="恢复默认布局"

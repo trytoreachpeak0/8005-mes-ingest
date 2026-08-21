@@ -41,10 +41,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         var applied = WatchWindowLayoutService.Apply(
             this,
             layout,
-            defaultWidth: 1200,
-            defaultHeight: 800,
-            minimumWidth: MinWidth,
-            minimumHeight: MinHeight);
+            WatchWindowLayoutTokens.Inspector);
         _lastNonMinimizedState = applied.Maximized
             ? WindowState.Maximized
             : WindowState.Normal;

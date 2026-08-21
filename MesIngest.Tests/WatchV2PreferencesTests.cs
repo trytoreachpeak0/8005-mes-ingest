@@ -36,7 +36,7 @@ public sealed class WatchV2PreferencesTests
         {
             var preferences = WatchV2PreferencesStore.Load(path);
 
-            Assert.True(preferences.Display.RememberWindowSize);
+            Assert.True(preferences.Display.RememberWindowLayout);
             Assert.Equal(1680, preferences.Display.WindowWidth);
             Assert.Equal(1000, preferences.Display.WindowHeight);
             Assert.True(preferences.Display.IsNavigationPaneOpen);
@@ -59,7 +59,7 @@ public sealed class WatchV2PreferencesTests
         var preferences = WatchV2Preferences.Default with
         {
             Display = new WatchV2DisplayPreferences(
-                rememberWindowSize: false,
+                rememberWindowLayout: false,
                 windowWidth: 1777,
                 windowHeight: 1111,
                 isNavigationPaneOpen: true),
@@ -76,7 +76,7 @@ public sealed class WatchV2PreferencesTests
             Assert.DoesNotContain("maximized", json, StringComparison.OrdinalIgnoreCase);
 
             var loaded = WatchV2PreferencesStore.Load(path);
-            Assert.False(loaded.Display.RememberWindowSize);
+            Assert.False(loaded.Display.RememberWindowLayout);
             Assert.Equal(
                 WatchV2DisplayPreferences.Default.WindowWidth,
                 loaded.Display.WindowWidth);
@@ -102,7 +102,7 @@ public sealed class WatchV2PreferencesTests
 
         Assert.Equal(5, Enum.GetValues<WatchV2DataView>().Length);
         Assert.Null(typeof(WatchV2AutoRefreshSetting).GetProperty("Enabled"));
-        Assert.True(preferences.Display.RememberWindowSize);
+        Assert.True(preferences.Display.RememberWindowLayout);
         Assert.Equal(1440, preferences.Display.WindowWidth);
         Assert.Equal(900, preferences.Display.WindowHeight);
         Assert.False(preferences.Display.IsNavigationPaneOpen);
@@ -125,7 +125,7 @@ public sealed class WatchV2PreferencesTests
                 .With(WatchV2DataView.ErrorSearch, new WatchV2AutoRefreshSetting(300))
                 .With(WatchV2DataView.CurrentIngestAttention, new WatchV2AutoRefreshSetting(30)),
             new WatchV2DisplayPreferences(
-                rememberWindowSize: true,
+                rememberWindowLayout: true,
                 windowWidth: 1680,
                 windowHeight: 1050,
                 isNavigationPaneOpen));
@@ -222,7 +222,7 @@ public sealed class WatchV2PreferencesTests
                 WatchV2DataView.ErrorSearch,
                 new WatchV2AutoRefreshSetting(60)),
             Display = new WatchV2DisplayPreferences(
-                rememberWindowSize: true,
+                rememberWindowLayout: true,
                 windowWidth: 1920,
                 windowHeight: 1080,
                 isNavigationPaneOpen: false),
@@ -264,7 +264,7 @@ public sealed class WatchV2PreferencesTests
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new WatchV2DisplayPreferences(
-                rememberWindowSize: true,
+                rememberWindowLayout: true,
                 windowWidth: width,
                 windowHeight: height,
                 isNavigationPaneOpen: true));

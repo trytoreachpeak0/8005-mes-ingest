@@ -15,6 +15,34 @@ internal sealed record WatchDisplayWorkArea(
     Rect Bounds,
     bool IsPrimary);
 
+internal sealed record WatchWindowLayoutConstraints(
+    double DefaultWidth,
+    double DefaultHeight,
+    double MinimumWidth,
+    double MinimumHeight);
+
+internal static class WatchWindowLayoutTokens
+{
+    public const double MainDefaultWidth = 1440;
+    public const double MainDefaultHeight = 900;
+    public const double InspectorDefaultWidth = 1200;
+    public const double InspectorDefaultHeight = 800;
+    public const double MinimumWidth = 720;
+    public const double MinimumHeight = 600;
+
+    internal static WatchWindowLayoutConstraints Main { get; } = new(
+        MainDefaultWidth,
+        MainDefaultHeight,
+        MinimumWidth,
+        MinimumHeight);
+
+    internal static WatchWindowLayoutConstraints Inspector { get; } = new(
+        InspectorDefaultWidth,
+        InspectorDefaultHeight,
+        MinimumWidth,
+        MinimumHeight);
+}
+
 internal static class WatchWindowLayoutService
 {
     private const double MinimumVisibleLength = 1;
@@ -22,19 +50,13 @@ internal static class WatchWindowLayoutService
     internal static WatchWindowLayout Apply(
         Window window,
         WatchWindowLayout? requested,
-        double defaultWidth,
-        double defaultHeight,
-        double minimumWidth,
-        double minimumHeight)
+        WatchWindowLayoutConstraints constraints)
     {
         ArgumentNullException.ThrowIfNull(window);
         var applied = Resolve(
             requested,
             GetDisplayWorkAreas(),
-            defaultWidth,
-            defaultHeight,
-            minimumWidth,
-            minimumHeight);
+            constraints);
 
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         window.WindowState = WindowState.Normal;
@@ -79,10 +101,7 @@ internal static class WatchWindowLayoutService
     internal static WatchWindowLayout Resolve(
         WatchWindowLayout? requested,
         IReadOnlyList<WatchDisplayWorkArea> workAreas,
-        double defaultWidth,
-        double defaultHeight,
-        double minimumWidth,
-        double minimumHeight)
+        WatchWindowLayoutConstraints constraints)
     {
         ArgumentNullException.ThrowIfNull(workAreas);
         if (workAreas.Count == 0)
@@ -108,8 +127,8 @@ internal static class WatchWindowLayoutService
             : new Rect(
                 FiniteOrZero(requested.Left),
                 FiniteOrZero(requested.Top),
-                PositiveFiniteOrDefault(requested.Width, defaultWidth),
-                PositiveFiniteOrDefault(requested.Height, defaultHeight));
+                PositiveFiniteOrDefault(requested.Width, constraints.DefaultWidth),
+                PositiveFiniteOrDefault(requested.Height, constraints.DefaultHeight));
         var isLegacySizeOnly = requested is not null
             && string.IsNullOrWhiteSpace(requested.MonitorDeviceName)
             && (!double.IsFinite(requested.Left) || !double.IsFinite(requested.Top));
@@ -119,13 +138,13 @@ internal static class WatchWindowLayoutService
                 || !double.IsFinite(requested.Top)
                 || (!monitorMissing && !HasVisibleIntersection(requestedBounds, work)));
         var sourceWidth = invalidCoordinates
-            ? defaultWidth
-            : PositiveFiniteOrDefault(requested?.Width, defaultWidth);
+            ? constraints.DefaultWidth
+            : PositiveFiniteOrDefault(requested?.Width, constraints.DefaultWidth);
         var sourceHeight = invalidCoordinates
-            ? defaultHeight
-            : PositiveFiniteOrDefault(requested?.Height, defaultHeight);
-        var width = ClampLength(sourceWidth, minimumWidth, work.Width);
-        var height = ClampLength(sourceHeight, minimumHeight, work.Height);
+            ? constraints.DefaultHeight
+            : PositiveFiniteOrDefault(requested?.Height, constraints.DefaultHeight);
+        var width = ClampLength(sourceWidth, constraints.MinimumWidth, work.Width);
+        var height = ClampLength(sourceHeight, constraints.MinimumHeight, work.Height);
 
         double left;
         double top;

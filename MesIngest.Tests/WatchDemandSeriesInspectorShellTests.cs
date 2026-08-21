@@ -328,7 +328,10 @@ public sealed class WatchDemandSeriesInspectorShellTests
             var root = Path.Combine(
                 Path.GetTempPath(),
                 $"watch-inspector-close-reopen-context-{Guid.NewGuid():N}");
-            var client = new DemandSeriesClient(itemCount: 2);
+            var client = new DemandSeriesClient(itemCount: 2)
+            {
+                IncludeHistoricalGeneration = true,
+            };
             using var inspectorCoordinator = new WatchDemandSeriesInspectorCoordinator();
             using var window = CreateWindow(root, client, inspectorCoordinator);
             try
@@ -345,6 +348,17 @@ public sealed class WatchDemandSeriesInspectorShellTests
                     .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 var first = Assert.IsType<WatchDemandSeriesInspectorWindow>(
                     inspectorCoordinator.CurrentWindow);
+                var generations = Assert.IsType<ListBox>(
+                    first.FindName("DemandSeriesInspectorGenerationList"));
+                var historical = generations.Items
+                    .Cast<WatchDemandSeriesInspectorGenerationPresentation>()
+                    .Single(generation => !generation.IsCurrent);
+                generations.SelectedItem = historical;
+                DrainDispatcher();
+                Assert.Equal(
+                    historical.DemandId,
+                    Assert.IsType<WatchDemandSeriesInspectorGenerationPresentation>(
+                        generations.SelectedItem).DemandId);
                 Assert.IsType<TabControl>(first.FindName("DemandSeriesInspectorTabs"))
                     .SelectedIndex = 1;
                 Assert.IsType<RadioButton>(first.FindName("DemandSeriesInspectorSelectedEventsRadio"))
@@ -354,9 +368,6 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 DrainDispatcher();
                 Assert.False(inspectorCoordinator.IsOpen);
 
-                var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
-                grid.SelectedItem = grid.Items.Cast<WatchDemandSeriesRowPresentation>()
-                    .Single(row => row.SeriesId == "series-b");
                 Assert.Equal(1, client.DetailFetchCount);
 
                 Assert.IsAssignableFrom<ButtonBase>(
@@ -367,11 +378,15 @@ public sealed class WatchDemandSeriesInspectorShellTests
                     inspectorCoordinator.CurrentWindow);
 
                 Assert.NotSame(first, reopened);
-                Assert.Contains("series-b", reopened.Title, StringComparison.Ordinal);
+                Assert.Contains("series-a", reopened.Title, StringComparison.Ordinal);
                 Assert.Equal(0, Assert.IsType<TabControl>(
                     reopened.FindName("DemandSeriesInspectorTabs")).SelectedIndex);
                 Assert.True(Assert.IsType<RadioButton>(
                     reopened.FindName("DemandSeriesInspectorAllEventsRadio")).IsChecked);
+                Assert.True(Assert.IsType<WatchDemandSeriesInspectorGenerationPresentation>(
+                    Assert.IsType<ListBox>(
+                        reopened.FindName("DemandSeriesInspectorGenerationList")).SelectedItem)
+                    .IsCurrent);
                 Assert.Equal(2, client.DetailFetchCount);
 
                 window.Close();
@@ -405,7 +420,7 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 window.ApplyLocalPreferences(
                     WatchV2AutoRefreshSettings.Default,
                     new WatchV2DisplayPreferences(
-                        rememberWindowSize: true,
+                        rememberWindowLayout: true,
                         windowWidth: 1660,
                         windowHeight: 980,
                         isNavigationPaneOpen: true));
@@ -424,7 +439,7 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 Assert.Null(window.WorkspaceState.DemandSeries.Detail);
                 var persisted = WatchV2PreferencesStore.Load(
                     Path.Combine(root, "workspace.json"));
-                Assert.True(persisted.Display.RememberWindowSize);
+                Assert.True(persisted.Display.RememberWindowLayout);
                 Assert.Equal(1660, persisted.Display.WindowWidth);
                 Assert.Equal(980, persisted.Display.WindowHeight);
                 Assert.True(persisted.Display.IsNavigationPaneOpen);
@@ -845,6 +860,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
 
         public bool DelayNextDetail { get; set; }
 
+        public bool IncludeHistoricalGeneration { get; init; }
+
         private int ListFetchCount { get; set; }
 
         private TaskCompletionSource<DemandSeriesDetailSnapshot>? DelayedSeriesBDetail { get; set; }
@@ -918,8 +935,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
             var demand = new TransportDemandSnapshot(
                 demandId,
                 seriesId,
-                1,
-                PredecessorDemandId: null,
+                IncludeHistoricalGeneration ? 2 : 1,
+                PredecessorDemandId: IncludeHistoricalGeneration ? $"{demandId}-old" : null,
                 DemandSeriesLifecycleContract.Visible,
                 At,
                 At,
@@ -961,6 +978,30 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 "commit-create",
                 1,
                 $"{{\"demandId\":\"{demandId}\",\"generation\":1}}");
+            var historicalDemand = demand with
+            {
+                DemandId = $"{demandId}-old",
+                Generation = 1,
+                PredecessorDemandId = null,
+                Status = DemandSeriesLifecycleContract.Gone,
+                GoneConfirmedAt = At,
+                LiveMesFields = null,
+            };
+            var historicalObservation = observation with
+            {
+                Ordinal = 0,
+                PollTraceId = "poll-history",
+                ProjectionCommitId = "commit-history",
+                DemandId = historicalDemand.DemandId,
+            };
+            var historicalCreation = creation with
+            {
+                EventId = $"event-{seriesId}-old",
+                SubjectId = historicalDemand.DemandId,
+                PollTraceId = "poll-history",
+                ProjectionCommitId = "commit-history",
+                PayloadJson = $"{{\"demandId\":\"{historicalDemand.DemandId}\",\"generation\":1}}",
+            };
             var detail = new DemandSeriesDetailSnapshot(
                 new DemandSeriesSnapshotIdentity("commit-list", 2, At, "poll-list"),
                 snapshotReference,
@@ -975,9 +1016,9 @@ public sealed class WatchDemandSeriesInspectorShellTests
                     "commit-create",
                     "commit-list",
                     demand,
-                    [demand],
-                    [observation],
-                    [creation],
+                    IncludeHistoricalGeneration ? [historicalDemand, demand] : [demand],
+                    IncludeHistoricalGeneration ? [historicalObservation, observation] : [observation],
+                    IncludeHistoricalGeneration ? [historicalCreation, creation] : [creation],
                     [],
                     [],
                     ArchivedAt: null,

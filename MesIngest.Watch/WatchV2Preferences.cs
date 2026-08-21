@@ -11,16 +11,16 @@ namespace MesIngest.Watch;
 /// </summary>
 internal sealed record WatchV2DisplayPreferences
 {
-    public const double DefaultWindowWidth = 1440;
-    public const double DefaultWindowHeight = 900;
-    public const double MinimumWindowWidth = 720;
-    public const double MinimumWindowHeight = 600;
+    public const double DefaultWindowWidth = WatchWindowLayoutTokens.MainDefaultWidth;
+    public const double DefaultWindowHeight = WatchWindowLayoutTokens.MainDefaultHeight;
+    public const double MinimumWindowWidth = WatchWindowLayoutTokens.MinimumWidth;
+    public const double MinimumWindowHeight = WatchWindowLayoutTokens.MinimumHeight;
 
     private const double MaximumWindowWidth = 7680;
     private const double MaximumWindowHeight = 4320;
 
     public WatchV2DisplayPreferences(
-        bool rememberWindowSize = true,
+        bool rememberWindowLayout = true,
         double windowWidth = DefaultWindowWidth,
         double windowHeight = DefaultWindowHeight,
         bool isNavigationPaneOpen = false,
@@ -34,7 +34,7 @@ internal sealed record WatchV2DisplayPreferences
                 $"Window geometry must be finite and within {MinimumWindowWidth}x{MinimumWindowHeight} and {MaximumWindowWidth}x{MaximumWindowHeight}.");
         }
 
-        RememberWindowSize = rememberWindowSize;
+        RememberWindowLayout = rememberWindowLayout;
         WindowWidth = windowWidth;
         WindowHeight = windowHeight;
         IsNavigationPaneOpen = isNavigationPaneOpen;
@@ -44,9 +44,7 @@ internal sealed record WatchV2DisplayPreferences
 
     public static WatchV2DisplayPreferences Default { get; } = new();
 
-    public bool RememberWindowSize { get; }
-
-    public bool RememberWindowLayout => RememberWindowSize;
+    public bool RememberWindowLayout { get; }
 
     public double WindowWidth { get; }
 
@@ -151,12 +149,12 @@ internal static class WatchV2PreferencesStore
         var temporaryPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            var persistedPreferences = preferences.Display.RememberWindowSize
+            var persistedPreferences = preferences.Display.RememberWindowLayout
                 ? preferences
                 : preferences with
                 {
                     Display = new WatchV2DisplayPreferences(
-                        rememberWindowSize: false,
+                        rememberWindowLayout: false,
                         isNavigationPaneOpen: preferences.Display.IsNavigationPaneOpen),
                 };
             var document = PreferencesDocument.From(persistedPreferences);
@@ -267,7 +265,7 @@ internal static class WatchV2PreferencesStore
         WatchWindowLayout? InspectorWindowLayout = null)
     {
         public static DisplayDocument From(WatchV2DisplayPreferences display) => new(
-            display.RememberWindowSize,
+            display.RememberWindowLayout,
             display.WindowWidth,
             display.WindowHeight,
             display.IsNavigationPaneOpen,

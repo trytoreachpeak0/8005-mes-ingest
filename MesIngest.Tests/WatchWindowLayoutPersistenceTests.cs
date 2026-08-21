@@ -18,7 +18,7 @@ public sealed class WatchWindowLayoutPersistenceTests
             {
                 using var window = CreateWorkspace(root, WatchV2Preferences.Default);
                 var preference = Assert.IsAssignableFrom<UIElement>(
-                    window.FindName("RememberWindowSizeCheckBox"));
+                    window.FindName("RememberWindowLayoutCheckBox"));
 
                 Assert.Equal("记住窗口布局", AutomationProperties.GetName(preference));
 

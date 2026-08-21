@@ -70,17 +70,7 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
 
         var window = _window ?? CreateWindow();
         window.Update(presentation);
-        if (!window.IsVisible)
-        {
-            window.Show();
-        }
-
-        if (window.IsMinimized)
-        {
-            window.Restore();
-        }
-
-        window.Activate();
+        ShowAndActivate(window);
     }
 
     internal void OpenOrShow(WatchDemandSeriesInspectorPresentation presentation) =>
@@ -106,17 +96,7 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
             return false;
         }
 
-        if (!window.IsVisible)
-        {
-            window.Show();
-        }
-
-        if (window.IsMinimized)
-        {
-            window.Restore();
-        }
-
-        window.Activate();
+        ShowAndActivate(window);
         return true;
     }
 
@@ -182,4 +162,19 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
 
     private void SaveLayout(IWatchDemandSeriesInspectorWindow window) =>
         _layoutSaver?.Invoke(window.CaptureLayout());
+
+    private static void ShowAndActivate(IWatchDemandSeriesInspectorWindow window)
+    {
+        if (!window.IsVisible)
+        {
+            window.Show();
+        }
+
+        if (window.IsMinimized)
+        {
+            window.Restore();
+        }
+
+        window.Activate();
+    }
 }

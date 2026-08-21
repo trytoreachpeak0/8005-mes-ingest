@@ -62,7 +62,7 @@ public sealed class WatchV2ProductionHostTests
                 SetRefreshIntervals(window, 10, 10, 10, 10, 30);
                 Find<Wpf.Ui.Controls.ToggleSwitch>(
                     window,
-                    "RememberWindowSizeCheckBox").IsChecked = false;
+                    "RememberWindowLayoutCheckBox").IsChecked = false;
                 Find<Wpf.Ui.Controls.ToggleSwitch>(
                     window,
                     "KeepNavigationPaneOpenCheckBox").IsChecked = true;
@@ -72,13 +72,13 @@ public sealed class WatchV2ProductionHostTests
                 AssertSavedLocalPreferences(
                     files.WorkspacePath,
                     [10, 10, 10, 10, 30],
-                    rememberWindowSize: false,
+                    rememberWindowLayout: false,
                     isNavigationPaneOpen: true);
 
                 SetRefreshIntervals(window, 10, 30, 60, 300, 10);
                 Find<Wpf.Ui.Controls.ToggleSwitch>(
                     window,
-                    "RememberWindowSizeCheckBox").IsChecked = true;
+                    "RememberWindowLayoutCheckBox").IsChecked = true;
                 Find<Wpf.Ui.Controls.ToggleSwitch>(
                     window,
                     "KeepNavigationPaneOpenCheckBox").IsChecked = false;
@@ -88,7 +88,7 @@ public sealed class WatchV2ProductionHostTests
                 AssertSavedLocalPreferences(
                     files.WorkspacePath,
                     [10, 30, 60, 300, 10],
-                    rememberWindowSize: true,
+                    rememberWindowLayout: true,
                     isNavigationPaneOpen: false);
                 Assert.Equal(hostGeneration, window.WorkspaceState.HostGeneration);
                 Assert.Equal("http://127.0.0.1:5998", hostDraft.Text);
@@ -125,7 +125,7 @@ public sealed class WatchV2ProductionHostTests
     private static void AssertSavedLocalPreferences(
         string path,
         IReadOnlyList<int> expectedIntervals,
-        bool rememberWindowSize,
+        bool rememberWindowLayout,
         bool isNavigationPaneOpen)
     {
         var saved = WatchV2PreferencesStore.Load(path);
@@ -139,7 +139,7 @@ public sealed class WatchV2ProductionHostTests
                 saved.RefreshIntervals.ErrorSearch.IntervalSeconds,
                 saved.RefreshIntervals.CurrentIngestAttention.IntervalSeconds,
             });
-        Assert.Equal(rememberWindowSize, saved.Display.RememberWindowSize);
+        Assert.Equal(rememberWindowLayout, saved.Display.RememberWindowLayout);
         Assert.Equal(isNavigationPaneOpen, saved.Display.IsNavigationPaneOpen);
     }
 
@@ -158,7 +158,7 @@ public sealed class WatchV2ProductionHostTests
             new WatchV2Preferences(
                 refresh,
                 new WatchV2DisplayPreferences(
-                    rememberWindowSize: false,
+                    rememberWindowLayout: false,
                     windowWidth: 1000,
                     windowHeight: 700,
                     isNavigationPaneOpen: true)));
@@ -601,7 +601,7 @@ public sealed class WatchV2ProductionHostTests
                 window.ApplyLocalPreferences(
                     intervals,
                     new WatchV2DisplayPreferences(
-                        rememberWindowSize: true,
+                        rememberWindowLayout: true,
                         windowWidth: 1280,
                         windowHeight: 800,
                         isNavigationPaneOpen: false));
