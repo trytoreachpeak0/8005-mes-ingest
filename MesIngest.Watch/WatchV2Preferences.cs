@@ -23,7 +23,9 @@ internal sealed record WatchV2DisplayPreferences
         bool rememberWindowSize = true,
         double windowWidth = DefaultWindowWidth,
         double windowHeight = DefaultWindowHeight,
-        bool isNavigationPaneOpen = false)
+        bool isNavigationPaneOpen = false,
+        WatchWindowLayout? mainWindowLayout = null,
+        WatchWindowLayout? inspectorWindowLayout = null)
     {
         if (!IsValidWindowSize(windowWidth, windowHeight))
         {
@@ -36,17 +38,33 @@ internal sealed record WatchV2DisplayPreferences
         WindowWidth = windowWidth;
         WindowHeight = windowHeight;
         IsNavigationPaneOpen = isNavigationPaneOpen;
+        MainWindowLayout = mainWindowLayout;
+        InspectorWindowLayout = inspectorWindowLayout;
     }
 
     public static WatchV2DisplayPreferences Default { get; } = new();
 
     public bool RememberWindowSize { get; }
 
+    public bool RememberWindowLayout => RememberWindowSize;
+
     public double WindowWidth { get; }
 
     public double WindowHeight { get; }
 
     public bool IsNavigationPaneOpen { get; }
+
+    public WatchWindowLayout? MainWindowLayout { get; }
+
+    public WatchWindowLayout? InspectorWindowLayout { get; }
+
+    public WatchV2DisplayPreferences WithInspectorWindowLayout(WatchWindowLayout layout) => new(
+        RememberWindowLayout,
+        WindowWidth,
+        WindowHeight,
+        IsNavigationPaneOpen,
+        MainWindowLayout,
+        layout);
 
     private static bool IsValidWindowSize(double width, double height) =>
         double.IsFinite(width)
@@ -133,7 +151,15 @@ internal static class WatchV2PreferencesStore
         var temporaryPath = $"{fullPath}.{Guid.NewGuid():N}.tmp";
         try
         {
-            var document = PreferencesDocument.From(preferences);
+            var persistedPreferences = preferences.Display.RememberWindowSize
+                ? preferences
+                : preferences with
+                {
+                    Display = new WatchV2DisplayPreferences(
+                        rememberWindowSize: false,
+                        isNavigationPaneOpen: preferences.Display.IsNavigationPaneOpen),
+                };
+            var document = PreferencesDocument.From(persistedPreferences);
             using (var stream = new FileStream(
                        temporaryPath,
                        FileMode.CreateNew,
@@ -205,7 +231,9 @@ internal static class WatchV2PreferencesStore
                 Display!.RememberWindowSize,
                 Display.WindowWidth,
                 Display.WindowHeight,
-                Display.IsNavigationPaneOpen));
+                Display.IsNavigationPaneOpen,
+                Display.MainWindowLayout,
+                Display.InspectorWindowLayout));
 
         public static PreferencesDocument From(WatchV2Preferences preferences) => new(
             CurrentVersion,
@@ -232,12 +260,18 @@ internal static class WatchV2PreferencesStore
         bool RememberWindowSize,
         double WindowWidth,
         double WindowHeight,
-        bool IsNavigationPaneOpen)
+        bool IsNavigationPaneOpen,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        WatchWindowLayout? MainWindowLayout = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        WatchWindowLayout? InspectorWindowLayout = null)
     {
         public static DisplayDocument From(WatchV2DisplayPreferences display) => new(
             display.RememberWindowSize,
             display.WindowWidth,
             display.WindowHeight,
-            display.IsNavigationPaneOpen);
+            display.IsNavigationPaneOpen,
+            display.RememberWindowLayout ? display.MainWindowLayout : null,
+            display.RememberWindowLayout ? display.InspectorWindowLayout : null);
     }
 }

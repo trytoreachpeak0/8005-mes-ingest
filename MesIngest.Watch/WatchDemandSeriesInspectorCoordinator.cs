@@ -17,11 +17,19 @@ internal interface IWatchDemandSeriesInspectorWindow
 
     bool IsVisible { get; }
 
+    bool IsMinimized { get; }
+
+    void ApplyLayout(WatchWindowLayout? layout);
+
+    WatchWindowLayout CaptureLayout();
+
     void Update(WatchDemandSeriesInspectorStatePresentation presentation);
 
     void Clear();
 
     void Show();
+
+    void Restore();
 
     bool Activate();
 
@@ -31,13 +39,19 @@ internal interface IWatchDemandSeriesInspectorWindow
 internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
 {
     private readonly Func<IWatchDemandSeriesInspectorWindow> _windowFactory;
+    private readonly Func<WatchWindowLayout?>? _layoutLoader;
+    private readonly Action<WatchWindowLayout>? _layoutSaver;
     private IWatchDemandSeriesInspectorWindow? _window;
     private bool _disposed;
 
     internal WatchDemandSeriesInspectorCoordinator(
-        Func<IWatchDemandSeriesInspectorWindow>? windowFactory = null)
+        Func<IWatchDemandSeriesInspectorWindow>? windowFactory = null,
+        Func<WatchWindowLayout?>? layoutLoader = null,
+        Action<WatchWindowLayout>? layoutSaver = null)
     {
         _windowFactory = windowFactory ?? (() => new WatchDemandSeriesInspectorWindow());
+        _layoutLoader = layoutLoader;
+        _layoutSaver = layoutSaver;
     }
 
     internal bool IsOpen => _window is not null;
@@ -59,6 +73,11 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
         if (!window.IsVisible)
         {
             window.Show();
+        }
+
+        if (window.IsMinimized)
+        {
+            window.Restore();
         }
 
         window.Activate();
@@ -92,6 +111,11 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
             window.Show();
         }
 
+        if (window.IsMinimized)
+        {
+            window.Restore();
+        }
+
         window.Activate();
         return true;
     }
@@ -113,13 +137,16 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
         }
 
         Detach(window);
-        _window = null;
         window.Close();
+        SaveLayout(window);
+        window.Clear();
+        _window = null;
     }
 
     private IWatchDemandSeriesInspectorWindow CreateWindow()
     {
         var window = _windowFactory();
+        window.ApplyLayout(_layoutLoader?.Invoke());
         window.Closed += OnWindowClosed;
         window.GenerationFocusRequested += OnGenerationFocusRequested;
         _window = window;
@@ -135,6 +162,8 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
             return;
         }
 
+        SaveLayout(window);
+        window.Clear();
         Detach(window);
         _window = null;
         StateChanged?.Invoke(this, EventArgs.Empty);
@@ -150,4 +179,7 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
         window.Closed -= OnWindowClosed;
         window.GenerationFocusRequested -= OnGenerationFocusRequested;
     }
+
+    private void SaveLayout(IWatchDemandSeriesInspectorWindow window) =>
+        _layoutSaver?.Invoke(window.CaptureLayout());
 }

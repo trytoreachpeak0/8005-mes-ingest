@@ -90,7 +90,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             preferences.RefreshIntervals,
             timeProvider);
         _demandSeriesInspectorCoordinator = demandSeriesInspectorCoordinator
-            ?? new WatchDemandSeriesInspectorCoordinator();
+            ?? new WatchDemandSeriesInspectorCoordinator(
+                layoutLoader: LoadInspectorWindowLayout,
+                layoutSaver: SaveInspectorWindowLayout);
         _demandSeriesInspectorCoordinator.StateChanged += OnDemandSeriesInspectorStateChanged;
         _demandSeriesInspectorCoordinator.GenerationFocusRequested +=
             OnDemandSeriesInspectorGenerationFocusRequested;
@@ -1693,7 +1695,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         HostBaseUrlInput.Text = _currentHostSettings.BaseUrl;
         HostCredentialInput.Password = string.Empty;
         RequestTimeoutInput.Text = _currentHostSettings.RequestTimeoutSeconds.ToString();
-        RememberWindowSizeCheckBox.IsChecked = _preferences.Display.RememberWindowSize;
+        RememberWindowSizeCheckBox.IsChecked = _preferences.Display.RememberWindowLayout;
         KeepNavigationPaneOpenCheckBox.IsChecked = _preferences.Display.IsNavigationPaneOpen;
     }
 
@@ -1703,12 +1705,22 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         if (restoreGeometry)
         {
-            var preferred = display.RememberWindowSize
-                ? display
-                : WatchV2DisplayPreferences.Default;
-            var workArea = SystemParameters.WorkArea;
-            Width = Math.Max(MinWidth, Math.Min(preferred.WindowWidth, workArea.Width));
-            Height = Math.Max(MinHeight, Math.Min(preferred.WindowHeight, workArea.Height));
+            var requested = display.RememberWindowLayout
+                ? display.MainWindowLayout ?? new WatchWindowLayout(
+                    double.NaN,
+                    double.NaN,
+                    display.WindowWidth,
+                    display.WindowHeight,
+                    MonitorDeviceName: null,
+                    Maximized: false)
+                : null;
+            WatchWindowLayoutService.Apply(
+                this,
+                requested,
+                WatchV2DisplayPreferences.DefaultWindowWidth,
+                WatchV2DisplayPreferences.DefaultWindowHeight,
+                MinWidth,
+                MinHeight);
         }
 
         WorkspaceNavigation.IsPaneOpen = display.IsNavigationPaneOpen;
@@ -1781,6 +1793,17 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 Math.Max(MinWidth, Width),
                 Math.Max(MinHeight, Height),
                 KeepNavigationPaneOpenCheckBox.IsChecked == true);
+            if (display.RememberWindowLayout)
+            {
+                var mainLayout = WatchWindowLayoutService.Capture(this);
+                display = new WatchV2DisplayPreferences(
+                    rememberWindowSize: true,
+                    windowWidth: mainLayout.Width,
+                    windowHeight: mainLayout.Height,
+                    isNavigationPaneOpen: display.IsNavigationPaneOpen,
+                    mainWindowLayout: mainLayout,
+                    inspectorWindowLayout: _preferences.Display.InspectorWindowLayout);
+            }
             var hostGeneration = _session.State.HostGeneration;
             ApplyLocalPreferences(refresh, display);
             if (_session.State.HostGeneration != hostGeneration)
@@ -2544,6 +2567,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void OnWindowClosing(object? sender, CancelEventArgs e)
     {
         FlushAreaProfileAutoSave();
+        _demandSeriesInspectorCoordinator.CloseCurrent();
         if (_isWatchingSystemTheme)
         {
             Wpf.Ui.Appearance.SystemThemeWatcher.UnWatch(this);
@@ -2562,19 +2586,21 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void SaveWindowGeometry()
     {
-        if (!_preferences.Display.RememberWindowSize)
+        if (!_preferences.Display.RememberWindowLayout)
         {
             return;
         }
 
         try
         {
-            var bounds = WindowState == WindowState.Normal ? new Rect(0, 0, Width, Height) : RestoreBounds;
+            var layout = WatchWindowLayoutService.Capture(this);
             var display = new WatchV2DisplayPreferences(
                 rememberWindowSize: true,
-                windowWidth: Math.Max(MinWidth, bounds.Width),
-                windowHeight: Math.Max(MinHeight, bounds.Height),
-                isNavigationPaneOpen: WorkspaceNavigation.IsPaneOpen);
+                windowWidth: Math.Max(MinWidth, layout.Width),
+                windowHeight: Math.Max(MinHeight, layout.Height),
+                isNavigationPaneOpen: WorkspaceNavigation.IsPaneOpen,
+                mainWindowLayout: layout,
+                inspectorWindowLayout: _preferences.Display.InspectorWindowLayout);
             _preferences = _preferences with { Display = display };
             WatchV2PreferencesStore.Save(_workspacePreferencesPath, _preferences);
         }
@@ -2583,6 +2609,34 @@ internal partial class WatchWorkspaceWindow : IDisposable
             or ArgumentException)
         {
             // A display preference failure must not block a clean window close.
+        }
+    }
+
+    private WatchWindowLayout? LoadInspectorWindowLayout() =>
+        _preferences.Display.RememberWindowLayout
+            ? _preferences.Display.InspectorWindowLayout
+            : null;
+
+    private void SaveInspectorWindowLayout(WatchWindowLayout layout)
+    {
+        if (!_preferences.Display.RememberWindowLayout)
+        {
+            return;
+        }
+
+        try
+        {
+            _preferences = _preferences with
+            {
+                Display = _preferences.Display.WithInspectorWindowLayout(layout),
+            };
+            WatchV2PreferencesStore.Save(_workspacePreferencesPath, _preferences);
+        }
+        catch (Exception exception) when (exception is IOException
+            or UnauthorizedAccessException
+            or ArgumentException)
+        {
+            // Layout persistence must never prevent a window from closing.
         }
     }
 

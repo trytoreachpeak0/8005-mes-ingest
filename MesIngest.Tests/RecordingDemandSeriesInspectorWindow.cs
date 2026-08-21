@@ -12,6 +12,16 @@ internal sealed class RecordingDemandSeriesInspectorWindow :
 
     public bool IsVisible { get; private set; }
 
+    public bool IsMinimized { get; private set; }
+
+    public WatchWindowLayout Layout { get; private set; } = new(
+        0,
+        0,
+        1200,
+        800,
+        "TEST",
+        Maximized: false);
+
     public int ShowCount { get; private set; }
 
     public int ActivateCount { get; private set; }
@@ -30,6 +40,18 @@ internal sealed class RecordingDemandSeriesInspectorWindow :
         IsVisible = true;
         ShowCount++;
     }
+
+    public void Restore() => IsMinimized = false;
+
+    public void ApplyLayout(WatchWindowLayout? layout)
+    {
+        if (layout is not null)
+        {
+            Layout = layout;
+        }
+    }
+
+    public WatchWindowLayout CaptureLayout() => Layout;
 
     public bool Activate()
     {

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -12,10 +13,13 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     private bool _filterSelectedGeneration;
     private WatchDemandSeriesInspectorStatePresentation? _state;
     private WatchDemandSeriesInspectorPresentation? _presentation;
+    private WindowState _lastNonMinimizedState = WindowState.Normal;
+    private WatchWindowLayout? _capturedLayout;
 
     internal WatchDemandSeriesInspectorWindow()
     {
         InitializeComponent();
+        Owner = null;
         if (Application.Current is null)
         {
             Wpf.Ui.Appearance.ApplicationThemeManager.Apply(this);
@@ -27,6 +31,48 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
     public event EventHandler<WatchDemandSeriesGenerationFocusRequestedEventArgs>?
         GenerationFocusRequested;
+
+    public bool IsMinimized => WindowState == WindowState.Minimized;
+
+    public void Restore() => WindowState = _lastNonMinimizedState;
+
+    public void ApplyLayout(WatchWindowLayout? layout)
+    {
+        var applied = WatchWindowLayoutService.Apply(
+            this,
+            layout,
+            defaultWidth: 1200,
+            defaultHeight: 800,
+            minimumWidth: MinWidth,
+            minimumHeight: MinHeight);
+        _lastNonMinimizedState = applied.Maximized
+            ? WindowState.Maximized
+            : WindowState.Normal;
+        _capturedLayout = null;
+    }
+
+    public WatchWindowLayout CaptureLayout() => _capturedLayout
+        ?? WatchWindowLayoutService.Capture(
+            this,
+            restoreToMaximized: _lastNonMinimizedState == WindowState.Maximized);
+
+    protected override void OnStateChanged(EventArgs e)
+    {
+        if (WindowState != WindowState.Minimized)
+        {
+            _lastNonMinimizedState = WindowState;
+        }
+
+        base.OnStateChanged(e);
+    }
+
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        _capturedLayout = WatchWindowLayoutService.Capture(
+            this,
+            restoreToMaximized: _lastNonMinimizedState == WindowState.Maximized);
+        base.OnClosing(e);
+    }
 
     public void Update(WatchDemandSeriesInspectorStatePresentation state)
     {

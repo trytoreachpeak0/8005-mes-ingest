@@ -1634,7 +1634,17 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
     {
         foreach (var cancellation in cancellations)
         {
-            cancellation.Cancel();
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Inspector close, Host replacement, and application shutdown
+                // can converge on the same request. Cancellation is already
+                // complete when its source was disposed by the first path.
+            }
+
             cancellation.Dispose();
         }
     }

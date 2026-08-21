@@ -6,6 +6,91 @@ namespace MesIngest.Tests;
 public sealed class WatchV2PreferencesTests
 {
     [Fact]
+    public void Version_2_remember_window_size_document_loads_as_the_shared_layout_preference()
+    {
+        var path = Path.Combine(
+            Path.GetTempPath(),
+            $"watch-v2-legacy-layout-{Guid.NewGuid():N}.json");
+        File.WriteAllText(
+            path,
+            """
+            {
+              "version": 2,
+              "intervalSeconds": {
+                "overview": 10,
+                "demandSeries": 30,
+                "readabilityAudit": 60,
+                "errorSearch": 300,
+                "currentIngestAttention": 10
+              },
+              "display": {
+                "rememberWindowSize": true,
+                "windowWidth": 1680,
+                "windowHeight": 1000,
+                "isNavigationPaneOpen": true
+              }
+            }
+            """);
+
+        try
+        {
+            var preferences = WatchV2PreferencesStore.Load(path);
+
+            Assert.True(preferences.Display.RememberWindowSize);
+            Assert.Equal(1680, preferences.Display.WindowWidth);
+            Assert.Equal(1000, preferences.Display.WindowHeight);
+            Assert.True(preferences.Display.IsNavigationPaneOpen);
+            Assert.Equal(30, preferences.RefreshIntervals.DemandSeries.IntervalSeconds);
+
+            WatchV2PreferencesStore.Save(path, preferences);
+            Assert.Equal(preferences, WatchV2PreferencesStore.Load(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Layout_opt_out_does_not_persist_main_or_inspector_geometry()
+    {
+        var directory = NewTempDirectory();
+        var path = Path.Combine(directory, "watch-v2-preferences.json");
+        var preferences = WatchV2Preferences.Default with
+        {
+            Display = new WatchV2DisplayPreferences(
+                rememberWindowSize: false,
+                windowWidth: 1777,
+                windowHeight: 1111,
+                isNavigationPaneOpen: true),
+        };
+
+        try
+        {
+            WatchV2PreferencesStore.Save(path, preferences);
+
+            var json = File.ReadAllText(path);
+            Assert.DoesNotContain("1777", json, StringComparison.Ordinal);
+            Assert.DoesNotContain("1111", json, StringComparison.Ordinal);
+            Assert.DoesNotContain("monitor", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("maximized", json, StringComparison.OrdinalIgnoreCase);
+
+            var loaded = WatchV2PreferencesStore.Load(path);
+            Assert.False(loaded.Display.RememberWindowSize);
+            Assert.Equal(
+                WatchV2DisplayPreferences.Default.WindowWidth,
+                loaded.Display.WindowWidth);
+            Assert.Equal(
+                WatchV2DisplayPreferences.Default.WindowHeight,
+                loaded.Display.WindowHeight);
+        }
+        finally
+        {
+            DeleteDirectory(directory);
+        }
+    }
+
+    [Fact]
     public void Defaults_cover_five_always_on_views_and_the_1440_by_900_shell_baseline()
     {
         var preferences = WatchV2Preferences.Default;
@@ -40,7 +125,7 @@ public sealed class WatchV2PreferencesTests
                 .With(WatchV2DataView.ErrorSearch, new WatchV2AutoRefreshSetting(300))
                 .With(WatchV2DataView.CurrentIngestAttention, new WatchV2AutoRefreshSetting(30)),
             new WatchV2DisplayPreferences(
-                rememberWindowSize: false,
+                rememberWindowSize: true,
                 windowWidth: 1680,
                 windowHeight: 1050,
                 isNavigationPaneOpen));

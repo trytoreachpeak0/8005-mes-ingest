@@ -9,6 +9,7 @@
                  MinWidth="720"
                  MinHeight="600"
                  ResizeMode="CanResize"
+                 WindowStartupLocation="Manual"
                  WindowStyle="SingleBorderWindow"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
