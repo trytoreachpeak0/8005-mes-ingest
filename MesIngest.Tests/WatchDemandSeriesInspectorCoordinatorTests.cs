@@ -1049,6 +1049,76 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             window.Close();
         });
 
+    [Fact]
+    public void Same_series_refresh_preserves_generation_and_event_viewports() =>
+        StaTestRunner.Run(() =>
+        {
+            var seed = FirstObservedPresentation("series-a", "demand-1");
+            var generations = Enumerable.Range(1, 80)
+                .Select(index => seed.FocusedGeneration with
+                {
+                    Generation = index,
+                    DemandId = $"demand-{index}",
+                    PredecessorDemandId = index == 1 ? null : $"demand-{index - 1}",
+                    IsCurrent = index == 80,
+                })
+                .ToArray();
+            var events = Enumerable.Range(1, 80)
+                .Select(index => InspectorEvent(
+                    seed.SeriesId,
+                    index,
+                    $"demand-{index}",
+                    [$"demand-{index}"]))
+                .ToArray();
+            var presentation = seed with
+            {
+                Generations = generations,
+                FocusedGeneration = generations[39],
+                Events = events,
+            };
+            var window = new WatchDemandSeriesInspectorWindow
+            {
+                Width = 1200,
+                Height = 760,
+            };
+            window.Update(presentation);
+            window.Show();
+            window.UpdateLayout();
+
+            var generationList = Assert.IsType<ListBox>(
+                window.FindName("DemandSeriesInspectorGenerationList"));
+            var generationViewport = Assert.Single(
+                FindVisualDescendants<ScrollViewer>(generationList));
+            generationViewport.ScrollToVerticalOffset(24);
+            window.UpdateLayout();
+            var generationOffset = generationViewport.VerticalOffset;
+            Assert.True(generationOffset > 0);
+
+            var tabs = Assert.IsType<TabControl>(
+                window.FindName("DemandSeriesInspectorTabs"));
+            tabs.SelectedIndex = 1;
+            window.UpdateLayout();
+            var eventGrid = Assert.IsType<DataGrid>(
+                window.FindName("DemandSeriesInspectorEventGrid"));
+            var eventViewport = Assert.Single(
+                FindVisualDescendants<ScrollViewer>(eventGrid));
+            eventViewport.ScrollToHorizontalOffset(260);
+            eventViewport.ScrollToVerticalOffset(18);
+            window.UpdateLayout();
+            var eventHorizontalOffset = eventViewport.HorizontalOffset;
+            var eventVerticalOffset = eventViewport.VerticalOffset;
+            Assert.True(eventHorizontalOffset > 0);
+            Assert.True(eventVerticalOffset > 0);
+
+            window.Update(presentation with { Lifecycle = "TRACKING-REFRESHED" });
+            window.UpdateLayout();
+
+            Assert.Equal(generationOffset, generationViewport.VerticalOffset, precision: 3);
+            Assert.Equal(eventHorizontalOffset, eventViewport.HorizontalOffset, precision: 3);
+            Assert.Equal(eventVerticalOffset, eventViewport.VerticalOffset, precision: 3);
+            window.Close();
+        });
+
     private static long[] EventSequences(DataGrid grid) => grid.Items
         .Cast<WatchDemandSeriesInspectorEventPresentation>()
         .Select(item => item.SeriesSequence)

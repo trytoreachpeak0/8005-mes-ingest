@@ -58,8 +58,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private CurrentIngestAttentionQuery _currentAttentionQuery = new();
     private WatchDemandSeriesNavigationContext? _demandSeriesNavigation;
     private string? _focusedDemandId;
-    private string? _pendingDemandSeriesInspectorOpenSeriesId;
-    private bool _pendingDemandSeriesInspectorWasOpen;
     private string? _demandSeriesLifecycleDraft;
     private WatchWorkspacePage _activePage = WatchWorkspacePage.Overview;
     private bool _isRenderingDemandSeries;
@@ -724,7 +722,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _autoRefresh.ActivateDemandSeries(_demandSeriesQuery);
         }
 
-        CompletePendingDemandSeriesInspectorOpen();
     }
 
     private long BeginDemandSeriesOperation() =>
@@ -996,12 +993,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         if (!_demandSeriesInspectorCoordinator.IsOpen
             || _session.State.DemandSeries is not { SelectedId: { Length: > 0 } seriesId } view
             || view.IsDetailLoading
-            || view.Detail is { } detail
-                && string.Equals(detail.Series.SeriesId, seriesId, StringComparison.Ordinal)
-                && string.Equals(
-                    detail.SnapshotReference,
-                    view.Snapshot?.SnapshotReference,
-                    StringComparison.Ordinal))
+            || DetailMatchesTargetSnapshot(view.Detail, seriesId, view.Snapshot))
         {
             return;
         }
@@ -1988,14 +1980,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _demandSeriesNavigation = null;
             _focusedDemandId = null;
             var seriesId = (DemandSeriesGrid.SelectedItem as WatchDemandSeriesRowPresentation)?.SeriesId;
-            if (!string.Equals(
-                _pendingDemandSeriesInspectorOpenSeriesId,
-                seriesId,
-                StringComparison.Ordinal))
-            {
-                ClearPendingDemandSeriesInspectorOpen();
-            }
-
             await SelectDemandSeriesAndRenderAsync(
                     seriesId,
                     _lifetimeCancellation.Token)
@@ -2017,15 +2001,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return null;
         }
 
-        var detail = view.Detail is { } candidateDetail
+        var retainedDetail = view.Detail is { } candidateDetail
             && string.Equals(
                 item.SeriesId,
                 candidateDetail.Series.SeriesId,
                 StringComparison.Ordinal)
-                ? WatchDemandSeriesInspectorPresentation.Project(
-                    candidateDetail,
-                    view.DetailFocusId ?? _focusedDemandId)
-                : null;
+            ? candidateDetail
+            : null;
+        var detail = retainedDetail is null
+            ? null
+            : WatchDemandSeriesInspectorPresentation.Project(
+                retainedDetail,
+                view.DetailFocusId ?? _focusedDemandId);
+        var retainedPriorSnapshot = retainedDetail is not null
+            && !DetailMatchesTargetSnapshot(retainedDetail, item.SeriesId, snapshot);
         var frozenSnapshot = detail?.FrozenSnapshot
             ?? new WatchDemandSeriesFrozenSnapshotPresentation(
                 snapshot.SnapshotReference,
@@ -2043,6 +2032,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             view.DetailErrorMessage,
             view.IsStale ? page.InfoMessage : null,
+            retainedPriorSnapshot
+                ? $"目标列表已提交冻结快照 {snapshot.SnapshotReference}；"
+                    + $"正文仍保留上一成功冻结快照 {retainedDetail!.SnapshotReference}，"
+                    + "直到匹配的新详情原子提交。"
+                : null,
             page.SourceComparison == WatchDemandSeriesSourceComparison.None
                 ? null
                 : page.SourceSnapshotSummary,
@@ -2055,11 +2049,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ? detail is null
                 ? "详情读取失败"
                 : "详情刷新失败，已保留上次证据"
-            : view.IsStale
-                ? "刷新失败，已保留上次证据"
-                : isPaused
-                    ? "DemandSeries 页面刷新已暂停"
-                    : view.IsDetailLoading
+            : isPaused
+                ? "DemandSeries 页面刷新已暂停"
+                : retainedPriorSnapshot
+                    ? view.IsDetailLoading
+                        ? "正在刷新详情，已保留上次证据"
+                        : "详情尚未与最新快照同步，已保留上次证据"
+                    : view.IsStale
+                        ? "刷新失败，已保留上次证据"
+                        : view.IsDetailLoading
                         ? "正在读取所选 Series 详情"
                         : page.SourceComparison != WatchDemandSeriesSourceComparison.None
                             ? "来源快照比较"
@@ -2078,16 +2076,16 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         return new WatchDemandSeriesInspectorStatePresentation(
             item.SeriesId,
-            item.WorkType,
-            item.Sublot,
-            item.Lifecycle,
-            item.CurrentPresence,
+            detail?.WorkType ?? item.WorkType,
+            detail?.Sublot ?? item.Sublot,
+            detail?.Lifecycle ?? item.Lifecycle,
+            detail?.CurrentPresence ?? item.CurrentPresence,
             frozenSnapshot,
             detail,
             view.IsDetailLoading,
-            view.IsStale || view.DetailLastFailureAt is not null,
+            retainedPriorSnapshot || view.IsStale || view.DetailLastFailureAt is not null,
             isPaused,
-            view.DetailLastFailureAt is not null || view.IsStale
+            retainedPriorSnapshot || view.DetailLastFailureAt is not null || view.IsStale
                 ? detail is null
                     ? WatchPresentationSeverity.Error
                     : WatchPresentationSeverity.Warning
@@ -2095,6 +2093,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
             statusTitle,
             statusMessage);
     }
+
+    private static bool DetailMatchesTargetSnapshot(
+        DemandSeriesDetailSnapshot? detail,
+        string seriesId,
+        DemandSeriesListSnapshot? snapshot) =>
+        detail is not null
+        && snapshot is not null
+        && string.Equals(detail.Series.SeriesId, seriesId, StringComparison.Ordinal)
+        && string.Equals(
+            detail.SnapshotReference,
+            snapshot.SnapshotReference,
+            StringComparison.Ordinal);
 
     private void OnDemandSeriesOpenInspectorClick(object sender, RoutedEventArgs e) =>
         OpenOrShowDemandSeriesInspector();
@@ -2142,7 +2152,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
             DemandSeriesInspectorLoadTask = Task.CompletedTask;
         }
 
-        ClearPendingDemandSeriesInspectorOpen();
         _demandSeriesInspectorCoordinator.OpenOrShow(presentation);
         RenderDemandSeries(_session.State);
 
@@ -2171,12 +2180,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void OnDemandSeriesInspectorStateChanged(object? sender, EventArgs e)
     {
-        if (!_demandSeriesInspectorCoordinator.IsOpen
-            && _pendingDemandSeriesInspectorWasOpen)
-        {
-            ClearPendingDemandSeriesInspectorOpen();
-        }
-
         if (!_demandSeriesInspectorCoordinator.IsOpen && !_disposed)
         {
             _session.CancelDemandSeriesDetail();
@@ -2195,43 +2198,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _focusedDemandId = e.DemandId;
         _session.SetDemandSeriesFocus(e.DemandId);
         RenderDemandSeries(_session.State);
-    }
-
-    private void CompletePendingDemandSeriesInspectorOpen()
-    {
-        var pendingSeriesId = _pendingDemandSeriesInspectorOpenSeriesId;
-        if (pendingSeriesId is null)
-        {
-            return;
-        }
-
-        var presentation = CreateDemandSeriesInspectorStatePresentation();
-        ClearPendingDemandSeriesInspectorOpen();
-        if (presentation is null
-            || !string.Equals(
-                presentation.SeriesId,
-                pendingSeriesId,
-                StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        if (_demandSeriesInspectorCoordinator.IsOpen)
-        {
-            _demandSeriesInspectorCoordinator.Update(presentation);
-        }
-        else
-        {
-            _demandSeriesInspectorCoordinator.OpenOrShow(presentation);
-        }
-
-        RenderDemandSeries(_session.State);
-    }
-
-    private void ClearPendingDemandSeriesInspectorOpen()
-    {
-        _pendingDemandSeriesInspectorOpenSeriesId = null;
-        _pendingDemandSeriesInspectorWasOpen = false;
     }
 
     private async Task RunDemandSeriesUiActionAsync(Func<Task> action)

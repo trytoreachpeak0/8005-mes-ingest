@@ -362,6 +362,70 @@ public sealed class WatchDemandSeriesInspectorShellTests
         });
 
     [Fact]
+    public void New_list_snapshot_keeps_the_prior_detail_as_an_explicit_stale_unit_until_detail_commits() =>
+        StaTestRunner.Run(() =>
+        {
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            var previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(
+                new DispatcherSynchronizationContext(dispatcher));
+            var root = Path.Combine(
+                Path.GetTempPath(),
+                $"watch-inspector-snapshot-fence-{Guid.NewGuid():N}");
+            try
+            {
+                var client = new DemandSeriesClient(itemCount: 2);
+                var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+                using var inspector = new WatchDemandSeriesInspectorCoordinator(() => inspectorWindow);
+                using var window = CreateWindow(root, client, inspector);
+                window.InitializeAsync().GetAwaiter().GetResult();
+                window.NavigateFromOverview(
+                    new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+                window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+                window.Show();
+                window.UpdateLayout();
+                Assert.IsAssignableFrom<ButtonBase>(
+                    window.FindName("DemandSeriesOpenInspectorButton"))
+                    .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                var retained = Assert.IsType<WatchDemandSeriesInspectorPresentation>(
+                    inspectorWindow.Presentation);
+
+                client.DelayNextDetail = true;
+                Assert.IsAssignableFrom<ButtonBase>(
+                    window.FindName("DemandSeriesApplyFiltersButton"))
+                    .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                PumpDispatcherUntil(() => window.WorkspaceState.DemandSeries.IsDetailLoading);
+
+                Assert.Equal("snapshot-list-2", window.WorkspaceState.DemandSeries.Snapshot?.SnapshotReference);
+                Assert.Equal(retained.FrozenSnapshot, inspectorWindow.State?.FrozenSnapshot);
+                Assert.True(inspectorWindow.State?.IsStale);
+                Assert.Equal(
+                    "正在刷新详情，已保留上次证据",
+                    inspectorWindow.State?.StatusTitle);
+                Assert.Contains(
+                    "正文仍保留上一成功冻结快照",
+                    inspectorWindow.State?.StatusMessage,
+                    StringComparison.Ordinal);
+
+                client.ReleaseDelayedDetail();
+                PumpDispatcherUntil(() => string.Equals(
+                    inspectorWindow.State?.FrozenSnapshot.SnapshotReference,
+                    "snapshot-list-2",
+                    StringComparison.Ordinal));
+
+                Assert.Equal("snapshot-list-2", inspectorWindow.State?.FrozenSnapshot.SnapshotReference);
+                Assert.False(inspectorWindow.State?.IsStale);
+                DrainDispatcher();
+                window.Close();
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
+                TryDelete(root);
+            }
+        });
+
+    [Fact]
     public void Exact_overview_drill_locates_series_opens_inspector_and_carries_source_fence() =>
         StaTestRunner.Run(() =>
         {
@@ -387,6 +451,60 @@ public sealed class WatchDemandSeriesInspectorShellTests
 
             window.Close();
             TryDelete(root);
+        });
+
+    [Fact]
+    public void Exact_non_overview_drills_locate_focus_open_inspector_and_carry_source_fence() =>
+        StaTestRunner.Run(() =>
+        {
+            var at = DateTimeOffset.Parse("2026-08-21T01:00:00+08:00");
+            var contexts = new[]
+            {
+                new WatchDemandSeriesNavigationContext(
+                    "资格审计", "series-b", "demand-b", "audit-commit", 11, at, at, []),
+                new WatchDemandSeriesNavigationContext(
+                    "错误检索", "series-b", null, "error-commit", 12, at, at, []),
+                new WatchDemandSeriesNavigationContext(
+                    "当前关注", "series-b", "demand-b", "attention-commit", 13, at, at, []),
+            };
+
+            foreach (var navigation in contexts)
+            {
+                var root = Path.Combine(
+                    Path.GetTempPath(),
+                    $"watch-inspector-exact-non-overview-{Guid.NewGuid():N}");
+                try
+                {
+                    var client = new DemandSeriesClient(itemCount: 2);
+                    var inspectorWindow = new RecordingDemandSeriesInspectorWindow();
+                    using var inspector = new WatchDemandSeriesInspectorCoordinator(
+                        () => inspectorWindow);
+                    using var window = CreateWindow(root, client, inspector);
+                    window.InitializeAsync().GetAwaiter().GetResult();
+
+                    window.NavigateToDemandSeriesAsync(navigation).GetAwaiter().GetResult();
+
+                    Assert.Equal("series-b", window.WorkspaceState.DemandSeries.SelectedId);
+                    Assert.True(inspector.IsOpen);
+                    Assert.Equal("series-b", inspectorWindow.Presentation?.SeriesId);
+                    Assert.Equal(
+                        navigation.FocusedDemandId ?? "demand-b",
+                        inspectorWindow.Presentation?.FocusedGeneration.DemandId);
+                    Assert.Contains(
+                        navigation.SourceName,
+                        inspectorWindow.State?.StatusMessage,
+                        StringComparison.Ordinal);
+                    Assert.Contains(
+                        navigation.SourceProjectionCommitId,
+                        inspectorWindow.State?.StatusMessage,
+                        StringComparison.Ordinal);
+                    window.Close();
+                }
+                finally
+                {
+                    TryDelete(root);
+                }
+            }
         });
 
     [Fact]
@@ -540,6 +658,15 @@ public sealed class WatchDemandSeriesInspectorShellTests
         }
     }
 
+    private static void DrainDispatcher()
+    {
+        var frame = new DispatcherFrame();
+        Dispatcher.CurrentDispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            new Action(() => frame.Continue = false));
+        Dispatcher.PushFrame(frame);
+    }
+
     private static void TryDelete(string root)
     {
         if (Directory.Exists(root))
@@ -563,11 +690,15 @@ public sealed class WatchDemandSeriesInspectorShellTests
 
         public bool FailNextDetail { get; set; }
 
+        public bool DelayNextDetail { get; set; }
+
         private int ListFetchCount { get; set; }
 
         private TaskCompletionSource<DemandSeriesDetailSnapshot>? DelayedSeriesBDetail { get; set; }
 
         private DemandSeriesDetailSnapshot? SeriesBDetail { get; set; }
+
+        private TaskCompletionSource<DemandSeriesDetailSnapshot>? DelayedDetail { get; set; }
 
         public Task VerifyContractAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -698,6 +829,20 @@ public sealed class WatchDemandSeriesInspectorShellTests
                     [],
                     ArchivedAt: null,
                     LastSeriesSequence: 1));
+            if (DelayNextDetail)
+            {
+                DelayNextDetail = false;
+                DelayedDetail = new TaskCompletionSource<DemandSeriesDetailSnapshot>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                cancellationToken.Register(() =>
+                {
+                    DetailCancellationCount++;
+                    DelayedDetail.TrySetCanceled(cancellationToken);
+                });
+                SeriesBDetail = detail;
+                return DelayedDetail.Task;
+            }
+
             if (DelaySeriesBDetail && seriesId == "series-b")
             {
                 SeriesBDetail = detail;
@@ -716,6 +861,9 @@ public sealed class WatchDemandSeriesInspectorShellTests
 
         public void ReleaseSeriesBDetail() => DelayedSeriesBDetail?.TrySetResult(
             SeriesBDetail ?? throw new InvalidOperationException("Series B detail did not start."));
+
+        public void ReleaseDelayedDetail() => DelayedDetail?.TrySetResult(
+            SeriesBDetail ?? throw new InvalidOperationException("Delayed detail did not start."));
 
         public Task<ReadabilityAuditListSnapshot> FetchReadabilityAuditAsync(
             ReadabilityAuditQuery query,

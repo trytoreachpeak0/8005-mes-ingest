@@ -1,5 +1,6 @@
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace MesIngest.Watch;
 
@@ -47,9 +48,9 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 ? null
                 : DemandSeriesInspectorAfterObservationGrid.SelectedItem
                     as WatchDemandMesBoundaryRawRowPresentation;
-            var generationScrollOffset = targetChanged
-                ? 0
-                : DemandSeriesInspectorGenerationScrollViewer.VerticalOffset;
+            var viewportOffsets = targetChanged
+                ? []
+                : CaptureViewportOffsets();
             _state = state;
             var presentation = state.Detail;
             _presentation = presentation;
@@ -136,8 +137,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                                 item.RawRow.PollTraceId,
                                 selectedRawEvidence.RawRow.PollTraceId,
                                 StringComparison.Ordinal));
-                DemandSeriesInspectorGenerationScrollViewer.ScrollToVerticalOffset(
-                    generationScrollOffset);
+                RestoreViewportOffsets(viewportOffsets);
             }
         }
         finally
@@ -196,6 +196,60 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorMesExplanationText.Text = string.Empty;
         DemandSeriesInspectorEventContextText.Text = "详情尚未提交";
     }
+
+    private IReadOnlyList<InspectorViewportOffset> CaptureViewportOffsets()
+    {
+        var viewports = new ScrollViewer?[]
+        {
+            DemandSeriesInspectorGenerationScrollViewer,
+            FindVisualDescendant<ScrollViewer>(DemandSeriesInspectorGenerationList),
+            FindVisualDescendant<ScrollViewer>(DemandSeriesInspectorAfterObservationGrid),
+            FindVisualDescendant<ScrollViewer>(DemandSeriesInspectorEventGrid),
+        };
+        return viewports
+            .Where(viewport => viewport is not null)
+            .Distinct()
+            .Select(viewport => new InspectorViewportOffset(
+                viewport!,
+                viewport!.HorizontalOffset,
+                viewport.VerticalOffset))
+            .ToArray();
+    }
+
+    private static void RestoreViewportOffsets(
+        IReadOnlyList<InspectorViewportOffset> offsets)
+    {
+        foreach (var offset in offsets)
+        {
+            offset.Viewport.ScrollToHorizontalOffset(offset.Horizontal);
+            offset.Viewport.ScrollToVerticalOffset(offset.Vertical);
+        }
+    }
+
+    private static T? FindVisualDescendant<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                return match;
+            }
+
+            if (FindVisualDescendant<T>(child) is { } descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
+    private sealed record InspectorViewportOffset(
+        ScrollViewer Viewport,
+        double Horizontal,
+        double Vertical);
 
     private void RenderFocusedGeneration(
         WatchDemandSeriesInspectorPresentation presentation,
