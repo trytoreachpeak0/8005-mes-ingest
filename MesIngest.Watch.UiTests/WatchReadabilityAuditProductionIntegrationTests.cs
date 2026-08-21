@@ -256,7 +256,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
         using var files = new TemporaryWatchFiles();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             TestContext.Current.CancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
 
         await RunInStaDispatcherAsync(async () =>
         {

@@ -25,6 +25,57 @@ namespace MesIngest.Watch.UiTests;
 /// </summary>
 public sealed class WatchWorkspaceProductionJourneyTests
 {
+    [Fact]
+    public void Demand_series_preview_fixture_exposes_first_observation_and_current_reappearance_evidence()
+    {
+        var detail = CreateJourneyDemandSeriesDetail(
+            "SERIES-PREVIEW-20",
+            DemandSnapshotReference);
+        var first = Assert.Single(
+            detail.Series.Demands,
+            demand => demand.Generation == 1);
+
+        var presentation = WatchDemandSeriesInspectorPresentation.Project(
+            detail,
+            first.DemandId);
+
+        Assert.Equal("首次观察到", presentation.FocusedGeneration.FormationReason.ChineseLabel);
+        Assert.Equal(
+            [WatchDemandFormationFactKind.FirstObservation],
+            presentation.FocusedGeneration.FormationFacts.Select(fact => fact.Kind));
+        Assert.Equal(
+            WatchDemandMesBoundaryState.NotApplicable,
+            presentation.FocusedGeneration.MesBoundary.Before.State);
+        Assert.Equal(
+            WatchDemandMesBoundaryState.Unique,
+            presentation.FocusedGeneration.MesBoundary.After.State);
+
+        var currentPresentation = WatchDemandSeriesInspectorPresentation.Project(
+            detail,
+            detail.Series.CurrentDemand.DemandId);
+        Assert.Equal(
+            "归档前消失后再现",
+            currentPresentation.FocusedGeneration.FormationReason.ChineseLabel);
+        Assert.Equal(
+            [
+                WatchDemandFormationFactKind.PredecessorIdentity,
+                WatchDemandFormationFactKind.PredecessorLastObservation,
+                WatchDemandFormationFactKind.AuthoritativeGone,
+                WatchDemandFormationFactKind.FirstObservation,
+            ],
+            currentPresentation.FocusedGeneration.FormationFacts.Select(fact => fact.Kind));
+        Assert.Equal(
+            WatchDemandMesBoundaryState.Unique,
+            currentPresentation.FocusedGeneration.MesBoundary.Before.State);
+        Assert.Equal(
+            WatchDemandMesBoundaryState.Unique,
+            currentPresentation.FocusedGeneration.MesBoundary.After.State);
+        Assert.Equal(7, currentPresentation.FocusedGeneration.MesBoundary.ScalarFields.Count);
+        Assert.Contains(
+            currentPresentation.FocusedGeneration.MesBoundary.ScalarFields,
+            field => field.IsChanged);
+    }
+
     private const string Credential = "ticket-19-22-production-preview-secret";
     private const string DemandSeriesId = "SERIES-PREVIEW-20";
     private const string DemandSnapshotReference = "demand-preview-snapshot-20";
@@ -50,7 +101,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private static readonly (int Width, int Height)? JourneyClientEpx = ParseClientEpx(
         Environment.GetEnvironmentVariable("MESINGEST_WATCH_JOURNEY_CLIENT_EPX"));
 
-    private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan StepTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan PreviewStateTimeout = TimeSpan.FromSeconds(35);
     private static readonly DateTimeOffset PreviewErrorAsOf =
         DateTimeOffset.Parse("2026-08-14T07:08:10Z", CultureInfo.InvariantCulture);
@@ -658,7 +709,22 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     "The production MesIngest.Watch window did not appear.");
             ApplyJourneyClientSize(process.MainWindowHandle);
             WaitUntil(
-                () => FindById(window, "OverviewPage") is not null,
+                () =>
+                {
+                    // WPF UI can publish the HWND before its fragment root has attached
+                    // the composed page. Re-query the desktop element so a root-only
+                    // AutomationElement from cold startup is not cached for the full wait.
+                    var refreshedWindow = application.GetMainWindow(
+                        automation,
+                        TimeSpan.FromSeconds(1));
+                    if (refreshedWindow is null)
+                    {
+                        return false;
+                    }
+
+                    window = refreshedWindow;
+                    return FindById(refreshedWindow, "OverviewPage") is not null;
+                },
                 "production overview UIA tree",
                 StepTimeout);
 
@@ -837,11 +903,26 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 },
                 "the modeless DemandSeries Inspector",
                 StepTimeout);
-            var demandGenerationList = inspector!.FindFirstDescendant(
+            var demandGenerationElement = inspector!.FindFirstDescendant(
                 inspector.ConditionFactory.ByAutomationId(
                     "DemandSeriesInspectorGenerationList"));
-            Assert.NotNull(demandGenerationList);
+            Assert.NotNull(demandGenerationElement);
+            var demandGenerationList = demandGenerationElement.AsListBox();
             Assert.False(demandGenerationList.Properties.IsOffscreen.ValueOrDefault);
+            WaitUntil(
+                () => demandGenerationList.Items.Length == 2,
+                "the two Demand generations in the Inspector",
+                StepTimeout);
+            var formationReason = FindRequiredById(
+                inspector,
+                "DemandSeriesInspectorFormationReason");
+            demandGenerationList.Items[1].Select();
+            WaitUntil(
+                () => TextValue(formationReason).Contains(
+                    "归档前消失后再现",
+                    StringComparison.Ordinal),
+                "the current reappearance generation presentation",
+                StepTimeout);
             var inspectorHandle = new IntPtr(
                 inspector.Properties.NativeWindowHandle.ValueOrDefault);
             ApplyJourneyClientSize(inspectorHandle);
@@ -849,6 +930,17 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 evidence,
                 inspectorHandle,
                 "03-demand-series-detail");
+            demandGenerationList.Items[0].Select();
+            WaitUntil(
+                () => TextValue(formationReason).Contains(
+                    "首次观察到",
+                    StringComparison.Ordinal),
+                "the first-observation generation presentation",
+                StepTimeout);
+            Capture(
+                evidence,
+                inspectorHandle,
+                "03b-demand-series-first-observation");
             inspector.Close();
 
             failedStep = "readability-audit";
@@ -1355,13 +1447,15 @@ public sealed class WatchWorkspaceProductionJourneyTests
             LatestObservationProjectionCommitId = "commit-demand-preview-generation-1-gone",
             LatestObservationAt = current.CreatedAt.AddHours(-2),
         };
+        current = current with { PredecessorDemandId = prior.DemandId };
         var observed = Assert.Single(series.Events);
         DemandSeriesEventSnapshot Event(
             long sequence,
             string eventType,
             DateTimeOffset occurredAt,
             string subjectId,
-            string pollTraceId) => new(
+            string pollTraceId,
+            string payloadJson = "{}") => new(
                 $"event-preview-20-{sequence}",
                 seriesId,
                 sequence,
@@ -1372,17 +1466,59 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 pollTraceId,
                 $"commit-preview-20-{sequence}",
                 1,
-                "{}");
+                payloadJson);
         var events = new[]
         {
-            Event(1, "DEMAND_CREATED", prior.CreatedAt, prior.DemandId, prior.CreatedPollTraceId),
-            Event(2, "DEMAND_GONE_CONFIRMED", prior.GoneConfirmedAt!.Value, prior.DemandId,
+            Event(1, "TRANSPORT_DEMAND_CREATED", prior.CreatedAt, prior.DemandId, prior.CreatedPollTraceId),
+            Event(2, "DEMAND_GONE", prior.GoneConfirmedAt!.Value, prior.DemandId,
                 "poll-demand-preview-generation-1-gone"),
             Event(3, "DEMAND_REAPPEARED", current.CreatedAt.AddMinutes(-1), current.DemandId,
                 current.CreatedPollTraceId),
-            Event(4, "DEMAND_CREATED", current.CreatedAt, current.DemandId,
-                current.CreatedPollTraceId),
+            Event(
+                4,
+                "TRANSPORT_DEMAND_CREATED",
+                current.CreatedAt,
+                current.DemandId,
+                current.CreatedPollTraceId,
+                $"{{\"demandId\":\"{current.DemandId}\",\"generation\":2,"
+                + $"\"predecessorDemandId\":\"{prior.DemandId}\","
+                + "\"reason\":\"PREARCHIVE_REAPPEARANCE\"}"),
             observed with { EventId = "event-preview-20-5", SeriesSequence = 5 },
+        };
+
+        var firstObservation = new DemandRawObservationSnapshot(
+            1,
+            prior.CreatedPollTraceId,
+            prior.CreatedProjectionCommitId,
+            MesObservationAssignment.Assigned,
+            seriesId,
+            prior.DemandId,
+            series.WorkType,
+            series.Sublot,
+            "A1-1",
+            "EQP-FIRST-20",
+            "STEP-FIRST-20",
+            prior.CreatedAt.AddDays(-1),
+            "PKG-FIRST-20",
+            prior.CreatedAt);
+        var predecessorLastObservation = firstObservation with
+        {
+            PollTraceId = prior.LatestObservationPollTraceId!,
+            ProjectionCommitId = prior.LatestObservationProjectionCommitId!,
+            Eqp = "EQP-PRIOR-20",
+            Package = "PKG-PRIOR-20",
+            ObservedAt = prior.LatestObservationAt!.Value,
+        };
+        var currentFirstObservation = firstObservation with
+        {
+            PollTraceId = current.CreatedPollTraceId,
+            ProjectionCommitId = current.CreatedProjectionCommitId,
+            DemandId = current.DemandId,
+            Eqp = current.LiveMesFields!.Eqp,
+            Step = current.LiveMesFields.Step,
+            MesSourceDate = current.LiveMesFields.MesSourceDate,
+            Package = current.LiveMesFields.Package,
+            ObservedAt = current.CreatedAt,
         };
 
         return detail with
@@ -1391,6 +1527,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             {
                 CurrentDemand = current,
                 Demands = [current, prior],
+                RawObservations =
+                    [firstObservation, predecessorLastObservation, currentFirstObservation],
                 Events = events,
                 LastSeriesSequence = 5,
             },

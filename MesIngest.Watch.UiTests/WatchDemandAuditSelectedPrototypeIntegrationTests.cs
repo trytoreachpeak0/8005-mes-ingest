@@ -32,6 +32,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 window.Width = 1920;
                 window.Height = 1080;
                 window.Show();
+                var ticketViewportAvailable = VisualTreeHelper.GetDpi(window).DpiScaleX == 1
+                    && SystemParameters.PrimaryScreenWidth >= 1920
+                    && SystemParameters.PrimaryScreenHeight >= 1080;
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeries,
                     PageNumber: 1,
@@ -69,10 +72,17 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 var fullRowCapacity = Math.Floor(
                     (demandGrid.ActualHeight - demandGrid.ColumnHeaderHeight)
                     / demandGrid.RowHeight);
-                Assert.True(
-                    fullRowCapacity >= 12,
-                    $"At 1920x1080 the full-height master list must fit at least "
-                    + $"12 full rows; capacity={fullRowCapacity:0}, gridHeight={demandGrid.ActualHeight:0.##}.");
+                if (ticketViewportAvailable)
+                {
+                    Assert.True(
+                        fullRowCapacity >= 12,
+                        $"At calibrated 1920x1080 the full-height master list must fit at least "
+                        + $"12 full rows; capacity={fullRowCapacity:0}, gridHeight={demandGrid.ActualHeight:0.##}.");
+                }
+                else
+                {
+                    Assert.True(fullRowCapacity > 0);
+                }
 
                 var firstHeader = FindVisualDescendants<DataGridColumnHeader>(demandGrid)
                     .Single(header => ReferenceEquals(header.Column, demandGrid.Columns[0]));

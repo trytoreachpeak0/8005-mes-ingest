@@ -624,6 +624,42 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
+    public void A_directory_change_already_queued_when_the_window_closes_is_ignored() =>
+        RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            Exception? dispatcherException = null;
+            DispatcherUnhandledExceptionEventHandler handler = (_, args) =>
+            {
+                dispatcherException = args.Exception;
+                args.Handled = true;
+            };
+            window.Dispatcher.UnhandledException += handler;
+            try
+            {
+                var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+                list.SelectedItem = Assert.Single(
+                    Rows(list),
+                    row => row.ProfileName == "西区");
+                WriteProfile(directoryPath, "西区", "B2-2");
+                Task.Run(() =>
+                {
+                    events.RaiseChanged("西区.txt");
+                    clock.Advance(WatchAreaFilterProfileStore.DirectoryChangeDebounceWindow);
+                }).GetAwaiter().GetResult();
+
+                window.Close();
+                DrainDispatcher(window.Dispatcher);
+
+                Assert.Null(dispatcherException);
+                Assert.True(events.IsDisposed);
+            }
+            finally
+            {
+                window.Dispatcher.UnhandledException -= handler;
+            }
+        });
+
+    [Fact]
     public void Leaving_the_area_page_stops_watching_returning_rescans_and_closing_disposes() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {

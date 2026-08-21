@@ -420,6 +420,11 @@ internal partial class WatchWorkspaceWindow
 
     private void QueueAreaProfileDirectoryChange(WatchAreaProfileDirectoryChange change)
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         FollowSelectedAreaProfileRename(change.Renames);
         var selectedProfileToReload = !_areaProfileDraftIsDirty
             && _selectedAreaProfileName is { } selectedName

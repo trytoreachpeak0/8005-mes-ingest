@@ -272,7 +272,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Contains("当前封装 AREA", context.Text, StringComparison.Ordinal);
                 Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
                 Assert.Contains("最近成功", context.Text, StringComparison.Ordinal);
-                Assert.Matches(@"自动刷新 d+ 秒$", context.Text);
+                Assert.Matches(@"自动刷新 \d+ 秒$", context.Text);
                 var fullContext = Assert.IsType<string>(context.ToolTip);
                 Assert.Equal(fullContext, AutomationProperties.GetHelpText(context));
                 Assert.Contains("commit-demand-series-20", fullContext, StringComparison.Ordinal);
@@ -506,6 +506,10 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                         nextCursor: null,
                         seriesId: "series-initial"));
                 }),
+                DemandSeriesDetail = FakeHostReply.Select<FakeHostV2DetailRequest, DemandSeriesDetailSnapshot>(request =>
+                    FakeHostReply.Return(CreateDemandSeriesDetail(
+                        request.ObjectId,
+                        request.SnapshotReference))),
             },
             TestContext.Current.CancellationToken);
         using var files = new TemporaryWatchFiles();
@@ -680,7 +684,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
     }
 
     [Fact]
-    public async Task Superseded_navigation_cannot_select_its_old_series_from_the_newer_result()
+    public async Task Superseded_navigation_cannot_overwrite_the_newer_default_selection()
     {
         using var files = new TemporaryWatchFiles();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
@@ -708,13 +712,25 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 window.NavigateFromOverview(new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeries));
                 await window.DemandSeriesNavigationTask.WaitAsync(timeout.Token);
-                Assert.Null(window.WorkspaceState.DemandSeries.SelectedId);
+                Assert.Equal(
+                    IgnoringCancellationDemandClient.OldSeriesId,
+                    window.WorkspaceState.DemandSeries.SelectedId);
+                Assert.Equal(
+                    "snapshot-current-navigation",
+                    window.WorkspaceState.DemandSeries.Snapshot?.SnapshotReference);
 
                 client.ReleaseOldRequest();
                 await superseded.WaitAsync(timeout.Token);
 
-                Assert.Null(window.WorkspaceState.DemandSeries.SelectedId);
-                Assert.Null(window.WorkspaceState.DemandSeries.Detail);
+                Assert.Equal(
+                    IgnoringCancellationDemandClient.OldSeriesId,
+                    window.WorkspaceState.DemandSeries.SelectedId);
+                Assert.Equal(
+                    "snapshot-current-navigation",
+                    window.WorkspaceState.DemandSeries.Snapshot?.SnapshotReference);
+                Assert.Equal(
+                    "snapshot-current-navigation",
+                    window.WorkspaceState.DemandSeries.Detail?.SnapshotReference);
             }
             finally
             {

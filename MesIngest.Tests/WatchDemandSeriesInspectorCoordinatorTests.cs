@@ -128,6 +128,9 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(presentation.FocusedGeneration, generations.SelectedItem);
             Assert.Equal("首次观察到", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText")).Text);
+            Assert.Equal("首次观察到", AutomationProperties.GetHelpText(
+                Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("DemandSeriesInspectorFormationReasonText"))));
             var identity = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorGenerationIdentityText"));
             Assert.DoesNotContain("前代", identity.Text, StringComparison.Ordinal);
@@ -210,6 +213,86 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Contains("DemandId demand-2", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorEventContextText")).Text,
                 StringComparison.Ordinal);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Minimum_width_reflows_the_generation_workbench_into_a_scrollable_vertical_layout() =>
+        StaTestRunner.Run(() =>
+        {
+            var window = new WatchDemandSeriesInspectorWindow
+            {
+                Width = 720,
+                Height = 600,
+            };
+
+            window.Update(FirstObservedPresentation("series-a", "demand-a"));
+            window.UpdateLayout();
+
+            var workbench = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationWorkbench"));
+            var navigator = Assert.IsType<Border>(
+                window.FindName("DemandSeriesInspectorGenerationNavigator"));
+            var detail = Assert.IsType<Grid>(
+                window.FindName("DemandSeriesInspectorGenerationDetail"));
+            var scrollViewer = Assert.IsType<ScrollViewer>(
+                window.FindName("DemandSeriesInspectorGenerationScrollViewer"));
+
+            Assert.Equal(0, Grid.GetColumn(navigator));
+            Assert.Equal(0, Grid.GetRow(navigator));
+            Assert.Equal(0, Grid.GetColumn(detail));
+            Assert.Equal(2, Grid.GetRow(detail));
+            Assert.Equal(0, workbench.ColumnDefinitions[2].Width.Value);
+            Assert.Equal(ScrollBarVisibility.Auto, scrollViewer.VerticalScrollBarVisibility);
+            Assert.True(detail.MinHeight >= 480);
+
+            window.Close();
+        });
+
+    [Fact]
+    public void Related_events_action_opens_the_event_task_and_applies_the_selected_generation_filter() =>
+        StaTestRunner.Run(() =>
+        {
+            var initial = FirstObservedPresentation("series-a", "demand-a");
+            var related = new WatchDemandSeriesInspectorEventPresentation(
+                "event-1",
+                initial.SeriesId,
+                1,
+                "TRANSPORT_DEMAND_CREATED",
+                DateTimeOffset.Parse("2026-08-21T01:00:01+08:00"),
+                "DEMAND",
+                initial.FocusedGeneration.DemandId,
+                "poll-1",
+                "commit-1",
+                1,
+                "{}",
+                [initial.FocusedGeneration.DemandId]);
+            var unrelated = related with
+            {
+                EventId = "event-2",
+                SeriesSequence = 2,
+                SubjectId = "demand-other",
+                RelatedDemandIds = ["demand-other"],
+            };
+            var presentation = initial with { Events = [related, unrelated] };
+            var window = new WatchDemandSeriesInspectorWindow();
+
+            window.Update(presentation);
+            var eventGrid = Assert.IsType<DataGrid>(
+                window.FindName("DemandSeriesInspectorEventGrid"));
+            Assert.Equal(2, eventGrid.Items.Count);
+
+            var relatedEvents = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("DemandSeriesInspectorRelatedEventsButton"));
+            relatedEvents.RaiseEvent(new RoutedEventArgs(Wpf.Ui.Controls.Button.ClickEvent));
+
+            Assert.Equal(1, Assert.IsType<TabControl>(
+                window.FindName("DemandSeriesInspectorTabs")).SelectedIndex);
+            Assert.True(Assert.IsType<RadioButton>(
+                window.FindName("DemandSeriesInspectorSelectedEventsRadio")).IsChecked);
+            Assert.Single(eventGrid.Items);
+            Assert.Same(related, eventGrid.Items[0]);
 
             window.Close();
         });
