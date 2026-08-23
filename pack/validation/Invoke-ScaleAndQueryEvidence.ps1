@@ -638,13 +638,14 @@ SET IDENTITY_INSERT mesingest.ProjectionCommits ON;
 )
 INSERT mesingest.ProjectionCommits
     (ProjectionCommitId, ProjectionSequence, PollTraceId, CommittedAt, HostSessionId,
-     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch)
+     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch,
+     OverviewActiveErrorSeriesCount, OverviewPrior7DaysErrorSeriesCount)
 SELECT N'scale-commit-' + RIGHT(REPLICATE('0', 10) + CONVERT(varchar(20), @roundStart + n), 10),
        @roundStart + n,
        N'scale-poll-' + RIGHT(REPLICATE('0', 10) + CONVERT(varchar(20), @roundStart + n), 10),
        DATEADD(second, -CONVERT(bigint, (@historyRoundCount - (@roundStart + n) + 1) * @roundSeconds), @anchorUtc),
        @hostSessionId, N'NORMAL', N'NORMAL', 1, 0,
-       CONVERT(uniqueidentifier, @historyEpoch)
+       CONVERT(uniqueidentifier, @historyEpoch), 0, 0
 FROM n;
 SET IDENTITY_INSERT mesingest.ProjectionCommits OFF;
 "@ @{
@@ -665,9 +666,11 @@ SET IDENTITY_INSERT mesingest.PollTraces OFF;
 SET IDENTITY_INSERT mesingest.ProjectionCommits ON;
 INSERT mesingest.ProjectionCommits
     (ProjectionCommitId, ProjectionSequence, PollTraceId, CommittedAt, HostSessionId,
-     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch)
+     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch,
+     OverviewActiveErrorSeriesCount, OverviewPrior7DaysErrorSeriesCount)
 VALUES (N'scale-baseline-commit', @baselineSequence, N'scale-baseline-poll', @anchorUtc,
-        @hostSessionId, N'NORMAL', N'NORMAL', 1, 1, CONVERT(uniqueidentifier, @historyEpoch));
+        @hostSessionId, N'NORMAL', N'NORMAL', 1, 1, CONVERT(uniqueidentifier, @historyEpoch),
+        @errorCount, @errorCount);
 SET IDENTITY_INSERT mesingest.ProjectionCommits OFF;
 
 ;WITH n AS
@@ -818,6 +821,44 @@ WHERE s.Lifecycle = N'TRACKING'
 UPDATE mesingest.CatalogState SET CatalogRevision = 1, ProjectionCommitId = N'scale-baseline-commit' WHERE Id = 1;
 INSERT mesingest.ProjectionCommitUnassignedObservationFacts (ProjectionCommitId, ObservationCount, ContentDigest)
 VALUES (N'scale-baseline-commit', 0, NULL);
+
+INSERT mesingest.CurrentOverviewAreaFacts
+    (AreaKey, IsGlobal, Area, ExactTotalDemandCount, ReadableCount, ProjectionCommitId)
+SELECT N'G' + REPLICATE(N'0', 64), 1, NULL, COUNT_BIG(*),
+    COALESCE(SUM(CONVERT(BIGINT, CASE WHEN catalogItem.DemandId IS NULL THEN 0 ELSE 1 END)), 0),
+    N'scale-baseline-commit'
+FROM mesingest.DemandSeries AS series
+INNER JOIN mesingest.TransportDemands AS demand ON demand.DemandId = series.CurrentDemandId
+LEFT JOIN mesingest.CatalogItems AS catalogItem ON catalogItem.DemandId = demand.DemandId
+UNION ALL
+SELECT N'A' + CONVERT(CHAR(64), HASHBYTES(
+        'SHA2_256', CONVERT(VARBINARY(MAX),
+            demand.Area COLLATE Latin1_General_100_BIN2)), 2),
+    0, demand.Area COLLATE Latin1_General_100_BIN2, COUNT_BIG(*),
+    COALESCE(SUM(CONVERT(BIGINT, CASE WHEN catalogItem.DemandId IS NULL THEN 0 ELSE 1 END)), 0),
+    N'scale-baseline-commit'
+FROM mesingest.DemandSeries AS series
+INNER JOIN mesingest.TransportDemands AS demand ON demand.DemandId = series.CurrentDemandId
+LEFT JOIN mesingest.CatalogItems AS catalogItem ON catalogItem.DemandId = demand.DemandId
+WHERE demand.Area IS NOT NULL
+GROUP BY demand.Area COLLATE Latin1_General_100_BIN2;
+
+;WITH RecentSeries AS
+(
+    SELECT TOP (5) eventRow.EventId, eventRow.OccurredAt, eventRow.SeriesId,
+        series.WorkType, eventRow.PollTraceId, eventRow.ProjectionCommitId,
+        ROW_NUMBER() OVER (ORDER BY eventRow.OccurredAt DESC, eventRow.EventId) AS ActivityRank
+    FROM mesingest.DemandSeriesEvents AS eventRow
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = eventRow.SeriesId
+    ORDER BY eventRow.OccurredAt DESC, eventRow.EventId
+)
+INSERT mesingest.CurrentOverviewActivities
+    (ActivityRank, SnapshotProjectionCommitId, EventId, Kind, EventType, Severity,
+     OccurredAt, SeriesId, WorkType, PollTraceId, SourceProjectionCommitId, NavigationTarget)
+SELECT CONVERT(TINYINT, ActivityRank), N'scale-baseline-commit', EventId,
+    N'SERIES_LIFECYCLE', N'DEMAND_SERIES_STARTED', N'WARNING', OccurredAt,
+    SeriesId, WorkType, PollTraceId, ProjectionCommitId, N'DEMAND_SERIES_DETAIL'
+FROM RecentSeries;
 "@ @{
             '@baselineSequence' = $baselineSequence; '@anchorUtc' = $AnchorUtc
             '@hostSessionId' = $hostSessionId; '@seriesCount' = $SeriesCount
