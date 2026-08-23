@@ -99,6 +99,9 @@ public sealed class CurrentIngestAttentionTests : IClassFixture<WebApplicationFa
             await ReadProjectionEvidenceAsync(database.ConnectionString));
         var current = await GetJsonAsync(client, "/api/v2/current-ingest-attention");
         AssertSnapshotFence(current, stableUnassigned);
+        Assert.Equal(
+            stableUnassigned.HistoryEpoch!.Value.ToString("D"),
+            current.GetProperty("snapshot").GetProperty("historyEpoch").GetString());
         Assert.Equal(5L, current.GetProperty("exactTotalItemCount").GetInt64());
         Assert.Equal(CurrentIngestAttentionOrder.Default, current.GetProperty("order").GetString());
         Assert.Equal(100, current.GetProperty("pageSize").GetInt32());
@@ -522,13 +525,14 @@ public sealed class CurrentIngestAttentionTests : IClassFixture<WebApplicationFa
     {
         Assert.Equal(CurrentIngestAttentionSeverities.Error, item.GetProperty("severity").GetString());
         Assert.StartsWith("UNASSIGNED_MES_OBSERVATION:", StableIdentity(item));
-        Assert.Equal("RAW_OBSERVATION", item.GetProperty("subjectKind").GetString());
+        Assert.Equal("UNASSIGNED_OBSERVATION_SET", item.GetProperty("subjectKind").GetString());
         Assert.Equal(episodeOccurredAt, item.GetProperty("occurredAt").GetDateTimeOffset());
         var evidence = item.GetProperty("evidence");
         Assert.Equal(fence.ProjectionCommitId, evidence.GetProperty("projectionCommitId").GetString());
         Assert.Equal(fence.ProjectionSequence, evidence.GetProperty("projectionSequence").GetInt64());
         Assert.Equal(fence.PollTraceId, evidence.GetProperty("pollTraceId").GetString());
-        Assert.Equal(0, evidence.GetProperty("observationOrdinal").GetInt32());
+        Assert.Equal(1, evidence.GetProperty("observationCount").GetInt32());
+        Assert.Equal(JsonValueKind.Null, evidence.GetProperty("observationOrdinal").ValueKind);
         Assert.False(string.IsNullOrWhiteSpace(evidence.GetProperty("contentDigest").GetString()));
         var navigation = item.GetProperty("navigation");
         AssertNavigation(navigation, OverviewNavigationTargets.PollTrace);

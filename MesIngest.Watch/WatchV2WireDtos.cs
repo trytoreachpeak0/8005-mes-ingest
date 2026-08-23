@@ -860,7 +860,8 @@ internal sealed record WatchV2OperationalSnapshotIdentityWire(
     long PollTraceHighWater,
     long CatalogRevision,
     DateTimeOffset SnapshotAsOf,
-    string ContractVersion)
+    string ContractVersion,
+    string? HistoryEpoch = null)
 {
     public OperationalSnapshotIdentity ToCore() => new(
         ProjectionCommitId,
@@ -870,7 +871,10 @@ internal sealed record WatchV2OperationalSnapshotIdentityWire(
         PollTraceHighWater,
         CatalogRevision,
         SnapshotAsOf,
-        ContractVersion);
+        ContractVersion,
+        string.IsNullOrWhiteSpace(HistoryEpoch)
+            ? null
+            : MesIngest.Core.SeriesProjection.HistoryEpoch.FromGuid(Guid.Parse(HistoryEpoch)));
 }
 
 internal sealed record WatchV2OverviewNavigationIntentWire(
@@ -932,7 +936,8 @@ internal sealed record WatchV2CurrentAttentionEvidenceWire(
     string? EvidenceId,
     string? ContentDigest,
     string? Phase,
-    string? Outcome)
+    string? Outcome,
+    int? ObservationCount)
 {
     public CurrentIngestAttentionEvidenceSnapshot ToCore() => new(
         ProjectionCommitId,
@@ -946,7 +951,8 @@ internal sealed record WatchV2CurrentAttentionEvidenceWire(
         EvidenceId,
         ContentDigest,
         Phase,
-        Outcome);
+        Outcome,
+        ObservationCount);
 }
 
 internal sealed record WatchV2CurrentAttentionItemWire(

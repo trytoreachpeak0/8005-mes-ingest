@@ -102,7 +102,9 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         Assert.Equal(JsonValueKind.Null, initial.Body.GetProperty("projectionCommittedAt").ValueKind);
         Assert.Equal(0, initial.Body.GetProperty("count").GetInt32());
         Assert.Empty(initial.Body.GetProperty("items").EnumerateArray());
-        Assert.Equal("W/\"catalog-r0\"", initial.ETag);
+        Assert.Equal(
+            $"W/\"catalog-h{Guid.Parse(initial.Body.GetProperty("historyEpoch").GetString()!):N}-r0\"",
+            initial.ETag);
 
         using var conditionalRequest = new HttpRequestMessage(HttpMethod.Get, CatalogUri);
         conditionalRequest.Headers.TryAddWithoutValidation("If-None-Match", initial.ETag);
@@ -110,6 +112,43 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         Assert.Equal(HttpStatusCode.NotModified, unchanged.StatusCode);
         Assert.Equal(string.Empty, await unchanged.Content.ReadAsStringAsync());
         AssertDatabaseEvidence(database);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Conditional_catalog_identity_from_an_old_history_epoch_forces_a_complete_new_epoch_read()
+    {
+        string oldEpoch;
+        string oldEtag;
+        await using (var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync())
+        {
+            using var oldEnvironment = ConfigureProductionV2Environment(oldDatabase.ConnectionString);
+            await using var oldFactory = CreateFactory();
+            using var oldClient = oldFactory.CreateClient();
+
+            var oldCatalog = await GetCatalogAsync(oldClient);
+            oldEpoch = oldCatalog.Body.GetProperty("historyEpoch").GetString()!;
+            oldEtag = oldCatalog.ETag;
+            AssertDatabaseEvidence(oldDatabase);
+        }
+
+        await using var newDatabase = await Ticket01SqlServerDatabase.CreateAsync();
+        using var newEnvironment = ConfigureProductionV2Environment(newDatabase.ConnectionString);
+        await using var newFactory = CreateFactory();
+        using var newClient = newFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Get, CatalogUri);
+        request.Headers.TryAddWithoutValidation("If-None-Match", oldEtag);
+
+        using var response = await newClient.SendAsync(request);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var json = JsonDocument.Parse(body);
+        var newEpoch = json.RootElement.GetProperty("historyEpoch").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(newEpoch));
+        Assert.NotEqual(oldEpoch, newEpoch);
+        Assert.NotEqual(oldEtag, response.Headers.ETag?.ToString());
+        Assert.Equal(0L, json.RootElement.GetProperty("catalogRevision").GetInt64());
+        AssertDatabaseEvidence(newDatabase);
     }
 
     [Ticket01SqlServerFact]
@@ -250,7 +289,7 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         var body = changedJson.RootElement;
         Assert.Equal(2L, body.GetProperty("catalogRevision").GetInt64());
         Assert.Equal(
-            $"W/\"catalog-r{body.GetProperty("catalogRevision").GetInt64()}\"",
+            $"W/\"catalog-h{Guid.Parse(body.GetProperty("historyEpoch").GetString()!):N}-r{body.GetProperty("catalogRevision").GetInt64()}\"",
             changed.Headers.ETag?.ToString());
         var item = Assert.Single(body.GetProperty("items").EnumerateArray());
         Assert.Equal("N3-8", item.GetProperty("liveMesFields").GetProperty("area").GetString());

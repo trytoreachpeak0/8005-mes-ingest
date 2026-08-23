@@ -34,7 +34,8 @@ public static class MesIngestOpenApi
 
         Host timestamps and ProjectionCommit timestamps are ISO-8601 date-time values in UTC.
         mesSourceDate preserves its MES source offset. Snapshot references and cursors are opaque,
-        purpose-bound credentials; CatalogRevision conditional reads instead use a weak ETag and 304.
+        purpose-bound credentials; catalog conditional reads bind HistoryEpoch plus CatalogRevision
+        in a weak ETag and use 304 only when both identities match.
         List totals and facets are exact within the named snapshot. Default page size is 100 and the
         hard maximum is 200 unless an operation documents a stricter diagnostic limit.
 

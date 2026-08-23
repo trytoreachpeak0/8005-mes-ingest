@@ -2,7 +2,7 @@
   "openapi": "3.0.1",
   "info": {
     "title": "MesIngest V2 Read Contract",
-    "description": "MesIngest V2 read contract. Every business operation is GET; no TransportDemand,\nerror, projection, or Watch business write is accepted by this surface.\n\nCompatibility is EXACT_VERSION_SCHEMA_AND_CAPABILITIES. A consumer must read\n/api/v2/contract and require the exact contractVersion, schemaVersion, and complete capability\nset before interpreting any business response. Missing fields, unknown states, and client-side\nsingle-page filtering are not compatibility fallbacks.\n\nHost timestamps and ProjectionCommit timestamps are ISO-8601 date-time values in UTC.\nmesSourceDate preserves its MES source offset. Snapshot references and cursors are opaque,\npurpose-bound credentials; CatalogRevision conditional reads instead use a weak ETag and 304.\nList totals and facets are exact within the named snapshot. Default page size is 100 and the\nhard maximum is 200 unless an operation documents a stricter diagnostic limit.\n\nBearer SharedSecret is required for non-loopback business reads. Restricted raw evidence always\nrequires explicit Bearer authorization, including on loopback. This document is the only\npublished MesIngest read contract; no earlier surface is served or supported.",
+    "description": "MesIngest V2 read contract. Every business operation is GET; no TransportDemand,\nerror, projection, or Watch business write is accepted by this surface.\n\nCompatibility is EXACT_VERSION_SCHEMA_AND_CAPABILITIES. A consumer must read\n/api/v2/contract and require the exact contractVersion, schemaVersion, and complete capability\nset before interpreting any business response. Missing fields, unknown states, and client-side\nsingle-page filtering are not compatibility fallbacks.\n\nHost timestamps and ProjectionCommit timestamps are ISO-8601 date-time values in UTC.\nmesSourceDate preserves its MES source offset. Snapshot references and cursors are opaque,\npurpose-bound credentials; catalog conditional reads bind HistoryEpoch plus CatalogRevision\nin a weak ETag and use 304 only when both identities match.\nList totals and facets are exact within the named snapshot. Default page size is 100 and the\nhard maximum is 200 unless an operation documents a stricter diagnostic limit.\n\nBearer SharedSecret is required for non-loopback business reads. Restricted raw evidence always\nrequires explicit Bearer authorization, including on loopback. This document is the only\npublished MesIngest read contract; no earlier surface is served or supported.",
     "version": "2026.08.new-mes-ingest.v2.0"
   },
   "paths": {
@@ -175,13 +175,13 @@
           "DemandCatalog"
         ],
         "summary": "Read the complete externally readable Demand catalog",
-        "description": "A full-range catalog resource. It accepts no query parameters. If-None-Match carries only the weak CatalogRevision ETag and yields 304 when unchanged.",
+        "description": "A full-range catalog resource. It accepts no query parameters. If-None-Match carries the weak HistoryEpoch plus CatalogRevision ETag and yields 304 only when both are unchanged.",
         "operationId": "GetExternallyReadableDemandCatalog",
         "parameters": [
           {
             "name": "If-None-Match",
             "in": "header",
-            "description": "One weak catalog ETag, for example W/\u0022catalog-r42\u0022.",
+            "description": "One weak catalog ETag, for example W/\u0022catalog-h11111111111111111111111111111111-r42\u0022.",
             "schema": {
               "type": "string"
             }
@@ -192,11 +192,11 @@
             "description": "Success. Response identity and exact totals belong to the returned snapshot.",
             "headers": {
               "ETag": {
-                "description": "Weak catalog validator W/\u0022catalog-r{CatalogRevision}\u0022. This is not a paging cursor.",
+                "description": "Weak catalog validator W/\u0022catalog-h{HistoryEpoch:N}-r{CatalogRevision}\u0022. This is not a paging cursor.",
                 "schema": {
                   "type": "string"
                 },
-                "example": "W/\u0022catalog-r42\u0022"
+                "example": "W/\u0022catalog-h11111111111111111111111111111111-r42\u0022"
               },
               "Cache-Control": {
                 "description": "Always private, no-cache.",
@@ -235,14 +235,14 @@
             }
           },
           "304": {
-            "description": "CatalogRevision is unchanged. No response body; ETag identifies the revision.",
+            "description": "HistoryEpoch and CatalogRevision are unchanged. No response body; ETag identifies both.",
             "headers": {
               "ETag": {
-                "description": "Weak catalog validator W/\u0022catalog-r{CatalogRevision}\u0022. This is not a paging cursor.",
+                "description": "Weak catalog validator W/\u0022catalog-h{HistoryEpoch:N}-r{CatalogRevision}\u0022. This is not a paging cursor.",
                 "schema": {
                   "type": "string"
                 },
-                "example": "W/\u0022catalog-r42\u0022"
+                "example": "W/\u0022catalog-h11111111111111111111111111111111-r42\u0022"
               },
               "Cache-Control": {
                 "description": "Always private, no-cache.",
@@ -2040,6 +2040,12 @@
             "type": "string",
             "description": "Frozen CurrentIngestAttentionEvidenceDto.outcome contract field.",
             "nullable": true
+          },
+          "observationCount": {
+            "type": "integer",
+            "description": "Frozen CurrentIngestAttentionEvidenceDto.observationCount contract field.",
+            "format": "int32",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -3571,6 +3577,7 @@
           "catalogRevision",
           "contractVersion",
           "count",
+          "historyEpoch",
           "items"
         ],
         "type": "object",
@@ -3581,6 +3588,10 @@
             ],
             "type": "string",
             "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.0."
+          },
+          "historyEpoch": {
+            "type": "string",
+            "description": "Frozen ExternallyReadableDemandCatalogDto.historyEpoch contract field."
           },
           "catalogRevision": {
             "type": "integer",
@@ -4040,6 +4051,7 @@
         "required": [
           "catalogRevision",
           "contractVersion",
+          "historyEpoch",
           "pollTraceHighWater",
           "pollTraceId",
           "projectionCommitId",
@@ -4049,6 +4061,10 @@
         ],
         "type": "object",
         "properties": {
+          "historyEpoch": {
+            "type": "string",
+            "description": "Frozen OperationalSnapshotIdentityDto.historyEpoch contract field."
+          },
           "projectionCommitId": {
             "type": "string",
             "description": "ProjectionCommit identity from one atomic successful round."

@@ -513,12 +513,14 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         RoundCommitReceipt receiptD;
         try
         {
-            receiptD = await writerD.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.Delay(100);
+            Assert.False(writerD.IsCompleted);
         }
         finally
         {
             attentionGate.Release();
         }
+        receiptD = await writerD.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(expectedAttentionC, await pendingAttention1.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Equal(expectedAttentionC, await pendingAttention2.WaitAsync(TimeSpan.FromSeconds(10)));
         var attentionD = await ReadJsonAsync(client, AttentionPath);

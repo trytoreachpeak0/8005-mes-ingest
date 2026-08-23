@@ -231,6 +231,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     round,
                     prepared.ContentDigest,
                     cancellationToken).ConfigureAwait(false);
+                await UpdateCurrentOverviewActivityAsync(
+                    connection,
+                    transaction,
+                    round,
+                    projectionCommitId: null,
+                    cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return new RoundCommitReceipt(
                     round.PollTraceId,
@@ -482,6 +488,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 seriesIds,
                 demandIds,
                 cancellationToken).ConfigureAwait(false);
+            await UpdateOverviewErrorSummaryAsync(
+                connection,
+                transaction,
+                projectionCommitId,
+                round.CompletedAt,
+                cancellationToken).ConfigureAwait(false);
             await _checkpointObserver.OnCheckpointAsync(
                 ProjectionCommitCheckpoint.AbsenceAndArchivePersisted,
                 checkpointContext,
@@ -493,6 +505,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 connection,
                 transaction,
                 round,
+                projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
+            await UpdateCurrentOverviewReadabilityAsync(
+                connection,
+                transaction,
                 projectionCommitId,
                 cancellationToken).ConfigureAwait(false);
             await _checkpointObserver.OnCheckpointAsync(
@@ -508,6 +525,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 hostSession.RestartPhase,
                 restartPhaseAfter,
                 restartTransition.EventCode,
+                round,
+                projectionCommitId,
+                cancellationToken).ConfigureAwait(false);
+            await UpdateCurrentOverviewActivityAsync(
+                connection,
+                transaction,
                 round,
                 projectionCommitId,
                 cancellationToken).ConfigureAwait(false);
@@ -1775,12 +1798,13 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             INSERT INTO mesingest.ProjectionCommits
                 (ProjectionCommitId, PollTraceId, CommittedAt, HostSessionId,
                  RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority,
-                 CatalogRevision, HistoryEpoch)
+                 CatalogRevision, HistoryEpoch, OverviewActiveErrorSeriesCount,
+                 OverviewPrior7DaysErrorSeriesCount)
             VALUES
                 (@projectionCommitId, @pollTraceId, @completedAt, @hostSessionId,
                  @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority,
                  (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1),
-                 @historyEpoch);
+                 @historyEpoch, 0, 0);
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -1836,14 +1860,16 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         UnassignedObservationFact after,
         CancellationToken cancellationToken)
     {
-        UnassignedObservationFact before;
+        PersistedUnassignedObservationState before;
         await using (var load = connection.CreateCommand())
         {
             load.Transaction = transaction;
             load.CommandText = """
                 SELECT TOP (1)
                     fact.ObservationCount,
-                    fact.ContentDigest
+                    fact.ContentDigest,
+                    fact.StateEventId,
+                    fact.StateChangedAt
                 FROM mesingest.ProjectionCommitUnassignedObservationFacts AS fact
                 INNER JOIN mesingest.ProjectionCommits AS commitRow
                     ON commitRow.ProjectionCommitId = fact.ProjectionCommitId
@@ -1856,28 +1882,42 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddNVarChar(load, "@projectionCommitId", 64, projectionCommitId);
             await using var reader = await load.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             before = await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-                ? new UnassignedObservationFact(
-                    reader.GetInt32(0),
-                    GetNullableString(reader, 1))
-                : UnassignedObservationFact.Empty;
+                ? new PersistedUnassignedObservationState(
+                    new UnassignedObservationFact(
+                        reader.GetInt32(0),
+                        GetNullableString(reader, 1)),
+                    GetNullableString(reader, 2),
+                    GetNullableDateTimeOffset(reader, 3))
+                : PersistedUnassignedObservationState.Empty;
         }
 
+        var eventType = GetUnassignedObservationEventType(before.Fact, after);
+        var eventId = eventType is null ? before.StateEventId : NewId();
+        var stateChangedAt = after.ObservationCount == 0
+            ? null
+            : eventType is null
+                ? before.StateChangedAt
+                : round.CompletedAt;
         await using (var insertFact = connection.CreateCommand())
         {
             insertFact.Transaction = transaction;
             insertFact.CommandText = """
                 INSERT INTO mesingest.ProjectionCommitUnassignedObservationFacts
-                    (ProjectionCommitId, ObservationCount, ContentDigest)
+                    (ProjectionCommitId, ObservationCount, ContentDigest,
+                     StateEventId, StateChangedAt)
                 VALUES
-                    (@projectionCommitId, @observationCount, @contentDigest);
+                    (@projectionCommitId, @observationCount, @contentDigest,
+                     @stateEventId, @stateChangedAt);
                 """;
             AddNVarChar(insertFact, "@projectionCommitId", 64, projectionCommitId);
             insertFact.Parameters.Add("@observationCount", SqlDbType.Int).Value = after.ObservationCount;
             AddNullableChar(insertFact, "@contentDigest", 64, after.ContentDigest);
+            AddNullableNVarChar(insertFact, "@stateEventId", 64,
+                after.ObservationCount == 0 ? null : eventId);
+            AddNullableDateTimeOffset(insertFact, "@stateChangedAt", stateChangedAt);
             await insertFact.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var eventType = GetUnassignedObservationEventType(before, after);
         if (eventType is null)
         {
             return;
@@ -1895,15 +1935,49 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                  @beforeObservationCount, @afterObservationCount,
                  @beforeContentDigest, @afterContentDigest);
             """;
-        AddNVarChar(insertEvent, "@eventId", 64, NewId());
+        AddNVarChar(insertEvent, "@eventId", 64, eventId!);
         AddNVarChar(insertEvent, "@eventType", 128, eventType);
         AddDateTimeOffset(insertEvent, "@occurredAt", round.CompletedAt);
         AddNVarChar(insertEvent, "@projectionCommitId", 64, projectionCommitId);
-        insertEvent.Parameters.Add("@beforeObservationCount", SqlDbType.Int).Value = before.ObservationCount;
+        insertEvent.Parameters.Add("@beforeObservationCount", SqlDbType.Int).Value = before.Fact.ObservationCount;
         insertEvent.Parameters.Add("@afterObservationCount", SqlDbType.Int).Value = after.ObservationCount;
-        AddNullableChar(insertEvent, "@beforeContentDigest", 64, before.ContentDigest);
+        AddNullableChar(insertEvent, "@beforeContentDigest", 64, before.Fact.ContentDigest);
         AddNullableChar(insertEvent, "@afterContentDigest", 64, after.ContentDigest);
         await insertEvent.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpdateOverviewErrorSummaryAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string projectionCommitId,
+        DateTimeOffset snapshotAsOf,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            UPDATE commitRow
+            SET OverviewActiveErrorSeriesCount =
+                    (SELECT COUNT_BIG(*)
+                     FROM (SELECT DISTINCT SeriesId
+                           FROM mesingest.DemandSeriesCurrentConditions) AS activeSeries),
+                OverviewPrior7DaysErrorSeriesCount =
+                    (SELECT COUNT_BIG(*)
+                     FROM (SELECT DISTINCT SeriesId
+                           FROM mesingest.DemandSeriesErrorPeriods
+                           WHERE StartedAt <= @toUtc
+                             AND (EndedAt IS NULL OR EndedAt > @fromUtc)) AS recentSeries)
+            FROM mesingest.ProjectionCommits AS commitRow
+            WHERE commitRow.ProjectionCommitId = @projectionCommitId;
+            """;
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddDateTimeOffset(command, "@fromUtc", snapshotAsOf.ToUniversalTime().AddDays(-7));
+        AddDateTimeOffset(command, "@toUtc", snapshotAsOf.ToUniversalTime());
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        {
+            throw new InvalidOperationException(
+                "The current overview error summary could not be bound to its projection commit.");
+        }
     }
 
     private static string? GetUnassignedObservationEventType(
@@ -4186,6 +4260,15 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string? ContentDigest)
     {
         public static UnassignedObservationFact Empty { get; } = new(0, null);
+    }
+
+    private sealed record PersistedUnassignedObservationState(
+        UnassignedObservationFact Fact,
+        string? StateEventId,
+        DateTimeOffset? StateChangedAt)
+    {
+        public static PersistedUnassignedObservationState Empty { get; } =
+            new(UnassignedObservationFact.Empty, null, null);
     }
 
     private sealed record PreparedObservation(

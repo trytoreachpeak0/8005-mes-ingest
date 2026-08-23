@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -28,22 +27,17 @@ public sealed class HttpExternallyReadableDemandCatalogClient
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
 
     public async Task<ExternallyReadableDemandCatalogRead> ReadAsync(
-        long? knownRevision,
+        ExternallyReadableDemandCatalogIdentity? knownIdentity,
         CancellationToken cancellationToken = default)
     {
-        if (knownRevision < 0)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(knownRevision),
-                "A catalog revision cannot be negative.");
-        }
+        knownIdentity?.Validate();
 
         await RequireCompatibleContractAsync(cancellationToken).ConfigureAwait(false);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, CatalogPath);
-        if (knownRevision is long revision)
+        if (knownIdentity is not null)
         {
-            request.Headers.IfNoneMatch.Add(CreateCatalogEtag(revision));
+            request.Headers.IfNoneMatch.Add(CreateCatalogEtag(knownIdentity));
         }
 
         using var response = await _httpClient.SendAsync(
@@ -60,17 +54,17 @@ public sealed class HttpExternallyReadableDemandCatalogClient
                 response.StatusCode);
         }
 
-        var responseRevision = ParseCatalogRevision(response.Headers.ETag);
+        var responseIdentity = ParseCatalogIdentity(response.Headers.ETag);
 
         if (response.StatusCode == HttpStatusCode.NotModified)
         {
-            if (knownRevision is null || knownRevision.Value != responseRevision)
+            if (knownIdentity is null || knownIdentity != responseIdentity)
             {
                 throw new InvalidDataException(
                     "A 304 catalog response must identify the requested catalog revision.");
             }
 
-            return ExternallyReadableDemandCatalogRead.Unchanged(responseRevision);
+            return ExternallyReadableDemandCatalogRead.Unchanged(responseIdentity);
         }
 
         var body = await response.Content.ReadFromJsonAsync<CatalogDto>(
@@ -85,10 +79,19 @@ public sealed class HttpExternallyReadableDemandCatalogClient
             throw ContractMismatch(
                 $"The catalog contractVersion must be '{NewMesIngestContract.Version}'.");
         }
-        if (body.CatalogRevision != responseRevision)
+        if (!Guid.TryParse(body.HistoryEpoch, out var bodyHistoryEpoch)
+            || bodyHistoryEpoch == Guid.Empty)
         {
             throw new InvalidDataException(
-                "The catalog body revision does not match the response ETag.");
+                "The catalog body historyEpoch is missing or invalid.");
+        }
+        var bodyIdentity = new ExternallyReadableDemandCatalogIdentity(
+            HistoryEpoch.FromGuid(bodyHistoryEpoch),
+            body.CatalogRevision);
+        if (bodyIdentity != responseIdentity)
+        {
+            throw new InvalidDataException(
+                "The catalog body identity does not match the response ETag.");
         }
         if (body.Count != body.Items.Count)
         {
@@ -109,6 +112,7 @@ public sealed class HttpExternallyReadableDemandCatalogClient
         }
 
         var snapshot = new ExternallyReadableDemandCatalogSnapshot(
+            bodyIdentity.HistoryEpoch,
             body.CatalogRevision,
             body.ProjectionCommitId,
             body.ProjectionSequence,
@@ -194,10 +198,14 @@ public sealed class HttpExternallyReadableDemandCatalogClient
                 fields.Package));
     }
 
-    private static EntityTagHeaderValue CreateCatalogEtag(long revision) =>
-        new($"\"catalog-r{revision.ToString(CultureInfo.InvariantCulture)}\"", isWeak: true);
+    private static EntityTagHeaderValue CreateCatalogEtag(
+        ExternallyReadableDemandCatalogIdentity identity) =>
+        new(
+            $"\"{ExternallyReadableDemandCatalogEtagCodec.FormatOpaqueTag(identity)}\"",
+            isWeak: true);
 
-    private static long ParseCatalogRevision(EntityTagHeaderValue? etag)
+    private static ExternallyReadableDemandCatalogIdentity ParseCatalogIdentity(
+        EntityTagHeaderValue? etag)
     {
         if (etag is null || !etag.IsWeak)
         {
@@ -206,21 +214,18 @@ public sealed class HttpExternallyReadableDemandCatalogClient
         }
 
         var opaqueTag = etag.Tag;
-        const string prefix = "\"catalog-r";
-        if (!opaqueTag.StartsWith(prefix, StringComparison.Ordinal)
+        if (opaqueTag.Length < 3
+            || opaqueTag[0] != '\"'
             || opaqueTag[^1] != '\"'
-            || !long.TryParse(
-                opaqueTag.AsSpan(prefix.Length, opaqueTag.Length - prefix.Length - 1),
-                NumberStyles.None,
-                CultureInfo.InvariantCulture,
-                out var revision)
-            || revision < 0)
+            || !ExternallyReadableDemandCatalogEtagCodec.TryParseOpaqueTag(
+                opaqueTag.AsSpan(1, opaqueTag.Length - 2),
+                out var identity))
         {
             throw new InvalidDataException(
                 "The catalog response ETag is not a catalog revision.");
         }
 
-        return revision;
+        return identity!;
     }
 
     private static string RequireText(string? value, string fieldName) =>
@@ -230,6 +235,7 @@ public sealed class HttpExternallyReadableDemandCatalogClient
 
     private sealed record CatalogDto(
         string? ContractVersion,
+        string? HistoryEpoch,
         long CatalogRevision,
         string? ProjectionCommitId,
         long? ProjectionSequence,

@@ -9,9 +9,14 @@ namespace MesIngest.Tests;
 
 public sealed class HttpExternallyReadableDemandCatalogClientTests
 {
+    private const string HistoryEpochText = "22222222-2222-2222-2222-222222222222";
+    private static readonly HistoryEpoch TestHistoryEpoch = HistoryEpoch.FromGuid(
+        Guid.Parse(HistoryEpochText));
+
     private const string CompleteCatalogBody = """
         {
           "contractVersion": "2026.08.new-mes-ingest.v2.0",
+          "historyEpoch": "22222222-2222-2222-2222-222222222222",
           "catalogRevision": 12,
           "projectionCommitId": "commit-12",
           "projectionSequence": 34,
@@ -57,7 +62,9 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
             {
                 Content = new StringContent(CompleteCatalogBody, Encoding.UTF8, "application/json"),
             };
-            response.Headers.ETag = new EntityTagHeaderValue("\"catalog-r12\"", isWeak: true);
+            response.Headers.ETag = new EntityTagHeaderValue(
+                "\"catalog-h22222222222222222222222222222222-r12\"",
+                isWeak: true);
             return response;
         });
         using var httpClient = new HttpClient(handler)
@@ -66,10 +73,11 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         };
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
-        var read = await client.ReadAsync(knownRevision: null);
+        var read = await client.ReadAsync(knownIdentity: null);
 
         Assert.False(read.NotModified);
         Assert.Equal(12, read.CatalogRevision);
+        Assert.Equal(TestHistoryEpoch, read.HistoryEpoch);
         var snapshot = Assert.IsType<MesIngest.Core.SeriesProjection.ExternallyReadableDemandCatalogSnapshot>(
             read.Snapshot);
         Assert.Equal("commit-12", snapshot.ProjectionCommitId);
@@ -128,7 +136,9 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
             {
                 Content = content,
             };
-            response.Headers.ETag = new EntityTagHeaderValue("\"catalog-r12\"", isWeak: true);
+            response.Headers.ETag = new EntityTagHeaderValue(
+                "\"catalog-h22222222222222222222222222222222-r12\"",
+                isWeak: true);
             return response;
         });
         using var httpClient = new HttpClient(handler)
@@ -137,7 +147,8 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         };
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
-        var read = await client.ReadAsync(knownRevision: 12);
+        var read = await client.ReadAsync(
+            new ExternallyReadableDemandCatalogIdentity(TestHistoryEpoch, 12));
 
         Assert.True(read.NotModified);
         Assert.Equal(12, read.CatalogRevision);
@@ -146,7 +157,9 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         Assert.Equal(2, handler.Requests.Count);
         var request = handler.Requests[1];
         Assert.Equal("/api/v2/externally-readable-demand-catalog", request.PathAndQuery);
-        Assert.Equal(["W/\"catalog-r12\""], request.IfNoneMatch);
+        Assert.Equal(
+            ["W/\"catalog-h22222222222222222222222222222222-r12\""],
+            request.IfNoneMatch);
     }
 
     [Fact]
@@ -155,6 +168,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         const string body = """
             {
               "contractVersion": "2026.08.new-mes-ingest.v2.0",
+              "historyEpoch": "22222222-2222-2222-2222-222222222222",
               "catalogRevision": 0,
               "projectionCommitId": null,
               "projectionSequence": null,
@@ -174,7 +188,9 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
             };
-            response.Headers.ETag = new EntityTagHeaderValue("\"catalog-r0\"", isWeak: true);
+            response.Headers.ETag = new EntityTagHeaderValue(
+                "\"catalog-h22222222222222222222222222222222-r0\"",
+                isWeak: true);
             return response;
         });
         using var httpClient = new HttpClient(handler)
@@ -183,7 +199,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         };
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
-        var read = await client.ReadAsync(knownRevision: null);
+        var read = await client.ReadAsync(knownIdentity: null);
 
         var snapshot = Assert.IsType<MesIngest.Core.SeriesProjection.ExternallyReadableDemandCatalogSnapshot>(
             read.Snapshot);
@@ -212,7 +228,9 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
             {
                 Content = new StringContent(mismatchedBody, Encoding.UTF8, "application/json"),
             };
-            response.Headers.ETag = new EntityTagHeaderValue("\"catalog-r12\"", isWeak: true);
+            response.Headers.ETag = new EntityTagHeaderValue(
+                "\"catalog-h22222222222222222222222222222222-r12\"",
+                isWeak: true);
             return response;
         });
         using var httpClient = new HttpClient(handler)
@@ -222,7 +240,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
         var error = await Assert.ThrowsAsync<InvalidDataException>(
-            () => client.ReadAsync(knownRevision: null));
+            () => client.ReadAsync(knownIdentity: null));
 
         Assert.StartsWith("CONTRACT_VERSION_MISMATCH:", error.Message, StringComparison.Ordinal);
         Assert.Contains("contractVersion", error.Message, StringComparison.Ordinal);
@@ -242,7 +260,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
         var error = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.ReadAsync(knownRevision: null));
+            () => client.ReadAsync(knownIdentity: null));
 
         Assert.Equal(HttpStatusCode.InternalServerError, error.StatusCode);
     }
@@ -273,7 +291,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
 
         var error = await Assert.ThrowsAsync<InvalidDataException>(
-            () => client.ReadAsync(knownRevision: null));
+            () => client.ReadAsync(knownIdentity: null));
 
         Assert.StartsWith("CONTRACT_VERSION_MISMATCH:", error.Message, StringComparison.Ordinal);
         var request = Assert.Single(handler.Requests);

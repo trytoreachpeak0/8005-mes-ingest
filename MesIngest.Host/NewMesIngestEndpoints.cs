@@ -178,7 +178,7 @@ internal static class NewMesIngestEndpoints
 
         if (!TryParseCatalogCondition(
                 request.Headers.IfNoneMatch,
-                out var knownRevision,
+                out var knownIdentity,
                 out var conditionError))
         {
             return Results.BadRequest(new NewMesIngestErrorDto(
@@ -187,9 +187,9 @@ internal static class NewMesIngestEndpoints
         }
 
         var read = await projection.ReadExternallyReadableDemandCatalogAsync(
-            knownRevision,
+            knownIdentity,
             cancellationToken);
-        var etag = CreateCatalogEtag(read.CatalogRevision);
+        var etag = CreateCatalogEtag(read.Identity);
         response.Headers.ETag = etag;
         response.Headers.CacheControl = "private, no-cache";
         if (read.NotModified)
@@ -202,10 +202,10 @@ internal static class NewMesIngestEndpoints
 
     private static bool TryParseCatalogCondition(
         Microsoft.Extensions.Primitives.StringValues values,
-        out long? knownRevision,
+        out ExternallyReadableDemandCatalogIdentity? knownIdentity,
         out string? error)
     {
-        knownRevision = null;
+        knownIdentity = null;
         error = null;
         if (values.Count == 0)
         {
@@ -236,25 +236,19 @@ internal static class NewMesIngestEndpoints
         }
 
         var opaque = tag[1..^1];
-        const string prefix = "catalog-r";
-        if (!opaque.StartsWith(prefix, StringComparison.Ordinal)
-            || !long.TryParse(
-                opaque.AsSpan(prefix.Length),
-                System.Globalization.NumberStyles.None,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out var parsed)
-            || parsed < 0)
+        if (!ExternallyReadableDemandCatalogEtagCodec.TryParseOpaqueTag(
+                opaque,
+                out knownIdentity))
         {
             error = "If-None-Match is not a catalog ETag.";
             return false;
         }
 
-        knownRevision = parsed;
         return true;
     }
 
-    private static string CreateCatalogEtag(long catalogRevision) =>
-        $"W/\"catalog-r{catalogRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)}\"";
+    private static string CreateCatalogEtag(ExternallyReadableDemandCatalogIdentity identity) =>
+        $"W/\"{ExternallyReadableDemandCatalogEtagCodec.FormatOpaqueTag(identity)}\"";
 
     private static async Task<IResult> GetDemandSeriesByKeyAsync(
         string workType,
@@ -1339,6 +1333,7 @@ internal sealed record ParsedErrorSearchRawEvidenceRequest(
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
 
 internal sealed record OperationalSnapshotIdentityDto(
+    string HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -1350,6 +1345,8 @@ internal sealed record OperationalSnapshotIdentityDto(
 {
     public static OperationalSnapshotIdentityDto From(OperationalSnapshotIdentity snapshot) =>
         new(
+            (snapshot.HistoryEpoch ?? throw new InvalidOperationException(
+                "The operational snapshot is missing HistoryEpoch.")).Value.ToString("D"),
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,
             snapshot.ProjectionCommittedAt,
@@ -1425,7 +1422,8 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
     string? EvidenceId,
     string? ContentDigest,
     string? Phase,
-    string? Outcome)
+    string? Outcome,
+    int? ObservationCount)
 {
     public static CurrentIngestAttentionEvidenceDto From(
         CurrentIngestAttentionEvidenceSnapshot evidence) =>
@@ -1441,7 +1439,8 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
             evidence.EvidenceId,
             evidence.ContentDigest,
             evidence.Phase,
-            evidence.Outcome);
+            evidence.Outcome,
+            evidence.ObservationCount);
 }
 
 internal sealed record CurrentIngestAttentionItemDto(
@@ -1694,6 +1693,7 @@ internal sealed record ExternallyReadableDemandDto(
 
 internal sealed record ExternallyReadableDemandCatalogDto(
     string ContractVersion,
+    string HistoryEpoch,
     long CatalogRevision,
     string? ProjectionCommitId,
     long? ProjectionSequence,
@@ -1705,6 +1705,7 @@ internal sealed record ExternallyReadableDemandCatalogDto(
         ExternallyReadableDemandCatalogSnapshot snapshot) =>
         new(
             NewMesIngestContract.Version,
+            snapshot.HistoryEpoch.Value.ToString("D"),
             snapshot.CatalogRevision,
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,

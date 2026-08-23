@@ -49,6 +49,9 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
 
         Assert.Equal(receipt.ProjectionCommitId, root.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
         Assert.Equal(receipt.ProjectionSequence, root.GetProperty("snapshot").GetProperty("projectionSequence").GetInt64());
+        Assert.Equal(
+            receipt.HistoryEpoch!.Value.ToString("D"),
+            root.GetProperty("snapshot").GetProperty("historyEpoch").GetString());
         Assert.Equal(1, root.GetProperty("series").GetProperty("exactTotalSeriesCount").GetInt64());
         Assert.Equal(1, root.GetProperty("readability").GetProperty("exactTotalDemandGenerationCount").GetInt64());
         Assert.Equal(1, root.GetProperty("readability").GetProperty("readableCount").GetInt64());
@@ -107,13 +110,14 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
             ValidObservation("WIRE_TO_NITROGEN", "SL-TICKET14-AREA-B", "B2-2", completedAt) with
             {
                 Eqp = null,
-            }));
+            },
+            ValidObservation("WIRE_TO_NITROGEN", "SL-TICKET07-AREA-CASE", "a1-1", completedAt)));
 
         using var all = await ReadOverviewAsync(client, "/api/v2/watch-overview");
         using var areaA = await ReadOverviewAsync(client, "/api/v2/watch-overview?area=A1-1");
         using var areaB = await ReadOverviewAsync(client, "/api/v2/watch-overview?area=B2-2");
 
-        AssertSummaryCounts(all.RootElement, 2, 2, 1, 1);
+        AssertSummaryCounts(all.RootElement, 3, 3, 1, 2);
         AssertSummaryCounts(areaA.RootElement, 1, 1, 1, 0);
         AssertSummaryCounts(areaB.RootElement, 1, 1, 0, 1);
 
@@ -131,8 +135,8 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
         Assert.Equal(globalErrors, areaB.RootElement.GetProperty("errors").GetRawText());
         Assert.Equal(globalAttention, areaA.RootElement.GetProperty("attention").GetRawText());
         Assert.Equal(globalAttention, areaB.RootElement.GetProperty("attention").GetRawText());
-        Assert.Equal(1, all.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
-        Assert.Equal(1, all.RootElement.GetProperty("attention").GetProperty("exactTotalItemCount").GetInt64());
+        Assert.Equal(2, all.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
+        Assert.Equal(2, all.RootElement.GetProperty("attention").GetProperty("exactTotalItemCount").GetInt64());
 
         foreach (var document in new[] { all, areaA, areaB })
         {
@@ -274,7 +278,7 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
     }
 
     [Ticket01SqlServerFact]
-    public async Task Concurrent_commit_after_fence_does_not_block_and_overview_is_wholly_old_then_wholly_new()
+    public async Task Concurrent_commit_waits_at_the_read_fence_and_overview_is_wholly_old_then_wholly_new()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
@@ -310,12 +314,15 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
             {
                 Eqp = null,
             };
-            receiptB = await ingestor.IngestAsync(SuccessRound(
+            var pendingWrite = ingestor.IngestAsync(SuccessRound(
                     "poll-ticket14-concurrent-b",
                     now.AddMinutes(-1),
                     observationA,
-                    observationB))
-                .WaitAsync(TimeSpan.FromSeconds(5));
+                    observationB));
+            await Task.Delay(100);
+            Assert.False(pendingWrite.IsCompleted);
+            observer.Release();
+            receiptB = await pendingWrite.WaitAsync(TimeSpan.FromSeconds(10));
         }
         finally
         {
@@ -353,6 +360,61 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
         Assert.Equal(1, newOverview.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
         Assert.Equal(1, newOverview.RootElement.GetProperty("errors").GetProperty("prior7DaysSeriesCount").GetInt64());
         Assert.Equal(1, newOverview.RootElement.GetProperty("attention").GetProperty("exactTotalItemCount").GetInt64());
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Recent_activity_current_projection_tracks_poll_failure_and_recovery_without_a_history_rebuild()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        var now = new DateTimeOffset(2026, 8, 14, 18, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(now);
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var observation = ValidObservation(
+            "WIRE_TO_NITROGEN",
+            "SL-TICKET07-POLL-ACTIVITY",
+            "A1-1",
+            now.AddMinutes(-3));
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket07-activity-baseline",
+            now.AddMinutes(-3),
+            observation));
+        await ingestor.IngestAsync(new MesTaskUnionRound(
+            "poll-ticket07-activity-failure",
+            "mes-task-union-ticket14-v1",
+            MesTaskUnionRoundOutcome.Failure,
+            now.AddMinutes(-2).AddSeconds(-2),
+            now.AddMinutes(-2),
+            Array.Empty<MesTaskUnionObservation>()));
+
+        using (var failedOverview = await ReadOverviewAsync(client, "/api/v2/watch-overview"))
+        {
+            var failure = Assert.Single(
+                failedOverview.RootElement.GetProperty("recentActivity").EnumerateArray(),
+                item => item.GetProperty("eventType").GetString() == "POLL_RUN_FAILED");
+            Assert.Equal(
+                "poll-ticket07-activity-failure",
+                failure.GetProperty("pollTraceId").GetString());
+            Assert.Equal(JsonValueKind.Null, failure.GetProperty("projectionCommitId").ValueKind);
+        }
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket07-activity-recovery",
+            now.AddMinutes(-1),
+            observation));
+
+        using var recoveredOverview = await ReadOverviewAsync(client, "/api/v2/watch-overview");
+        var recovery = Assert.Single(
+            recoveredOverview.RootElement.GetProperty("recentActivity").EnumerateArray(),
+            item => item.GetProperty("eventType").GetString() == "POLL_RUN_RECOVERED");
+        Assert.Equal(
+            "poll-ticket07-activity-recovery",
+            recovery.GetProperty("pollTraceId").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(
+            recovery.GetProperty("projectionCommitId").GetString()));
     }
 
     private static MesTaskUnionRound SuccessRound(

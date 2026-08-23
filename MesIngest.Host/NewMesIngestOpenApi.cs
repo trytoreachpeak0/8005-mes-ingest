@@ -107,7 +107,7 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             responses["304"] = new OpenApiResponse
             {
                 Description =
-                    "CatalogRevision is unchanged. No response body; ETag identifies the revision.",
+                    "HistoryEpoch and CatalogRevision are unchanged. No response body; ETag identifies both.",
                 Headers = CatalogHeaders(),
             };
         }
@@ -144,9 +144,9 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             ["ETag"] = new()
             {
                 Description =
-                    "Weak catalog validator W/\"catalog-r{CatalogRevision}\". This is not a paging cursor.",
+                    "Weak catalog validator W/\"catalog-h{HistoryEpoch:N}-r{CatalogRevision}\". This is not a paging cursor.",
                 Schema = new OpenApiSchema { Type = "string" },
-                Example = new OpenApiString("W/\"catalog-r42\""),
+                Example = new OpenApiString("W/\"catalog-h11111111111111111111111111111111-r42\""),
             },
             ["Cache-Control"] = new()
             {
@@ -267,9 +267,9 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "GetExternallyReadableDemandCatalog",
             "DemandCatalog",
             "Read the complete externally readable Demand catalog",
-            "A full-range catalog resource. It accepts no query parameters. If-None-Match carries only the weak CatalogRevision ETag and yields 304 when unchanged.",
+            "A full-range catalog resource. It accepts no query parameters. If-None-Match carries the weak HistoryEpoch plus CatalogRevision ETag and yields 304 only when both are unchanged.",
             typeof(ExternallyReadableDemandCatalogDto),
-            [Header("If-None-Match", "One weak catalog ETag, for example W/\"catalog-r42\".")],
+            [Header("If-None-Match", "One weak catalog ETag, for example W/\"catalog-h11111111111111111111111111111111-r42\".")],
             Errors(("400", "CATALOG_QUERY_NOT_SUPPORTED or INVALID_CATALOG_CONDITION.")));
         yield return Operation(
             "/api/v2/readability-audit",

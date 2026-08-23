@@ -115,7 +115,7 @@ public interface IMesIngestProjection
     /// committed CatalogRevision. A matching known revision transfers no body.
     /// </summary>
     Task<ExternallyReadableDemandCatalogRead> ReadExternallyReadableDemandCatalogAsync(
-        long? knownRevision = null,
+        ExternallyReadableDemandCatalogIdentity? knownIdentity = null,
         CancellationToken cancellationToken = default);
 
     Task<PollTraceSnapshot?> GetPollTraceAsync(

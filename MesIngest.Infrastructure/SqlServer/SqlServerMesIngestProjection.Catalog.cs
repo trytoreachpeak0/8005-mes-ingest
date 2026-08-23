@@ -7,19 +7,16 @@ namespace MesIngest.Infrastructure.SqlServer;
 public sealed partial class SqlServerMesIngestProjection
 {
     public async Task<ExternallyReadableDemandCatalogRead> ReadExternallyReadableDemandCatalogAsync(
-        long? knownRevision = null,
+        ExternallyReadableDemandCatalogIdentity? knownIdentity = null,
         CancellationToken cancellationToken = default)
     {
-        if (knownRevision is < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(knownRevision));
-        }
+        knownIdentity?.Validate();
 
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
         try
         {
@@ -70,10 +67,13 @@ public sealed partial class SqlServerMesIngestProjection
                     revision),
                 cancellationToken).ConfigureAwait(false);
 
-            if (knownRevision == revision)
+            var identity = new ExternallyReadableDemandCatalogIdentity(
+                _historyEpoch,
+                revision);
+            if (knownIdentity == identity)
             {
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return ExternallyReadableDemandCatalogRead.Unchanged(revision);
+                return ExternallyReadableDemandCatalogRead.Unchanged(identity);
             }
 
             var items = new List<ExternallyReadableDemandSnapshot>();
@@ -105,6 +105,7 @@ public sealed partial class SqlServerMesIngestProjection
 
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             var snapshot = new ExternallyReadableDemandCatalogSnapshot(
+                _historyEpoch,
                 revision,
                 projectionCommitId,
                 projectionSequence,

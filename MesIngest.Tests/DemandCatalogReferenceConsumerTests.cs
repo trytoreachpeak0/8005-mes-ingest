@@ -6,13 +6,17 @@ namespace MesIngest.Tests;
 
 public sealed class DemandCatalogReferenceConsumerTests
 {
+    private static readonly HistoryEpoch TestHistoryEpoch = HistoryEpoch.FromGuid(
+        Guid.Parse("11111111-1111-1111-1111-111111111111"));
+
     [Fact]
     public async Task New_consumer_rebuilds_discarded_cache_from_a_complete_catalog_without_a_revision_cursor()
     {
         var catalog = Catalog(revision: 7, Demand("demand-a", demandRevision: 3));
         var client = new ScriptedCatalogClient(
             ExternallyReadableDemandCatalogRead.Complete(catalog),
-            ExternallyReadableDemandCatalogRead.Unchanged(7),
+            ExternallyReadableDemandCatalogRead.Unchanged(
+                new ExternallyReadableDemandCatalogIdentity(TestHistoryEpoch, 7)),
             ExternallyReadableDemandCatalogRead.Complete(catalog));
 
         var firstProcess = new DemandCatalogReferenceConsumer(client, new RecordingConsumerStore());
@@ -133,6 +137,7 @@ public sealed class DemandCatalogReferenceConsumerTests
             [candidate],
             () => consumer!.RefreshAsync().GetAwaiter().GetResult());
         var finalCatalog = new ExternallyReadableDemandCatalogSnapshot(
+            TestHistoryEpoch,
             CatalogRevision: 8,
             "commit-8",
             ProjectionSequence: 8,
@@ -349,6 +354,7 @@ public sealed class DemandCatalogReferenceConsumerTests
         long revision,
         params ExternallyReadableDemandSnapshot[] items) =>
         new(
+            TestHistoryEpoch,
             revision,
             $"commit-{revision}",
             revision,
@@ -384,13 +390,16 @@ public sealed class DemandCatalogReferenceConsumerTests
         public ScriptedCatalogClient(params ExternallyReadableDemandCatalogRead[] reads) =>
             _reads = new Queue<ExternallyReadableDemandCatalogRead>(reads);
 
-        public List<long?> KnownRevisions { get; } = [];
+        public List<ExternallyReadableDemandCatalogIdentity?> KnownIdentities { get; } = [];
+
+        public IReadOnlyList<long?> KnownRevisions =>
+            KnownIdentities.Select(identity => identity?.CatalogRevision).ToArray();
 
         public Task<ExternallyReadableDemandCatalogRead> ReadAsync(
-            long? knownRevision,
+            ExternallyReadableDemandCatalogIdentity? knownIdentity,
             CancellationToken cancellationToken = default)
         {
-            KnownRevisions.Add(knownRevision);
+            KnownIdentities.Add(knownIdentity);
             return Task.FromResult(_reads.Dequeue());
         }
     }

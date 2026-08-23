@@ -5,7 +5,7 @@ namespace MesIngest.ReferenceConsumer;
 public interface IExternallyReadableDemandCatalogClient
 {
     Task<ExternallyReadableDemandCatalogRead> ReadAsync(
-        long? knownRevision,
+        ExternallyReadableDemandCatalogIdentity? knownIdentity,
         CancellationToken cancellationToken = default);
 }
 
@@ -226,7 +226,11 @@ public sealed class DemandCatalogReferenceConsumer
         // only whole immutable snapshots; the local final-snapshot variable in
         // AcceptAsync remains the commit-point decision evidence.
         var read = await _catalogClient.ReadAsync(
-            Volatile.Read(ref _cache)?.CatalogRevision,
+            Volatile.Read(ref _cache) is { } cached
+                ? new ExternallyReadableDemandCatalogIdentity(
+                    cached.HistoryEpoch,
+                    cached.CatalogRevision)
+                : null,
             cancellationToken).ConfigureAwait(false);
         if (read.NotModified)
         {
@@ -252,7 +256,7 @@ public sealed class DemandCatalogReferenceConsumer
         // final complete read. A 304 against the discovery cache would not prove
         // which exact facts were accepted at this instant.
         var finalRead = await _catalogClient.ReadAsync(
-            knownRevision: null,
+            knownIdentity: null,
             cancellationToken).ConfigureAwait(false);
         if (finalRead.NotModified || finalRead.Snapshot is null)
         {

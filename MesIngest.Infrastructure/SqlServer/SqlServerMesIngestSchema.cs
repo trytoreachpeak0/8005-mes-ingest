@@ -202,6 +202,8 @@ internal static class SqlServerMesIngestSchema
             AbsenceAuthority BIT NOT NULL,
             CatalogRevision BIGINT NOT NULL,
             HistoryEpoch UNIQUEIDENTIFIER NOT NULL,
+            OverviewActiveErrorSeriesCount BIGINT NOT NULL,
+            OverviewPrior7DaysErrorSeriesCount BIGINT NOT NULL,
             CONSTRAINT UQ_MesIngest_ProjectionCommits_Sequence UNIQUE (ProjectionSequence),
             CONSTRAINT UQ_MesIngest_ProjectionCommits_PollTrace UNIQUE (PollTraceId),
             CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
@@ -216,6 +218,8 @@ internal static class SqlServerMesIngestSchema
                 CONSTRAINT PK_MesIngest_ProjectionCommitUnassignedObservationFacts PRIMARY KEY,
             ObservationCount INT NOT NULL,
             ContentDigest CHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            StateEventId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            StateChangedAt DATETIMEOFFSET(7) NULL,
             CONSTRAINT FK_MesIngest_ProjectionCommitUnassignedObservationFacts_Commit
                 FOREIGN KEY (ProjectionCommitId)
                 REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
@@ -264,6 +268,34 @@ internal static class SqlServerMesIngestSchema
             ON mesingest.UnassignedMesObservationEvents (OccurredAt DESC, EventId)
             INCLUDE (EventType, ProjectionCommitId, BeforeObservationCount,
                      AfterObservationCount, BeforeContentDigest, AfterContentDigest);
+
+        CREATE TABLE mesingest.CurrentOverviewAreaFacts
+        (
+            AreaKey CHAR(65) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_CurrentOverviewAreaFacts PRIMARY KEY,
+            IsGlobal BIT NOT NULL,
+            Area NVARCHAR(512) COLLATE Latin1_General_100_BIN2 NULL,
+            ExactTotalDemandCount BIGINT NOT NULL,
+            ReadableCount BIGINT NOT NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+        );
+
+        CREATE TABLE mesingest.CurrentOverviewActivities
+        (
+            ActivityRank TINYINT NOT NULL
+                CONSTRAINT PK_MesIngest_CurrentOverviewActivities PRIMARY KEY,
+            SnapshotProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            EventId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Kind NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            EventType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Severity NVARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            OccurredAt DATETIMEOFFSET(7) NOT NULL,
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
+            PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            SourceProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            NavigationTarget NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+        );
 
         CREATE TABLE mesingest.HostSessions
         (
@@ -709,7 +741,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 19
+        ) <> 21
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -723,6 +755,8 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
                 (N'UnassignedMesObservationEvents'),
+                (N'CurrentOverviewAreaFacts'),
+                (N'CurrentOverviewActivities'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
                 (N'TaskTypeProtectionStates'),
@@ -748,6 +782,8 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
                 (N'UnassignedMesObservationEvents'),
+                (N'CurrentOverviewAreaFacts'),
+                (N'CurrentOverviewActivities'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
                 (N'TaskTypeProtectionStates'),
@@ -815,10 +851,14 @@ internal static class SqlServerMesIngestSchema
             (N'ProjectionCommits', 8, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
             (N'ProjectionCommits', 9, N'CatalogRevision', N'bigint', 8, 19, 0, 0, NULL),
             (N'ProjectionCommits', 10, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
+            (N'ProjectionCommits', 11, N'OverviewActiveErrorSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'ProjectionCommits', 12, N'OverviewPrior7DaysErrorSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
 
             (N'ProjectionCommitUnassignedObservationFacts', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommitUnassignedObservationFacts', 2, N'ObservationCount', N'int', 4, 10, 0, 0, NULL),
             (N'ProjectionCommitUnassignedObservationFacts', 3, N'ContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitUnassignedObservationFacts', 4, N'StateEventId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'ProjectionCommitUnassignedObservationFacts', 5, N'StateChangedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
 
             (N'UnassignedMesObservationEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'UnassignedMesObservationEvents', 2, N'EventType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -828,6 +868,26 @@ internal static class SqlServerMesIngestSchema
             (N'UnassignedMesObservationEvents', 6, N'AfterObservationCount', N'int', 4, 10, 0, 0, NULL),
             (N'UnassignedMesObservationEvents', 7, N'BeforeContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'UnassignedMesObservationEvents', 8, N'AfterContentDigest', N'char', 64, 0, 0, 1, N'Latin1_General_100_BIN2'),
+
+            (N'CurrentOverviewAreaFacts', 1, N'AreaKey', N'char', 65, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewAreaFacts', 2, N'IsGlobal', N'bit', 1, 1, 0, 0, NULL),
+            (N'CurrentOverviewAreaFacts', 3, N'Area', N'nvarchar', 1024, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewAreaFacts', 4, N'ExactTotalDemandCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'CurrentOverviewAreaFacts', 5, N'ReadableCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'CurrentOverviewAreaFacts', 6, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'CurrentOverviewActivities', 1, N'ActivityRank', N'tinyint', 1, 3, 0, 0, NULL),
+            (N'CurrentOverviewActivities', 2, N'SnapshotProjectionCommitId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 3, N'EventId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 4, N'Kind', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 5, N'EventType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 6, N'Severity', N'nvarchar', 32, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 7, N'OccurredAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'CurrentOverviewActivities', 8, N'SeriesId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 9, N'WorkType', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 10, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 11, N'SourceProjectionCommitId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewActivities', 12, N'NavigationTarget', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
 
             (N'HostSessions', 1, N'HostSessionId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'HostSessions', 2, N'StartedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
@@ -1099,6 +1159,8 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_ProjectionCommitUnassignedObservationFacts', N'ProjectionCommitUnassignedObservationFacts', 1, 1, 1, N'ProjectionCommitId', 0),
             (N'PK_MesIngest_UnassignedMesObservationEvents', N'UnassignedMesObservationEvents', 1, 1, 1, N'EventId', 0),
             (N'UQ_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', 0, 1, 1, N'ProjectionCommitId', 0),
+            (N'PK_MesIngest_CurrentOverviewAreaFacts', N'CurrentOverviewAreaFacts', 1, 1, 1, N'AreaKey', 0),
+            (N'PK_MesIngest_CurrentOverviewActivities', N'CurrentOverviewActivities', 1, 1, 1, N'ActivityRank', 0),
             (N'PK_MesIngest_HostSessions', N'HostSessions', 1, 1, 1, N'HostSessionId', 0),
             (N'PK_MesIngest_AbsenceAuthorityEvents', N'AbsenceAuthorityEvents', 1, 1, 1, N'EventId', 0),
             (N'PK_MesIngest_TaskTypeProtectionStates', N'TaskTypeProtectionStates', 1, 1, 1, N'WorkType', 0),

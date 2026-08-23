@@ -404,6 +404,21 @@ function Invoke-HostGet {
     } finally { $client.Dispose() }
 }
 
+$boundedCurrentSurfaceFailurePrefixes = @{
+    DemandSeries = 'DEMAND_SERIES'
+    ExternallyReadableDemandCatalog = 'EXTERNALLY_READABLE_DEMAND_CATALOG'
+    CurrentIngestAttention = 'CURRENT_INGEST_ATTENTION'
+    Overview = 'OVERVIEW'
+}
+
+function Get-BoundedCurrentSurfaceFailurePrefix {
+    param([Parameter(Mandatory = $true)][string] $Surface)
+    if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($Surface)) {
+        return [string]$boundedCurrentSurfaceFailurePrefixes[$Surface]
+    }
+    return $Surface.ToUpperInvariant()
+}
+
 function Get-EvidenceGateFailures {
     param(
         [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]] $QueryEvidence,
@@ -430,27 +445,32 @@ function Get-EvidenceGateFailures {
         [void]$failures.Add('MISSING_BUILD_IDENTITY')
     }
     if (-not $CanonicalScaleProfile) { [void]$failures.Add('NON_CANONICAL_SCALE_PROFILE') }
-    if ($QuerySurface -eq 'DemandSeries') {
-        $demandSeriesSurfaces = @($QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' })
-        if ($demandSeriesSurfaces.Count -eq 0) {
-            [void]$failures.Add('MISSING_DEMAND_SERIES_EVIDENCE')
+    if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
+        $failurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+        $currentSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+            $QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
         } else {
-            if (@($demandSeriesSurfaces | Where-Object {
+            $QueryEvidence | Where-Object { $_.name -eq $QuerySurface }
+        })
+        if ($currentSurfaces.Count -eq 0) {
+            [void]$failures.Add("MISSING_$($failurePrefix)_EVIDENCE")
+        } else {
+            if (@($currentSurfaces | Where-Object {
                     [long]$_.rawObservationPlanOperators -ne 0 -or
                     [long]$_.rawObservationLogicalReads -ne 0 }).Count -gt 0) {
-                [void]$failures.Add('DEMAND_SERIES_RAW_HISTORY_READ')
+                [void]$failures.Add("$($failurePrefix)_RAW_HISTORY_READ")
             }
-            if (@($demandSeriesSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
-                [void]$failures.Add('DEMAND_SERIES_RUNTIME_IO_INCOMPLETE')
+            if (@($currentSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_RUNTIME_IO_INCOMPLETE")
             }
-            if (@($demandSeriesSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
-                [void]$failures.Add('DEMAND_SERIES_MEMORY_GRANT_EVIDENCE_INCOMPLETE')
+            if (@($currentSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_MEMORY_GRANT_EVIDENCE_INCOMPLETE")
             }
-            if ([long](($demandSeriesSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
-                [void]$failures.Add('DEMAND_SERIES_SPILL')
+            if ([long](($currentSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
+                [void]$failures.Add("$($failurePrefix)_SPILL")
             }
-            if ([long](($demandSeriesSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
-                [void]$failures.Add('DEMAND_SERIES_ABNORMAL_MEMORY_GRANT')
+            if ([long](($currentSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
+                [void]$failures.Add("$($failurePrefix)_ABNORMAL_MEMORY_GRANT")
             }
         }
     }
@@ -1186,11 +1206,19 @@ ORDER BY t.name, i.index_id;
                 throw 'Baseline evidence file does not exist.'
             }
             $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
-            $baselineDemandSeries = @($baselineReport.queries | Where-Object { $_.name -like 'DemandSeries*' })
-            $observedDemandSeries = @($queryEvidence | Where-Object { $_.name -like 'DemandSeries*' })
-            if ($baselineDemandSeries.Count -eq 0 -or $observedDemandSeries.Count -eq 0 -or
+            $baselineSelectedSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+                $baselineReport.queries | Where-Object { $_.name -like 'DemandSeries*' }
+            } else {
+                $baselineReport.queries | Where-Object { $_.name -eq $QuerySurface }
+            })
+            $observedSelectedSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+                $queryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
+            } else {
+                $queryEvidence | Where-Object { $_.name -eq $QuerySurface }
+            })
+            if ($baselineSelectedSurfaces.Count -eq 0 -or $observedSelectedSurfaces.Count -eq 0 -or
                 -not [bool]$baselineReport.gate.passed -or
-                [string]$baselineReport.profile.querySurface -ne 'DemandSeries' -or
+                [string]$baselineReport.profile.querySurface -ne $QuerySurface -or
                 [string]$baselineReport.profile.evidenceScale -ne 'empty' -or
                 [string]$baselineReport.sourceCommit -ne $sourceCommit -or
                 [string]$baselineReport.build.hostSha256 -ne $hostSha256 -or
@@ -1204,11 +1232,11 @@ ORDER BY t.name, i.index_id;
                 [long]$baselineReport.sqlServer.maxServerMemoryMb -ne [long]$serverIdentity.max_server_memory_mb -or
                 [long]$baselineReport.contract.compatibilityLevel -ne [long]$databaseConfiguration.compatibilityLevel -or
                 [string]$baselineReport.contract.recoveryModel -ne [string]$databaseConfiguration.recoveryModel) {
-                throw 'Baseline evidence is not a passing DemandSeries run for this source commit.'
+                throw "Baseline evidence is not a passing $QuerySurface run for this source commit."
             }
             $surfaceComparisons = New-Object System.Collections.ArrayList
-            foreach ($observedSurface in $observedDemandSeries) {
-                $baselineSurface = @($baselineDemandSeries | Where-Object { $_.name -eq $observedSurface.name }) |
+            foreach ($observedSurface in $observedSelectedSurfaces) {
+                $baselineSurface = @($baselineSelectedSurfaces | Where-Object { $_.name -eq $observedSurface.name }) |
                     Select-Object -First 1
                 if ($null -eq $baselineSurface) { throw "Baseline is missing $($observedSurface.name)." }
                 $surfaceAllowed = [long][Math]::Max(
@@ -1222,8 +1250,8 @@ ORDER BY t.name, i.index_id;
                     passed = [long]$observedSurface.logicalReads -le $surfaceAllowed
                 })
             }
-            $baselineLogicalReads = [long](($baselineDemandSeries | Measure-Object -Property logicalReads -Sum).Sum)
-            $observedLogicalReads = [long](($observedDemandSeries | Measure-Object -Property logicalReads -Sum).Sum)
+            $baselineLogicalReads = [long](($baselineSelectedSurfaces | Measure-Object -Property logicalReads -Sum).Sum)
+            $observedLogicalReads = [long](($observedSelectedSurfaces | Measure-Object -Property logicalReads -Sum).Sum)
             $allowedLogicalReads = [long][Math]::Max(
                 [Math]::Ceiling($baselineLogicalReads * 1.10),
                 $baselineLogicalReads + 1000L)
@@ -1231,24 +1259,26 @@ ORDER BY t.name, i.index_id;
             $growthComparison.observedLogicalReads = $observedLogicalReads
             $growthComparison.allowedLogicalReads = $allowedLogicalReads
             $growthComparison.baselineMaxGrantedMemoryKb = [long](
-                ($baselineDemandSeries | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
+                ($baselineSelectedSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
             $growthComparison.observedMaxGrantedMemoryKb = [long](
-                ($observedDemandSeries | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
+                ($observedSelectedSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
             $growthComparison.surfaceComparisons = @($surfaceComparisons)
             $logicalReadGrowthPassed = $observedLogicalReads -le $allowedLogicalReads -and
                 @($surfaceComparisons | Where-Object { -not [bool]$_.passed }).Count -eq 0
             $memoryGrantGrowthPassed = $growthComparison.observedMaxGrantedMemoryKb -le
                 ($growthComparison.baselineMaxGrantedMemoryKb + 1024L)
             $growthComparison.passed = $logicalReadGrowthPassed -and $memoryGrantGrowthPassed
+            $growthFailurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
             if (-not $logicalReadGrowthPassed) {
-                [void]$gateFailures.Add('DEMAND_SERIES_LOGICAL_READ_GROWTH')
+                [void]$gateFailures.Add("$($growthFailurePrefix)_LOGICAL_READ_GROWTH")
             }
             if (-not $memoryGrantGrowthPassed) {
-                [void]$gateFailures.Add('DEMAND_SERIES_MEMORY_GRANT_GROWTH')
+                [void]$gateFailures.Add("$($growthFailurePrefix)_MEMORY_GRANT_GROWTH")
             }
         } catch {
             $growthComparison.passed = $false
-            [void]$gateFailures.Add('INVALID_DEMAND_SERIES_BASELINE')
+            $invalidBaselinePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+            [void]$gateFailures.Add("INVALID_$($invalidBaselinePrefix)_BASELINE")
         }
     }
 

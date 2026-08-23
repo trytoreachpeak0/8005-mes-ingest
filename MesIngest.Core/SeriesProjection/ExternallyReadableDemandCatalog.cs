@@ -1,10 +1,73 @@
 namespace MesIngest.Core.SeriesProjection;
 
+public sealed record ExternallyReadableDemandCatalogIdentity(
+    HistoryEpoch HistoryEpoch,
+    long CatalogRevision)
+{
+    public ExternallyReadableDemandCatalogIdentity Validate()
+    {
+        ArgumentNullException.ThrowIfNull(HistoryEpoch);
+        if (CatalogRevision < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(CatalogRevision),
+                "A catalog revision cannot be negative.");
+        }
+
+        return this;
+    }
+}
+
+public static class ExternallyReadableDemandCatalogEtagCodec
+{
+    private const string EpochPrefix = "catalog-h";
+    private const string RevisionSeparator = "-r";
+
+    public static string FormatOpaqueTag(ExternallyReadableDemandCatalogIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        identity.Validate();
+        return $"{EpochPrefix}{identity.HistoryEpoch.Value:N}{RevisionSeparator}{identity.CatalogRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+
+    public static bool TryParseOpaqueTag(
+        ReadOnlySpan<char> opaqueTag,
+        out ExternallyReadableDemandCatalogIdentity? identity)
+    {
+        identity = null;
+        var revisionSeparatorIndex = opaqueTag.IndexOf(
+            RevisionSeparator,
+            StringComparison.Ordinal);
+        if (!opaqueTag.StartsWith(EpochPrefix, StringComparison.Ordinal)
+            || revisionSeparatorIndex < 0
+            || !Guid.TryParseExact(
+                opaqueTag[EpochPrefix.Length..revisionSeparatorIndex],
+                "N",
+                out var historyEpoch)
+            || historyEpoch == Guid.Empty
+            || !long.TryParse(
+                opaqueTag[(revisionSeparatorIndex + RevisionSeparator.Length)..],
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var revision)
+            || revision < 0)
+        {
+            return false;
+        }
+
+        identity = new ExternallyReadableDemandCatalogIdentity(
+            HistoryEpoch.FromGuid(historyEpoch),
+            revision);
+        return true;
+    }
+}
+
 /// <summary>
 /// The complete externally readable Demand catalog. This contract deliberately
 /// has no Dispatch scope (AREA, WorkType, vehicle, map, or station filters).
 /// </summary>
 public sealed record ExternallyReadableDemandCatalogSnapshot(
+    HistoryEpoch HistoryEpoch,
     long CatalogRevision,
     string? ProjectionCommitId,
     long? ProjectionSequence,
@@ -13,6 +76,7 @@ public sealed record ExternallyReadableDemandCatalogSnapshot(
 {
     public ExternallyReadableDemandCatalogSnapshot Validate()
     {
+        ArgumentNullException.ThrowIfNull(HistoryEpoch);
         if (CatalogRevision < 0)
         {
             throw new ArgumentOutOfRangeException(
@@ -60,26 +124,32 @@ public sealed record ExternallyReadableDemandSnapshot(
     LiveMesFieldSetSnapshot LiveMesFields);
 
 public sealed record ExternallyReadableDemandCatalogRead(
-    long CatalogRevision,
+    ExternallyReadableDemandCatalogIdentity Identity,
     bool NotModified,
     ExternallyReadableDemandCatalogSnapshot? Snapshot)
 {
+    public HistoryEpoch HistoryEpoch => Identity.HistoryEpoch;
+
+    public long CatalogRevision => Identity.CatalogRevision;
+
     public static ExternallyReadableDemandCatalogRead Complete(
         ExternallyReadableDemandCatalogSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         snapshot.Validate();
-        return new(snapshot.CatalogRevision, NotModified: false, snapshot);
+        return new(
+            new ExternallyReadableDemandCatalogIdentity(
+                snapshot.HistoryEpoch,
+                snapshot.CatalogRevision),
+            NotModified: false,
+            snapshot);
     }
 
-    public static ExternallyReadableDemandCatalogRead Unchanged(long catalogRevision)
+    public static ExternallyReadableDemandCatalogRead Unchanged(
+        ExternallyReadableDemandCatalogIdentity identity)
     {
-        if (catalogRevision < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(catalogRevision));
-        }
-
-        return new(catalogRevision, NotModified: true, Snapshot: null);
+        ArgumentNullException.ThrowIfNull(identity);
+        return new(identity.Validate(), NotModified: true, Snapshot: null);
     }
 }
 

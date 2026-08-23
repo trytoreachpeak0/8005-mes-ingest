@@ -13,7 +13,8 @@ public sealed record OperationalSnapshotIdentity(
     long PollTraceHighWater,
     long CatalogRevision,
     DateTimeOffset SnapshotAsOf,
-    string ContractVersion = NewMesIngestContract.Version);
+    string ContractVersion = NewMesIngestContract.Version,
+    HistoryEpoch? HistoryEpoch = null);
 
 public static class CurrentIngestAttentionKinds
 {
@@ -124,7 +125,8 @@ public sealed record CurrentIngestAttentionEvidenceSnapshot(
     string? EvidenceId = null,
     string? ContentDigest = null,
     string? Phase = null,
-    string? Outcome = null);
+    string? Outcome = null,
+    int? ObservationCount = null);
 
 public sealed record CurrentIngestAttentionItemSnapshot(
     string Kind,

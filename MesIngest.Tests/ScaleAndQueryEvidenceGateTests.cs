@@ -103,13 +103,17 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("kind = 'raw-evidence'", gate, StringComparison.Ordinal);
         Assert.Contains("demandId=scale-demand-000001", gate, StringComparison.Ordinal);
         Assert.Contains("[long] $RepresentativeHistoryRounds = 0", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_RAW_HISTORY_READ", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_SPILL", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_ABNORMAL_MEMORY_GRANT", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_LOGICAL_READ_GROWTH", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_MEMORY_GRANT_GROWTH", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_RUNTIME_IO_INCOMPLETE", gate, StringComparison.Ordinal);
-        Assert.Contains("DEMAND_SERIES_MEMORY_GRANT_EVIDENCE_INCOMPLETE", gate, StringComparison.Ordinal);
+        Assert.Contains("DemandSeries = 'DEMAND_SERIES'", gate, StringComparison.Ordinal);
+        Assert.Contains("ExternallyReadableDemandCatalog = 'EXTERNALLY_READABLE_DEMAND_CATALOG'", gate, StringComparison.Ordinal);
+        Assert.Contains("CurrentIngestAttention = 'CURRENT_INGEST_ATTENTION'", gate, StringComparison.Ordinal);
+        Assert.Contains("Overview = 'OVERVIEW'", gate, StringComparison.Ordinal);
+        Assert.Contains("_RAW_HISTORY_READ", gate, StringComparison.Ordinal);
+        Assert.Contains("_SPILL", gate, StringComparison.Ordinal);
+        Assert.Contains("_ABNORMAL_MEMORY_GRANT", gate, StringComparison.Ordinal);
+        Assert.Contains("_LOGICAL_READ_GROWTH", gate, StringComparison.Ordinal);
+        Assert.Contains("_MEMORY_GRANT_GROWTH", gate, StringComparison.Ordinal);
+        Assert.Contains("_RUNTIME_IO_INCOMPLETE", gate, StringComparison.Ordinal);
+        Assert.Contains("_MEMORY_GRANT_EVIDENCE_INCOMPLETE", gate, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -328,8 +332,15 @@ public sealed class ScaleAndQueryEvidenceGateTests
         }
     }
 
-    [Fact]
-    public void Evidence_validator_rejects_demand_series_raw_history_and_resource_regressions_without_sql()
+    [Theory]
+    [InlineData("DemandSeries", "DEMAND_SERIES", true)]
+    [InlineData("ExternallyReadableDemandCatalog", "EXTERNALLY_READABLE_DEMAND_CATALOG", true)]
+    [InlineData("CurrentIngestAttention", "CURRENT_INGEST_ATTENTION", true)]
+    [InlineData("Overview", "OVERVIEW", true)]
+    public void Evidence_validator_rejects_ticket_07_raw_history_and_resource_regressions_without_sql(
+        string querySurface,
+        string failurePrefix,
+        bool requiresZeroRawHistoryReads)
     {
         var script = Path.Combine(
             RepositoryPaths.CSharpRoot,
@@ -347,7 +358,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 {
                     new
                     {
-                        name = "DemandSeriesDefault",
+                        name = querySurface == "DemandSeries" ? "DemandSeriesDefault" : querySurface,
                         statementCount = 1,
                         actualPlanCount = 1,
                         rawObservationPlanOperators = 1,
@@ -381,7 +392,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                          "-ProfileDays", "0",
                          "-DatabaseName", "MesIngest_Scale_DemandSeriesFixture",
                          "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
-                         "-QuerySurface", "DemandSeries",
+                         "-QuerySurface", querySurface,
                          "-ValidateEvidenceFixturePath", fixturePath,
                      })
             {
@@ -396,11 +407,14 @@ public sealed class ScaleAndQueryEvidenceGateTests
             Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
             Assert.NotEqual(0, process.ExitCode);
             var output = stdout + stderr;
-            Assert.Contains("DEMAND_SERIES_RAW_HISTORY_READ", output, StringComparison.Ordinal);
-            Assert.Contains("DEMAND_SERIES_RUNTIME_IO_INCOMPLETE", output, StringComparison.Ordinal);
-            Assert.Contains("DEMAND_SERIES_MEMORY_GRANT_EVIDENCE_INCOMPLETE", output, StringComparison.Ordinal);
-            Assert.Contains("DEMAND_SERIES_SPILL", output, StringComparison.Ordinal);
-            Assert.Contains("DEMAND_SERIES_ABNORMAL_MEMORY_GRANT", output, StringComparison.Ordinal);
+            if (requiresZeroRawHistoryReads)
+            {
+                Assert.Contains($"{failurePrefix}_RAW_HISTORY_READ", output, StringComparison.Ordinal);
+            }
+            Assert.Contains($"{failurePrefix}_RUNTIME_IO_INCOMPLETE", output, StringComparison.Ordinal);
+            Assert.Contains($"{failurePrefix}_MEMORY_GRANT_EVIDENCE_INCOMPLETE", output, StringComparison.Ordinal);
+            Assert.Contains($"{failurePrefix}_SPILL", output, StringComparison.Ordinal);
+            Assert.Contains($"{failurePrefix}_ABNORMAL_MEMORY_GRANT", output, StringComparison.Ordinal);
             Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", output, StringComparison.Ordinal);
         }
         finally

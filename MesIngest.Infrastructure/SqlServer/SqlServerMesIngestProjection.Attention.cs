@@ -23,9 +23,15 @@ public sealed partial class SqlServerMesIngestProjection
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
             IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
+        OperationalSnapshotIdentity snapshot;
+        CurrentIngestAttentionSnapshot result;
         try
         {
-            var snapshot = await SelectOperationalSnapshotAsync(
+            await AcquireCommitRoundReadFenceLockAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
+            snapshot = await SelectOperationalSnapshotAsync(
                 connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
@@ -38,20 +44,21 @@ public sealed partial class SqlServerMesIngestProjection
                     snapshot.CatalogRevision,
                     snapshot.PollTraceHighWater),
                 cancellationToken).ConfigureAwait(false);
-            var result = await ReadCurrentAttentionAtFenceAsync(
+            result = await ReadCurrentAttentionAtFenceAsync(
                 connection,
                 transaction,
                 snapshot,
                 query,
                 cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            return result;
         }
         catch (Exception exception)
         {
             await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
             throw;
         }
+
+        return result;
     }
 
     private async Task<OperationalSnapshotIdentity> SelectOperationalSnapshotAsync(
@@ -95,7 +102,8 @@ public sealed partial class SqlServerMesIngestProjection
             reader.GetString(3),
             reader.GetInt64(5),
             reader.GetInt64(4),
-            _timeProvider.GetUtcNow().ToUniversalTime());
+            _timeProvider.GetUtcNow().ToUniversalTime(),
+            HistoryEpoch: _historyEpoch);
     }
 
     private static async Task<CurrentIngestAttentionSnapshot> ReadCurrentAttentionAtFenceAsync(
@@ -109,13 +117,11 @@ public sealed partial class SqlServerMesIngestProjection
         await ReadSeriesErrorAttentionAsync(
             connection,
             transaction,
-            snapshot,
             items,
             cancellationToken).ConfigureAwait(false);
         await ReadTaskProtectionAttentionAsync(
             connection,
             transaction,
-            snapshot,
             items,
             cancellationToken).ConfigureAwait(false);
         await ReadUnassignedAttentionAsync(
@@ -176,55 +182,30 @@ public sealed partial class SqlServerMesIngestProjection
     private static async Task ReadSeriesErrorAttentionAsync(
         SqlConnection connection,
         SqlTransaction transaction,
-        OperationalSnapshotIdentity snapshot,
         ICollection<CurrentIngestAttentionItemSnapshot> items,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            WITH ActivePeriods AS
-            (
-                SELECT period.PeriodId, period.SeriesId, period.ErrorCode,
-                    period.Severity, period.Target, period.SubjectKind,
-                    period.StartedAt
-                FROM mesingest.DemandSeriesErrorPeriods AS period
-                INNER JOIN mesingest.DemandSeriesEvents AS opened
-                    ON opened.EventId = period.OpenedEventId
-                INNER JOIN mesingest.ProjectionCommits AS openedCommit
-                    ON openedCommit.ProjectionCommitId = opened.ProjectionCommitId
-                LEFT JOIN mesingest.DemandSeriesEvents AS closed
-                    ON closed.EventId = period.ClosedEventId
-                LEFT JOIN mesingest.ProjectionCommits AS closedCommit
-                    ON closedCommit.ProjectionCommitId = closed.ProjectionCommitId
-                WHERE openedCommit.ProjectionSequence <= @snapshotSequence
-                  AND (closedCommit.ProjectionSequence IS NULL
-                       OR closedCommit.ProjectionSequence > @snapshotSequence)
-            )
-            SELECT active.SeriesId, series.WorkType, active.ErrorCode,
-                active.Severity, active.Target, active.SubjectKind,
-                active.StartedAt, active.PeriodId,
+            SELECT currentCondition.SeriesId, series.WorkType, currentCondition.ErrorCode,
+                period.Severity, currentCondition.Target, currentCondition.SubjectKind,
+                period.StartedAt, currentCondition.PeriodId,
                 evidence.EvidenceId, evidence.DemandId,
                 evidence.PollTraceId, evidence.ProjectionCommitId,
                 evidenceCommit.ProjectionSequence
-            FROM ActivePeriods AS active
-            INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = active.SeriesId
-            OUTER APPLY
-            (
-                SELECT TOP (1) candidate.EvidenceId, candidate.DemandId,
-                    candidate.PollTraceId, candidate.ProjectionCommitId
-                FROM mesingest.SeriesErrorPeriodEvidence AS candidate
-                INNER JOIN mesingest.ProjectionCommits AS candidateCommit
-                    ON candidateCommit.ProjectionCommitId = candidate.ProjectionCommitId
-                WHERE candidate.PeriodId = active.PeriodId
-                  AND candidateCommit.ProjectionSequence <= @snapshotSequence
-                ORDER BY candidateCommit.ProjectionSequence DESC, candidate.EvidenceId DESC
-            ) AS evidence
-            LEFT JOIN mesingest.ProjectionCommits AS evidenceCommit
+            FROM mesingest.DemandSeriesCurrentConditions AS currentCondition
+            INNER JOIN mesingest.DemandSeries AS series
+                ON series.SeriesId = currentCondition.SeriesId
+            INNER JOIN mesingest.DemandSeriesErrorPeriods AS period
+                ON period.PeriodId = currentCondition.PeriodId
+            INNER JOIN mesingest.SeriesErrorPeriodEvidence AS evidence
+                ON evidence.EvidenceId = currentCondition.LatestEvidenceId
+            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
                 ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
-            ORDER BY active.SeriesId, active.ErrorCode, active.Target, active.SubjectKind;
+            ORDER BY currentCondition.SeriesId, currentCondition.ErrorCode,
+                currentCondition.Target, currentCondition.SubjectKind;
             """;
-        command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshot.ProjectionSequence;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -263,44 +244,24 @@ public sealed partial class SqlServerMesIngestProjection
     private static async Task ReadTaskProtectionAttentionAsync(
         SqlConnection connection,
         SqlTransaction transaction,
-        OperationalSnapshotIdentity snapshot,
         ICollection<CurrentIngestAttentionItemSnapshot> items,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            WITH LatestDecision AS
-            (
-                SELECT decision.WorkType, decision.PhaseAfter,
-                    commitRow.ProjectionCommitId, commitRow.ProjectionSequence,
-                    commitRow.PollTraceId, commitRow.CommittedAt,
-                    ROW_NUMBER() OVER
-                        (PARTITION BY decision.WorkType ORDER BY commitRow.ProjectionSequence DESC) AS rn
-                FROM mesingest.ProjectionCommitTaskTypeProtectionDecisions AS decision
-                INNER JOIN mesingest.ProjectionCommits AS commitRow
-                    ON commitRow.ProjectionCommitId = decision.ProjectionCommitId
-                WHERE commitRow.ProjectionSequence <= @snapshotSequence
-            )
-            SELECT latest.WorkType, latest.PhaseAfter, latest.ProjectionCommitId,
-                latest.ProjectionSequence, latest.PollTraceId,
-                COALESCE(eventRow.OccurredAt, latest.CommittedAt), eventRow.EventId
-            FROM LatestDecision AS latest
-            OUTER APPLY
-            (
-                SELECT TOP (1) eventCandidate.OccurredAt, eventCandidate.EventId
-                FROM mesingest.TaskTypeProtectionEvents AS eventCandidate
-                INNER JOIN mesingest.ProjectionCommits AS eventCommit
-                    ON eventCommit.ProjectionCommitId = eventCandidate.ProjectionCommitId
-                WHERE eventCandidate.WorkType = latest.WorkType
-                  AND eventCommit.ProjectionSequence <= @snapshotSequence
-                ORDER BY eventCommit.ProjectionSequence DESC,
-                    eventCandidate.WorkTypeSequence DESC
-            ) AS eventRow
-            WHERE latest.rn = 1 AND latest.PhaseAfter <> N'MONITORING'
-            ORDER BY latest.WorkType;
+            SELECT state.WorkType, state.Phase, state.LatestProjectionCommitId,
+                commitRow.ProjectionSequence, state.LatestPollTraceId,
+                state.EnteredAt, eventRow.EventId
+            FROM mesingest.TaskTypeProtectionStates AS state
+            INNER JOIN mesingest.ProjectionCommits AS commitRow
+                ON commitRow.ProjectionCommitId = state.LatestProjectionCommitId
+            LEFT JOIN mesingest.TaskTypeProtectionEvents AS eventRow
+                ON eventRow.WorkType = state.WorkType
+               AND eventRow.WorkTypeSequence = state.LastSequence
+            WHERE state.Phase <> N'MONITORING'
+            ORDER BY state.WorkType;
             """;
-        command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshot.ProjectionSequence;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -339,66 +300,37 @@ public sealed partial class SqlServerMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT observation.Ordinal, observation.WorkType, observation.Sublot,
-                observation.Area, observation.Eqp, observation.Step,
-                observation.MesSourceDate, observation.Package,
-                fact.ContentDigest, stateEvent.EventId, stateEvent.OccurredAt
-            FROM mesingest.DemandRawObservations AS observation
-            INNER JOIN mesingest.ProjectionCommitUnassignedObservationFacts AS fact
-                ON fact.ProjectionCommitId = observation.ProjectionCommitId
-            OUTER APPLY
-            (
-                SELECT TOP (1) candidate.EventId, candidate.EventType, candidate.OccurredAt
-                FROM mesingest.UnassignedMesObservationEvents AS candidate
-                INNER JOIN mesingest.ProjectionCommits AS candidateCommit
-                    ON candidateCommit.ProjectionCommitId = candidate.ProjectionCommitId
-                WHERE candidateCommit.ProjectionSequence <= @snapshotSequence
-                ORDER BY candidateCommit.ProjectionSequence DESC, candidate.EventId
-            ) AS stateEvent
-            WHERE observation.ProjectionCommitId = @projectionCommitId
-              AND observation.SeriesId IS NULL
-              AND observation.DemandId IS NULL
-              AND stateEvent.EventType <> N'UNASSIGNED_MES_OBSERVATION_CLEARED'
-            ORDER BY observation.Ordinal;
+            SELECT fact.ObservationCount, fact.ContentDigest,
+                fact.StateEventId, fact.StateChangedAt
+            FROM mesingest.ProjectionCommitUnassignedObservationFacts AS fact
+            WHERE fact.ProjectionCommitId = @projectionCommitId
+              AND fact.ObservationCount > 0;
             """;
         AddNVarChar(command, "@projectionCommitId", 64, snapshot.ProjectionCommitId);
-        command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshot.ProjectionSequence;
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var duplicateOrdinalByDigest = new Dictionary<string, int>(StringComparer.Ordinal);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            var observation = new MesTaskUnionObservation(
-                GetNullableString(reader, 1),
-                GetNullableString(reader, 2),
-                GetNullableString(reader, 3),
-                GetNullableString(reader, 4),
-                GetNullableString(reader, 5),
-                GetNullableDateTimeOffset(reader, 6),
-                GetNullableString(reader, 7));
-            var rowDigest = MesTaskUnionRoundDigest.Compute([observation]);
-            var duplicateOrdinal = duplicateOrdinalByDigest.GetValueOrDefault(rowDigest);
-            duplicateOrdinalByDigest[rowDigest] = duplicateOrdinal + 1;
-            var stable = $"UNASSIGNED_MES_OBSERVATION:{rowDigest}:{duplicateOrdinal.ToString(CultureInfo.InvariantCulture)}";
+            var observationCount = reader.GetInt32(0);
+            var contentDigest = reader.GetString(1);
             items.Add(new CurrentIngestAttentionItemSnapshot(
                 CurrentIngestAttentionKinds.UnassignedMesObservation,
                 CurrentIngestAttentionSeverities.Error,
-                reader.GetFieldValue<DateTimeOffset>(10).ToUniversalTime(),
-                stable,
+                reader.GetFieldValue<DateTimeOffset>(3).ToUniversalTime(),
+                $"UNASSIGNED_MES_OBSERVATION:{contentDigest}",
                 SeriesId: null,
-                observation.WorkType,
+                WorkType: null,
                 ErrorCode: null,
                 Target: null,
-                SubjectKind: "RAW_OBSERVATION",
+                SubjectKind: "UNASSIGNED_OBSERVATION_SET",
                 new CurrentIngestAttentionEvidenceSnapshot(
                     snapshot.ProjectionCommitId,
                     snapshot.ProjectionSequence,
                     snapshot.PollTraceId,
                     SeriesId: null,
                     DemandId: null,
-                    WorkType: observation.WorkType,
-                    ObservationOrdinal: reader.GetInt32(0),
-                    EvidenceId: reader.GetString(9),
-                    ContentDigest: reader.GetString(8)),
+                    ObservationCount: observationCount,
+                    EvidenceId: reader.GetString(2),
+                    ContentDigest: contentDigest),
                 new OverviewNavigationIntent(
                     OverviewNavigationTargets.PollTrace,
                     PollTraceId: snapshot.PollTraceId)));
