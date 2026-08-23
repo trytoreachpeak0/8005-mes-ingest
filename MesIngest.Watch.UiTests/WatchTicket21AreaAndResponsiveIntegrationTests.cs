@@ -2150,6 +2150,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         var at = DateTimeOffset.Parse("2026-08-14T06:01:00Z");
         return new DemandSeriesListSnapshot(
             new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-ticket-21-series",
                 22,
                 at,

@@ -728,6 +728,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         return new DemandSeriesListSnapshot(
             new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "demand-area-commit-21",
                 211,
                 at,

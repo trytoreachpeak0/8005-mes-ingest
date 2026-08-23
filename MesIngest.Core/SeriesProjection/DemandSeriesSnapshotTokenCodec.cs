@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MesIngest.Core.SeriesProjection;
 
@@ -10,11 +11,11 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class DemandSeriesSnapshotTokenCodec
 {
-    private const string SnapshotPurpose = "demand-series-snapshot-v1";
-    private const string CursorPurpose = "demand-series-cursor-v1";
+    private const string SnapshotPurpose = "demand-series-snapshot-v2";
+    private const string CursorPurpose = "demand-series-cursor-v2";
     private const int MinimumKeyLength = 32;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     public static string CreateSnapshotReference(
         DemandSeriesSnapshotIdentity identity,
@@ -87,6 +88,7 @@ public static class DemandSeriesSnapshotTokenCodec
 
         var cursor = new DemandSeriesBrowseCursor(
             snapshot.ContractVersion,
+            snapshot.HistoryEpoch,
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,
             ComputeFilterHash(filter),
@@ -129,6 +131,7 @@ public static class DemandSeriesSnapshotTokenCodec
         var expectedFilterHash = ComputeFilterHash(expectedFilter);
         if (!string.Equals(cursor!.ContractVersion, NewMesIngestContract.Version, StringComparison.Ordinal)
             || !string.Equals(cursor.ContractVersion, expectedSnapshot.ContractVersion, StringComparison.Ordinal)
+            || cursor.HistoryEpoch != expectedSnapshot.HistoryEpoch
             || !string.Equals(cursor.ProjectionCommitId, expectedSnapshot.ProjectionCommitId, StringComparison.Ordinal)
             || cursor.ProjectionSequence != expectedSnapshot.ProjectionSequence
             || !string.Equals(cursor.FilterHash, expectedFilterHash, StringComparison.Ordinal)
@@ -176,6 +179,7 @@ public static class DemandSeriesSnapshotTokenCodec
                 normalized.CurrentPresences,
                 normalized.WorkTypes,
                 normalized.SublotContains,
+                normalized.Sublot,
                 normalized.SeriesId,
                 normalized.DemandId,
                 normalized.MesAreas),
@@ -265,6 +269,7 @@ public static class DemandSeriesSnapshotTokenCodec
 
     private static void ValidateIdentity(DemandSeriesSnapshotIdentity identity)
     {
+        ArgumentNullException.ThrowIfNull(identity.HistoryEpoch);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ProjectionCommitId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.PollTraceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ContractVersion);
@@ -312,6 +317,36 @@ public static class DemandSeriesSnapshotTokenCodec
             .Replace('/', '_');
     }
 
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new HistoryEpochJsonConverter());
+        return options;
+    }
+
+    private sealed class HistoryEpochJsonConverter : JsonConverter<HistoryEpoch>
+    {
+        public override HistoryEpoch Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            var text = reader.GetString();
+            if (!Guid.TryParseExact(text, "D", out var value) || value == Guid.Empty)
+            {
+                throw new JsonException("The HistoryEpoch token value is invalid.");
+            }
+
+            return HistoryEpoch.FromGuid(value);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            HistoryEpoch value,
+            JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.Value.ToString("D"));
+    }
+
     private static bool TryBase64UrlDecode(string text, out byte[] bytes)
     {
         if (text.Any(character =>
@@ -344,6 +379,7 @@ public static class DemandSeriesSnapshotTokenCodec
         IReadOnlyList<string> CurrentPresences,
         IReadOnlyList<string> WorkTypes,
         string? SublotContains,
+        string? Sublot,
         string? SeriesId,
         string? DemandId,
         IReadOnlyList<string> MesAreas);

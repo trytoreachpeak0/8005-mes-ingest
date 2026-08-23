@@ -1107,6 +1107,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
         ]);
 
     private static DemandSeriesSnapshotIdentity CreateDemandSeriesIdentity(DateTimeOffset at) => new(
+        HistoryEpoch.CreateNew(),
         "commit-demand-series-20",
         201,
         at,

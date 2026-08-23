@@ -16,6 +16,7 @@ internal sealed record WatchV2LiveMesFieldSetWire(
 }
 
 internal sealed record WatchV2DemandSeriesSnapshotIdentityWire(
+    string HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -23,6 +24,7 @@ internal sealed record WatchV2DemandSeriesSnapshotIdentityWire(
     string ContractVersion)
 {
     public DemandSeriesSnapshotIdentity ToCore() => new(
+        MesIngest.Core.SeriesProjection.HistoryEpoch.FromGuid(Guid.Parse(HistoryEpoch)),
         ProjectionCommitId,
         ProjectionSequence,
         ProjectionCommittedAt,

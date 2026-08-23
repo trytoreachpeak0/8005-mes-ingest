@@ -2,8 +2,10 @@ using System.Net;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using MesIngest.Infrastructure.SqlServer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit.Abstractions;
@@ -78,6 +80,7 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
         Assert.Null(cursorError);
         var cursor = Assert.IsType<DemandSeriesBrowseCursor>(decodedCursor);
         Assert.Equal(NewMesIngestContract.Version, cursor.ContractVersion);
+        Assert.Equal(snapshot.HistoryEpoch, cursor.HistoryEpoch);
         Assert.Equal(snapshot.ProjectionCommitId, cursor.ProjectionCommitId);
         Assert.Equal(snapshot.ProjectionSequence, cursor.ProjectionSequence);
         Assert.Equal(DemandSeriesSnapshotTokenCodec.ComputeFilterHash(filter), cursor.FilterHash);
@@ -107,6 +110,43 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
         Assert.Equal(
             DemandSeriesBrowseErrorCodes.InvalidSnapshotReference,
             Assert.IsType<DemandSeriesBrowseTokenError>(cursorAsSnapshotError).Code);
+    }
+
+    [Fact]
+    public void Cursor_is_rejected_when_the_history_epoch_does_not_match()
+    {
+        var snapshot = CreateTokenSnapshot();
+        var filter = new DemandSeriesBrowseFilter { Lifecycles = ["TRACKING"] };
+        var token = DemandSeriesSnapshotTokenCodec.CreateCursor(
+            snapshot,
+            filter,
+            DemandSeriesBrowseOrder.Default,
+            pageSize: 50,
+            targetPageNumber: 2,
+            afterStartedAt: new DateTimeOffset(2026, 8, 13, 1, 55, 0, TimeSpan.Zero),
+            afterSeriesId: "series-ticket08-epoch-anchor",
+            TokenSigningKey);
+        var anotherEpoch = snapshot with
+        {
+            HistoryEpoch = HistoryEpoch.FromGuid(
+                Guid.Parse("20260823-0000-4000-8000-000000000007")),
+        };
+
+        var success = DemandSeriesSnapshotTokenCodec.TryReadCursor(
+            token,
+            anotherEpoch,
+            filter,
+            DemandSeriesBrowseOrder.Default,
+            expectedPageSize: 50,
+            TokenSigningKey,
+            out var decoded,
+            out var error);
+
+        Assert.False(success);
+        Assert.Null(decoded);
+        Assert.Equal(
+            DemandSeriesBrowseErrorCodes.CursorMismatch,
+            Assert.IsType<DemandSeriesBrowseTokenError>(error).Code);
     }
 
     [Fact]
@@ -172,6 +212,131 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
     }
 
     [Ticket01SqlServerFact]
+    public async Task Current_list_count_filter_and_fields_do_not_depend_on_raw_history()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var completedAt = new DateTimeOffset(2026, 8, 23, 12, 0, 0, TimeSpan.Zero);
+
+        var receipt = await ingestor.IngestAsync(CreateRound(
+            "poll-ticket06-current-materialized",
+            completedAt.AddSeconds(-2),
+            completedAt,
+            area: "N3-3",
+            eqp: "WB-06",
+            package: "QFN-06"));
+
+        await using (var connection = new SqlConnection(database.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = connection.CreateCommand();
+            command.CommandText = "DELETE FROM mesingest.DemandRawObservations;";
+            Assert.True(await command.ExecuteNonQueryAsync() > 0);
+        }
+
+        var current = await GetJsonAsync(
+            client,
+            "/api/v2/demand-series?pageSize=100&page=1&area=N3-3");
+
+        AssertListAtCommit(
+            current,
+            receipt,
+            "poll-ticket06-current-materialized",
+            "N3-3",
+            "WB-06",
+            "QFN-06");
+        AssertDatabaseEvidence(database);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Current_detail_does_not_wait_for_raw_history()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        var projection = new SqlServerMesIngestProjection(database.ConnectionString);
+        await projection.BeginHostSessionAsync();
+        var completedAt = new DateTimeOffset(2026, 8, 23, 12, 15, 0, TimeSpan.Zero);
+        var receipt = await projection.CommitRoundAsync(CreateRound(
+            "poll-ticket06-current-detail",
+            completedAt.AddSeconds(-2),
+            completedAt,
+            area: "N3-3",
+            eqp: "WB-06",
+            package: "QFN-06"));
+
+        await using var blocker = new SqlConnection(database.ConnectionString);
+        await blocker.OpenAsync();
+        await using var blockingTransaction = await blocker.BeginTransactionAsync();
+        await using (var lockCommand = blocker.CreateCommand())
+        {
+            lockCommand.Transaction = (SqlTransaction)blockingTransaction;
+            lockCommand.CommandText =
+                "SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations WITH (TABLOCKX, HOLDLOCK);";
+            Assert.True(Convert.ToInt64(await lockCommand.ExecuteScalarAsync()) > 0);
+        }
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        var current = await projection.GetDemandSeriesAsync(
+            Assert.Single(receipt.SeriesIds),
+            timeout.Token);
+
+        Assert.NotNull(current);
+        Assert.Equal("N3-3", current.CurrentDemand.LiveMesFields?.Area);
+        Assert.Single(current.Demands);
+        Assert.Empty(current.RawObservations);
+        Assert.Empty(current.Events);
+        Assert.Empty(current.ErrorPeriods);
+        await blockingTransaction.RollbackAsync();
+        AssertDatabaseEvidence(database);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Snapshot_reference_from_another_history_epoch_is_rejected()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        await using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var completedAt = new DateTimeOffset(2026, 8, 23, 12, 30, 0, TimeSpan.Zero);
+
+        await ingestor.IngestAsync(CreateRound(
+            "poll-ticket06-cross-epoch",
+            completedAt.AddSeconds(-2),
+            completedAt,
+            area: "N3-3",
+            eqp: "WB-06",
+            package: "QFN-06"));
+        var current = await GetJsonAsync(client, DemandSeriesListUri);
+        var signingKey = await ReadSnapshotTokenSigningKeyAsync(database.ConnectionString);
+        Assert.True(DemandSeriesSnapshotTokenCodec.TryReadSnapshotReference(
+            current.GetProperty("snapshotReference").GetString()!,
+            signingKey,
+            out var identity,
+            out var decodeError));
+        Assert.Null(decodeError);
+        var anotherEpochReference = DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(
+            Assert.IsType<DemandSeriesSnapshotIdentity>(identity) with
+            {
+                HistoryEpoch = HistoryEpoch.CreateNew(),
+            },
+            signingKey);
+
+        using var response = await client.GetAsync(
+            DemandSeriesListUri
+            + $"&snapshot={Uri.EscapeDataString(anotherEpochReference)}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(
+            DemandSeriesBrowseErrorCodes.SnapshotMismatch,
+            body.RootElement.GetProperty("code").GetString());
+        AssertDatabaseEvidence(database);
+    }
+
+    [Ticket01SqlServerFact]
     public async Task Old_snapshot_detail_stays_at_commit_a_until_a_latest_refresh_reads_commit_b()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
@@ -200,6 +365,7 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
         var listA = await GetJsonAsync(client, DemandSeriesListUri);
         AssertListAtCommit(listA, receiptA, "poll-ticket08-z-commit-a", "N3-3", "WB-03", "QFN-A");
         var snapshotReferenceA = listA.GetProperty("snapshotReference").GetString()!;
+        var historyEpochA = listA.GetProperty("snapshot").GetProperty("historyEpoch").GetString()!;
         var itemA = Assert.Single(listA.GetProperty("items").EnumerateArray());
         var seriesId = itemA.GetProperty("seriesId").GetString()!;
         var sequenceA = itemA.GetProperty("lastSeriesSequence").GetInt64();
@@ -222,6 +388,9 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
             "N3-3",
             "WB-03",
             "QFN-A");
+        Assert.Equal(
+            historyEpochA,
+            detailAtA.GetProperty("snapshot").GetProperty("historyEpoch").GetString());
         Assert.Equal(
             ["poll-ticket08-z-commit-a"],
             detailAtA.GetProperty("rawObservations")
@@ -888,6 +1057,8 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
 
     private static DemandSeriesSnapshotIdentity CreateTokenSnapshot() =>
         new(
+            HistoryEpoch: HistoryEpoch.FromGuid(
+                Guid.Parse("20260823-0000-4000-8000-000000000006")),
             ProjectionCommitId: "projection-ticket08-a",
             ProjectionSequence: 42,
             ProjectionCommittedAt: new DateTimeOffset(2026, 8, 13, 2, 0, 0, TimeSpan.Zero),
@@ -897,6 +1068,7 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
         DemandSeriesSnapshotIdentity expected,
         DemandSeriesSnapshotIdentity actual)
     {
+        Assert.Equal(expected.HistoryEpoch, actual.HistoryEpoch);
         Assert.Equal(expected.ProjectionCommitId, actual.ProjectionCommitId);
         Assert.Equal(expected.ProjectionSequence, actual.ProjectionSequence);
         Assert.Equal(expected.ProjectionCommittedAt, actual.ProjectionCommittedAt);
@@ -1005,6 +1177,11 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
 
         Assert.False(string.IsNullOrWhiteSpace(list.GetProperty("snapshotReference").GetString()));
         var snapshot = list.GetProperty("snapshot");
+        Assert.True(Guid.TryParseExact(
+            snapshot.GetProperty("historyEpoch").GetString(),
+            "D",
+            out var historyEpoch));
+        Assert.NotEqual(Guid.Empty, historyEpoch);
         Assert.Equal(receipt.ProjectionCommitId, snapshot.GetProperty("projectionCommitId").GetString());
         Assert.Equal(receipt.ProjectionSequence, snapshot.GetProperty("projectionSequence").GetInt64());
         Assert.Equal(pollTraceId, snapshot.GetProperty("pollTraceId").GetString());
@@ -1037,6 +1214,11 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
     {
         Assert.Equal(snapshotReference, detail.GetProperty("snapshotReference").GetString());
         var snapshot = detail.GetProperty("snapshot");
+        Assert.True(Guid.TryParseExact(
+            snapshot.GetProperty("historyEpoch").GetString(),
+            "D",
+            out var historyEpoch));
+        Assert.NotEqual(Guid.Empty, historyEpoch);
         Assert.Equal(receipt.ProjectionCommitId, snapshot.GetProperty("projectionCommitId").GetString());
         Assert.Equal(receipt.ProjectionSequence, snapshot.GetProperty("projectionSequence").GetInt64());
         Assert.Equal(pollTraceId, snapshot.GetProperty("pollTraceId").GetString());
@@ -1081,6 +1263,16 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
             $"GET {requestUri} returned {(int)response.StatusCode} ({response.StatusCode}): {body}");
         using var document = JsonDocument.Parse(body);
         return document.RootElement.Clone();
+    }
+
+    private static async Task<byte[]> ReadSnapshotTokenSigningKeyAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT SnapshotTokenSigningKey FROM mesingest.SchemaInfo WHERE Id = 1;";
+        return Assert.IsType<byte[]>(await command.ExecuteScalarAsync());
     }
 
     private WebApplicationFactory<Program> CreateFactory() =>

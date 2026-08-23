@@ -10,7 +10,8 @@ public sealed class WatchDemandSeriesPresentationTests
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         var snapshot = new DemandSeriesListSnapshot(
-            new DemandSeriesSnapshotIdentity("commit-20-a", 20, at, "poll-20-a"),
+            new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(), "commit-20-a", 20, at, "poll-20-a"),
             "snapshot-20-a",
             new DemandSeriesBrowseFilter { MesAreas = ["A1-1"] },
             DemandSeriesBrowseOrder.Default,
@@ -95,7 +96,8 @@ public sealed class WatchDemandSeriesPresentationTests
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         var snapshot = new DemandSeriesListSnapshot(
-            new DemandSeriesSnapshotIdentity("commit-empty-a1", 22, at, "poll-empty-a1"),
+            new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(), "commit-empty-a1", 22, at, "poll-empty-a1"),
             "snapshot-empty-a1",
             new DemandSeriesBrowseFilter { MesAreas = ["A1-1"] },
             DemandSeriesBrowseOrder.Default,
@@ -437,6 +439,7 @@ public sealed class WatchDemandSeriesPresentationTests
         string pollTraceId,
         IReadOnlyList<string> mesAreas) => new(
         new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             projectionCommitId,
             projectionSequence,
             projectionCommittedAt,

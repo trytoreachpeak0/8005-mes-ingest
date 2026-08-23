@@ -750,6 +750,7 @@ public sealed class WatchV2AutoRefreshTests
             var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
             return new DemandSeriesListSnapshot(
                 new DemandSeriesSnapshotIdentity(
+                    HistoryEpoch.CreateNew(),
                     projectionCommitId,
                     1,
                     at,

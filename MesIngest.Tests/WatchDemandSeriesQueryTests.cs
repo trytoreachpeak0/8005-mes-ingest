@@ -89,6 +89,7 @@ public sealed class WatchDemandSeriesQueryTests
         int totalPages,
         string? nextCursor) => new(
         new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "commit-visible",
             20,
             DateTimeOffset.Parse("2026-08-14T05:06:07Z"),

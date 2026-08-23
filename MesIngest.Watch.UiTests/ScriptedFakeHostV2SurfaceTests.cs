@@ -423,6 +423,7 @@ public sealed class ScriptedFakeHostV2SurfaceTests
     {
         var at = DateTimeOffset.Parse("2026-08-14T02:03:04Z");
         var identity = new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "commit-18",
             18,
             at,

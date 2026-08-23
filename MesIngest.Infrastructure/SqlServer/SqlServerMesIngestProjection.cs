@@ -599,7 +599,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         ValidateRequiredText(sublot, nameof(sublot), 256);
         var keyToken = TransportDemandKeyIdentity.CreateToken(workType, sublot);
         return await ReadDemandSeriesAsync(
-            "s.KeyToken = @identity",
+            "series.KeyToken = @identity",
             keyToken,
             expectedWorkType: workType,
             expectedSublot: sublot,
@@ -612,7 +612,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     {
         ValidateRequiredText(seriesId, nameof(seriesId), 64);
         return await ReadDemandSeriesAsync(
-            "s.SeriesId = @identity",
+            "series.SeriesId = @identity",
             seriesId,
             expectedWorkType: null,
             expectedSublot: null,
@@ -1092,102 +1092,20 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
         try
         {
-            DemandSeriesRow? series;
-            await using (var command = connection.CreateCommand())
-            {
-                command.Transaction = transaction;
-                command.CommandText = $"""
-                    SELECT
-                        s.SeriesId,
-                        s.WorkType,
-                        s.Sublot,
-                        s.Lifecycle,
-                        s.CurrentPresence,
-                        s.StartedAt,
-                        s.CreatedPollTraceId,
-                        s.CreatedProjectionCommitId,
-                        s.LatestProjectionCommitId,
-                        s.CurrentDemandId,
-                        s.ArchivedAt
-                    FROM mesingest.DemandSeries AS s
-                    WHERE {predicate};
-                    """;
-                if (expectedWorkType is null)
-                {
-                    AddNVarChar(command, "@identity", 64, identity);
-                }
-                else
-                {
-                    AddChar(command, "@identity", 64, identity);
-                }
-                await using var reader = await command.ExecuteReaderAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                series = await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-                    ? ReadDemandSeriesRow(reader)
-                    : null;
-            }
-
-            if (series is null)
-            {
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return null;
-            }
-
-            if (expectedWorkType is not null
-                && (!string.Equals(series.WorkType, expectedWorkType, StringComparison.Ordinal)
-                    || !string.Equals(series.Sublot, expectedSublot, StringComparison.Ordinal)))
-            {
-                throw new InvalidOperationException(
-                    "TransportDemandKey token collision detected; refusing to return another series.");
-            }
-
-            var observations = await ReadRawObservationsAsync(
+            await AcquireCommitRoundReadFenceLockAsync(
                 connection,
                 transaction,
-                "o.SeriesId = @identity",
-                series.SeriesId,
                 cancellationToken).ConfigureAwait(false);
-            var events = await ReadEventsAsync(
+            var current = await ReadCurrentDemandSeriesDetailAsync(
                 connection,
                 transaction,
-                series.SeriesId,
-                cancellationToken).ConfigureAwait(false);
-            var errorState = await ReadErrorStateAsync(
-                connection,
-                transaction,
-                series.SeriesId,
-                cancellationToken).ConfigureAwait(false);
-            var demands = await ReadDemandGenerationsAsync(
-                connection,
-                transaction,
-                series.SeriesId,
-                series.CurrentDemandId,
-                series.Lifecycle,
-                series.CurrentPresence,
-                errorState.CurrentConditions,
+                predicate,
+                identity,
+                expectedWorkType,
+                expectedSublot,
                 cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-            var currentDemand = demands.Single(demand =>
-                string.Equals(demand.DemandId, series.CurrentDemandId, StringComparison.Ordinal));
-
-            return new DemandSeriesSnapshot(
-                series.SeriesId,
-                series.WorkType,
-                series.Sublot,
-                series.Lifecycle,
-                series.CurrentPresence,
-                series.StartedAt,
-                series.CreatedPollTraceId,
-                series.CreatedProjectionCommitId,
-                series.LatestProjectionCommitId,
-                currentDemand,
-                demands,
-                observations,
-                events,
-                errorState.CurrentConditions,
-                errorState.ErrorPeriods,
-                ArchivedAt: series.ArchivedAt);
+            return current;
         }
         catch (Exception exception)
         {

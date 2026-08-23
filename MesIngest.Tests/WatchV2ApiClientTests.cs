@@ -615,6 +615,7 @@ public sealed class WatchV2ApiClientTests
         var at = DateTimeOffset.Parse("2026-08-14T02:03:04Z");
         return new DemandSeriesListSnapshot(
             new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-demand",
                 42,
                 at,
@@ -761,6 +762,7 @@ public sealed class WatchV2ApiClientTests
             LastSeriesSequence: 7);
         return new DemandSeriesDetailSnapshot(
             new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-detail",
                 43,
                 at,

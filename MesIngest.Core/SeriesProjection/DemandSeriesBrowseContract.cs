@@ -14,6 +14,12 @@ public sealed record DemandSeriesBrowseFilter
 
     public string? SublotContains { get; init; }
 
+    /// <summary>
+    /// Exact business-key component used by the Host's direct locator. Watch
+    /// search continues to use <see cref="SublotContains"/>.
+    /// </summary>
+    public string? Sublot { get; init; }
+
     public string? SeriesId { get; init; }
 
     public string? DemandId { get; init; }
@@ -36,6 +42,7 @@ public sealed record DemandSeriesBrowseFilter
         WorkTypes = NormalizeSet(WorkTypes),
         MesAreas = NormalizeSet(MesAreas),
         SublotContains = EmptyToNull(SublotContains),
+        Sublot = EmptyToNull(Sublot),
         SeriesId = EmptyToNull(SeriesId),
         DemandId = EmptyToNull(DemandId),
     };
@@ -134,6 +141,7 @@ public sealed record DemandSeriesBrowseQuery(
 /// ProjectionSequence, rather than time or GUID ordering, defines commit order.
 /// </summary>
 public sealed record DemandSeriesSnapshotIdentity(
+    HistoryEpoch HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -198,6 +206,7 @@ public sealed record DemandSeriesDetailSnapshot(
 /// </summary>
 public sealed record DemandSeriesBrowseCursor(
     string ContractVersion,
+    HistoryEpoch HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     string FilterHash,

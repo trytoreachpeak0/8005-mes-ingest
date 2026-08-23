@@ -579,8 +579,10 @@ public sealed class NewMesIngestOpenApiContractTests
             invalidPageJson.RootElement.GetProperty("code").GetString());
 
         var signingKey = await ReadSnapshotSigningKeyAsync(database.ConnectionString);
+        var historyEpoch = await ReadHistoryEpochAsync(database.ConnectionString);
         var missingSnapshot = DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(
             new DemandSeriesSnapshotIdentity(
+                historyEpoch,
                 "commit-ticket17-not-retained",
                 999_999,
                 startedAt,
@@ -686,6 +688,16 @@ public sealed class NewMesIngestOpenApiContractTests
             "SELECT SnapshotTokenSigningKey FROM mesingest.SchemaInfo WHERE Id = 1;";
         return await command.ExecuteScalarAsync() as byte[]
             ?? throw new InvalidOperationException("Snapshot token signing key is unavailable.");
+    }
+
+    private static async Task<HistoryEpoch> ReadHistoryEpochAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT HistoryEpoch FROM mesingest.SchemaInfo WHERE Id = 1;";
+        return HistoryEpoch.FromGuid((Guid)(await command.ExecuteScalarAsync()
+            ?? throw new InvalidOperationException("HistoryEpoch is unavailable.")));
     }
 
     private static async Task AssertErrorAsync(

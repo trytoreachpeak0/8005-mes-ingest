@@ -2729,6 +2729,7 @@
       "DemandSeriesSnapshotIdentityDto": {
         "required": [
           "contractVersion",
+          "historyEpoch",
           "pollTraceId",
           "projectionCommitId",
           "projectionCommittedAt",
@@ -2736,6 +2737,10 @@
         ],
         "type": "object",
         "properties": {
+          "historyEpoch": {
+            "type": "string",
+            "description": "Frozen DemandSeriesSnapshotIdentityDto.historyEpoch contract field."
+          },
           "projectionCommitId": {
             "type": "string",
             "description": "ProjectionCommit identity from one atomic successful round."

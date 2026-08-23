@@ -290,16 +290,16 @@ internal static class NewMesIngestEndpoints
             // mutable key miss, and no second list read may advance the fence.
             var frozen = await projection.ListDemandSeriesAsync(
                 new DemandSeriesBrowseQuery(
-                    new DemandSeriesBrowseFilter(),
+                    new DemandSeriesBrowseFilter
+                    {
+                        WorkTypes = [workType],
+                        Sublot = sublot,
+                    },
                     PageSize: 1,
                     SnapshotReference: requestedSnapshot),
                 cancellationToken);
-
-            var current = await projection.GetDemandSeriesByKeyAsync(
-                workType,
-                sublot,
-                cancellationToken);
-            if (current is null)
+            var located = frozen.Items.SingleOrDefault();
+            if (located is null)
             {
                 return Results.NotFound(new NewMesIngestErrorDto(
                     DemandSeriesBrowseErrorCodes.ObjectNotInSnapshot,
@@ -307,7 +307,7 @@ internal static class NewMesIngestEndpoints
             }
 
             var detail = await projection.GetDemandSeriesAtSnapshotAsync(
-                current.SeriesId,
+                located.SeriesId,
                 frozen.SnapshotReference,
                 cancellationToken);
             return detail is null
@@ -2679,6 +2679,7 @@ internal sealed record DemandSeriesDto(
 }
 
 internal sealed record DemandSeriesSnapshotIdentityDto(
+    string HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -2688,6 +2689,7 @@ internal sealed record DemandSeriesSnapshotIdentityDto(
     public static DemandSeriesSnapshotIdentityDto From(
         DemandSeriesSnapshotIdentity snapshot) =>
         new(
+            snapshot.HistoryEpoch.Value.ToString("D"),
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,
             snapshot.ProjectionCommittedAt,

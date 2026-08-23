@@ -22,6 +22,15 @@ public sealed partial class SqlServerMesIngestProjection
             cancellationToken).ConfigureAwait(false);
         try
         {
+            var isCurrentRead = query.SnapshotReference is null;
+            if (isCurrentRead)
+            {
+                await AcquireCommitRoundReadFenceLockAsync(
+                    connection,
+                    transaction,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             var signingKey = await ReadSnapshotTokenSigningKeyAsync(
                 connection,
                 transaction,
@@ -64,16 +73,24 @@ public sealed partial class SqlServerMesIngestProjection
 
             var snapshotReference = query.SnapshotReference
                 ?? DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(snapshot, signingKey);
-            var page = await ReadBrowsePageAsync(
-                connection,
-                transaction,
-                snapshot.ProjectionSequence,
-                query.Filter,
-                pageNumber,
-                query.PageSize,
-                cursor?.AfterStartedAt,
-                cursor?.AfterSeriesId,
-                cancellationToken).ConfigureAwait(false);
+            var page = isCurrentRead
+                ? await ReadCurrentDemandSeriesPageAsync(
+                    connection,
+                    transaction,
+                    query.Filter,
+                    pageNumber,
+                    query.PageSize,
+                    cancellationToken).ConfigureAwait(false)
+                : await ReadBrowsePageAsync(
+                    connection,
+                    transaction,
+                    snapshot.ProjectionSequence,
+                    query.Filter,
+                    pageNumber,
+                    query.PageSize,
+                    cursor?.AfterStartedAt,
+                    cursor?.AfterSeriesId,
+                    cancellationToken).ConfigureAwait(false);
             var totalPages = page.ExactTotalCount == 0
                 ? 0
                 : checked((int)((page.ExactTotalCount + query.PageSize - 1) / query.PageSize));
@@ -501,6 +518,8 @@ public sealed partial class SqlServerMesIngestProjection
                    OR CHARINDEX(
                         @sublotContains COLLATE Latin1_General_100_BIN2,
                         state.Sublot COLLATE Latin1_General_100_BIN2) > 0)
+              AND (@sublot IS NULL
+                   OR state.Sublot = @sublot COLLATE Latin1_General_100_BIN2)
               AND (@seriesId IS NULL
                    OR state.SeriesId = @seriesId COLLATE Latin1_General_100_BIN2)
               AND (@demandId IS NULL OR EXISTS
@@ -551,21 +570,7 @@ public sealed partial class SqlServerMesIngestProjection
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
-        AddNVarChar(command, "@lifecyclesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
-            normalized.Lifecycles,
-            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
-        AddNVarChar(command, "@presencesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
-            normalized.CurrentPresences,
-            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
-        AddNVarChar(command, "@workTypesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
-            normalized.WorkTypes,
-            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
-        AddNVarChar(command, "@areasJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
-            normalized.MesAreas,
-            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
-        AddNullableNVarChar(command, "@sublotContains", 256, normalized.SublotContains);
-        AddNullableNVarChar(command, "@seriesId", 64, normalized.SeriesId);
-        AddNullableNVarChar(command, "@demandId", 64, normalized.DemandId);
+        BindDemandSeriesFilterParameters(command, normalized);
         AddNullableDateTimeOffset(command, "@afterStartedAt", afterStartedAt);
         AddNullableNVarChar(command, "@afterSeriesId", 64, afterSeriesId);
         command.Parameters.Add("@offset", SqlDbType.BigInt).Value = afterStartedAt is null ? offset : 0;
@@ -648,7 +653,7 @@ public sealed partial class SqlServerMesIngestProjection
             : throw new InvalidOperationException("The DemandSeries snapshot signing key is unavailable.");
     }
 
-    private static async Task<DemandSeriesSnapshotIdentity> ResolveSnapshotAsync(
+    private async Task<DemandSeriesSnapshotIdentity> ResolveSnapshotAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         string? snapshotReference,
@@ -666,24 +671,36 @@ public sealed partial class SqlServerMesIngestProjection
             throw new DemandSeriesBrowseException(tokenError!.Code, tokenError.Message);
         }
 
+        if (requested is not null && requested.HistoryEpoch != _historyEpoch)
+        {
+            throw new DemandSeriesBrowseException(
+                DemandSeriesBrowseErrorCodes.SnapshotMismatch,
+                "The snapshot reference belongs to another history epoch.");
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = requested is null
             ? """
-              SELECT TOP (1) ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId
+              SELECT TOP (1) ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId,
+                  HistoryEpoch
               FROM mesingest.ProjectionCommits
               ORDER BY ProjectionSequence DESC;
               """
             : """
-              SELECT ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId
+              SELECT ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId,
+                  HistoryEpoch
               FROM mesingest.ProjectionCommits
               WHERE ProjectionCommitId = @projectionCommitId
-                AND ProjectionSequence = @projectionSequence;
+                AND ProjectionSequence = @projectionSequence
+                AND HistoryEpoch = @historyEpoch;
               """;
         if (requested is not null)
         {
             AddNVarChar(command, "@projectionCommitId", 64, requested.ProjectionCommitId);
             command.Parameters.Add("@projectionSequence", SqlDbType.BigInt).Value = requested.ProjectionSequence;
+            command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
+                requested.HistoryEpoch.Value;
         }
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -699,6 +716,7 @@ public sealed partial class SqlServerMesIngestProjection
         }
 
         var resolved = new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.FromGuid(reader.GetGuid(4)),
             reader.GetString(0),
             reader.GetInt64(1),
             reader.GetFieldValue<DateTimeOffset>(2),
@@ -736,7 +754,8 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.TransportDemands AS d
                 INNER JOIN mesingest.ProjectionCommits AS createdCommit
                     ON createdCommit.ProjectionCommitId = d.CreatedProjectionCommitId
-                WHERE createdCommit.ProjectionSequence <= @snapshotSequence
+                WHERE d.SeriesId = @seriesId
+                  AND createdCommit.ProjectionSequence <= @snapshotSequence
             ),
             LatestObservations AS
             (
@@ -783,7 +802,8 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.DemandSeriesEvents AS e
                 INNER JOIN mesingest.ProjectionCommits AS eventCommit
                     ON eventCommit.ProjectionCommitId = e.ProjectionCommitId
-                WHERE eventCommit.ProjectionSequence <= @snapshotSequence
+                WHERE e.SeriesId = @seriesId
+                  AND eventCommit.ProjectionSequence <= @snapshotSequence
                 GROUP BY e.SeriesId
             ),
             ArchiveState AS
@@ -792,7 +812,8 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.DemandSeriesEvents AS e
                 INNER JOIN mesingest.ProjectionCommits AS eventCommit
                     ON eventCommit.ProjectionCommitId = e.ProjectionCommitId
-                WHERE eventCommit.ProjectionSequence <= @snapshotSequence
+                WHERE e.SeriesId = @seriesId
+                  AND eventCommit.ProjectionSequence <= @snapshotSequence
                   AND e.EventType = N'GONE_TIMEOUT_ARCHIVED'
                 GROUP BY e.SeriesId
             ),
@@ -802,7 +823,8 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.DemandSeriesEvents AS e
                 INNER JOIN mesingest.ProjectionCommits AS eventCommit
                     ON eventCommit.ProjectionCommitId = e.ProjectionCommitId
-                WHERE eventCommit.ProjectionSequence <= @snapshotSequence
+                WHERE e.SeriesId = @seriesId
+                  AND eventCommit.ProjectionSequence <= @snapshotSequence
                   AND e.EventType = N'DEMAND_GONE'
                 GROUP BY e.SubjectId
             )

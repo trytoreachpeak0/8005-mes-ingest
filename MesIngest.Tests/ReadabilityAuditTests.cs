@@ -191,6 +191,7 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
 
         var browseReference = DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(
             new DemandSeriesSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 snapshot.ProjectionCommitId,
                 snapshot.ProjectionSequence,
                 snapshot.ProjectionCommittedAt,

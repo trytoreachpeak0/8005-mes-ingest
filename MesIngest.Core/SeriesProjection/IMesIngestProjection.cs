@@ -12,11 +12,19 @@ public interface IMesIngestProjection
         MesTaskUnionRound round,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads only the maintained current Series, current Demand, and active
+    /// conditions for one exact business key. Historical collections are empty.
+    /// </summary>
     Task<DemandSeriesSnapshot?> GetDemandSeriesByKeyAsync(
         string workType,
         string sublot,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Reads only the maintained current Series, current Demand, and active
+    /// conditions for one SeriesId. Historical collections are empty.
+    /// </summary>
     Task<DemandSeriesSnapshot?> GetDemandSeriesAsync(
         string seriesId,
         CancellationToken cancellationToken = default);

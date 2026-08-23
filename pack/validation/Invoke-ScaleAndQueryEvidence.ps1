@@ -30,14 +30,27 @@ param(
     [string] $OutputRoot = '',
     [string] $SqlConnectionStringEnvironmentVariable = 'MES_INGEST_SCALE_EVIDENCE_SQLSERVER',
     [string] $SqlTier1AttestationPath = '',
+    [string] $BaselineEvidencePath = '',
     [string] $ValidateEvidenceFixturePath = '',
     [string] $ValidatePercentileFixture = '',
     [string] $ValidateShowPlanFixturePath = '',
+    [ValidateSet(
+        'All',
+        'DemandSeries',
+        'ExternallyReadableDemandCatalog',
+        'CurrentIngestAttention',
+        'Overview',
+        'ReadabilityAudit',
+        'ErrorSearch',
+        'RawEvidence')]
+    [string] $QuerySurface = 'All',
+    [string] $ConfirmFullScaleEscalation = '',
     [ValidateSet('Release', 'Debug', 'Published')] [string] $BuildConfiguration = 'Release',
     [ValidateRange(1, 10000)] [int] $SeriesCount = 600,
     [ValidateRange(1, 10000)] [int] $ObservationsPerRound = 600,
     [ValidateRange(1, 3600)] [int] $RoundIntervalSeconds = 14,
     [ValidateRange(1, 10000)] [int] $RoundBatchSize = 250,
+    [ValidateRange(0, 100000)] [long] $RepresentativeHistoryRounds = 0,
     [ValidateRange(1, 100)] [int] $WarmupCount = 2,
     [ValidateRange(1, 1000)] [int] $MeasurementCount = 5,
     [ValidateRange(1, 600)] [int] $RequestTimeoutSeconds = 120,
@@ -60,6 +73,19 @@ if ($systemDatabases -contains $DatabaseName -or
     [string]::Equals($DatabaseName, 'MesIngest_V2', [StringComparison]::OrdinalIgnoreCase)) {
     throw "Refusing unsafe scale database name '$DatabaseName'. Use a new $databasePrefix name."
 }
+if ($RepresentativeHistoryRounds -gt 0 -and $ProfileDays -ne 0) {
+    throw 'RepresentativeHistoryRounds is available only with ProfileDays 0.'
+}
+if ($RepresentativeHistoryRounds -gt 0 -and [string]::IsNullOrWhiteSpace($BaselineEvidencePath)) {
+    throw 'Representative history evidence requires BaselineEvidencePath from a passing empty run.'
+}
+if ($RepresentativeHistoryRounds -eq 0 -and -not [string]::IsNullOrWhiteSpace($BaselineEvidencePath)) {
+    throw 'BaselineEvidencePath is valid only for representative history evidence.'
+}
+if ($ProfileDays -in @(7, 30) -and
+    $ConfirmFullScaleEscalation -cne 'MESINGEST_FULL_SCALE_ESCALATION') {
+    throw 'ProfileDays 7/30 requires ConfirmFullScaleEscalation=MESINGEST_FULL_SCALE_ESCALATION.'
+}
 
 $profiles = @{
     0 = [ordered]@{ historyDays = 0; distribution = 'production-calibrated'; activeRatio = 0.70; archivedRatio = 0.30; errorRatio = 0.10 }
@@ -70,7 +96,9 @@ $profile = $profiles[$ProfileDays]
 $canonicalScaleProfile = $SeriesCount -eq 600 -and
     $ObservationsPerRound -eq 600 -and
     $RoundIntervalSeconds -eq 14
-$historyRoundCount = if ($ProfileDays -eq 0) { 0L } else {
+$historyRoundCount = if ($RepresentativeHistoryRounds -gt 0) {
+    $RepresentativeHistoryRounds
+} elseif ($ProfileDays -eq 0) { 0L } else {
     [long][Math]::Floor(($ProfileDays * 86400.0) / $RoundIntervalSeconds)
 }
 $historyObservationCount = $historyRoundCount * [long]$ObservationsPerRound
@@ -173,6 +201,7 @@ function Read-ShowPlanRuntimeIo {
                 physicalOperation = $relOp.GetAttribute('PhysicalOp'); thread = $counter.GetAttribute('Thread')
                 actualRows = Get-XmlInt64Attribute $counter 'ActualRows'
                 actualScans = Get-XmlInt64Attribute $counter 'ActualScans'
+                actualLogicalReadsPresent = $counter.HasAttribute('ActualLogicalReads')
                 actualLogicalReads = Get-XmlInt64Attribute $counter 'ActualLogicalReads'
                 actualPhysicalReads = Get-XmlInt64Attribute $counter 'ActualPhysicalReads'
                 actualReadAheads = Get-XmlInt64Attribute $counter 'ActualReadAheads'
@@ -182,6 +211,24 @@ function Read-ShowPlanRuntimeIo {
         }
     }
     return @($items)
+}
+
+function Get-TotalActualLogicalReads {
+    param([AllowEmptyCollection()][object[]] $RuntimeIo)
+    $total = 0L
+    foreach ($item in @($RuntimeIo)) {
+        $total += [long]$item.actualLogicalReads
+    }
+    return $total
+}
+
+function Get-TotalActualScans {
+    param([AllowEmptyCollection()][object[]] $RuntimeIo)
+    $total = 0L
+    foreach ($item in @($RuntimeIo)) {
+        $total += [long]$item.actualScans
+    }
+    return $total
 }
 
 function Convert-DataTableRows {
@@ -365,7 +412,8 @@ function Get-EvidenceGateFailures {
         [Parameter(Mandatory = $true)][object] $RowCounts,
         [bool] $Tier1Satisfied,
         [AllowEmptyString()][string] $SourceCommit,
-        [bool] $CanonicalScaleProfile
+        [bool] $CanonicalScaleProfile,
+        [string] $QuerySurface = 'All'
     )
     $failures = New-Object System.Collections.ArrayList
     if ($ActualPlanCount -eq 0) { [void]$failures.Add('MISSING_ACTUAL_PLAN') }
@@ -382,6 +430,30 @@ function Get-EvidenceGateFailures {
         [void]$failures.Add('MISSING_BUILD_IDENTITY')
     }
     if (-not $CanonicalScaleProfile) { [void]$failures.Add('NON_CANONICAL_SCALE_PROFILE') }
+    if ($QuerySurface -eq 'DemandSeries') {
+        $demandSeriesSurfaces = @($QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' })
+        if ($demandSeriesSurfaces.Count -eq 0) {
+            [void]$failures.Add('MISSING_DEMAND_SERIES_EVIDENCE')
+        } else {
+            if (@($demandSeriesSurfaces | Where-Object {
+                    [long]$_.rawObservationPlanOperators -ne 0 -or
+                    [long]$_.rawObservationLogicalReads -ne 0 }).Count -gt 0) {
+                [void]$failures.Add('DEMAND_SERIES_RAW_HISTORY_READ')
+            }
+            if (@($demandSeriesSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
+                [void]$failures.Add('DEMAND_SERIES_RUNTIME_IO_INCOMPLETE')
+            }
+            if (@($demandSeriesSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
+                [void]$failures.Add('DEMAND_SERIES_MEMORY_GRANT_EVIDENCE_INCOMPLETE')
+            }
+            if ([long](($demandSeriesSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
+                [void]$failures.Add('DEMAND_SERIES_SPILL')
+            }
+            if ([long](($demandSeriesSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
+                [void]$failures.Add('DEMAND_SERIES_ABNORMAL_MEMORY_GRANT')
+            }
+        }
+    }
     return @($failures)
 }
 
@@ -405,8 +477,8 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateShowPlanFixturePath)) {
     Write-Output (
         'MESINGEST_SHOWPLAN_FIXTURE: operators={0} scans={1} logicalReads={2}' -f
         $runtimeIo.Count,
-        [long](($runtimeIo | Measure-Object -Property actualScans -Sum).Sum),
-        [long](($runtimeIo | Measure-Object -Property actualLogicalReads -Sum).Sum))
+        (Get-TotalActualScans $runtimeIo),
+        (Get-TotalActualLogicalReads $runtimeIo))
     exit 0
 }
 
@@ -422,7 +494,8 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateEvidenceFixturePath)) {
         -RowCounts $fixture.data `
         -Tier1Satisfied ([bool]$fixture.tests.satisfied) `
         -SourceCommit ([string]$fixture.build.sourceCommit) `
-        -CanonicalScaleProfile ([bool]$fixture.profile.canonical))
+        -CanonicalScaleProfile ([bool]$fixture.profile.canonical) `
+        -QuerySurface $QuerySurface)
     if ($fixtureFailures.Count -gt 0) {
         throw "Scale evidence fixture failed: $($fixtureFailures -join ', ')"
     }
@@ -501,7 +574,8 @@ EXEC sys.sp_addextendedproperty @name = N'$ownerProperty', @value = @runId;
     $hostRun = $null
 
     $schemaIdentity = @(Invoke-SqlTable $databaseConnectionString @"
-SELECT SchemaVersion AS schemaVersion, ContractVersion AS contractVersion
+SELECT SchemaVersion AS schemaVersion, ContractVersion AS contractVersion,
+       CONVERT(nvarchar(36), HistoryEpoch) AS historyEpoch
 FROM mesingest.SchemaInfo WHERE Id = 1;
 "@) | Select-Object -First 1
     if ($null -eq $schemaIdentity) { throw 'Production Host did not bootstrap SchemaInfo.' }
@@ -544,19 +618,20 @@ SET IDENTITY_INSERT mesingest.ProjectionCommits ON;
 )
 INSERT mesingest.ProjectionCommits
     (ProjectionCommitId, ProjectionSequence, PollTraceId, CommittedAt, HostSessionId,
-     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision)
+     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch)
 SELECT N'scale-commit-' + RIGHT(REPLICATE('0', 10) + CONVERT(varchar(20), @roundStart + n), 10),
        @roundStart + n,
        N'scale-poll-' + RIGHT(REPLICATE('0', 10) + CONVERT(varchar(20), @roundStart + n), 10),
        DATEADD(second, -CONVERT(bigint, (@historyRoundCount - (@roundStart + n) + 1) * @roundSeconds), @anchorUtc),
-       @hostSessionId, N'NORMAL', N'NORMAL', 1, 0
+       @hostSessionId, N'NORMAL', N'NORMAL', 1, 0,
+       CONVERT(uniqueidentifier, @historyEpoch)
 FROM n;
 SET IDENTITY_INSERT mesingest.ProjectionCommits OFF;
 "@ @{
                 '@roundStart' = $roundStart; '@roundCount' = $roundCount
                 '@historyRoundCount' = $historyRoundCount; '@roundSeconds' = $RoundIntervalSeconds
                 '@anchorUtc' = $AnchorUtc; '@observationsPerRound' = $ObservationsPerRound
-                '@hostSessionId' = $hostSessionId
+                '@hostSessionId' = $hostSessionId; '@historyEpoch' = [string]$schemaIdentity.historyEpoch
             })
     }
 
@@ -570,9 +645,9 @@ SET IDENTITY_INSERT mesingest.PollTraces OFF;
 SET IDENTITY_INSERT mesingest.ProjectionCommits ON;
 INSERT mesingest.ProjectionCommits
     (ProjectionCommitId, ProjectionSequence, PollTraceId, CommittedAt, HostSessionId,
-     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision)
+     RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision, HistoryEpoch)
 VALUES (N'scale-baseline-commit', @baselineSequence, N'scale-baseline-poll', @anchorUtc,
-        @hostSessionId, N'NORMAL', N'NORMAL', 1, 1);
+        @hostSessionId, N'NORMAL', N'NORMAL', 1, 1, CONVERT(uniqueidentifier, @historyEpoch));
 SET IDENTITY_INSERT mesingest.ProjectionCommits OFF;
 
 ;WITH n AS
@@ -726,6 +801,7 @@ VALUES (N'scale-baseline-commit', 0, NULL);
 "@ @{
             '@baselineSequence' = $baselineSequence; '@anchorUtc' = $AnchorUtc
             '@hostSessionId' = $hostSessionId; '@seriesCount' = $SeriesCount
+            '@historyEpoch' = [string]$schemaIdentity.historyEpoch
             '@activeCount' = [int][Math]::Round($SeriesCount * 0.70, 0, [MidpointRounding]::AwayFromZero)
             '@errorCount' = [Math]::Max(1, [int][Math]::Round($SeriesCount * 0.10, 0, [MidpointRounding]::AwayFromZero))
         })
@@ -807,14 +883,29 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
     $xeventStarted = $true
 
     $hostRun = Start-EvidenceHost $databaseConnectionString $secret $appName
-    $surfaces = @(
-        [ordered]@{ name = 'DemandSeries'; path = '/api/v2/demand-series?pageSize=100' },
-        [ordered]@{ name = 'ExternallyReadableDemandCatalog'; path = '/api/v2/externally-readable-demand-catalog' },
-        [ordered]@{ name = 'CurrentIngestAttention'; path = '/api/v2/current-ingest-attention?pageSize=100' },
-        [ordered]@{ name = 'Overview'; path = '/api/v2/watch-overview' },
-        [ordered]@{ name = 'ReadabilityAudit'; path = '/api/v2/readability-audit?pageSize=100' },
-        [ordered]@{ name = 'ErrorSearch'; path = '/api/v2/error-search?window=ALL_HISTORY&pageSize=100' }
+    $surfaceCatalog = @(
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesDefault'; path = '/api/v2/demand-series?pageSize=100' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesVisible'; path = '/api/v2/demand-series?pageSize=100&presence=VISIBLE' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesGone'; path = '/api/v2/demand-series?pageSize=100&presence=GONE' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesArchived'; path = '/api/v2/demand-series?pageSize=100&lifecycle=ARCHIVED' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesArea'; path = '/api/v2/demand-series?pageSize=100&area=A1-1' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesWorkType'; path = '/api/v2/demand-series?pageSize=100&workType=WT-1' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesSublot'; path = '/api/v2/demand-series?pageSize=100&sublot=SUBLOT-0001' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesSeriesId'; path = '/api/v2/demand-series?pageSize=100&seriesId=scale-series-000001' },
+        [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesDemandId'; path = '/api/v2/demand-series?pageSize=100&demandId=scale-demand-000001' },
+        [ordered]@{ scope = 'ExternallyReadableDemandCatalog'; kind = 'http'; name = 'ExternallyReadableDemandCatalog'; path = '/api/v2/externally-readable-demand-catalog' },
+        [ordered]@{ scope = 'CurrentIngestAttention'; kind = 'http'; name = 'CurrentIngestAttention'; path = '/api/v2/current-ingest-attention?pageSize=100' },
+        [ordered]@{ scope = 'Overview'; kind = 'http'; name = 'Overview'; path = '/api/v2/watch-overview' },
+        [ordered]@{ scope = 'ReadabilityAudit'; kind = 'http'; name = 'ReadabilityAudit'; path = '/api/v2/readability-audit?pageSize=100' },
+        [ordered]@{ scope = 'ErrorSearch'; kind = 'http'; name = 'ErrorSearch'; path = '/api/v2/error-search?window=ALL_HISTORY&pageSize=100' },
+        [ordered]@{ scope = 'RawEvidence'; kind = 'raw-evidence'; name = 'RawEvidence'; path = '/raw-observations' }
     )
+    $selectedCatalog = if ($QuerySurface -eq 'All') {
+        @($surfaceCatalog)
+    } else {
+        @($surfaceCatalog | Where-Object { $_.scope -eq $QuerySurface })
+    }
+    $surfaces = @($selectedCatalog | Where-Object { $_.kind -eq 'http' })
     $measurements = New-Object System.Collections.ArrayList
     foreach ($surface in $surfaces) {
         for ($i = 0; $i -lt ($WarmupCount + $MeasurementCount); $i++) {
@@ -823,18 +914,21 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
         }
     }
 
-    $errorList = Invoke-HostGet $hostRun $secret 'ErrorSearchDiscovery' '/api/v2/error-search?window=ALL_HISTORY&pageSize=100'
-    $errorJson = $errorList.body | ConvertFrom-Json
-    if (@($errorJson.items).Count -eq 0) { throw 'ErrorSearch scale seed produced no error item.' }
-    $seriesId = [string]$errorJson.items[0].seriesId
-    $snapshotReference = [Uri]::EscapeDataString([string]$errorJson.snapshotReference)
-    $detail = Invoke-HostGet $hostRun $secret 'ErrorSearchDetail' ("/api/v2/error-search/$seriesId`?snapshot=$snapshotReference")
-    $detailJson = $detail.body | ConvertFrom-Json
-    $evidenceId = [string]$detailJson.periods[0].evidence[0].evidenceId
-    $rawPath = "/api/v2/error-search/$seriesId/evidence/$evidenceId/raw-observations?fields=area&maxItems=20&snapshot=$snapshotReference"
-    for ($i = 0; $i -lt ($WarmupCount + $MeasurementCount); $i++) {
-        $sample = Invoke-HostGet $hostRun $secret 'RawEvidence' $rawPath
-        if ($i -ge $WarmupCount) { [void]$measurements.Add($sample) }
+    $measureRawEvidence = @($selectedCatalog | Where-Object { $_.kind -eq 'raw-evidence' }).Count -gt 0
+    if ($measureRawEvidence) {
+        $errorList = Invoke-HostGet $hostRun $secret 'ErrorSearchDiscovery' '/api/v2/error-search?window=ALL_HISTORY&pageSize=100'
+        $errorJson = $errorList.body | ConvertFrom-Json
+        if (@($errorJson.items).Count -eq 0) { throw 'ErrorSearch scale seed produced no error item.' }
+        $seriesId = [string]$errorJson.items[0].seriesId
+        $snapshotReference = [Uri]::EscapeDataString([string]$errorJson.snapshotReference)
+        $detail = Invoke-HostGet $hostRun $secret 'ErrorSearchDetail' ("/api/v2/error-search/$seriesId`?snapshot=$snapshotReference")
+        $detailJson = $detail.body | ConvertFrom-Json
+        $evidenceId = [string]$detailJson.periods[0].evidence[0].evidenceId
+        $rawPath = "/api/v2/error-search/$seriesId/evidence/$evidenceId/raw-observations?fields=area&maxItems=20&snapshot=$snapshotReference"
+        for ($i = 0; $i -lt ($WarmupCount + $MeasurementCount); $i++) {
+            $sample = Invoke-HostGet $hostRun $secret 'RawEvidence' $rawPath
+            if ($i -ge $WarmupCount) { [void]$measurements.Add($sample) }
+        }
     }
     Stop-EvidenceHost $hostRun
     $hostRun = $null
@@ -874,6 +968,7 @@ ORDER BY file_name, file_offset;
         $planText = if ($values.ContainsKey('showplan_xml')) { [string]$values['showplan_xml'] } else { '' }
         [pscustomobject][ordered]@{
             timestamp = $envelope.Timestamp
+            memoryGrantCaptured = $planText.IndexOf('<MemoryGrantInfo', [StringComparison]::OrdinalIgnoreCase) -ge 0
             granted_memory_kb = if ($values.ContainsKey('granted_memory_kb')) { [long]$values['granted_memory_kb'] } else { 0L }
             requested_memory_kb = if ($values.ContainsKey('requested_memory_kb')) { [long]$values['requested_memory_kb'] } else { 0L }
             used_memory_kb = if ($values.ContainsKey('used_memory_kb')) { [long]$values['used_memory_kb'] } else { 0L }
@@ -885,7 +980,8 @@ ORDER BY file_name, file_offset;
     }
 
     $queryEvidence = New-Object System.Collections.ArrayList
-    $surfaceNames = @($surfaces | ForEach-Object { [string]$_.name }) + @('RawEvidence')
+    $surfaceNames = @($surfaces | ForEach-Object { [string]$_.name })
+    if ($measureRawEvidence) { $surfaceNames += 'RawEvidence' }
     foreach ($surfaceName in $surfaceNames) {
         $surfaceSamples = @($measurements | Where-Object { $_.name -eq $surfaceName })
         if ($surfaceSamples.Count -ne $MeasurementCount) { throw "Missing measurement samples for $surfaceName." }
@@ -903,6 +999,14 @@ ORDER BY file_name, file_offset;
             $eventTime = $_.timestamp
             @($sampleWindows | Where-Object { $eventTime -ge $_.Start -and $eventTime -le $_.End }).Count -gt 0
         })
+        $surfaceRuntimeIo = @($surfacePlans | ForEach-Object { @($_.runtimeIo) })
+        $rawObservationRuntimeIo = @($surfaceRuntimeIo | Where-Object {
+            ([string]$_.table).Trim('[', ']') -eq 'DemandRawObservations'
+        })
+        $rawObservationLogicalReads = Get-TotalActualLogicalReads $rawObservationRuntimeIo
+        $runtimeIoCarriers = @($surfaceRuntimeIo | Where-Object {
+            [string]$_.physicalOperation -match '(Scan|Seek|Lookup)'
+        })
         $sortedLatency = @($surfaceSamples | ForEach-Object { [double]$_.latencyMs } | Sort-Object)
         [void]$queryEvidence.Add([pscustomobject][ordered]@{
             name = $surfaceName
@@ -914,12 +1018,18 @@ ORDER BY file_name, file_offset;
             actualPlanSource = 'query_post_execution_showplan'
             statementCount = $surfaceStatements.Count
             actualPlanCount = $surfacePlans.Count
+            runtimeIoComplete = $runtimeIoCarriers.Count -gt 0 -and
+                @($runtimeIoCarriers | Where-Object { -not [bool]$_.actualLogicalReadsPresent }).Count -eq 0
+            memoryGrantEvidenceComplete = $surfacePlans.Count -gt 0 -and
+                @($surfacePlans | Where-Object { -not [bool]$_.memoryGrantCaptured }).Count -eq 0
             logicalReads = [long](($surfaceStatements | Measure-Object -Property logical_reads -Sum).Sum)
             durationMicroseconds = [long](($surfaceStatements | Measure-Object -Property duration -Sum).Sum)
             cpuMicroseconds = [long](($surfaceStatements | Measure-Object -Property cpu_time -Sum).Sum)
             maxGrantedMemoryKb = [long](($surfacePlans | Measure-Object -Property granted_memory_kb -Maximum).Maximum)
             spillCount = [long](($surfaceStatements | Measure-Object -Property spills -Sum).Sum) +
                 @($surfacePlans | Where-Object { $_.spillToTempDb }).Count
+            rawObservationPlanOperators = $rawObservationRuntimeIo.Count
+            rawObservationLogicalReads = $rawObservationLogicalReads
             planSha256 = @($surfacePlans | Select-Object -ExpandProperty planSha256 -Unique)
         })
     }
@@ -1046,14 +1156,101 @@ ORDER BY t.name, i.index_id;
     } else {
         [string]$tier1.diagnosticCode
     }
-    $gateFailures = @(Get-EvidenceGateFailures `
+    $gateFailures = New-Object System.Collections.ArrayList
+    @(Get-EvidenceGateFailures `
         -QueryEvidence @($queryEvidence) `
         -ActualPlanCount $planEvents.Count `
         -StatementMetricCount $statementEvents.Count `
         -RowCounts $rowCounts `
         -Tier1Satisfied ([bool]$tier1.satisfied) `
         -SourceCommit $sourceCommit `
-        -CanonicalScaleProfile $canonicalScaleProfile)
+        -CanonicalScaleProfile $canonicalScaleProfile `
+        -QuerySurface $QuerySurface) | ForEach-Object { [void]$gateFailures.Add($_) }
+
+    $growthComparison = [ordered]@{
+        provided = $false
+        baselineEvidencePath = $null
+        baselineLogicalReads = $null
+        observedLogicalReads = $null
+        allowedLogicalReads = $null
+        baselineMaxGrantedMemoryKb = $null
+        observedMaxGrantedMemoryKb = $null
+        surfaceComparisons = @()
+        passed = $null
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BaselineEvidencePath)) {
+        $growthComparison.provided = $true
+        $growthComparison.baselineEvidencePath = [IO.Path]::GetFullPath($BaselineEvidencePath)
+        try {
+            if (-not (Test-Path -LiteralPath $BaselineEvidencePath -PathType Leaf)) {
+                throw 'Baseline evidence file does not exist.'
+            }
+            $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
+            $baselineDemandSeries = @($baselineReport.queries | Where-Object { $_.name -like 'DemandSeries*' })
+            $observedDemandSeries = @($queryEvidence | Where-Object { $_.name -like 'DemandSeries*' })
+            if ($baselineDemandSeries.Count -eq 0 -or $observedDemandSeries.Count -eq 0 -or
+                -not [bool]$baselineReport.gate.passed -or
+                [string]$baselineReport.profile.querySurface -ne 'DemandSeries' -or
+                [string]$baselineReport.profile.evidenceScale -ne 'empty' -or
+                [string]$baselineReport.sourceCommit -ne $sourceCommit -or
+                [string]$baselineReport.build.hostSha256 -ne $hostSha256 -or
+                [long]$baselineReport.profile.seriesCount -ne $SeriesCount -or
+                [long]$baselineReport.profile.observationsPerRound -ne $ObservationsPerRound -or
+                [long]$baselineReport.profile.roundIntervalSeconds -ne $RoundIntervalSeconds -or
+                [long]$baselineReport.replay.warmupCount -ne $WarmupCount -or
+                [long]$baselineReport.replay.measurementCount -ne $MeasurementCount -or
+                [string]$baselineReport.sqlServer.dataSource -ne [string]$masterBuilder.DataSource -or
+                [string]$baselineReport.sqlServer.productVersion -ne [string]$serverIdentity.product_version -or
+                [long]$baselineReport.sqlServer.maxServerMemoryMb -ne [long]$serverIdentity.max_server_memory_mb -or
+                [long]$baselineReport.contract.compatibilityLevel -ne [long]$databaseConfiguration.compatibilityLevel -or
+                [string]$baselineReport.contract.recoveryModel -ne [string]$databaseConfiguration.recoveryModel) {
+                throw 'Baseline evidence is not a passing DemandSeries run for this source commit.'
+            }
+            $surfaceComparisons = New-Object System.Collections.ArrayList
+            foreach ($observedSurface in $observedDemandSeries) {
+                $baselineSurface = @($baselineDemandSeries | Where-Object { $_.name -eq $observedSurface.name }) |
+                    Select-Object -First 1
+                if ($null -eq $baselineSurface) { throw "Baseline is missing $($observedSurface.name)." }
+                $surfaceAllowed = [long][Math]::Max(
+                    [Math]::Ceiling([long]$baselineSurface.logicalReads * 1.10),
+                    [long]$baselineSurface.logicalReads + 200L)
+                [void]$surfaceComparisons.Add([pscustomobject][ordered]@{
+                    name = [string]$observedSurface.name
+                    baselineLogicalReads = [long]$baselineSurface.logicalReads
+                    observedLogicalReads = [long]$observedSurface.logicalReads
+                    allowedLogicalReads = $surfaceAllowed
+                    passed = [long]$observedSurface.logicalReads -le $surfaceAllowed
+                })
+            }
+            $baselineLogicalReads = [long](($baselineDemandSeries | Measure-Object -Property logicalReads -Sum).Sum)
+            $observedLogicalReads = [long](($observedDemandSeries | Measure-Object -Property logicalReads -Sum).Sum)
+            $allowedLogicalReads = [long][Math]::Max(
+                [Math]::Ceiling($baselineLogicalReads * 1.10),
+                $baselineLogicalReads + 1000L)
+            $growthComparison.baselineLogicalReads = $baselineLogicalReads
+            $growthComparison.observedLogicalReads = $observedLogicalReads
+            $growthComparison.allowedLogicalReads = $allowedLogicalReads
+            $growthComparison.baselineMaxGrantedMemoryKb = [long](
+                ($baselineDemandSeries | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
+            $growthComparison.observedMaxGrantedMemoryKb = [long](
+                ($observedDemandSeries | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum)
+            $growthComparison.surfaceComparisons = @($surfaceComparisons)
+            $logicalReadGrowthPassed = $observedLogicalReads -le $allowedLogicalReads -and
+                @($surfaceComparisons | Where-Object { -not [bool]$_.passed }).Count -eq 0
+            $memoryGrantGrowthPassed = $growthComparison.observedMaxGrantedMemoryKb -le
+                ($growthComparison.baselineMaxGrantedMemoryKb + 1024L)
+            $growthComparison.passed = $logicalReadGrowthPassed -and $memoryGrantGrowthPassed
+            if (-not $logicalReadGrowthPassed) {
+                [void]$gateFailures.Add('DEMAND_SERIES_LOGICAL_READ_GROWTH')
+            }
+            if (-not $memoryGrantGrowthPassed) {
+                [void]$gateFailures.Add('DEMAND_SERIES_MEMORY_GRANT_GROWTH')
+            }
+        } catch {
+            $growthComparison.passed = $false
+            [void]$gateFailures.Add('INVALID_DEMAND_SERIES_BASELINE')
+        }
+    }
 
     $report = [ordered]@{
         schemaVersion = 1
@@ -1073,12 +1270,14 @@ ORDER BY t.name, i.index_id;
         }
         contract = [ordered]@{
             schemaVersion = $schemaIdentity.schemaVersion; contractVersion = $schemaIdentity.contractVersion
+            historyEpoch = $schemaIdentity.historyEpoch
             compatibilityLevel = $databaseConfiguration.compatibilityLevel; recoveryModel = $databaseConfiguration.recoveryModel
         }
         profile = [ordered]@{
             historyDays = $profile.historyDays
             distribution = if ($canonicalScaleProfile) { $profile.distribution } else { 'diagnostic-override' }
-            canonical = $canonicalScaleProfile; seed = 8005
+            canonical = $canonicalScaleProfile; querySurface = $QuerySurface; seed = 8005
+            evidenceScale = if ($RepresentativeHistoryRounds -gt 0) { 'representative-history' } elseif ($ProfileDays -eq 0) { 'empty' } else { 'full-profile' }
             anchorUtc = $AnchorUtc.ToUniversalTime().ToString('o'); roundIntervalSeconds = $RoundIntervalSeconds
             observationsPerRound = $ObservationsPerRound; historyRoundCount = $historyRoundCount
             expectedRawObservationCount = $expectedTotalObservationCount; seriesCount = $SeriesCount
@@ -1087,9 +1286,11 @@ ORDER BY t.name, i.index_id;
         data = $rowCounts
         replay = [ordered]@{
             warmupCount = $WarmupCount; measurementCount = $MeasurementCount
-            queryParameters = @($surfaces | ForEach-Object { [ordered]@{ name = $_.name; path = $_.path } }) + @([ordered]@{ name = 'RawEvidence'; path = '/raw-observations' })
+            queryParameters = @($surfaces | ForEach-Object { [ordered]@{ name = $_.name; path = $_.path } }) + $(
+                if ($measureRawEvidence) { @([ordered]@{ name = 'RawEvidence'; path = '/raw-observations' }) } else { @() })
         }
         queries = @($queryEvidence)
+        growthComparison = $growthComparison
         statementMetrics = @($statementMetrics)
         actualPlans = @($planSummaries)
         storage = $storage
@@ -1102,7 +1303,8 @@ ORDER BY t.name, i.index_id;
     $manifestPath = Join-Path $runDirectory 'replay-manifest.json'
     [ordered]@{
         schemaVersion = 1; runId = $runId; sourceCommit = $sourceCommit; build = $report.build; schema = $schemaIdentity.schemaVersion
-        contract = $schemaIdentity.contractVersion; sqlProductVersion = $serverIdentity.product_version
+        contract = $schemaIdentity.contractVersion; historyEpoch = $schemaIdentity.historyEpoch
+        sqlProductVersion = $serverIdentity.product_version
         profile = $report.profile; replay = $report.replay
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
     $markdownPath = Join-Path $runDirectory 'scale-query-evidence.md'
@@ -1112,6 +1314,7 @@ ORDER BY t.name, i.index_id;
         "- Run: $runId"
         "- Profile: $ProfileDays days; raw observations: $($rowCounts.raw_observations)"
         "- Contract/schema: $($schemaIdentity.contractVersion) / $($schemaIdentity.schemaVersion)"
+        "- HistoryEpoch: $($schemaIdentity.historyEpoch)"
         "- SQL Server: $($serverIdentity.product_version)"
         "- Actual plans: $($planEvents.Count); statement metrics: $($statementEvents.Count)"
         "- SQL Tier 1: Failed=$($tier1.failed), Passed=$($tier1.passed), Skipped=$($tier1.sqlSkippedTests), Total=$($tier1.total)"

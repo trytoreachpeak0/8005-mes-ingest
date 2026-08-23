@@ -556,6 +556,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
     {
         var current = demands.OrderBy(demand => demand.Generation).Last();
         var identity = new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "commit-snapshot",
             40,
             At,

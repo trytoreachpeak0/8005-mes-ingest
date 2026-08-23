@@ -1037,7 +1037,8 @@ public sealed class WatchV2WorkspaceSessionTests
         params string[] seriesIds)
     {
         var at = DateTimeOffset.Parse("2026-08-14T01:00:00Z");
-        var identity = new DemandSeriesSnapshotIdentity(commit, 1, at, "poll-a");
+        var identity = new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(), commit, 1, at, "poll-a");
         var items = seriesIds.Select(seriesId => new DemandSeriesListItemSnapshot(
                 seriesId,
                 "WT",
@@ -1079,6 +1080,7 @@ public sealed class WatchV2WorkspaceSessionTests
     {
         var commit = snapshotReference["snapshot-".Length..];
         var identity = new DemandSeriesSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             commit,
             1,
             DateTimeOffset.Parse("2026-08-14T01:00:00Z"),

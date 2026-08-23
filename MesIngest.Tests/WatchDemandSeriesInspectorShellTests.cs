@@ -901,7 +901,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 .Select(Item)
                 .ToArray();
             return Task.FromResult(new DemandSeriesListSnapshot(
-                new DemandSeriesSnapshotIdentity("commit-list", 2, At, "poll-list"),
+                new DemandSeriesSnapshotIdentity(
+                    HistoryEpoch.CreateNew(), "commit-list", 2, At, "poll-list"),
                 $"snapshot-list-{ListFetchCount}",
                 query.Filter,
                 DemandSeriesBrowseOrder.Default,
@@ -1004,7 +1005,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
                 PayloadJson = $"{{\"demandId\":\"{historicalDemand.DemandId}\",\"generation\":1}}",
             };
             var detail = new DemandSeriesDetailSnapshot(
-                new DemandSeriesSnapshotIdentity("commit-list", 2, At, "poll-list"),
+                new DemandSeriesSnapshotIdentity(
+                    HistoryEpoch.CreateNew(), "commit-list", 2, At, "poll-list"),
                 snapshotReference,
                 new DemandSeriesSnapshot(
                     seriesId,
