@@ -524,6 +524,15 @@ public sealed class ReleasePackageValidationTests
                 Path.Combine(CSharpRoot, "pack", "cutover", cutoverScript),
                 Path.Combine(packagedCutover, cutoverScript));
         }
+        var packagedMaintenance = Path.Combine(root, "scripts", "maintenance");
+        Directory.CreateDirectory(packagedMaintenance);
+        File.Copy(
+            Path.Combine(
+                CSharpRoot,
+                "pack",
+                "maintenance",
+                "Invoke-SqlServerMemoryProfile.ps1"),
+            Path.Combine(packagedMaintenance, "Invoke-SqlServerMemoryProfile.ps1"));
 
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-FactoryValidation.ps1"), "# factory");
         File.WriteAllText(Path.Combine(root, "validation", "Invoke-ReleaseSmoke.ps1"), "# smoke");
