@@ -134,6 +134,35 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 
 默认 `-Suite watch-production-preview`，即非像素的 `watch-vm-tests` + `watch-ui-journeys`。**打包验收只证明已发布二进制的启动、连接与关键功能**，不重复像素候选、连续稳定计数、基线提升或 DPI clone —— 这些已在票 23 完成并获批。只有当打包差异真的改变了 PNG/XML/UIA/DPI 输出时，才使相应票 23 场景失效，并只用 `-Suite watch-window-visual` 重跑受影响门禁、重新取得批准。
 
+## 只读运行反馈快照
+
+当需要区分 Host 未监听、SQL Server 不可用、当前读取超时和契约不匹配时，从安装根目录运行：
+
+```powershell
+.\validation\Invoke-RuntimeFeedbackLoop.ps1 `
+  -InstallRoot $PWD `
+  -OutputRoot C:\MesIngestEvidence\runtime-feedback
+```
+
+入口只读取服务、进程、监听端点、部署清单/程序集、V2 GET、SQL Server DMV/错误信号和可选
+TRX；不会启动或停止服务、修改数据库或写生产配置，也不会把凭据或连接字符串写入证据。
+若从源码工作区运行，可额外传入 `-RepositoryRoot <repo>` 记录所有脏文件并按“本票 / 优化重叠 /
+无关”分类；这些条目一律保持未归属，不会被清理或纳入本票。
+
+真实 SQL Tier 1 使用 VSTest/xUnit v2 命令（从 `mes/ingest/csharp`）：
+
+```powershell
+$env:MES_INGEST_TICKET01_SQLSERVER = '<approved real SQL Server master connection>'
+$env:MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR = '16'
+$env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL = '160'
+dotnet test MesIngest.Tests --configuration Release `
+  --results-directory .artifacts\runtime-feedback-tier1 `
+  --logger "trx;LogFileName=runtime-feedback-tier1.trx"
+```
+
+随后在同一环境中把 TRX 传给收集器；只有 `Failed=0`、`Skipped=0`、`Total>0` 且三项 SQL
+环境身份均存在时，报告才会写 `realSqlTier1Satisfied=true`。
+
 ## 基本故障排查
 
 | 现象 | 检查 |

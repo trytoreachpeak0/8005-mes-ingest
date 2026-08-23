@@ -39,6 +39,7 @@ $upgradeDoc = Join-Path $PSScriptRoot "UPGRADE.md"
 $factoryValidationDoc = Join-Path $PSScriptRoot "FACTORY-VALIDATION.md"
 $releaseEvidence = Join-Path $PSScriptRoot "RELEASE-EVIDENCE.json"
 $validationSrc = Join-Path $PSScriptRoot "validation"
+$runtimeFeedbackCollector = Join-Path $validationSrc "Invoke-RuntimeFeedbackLoop.ps1"
 $releaseValidator = Join-Path $PSScriptRoot "Test-ReleasePackage.ps1"
 $releaseSmoke = Join-Path $validationSrc "Invoke-ReleaseSmoke.ps1"
 $watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
@@ -58,6 +59,9 @@ if (-not (Test-Path $upgradeDoc)) { throw "Missing upgrade/rollback doc: $upgrad
 if (-not (Test-Path $factoryValidationDoc)) { throw "Missing factory validation checklist: $factoryValidationDoc" }
 if (-not (Test-Path $releaseEvidence)) { throw "Missing release evidence index: $releaseEvidence" }
 if (-not (Test-Path $validationSrc)) { throw "Missing validation templates: $validationSrc" }
+if (-not (Test-Path -LiteralPath $runtimeFeedbackCollector -PathType Leaf)) {
+    throw "Missing runtime feedback collector: $runtimeFeedbackCollector"
+}
 if (-not (Test-Path $releaseValidator)) { throw "Missing release package validator: $releaseValidator" }
 if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $releaseSmoke" }
 if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
@@ -172,6 +176,9 @@ Copy-Item $releaseEvidence (Join-Path $OutputDir "RELEASE-EVIDENCE.json") -Force
 
 if (Test-Path $validationDir) { Remove-Item -Recurse -Force $validationDir }
 Copy-Item -Recurse $validationSrc $validationDir
+if (-not (Test-Path -LiteralPath (Join-Path $validationDir 'Invoke-RuntimeFeedbackLoop.ps1') -PathType Leaf)) {
+    throw "Published package is missing the runtime feedback collector."
+}
 
 $versionPath = Join-Path $OutputDir "VERSION.txt"
 $hostDll = Join-Path $serviceDir "MesIngest.Host.dll"
