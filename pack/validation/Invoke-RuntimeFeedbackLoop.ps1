@@ -224,17 +224,17 @@ function Get-WorktreeInventory {
         return [pscustomobject][ordered]@{ available = $false; entries = @(); diagnosticCode = 'REPOSITORY_ROOT_NOT_PROVIDED' }
     }
     try {
-        $lines = @(& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=all 2>$null)
+        $lines = @(& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=normal 2>$null)
         $entries = foreach ($line in $lines) {
             if ($line.Length -lt 4) { continue }
             $path = $line.Substring(3).Trim('"') -replace '\\', '/'
-            $scope = if ($path -like '.scratch/mes-ingest-bounded-storage-low-memory/evidence/runtime-feedback/*' -or
-                $path -eq 'mes/ingest/csharp/pack/validation/Invoke-RuntimeFeedbackLoop.ps1' -or
+            $scope = if ($path -eq 'mes/ingest/csharp/pack/validation/Invoke-RuntimeFeedbackLoop.ps1' -or
                 $path -eq 'mes/ingest/csharp/MesIngest.Tests/RuntimeFeedbackLoopTests.cs' -or
                 $path -eq 'mes/ingest/csharp/pack/Publish-MesIngest.ps1' -or
                 $path -eq 'mes/ingest/csharp/pack/INSTALL.md') {
                 'ticket-path-overlap-unattributed'
-            } elseif ($path -like 'mes/ingest/csharp/MesIngest.Infrastructure/SqlServer/*' -or
+            } elseif ($path -like '.scratch/mes-ingest-bounded-storage-low-memory*' -or
+                $path -like 'mes/ingest/csharp/MesIngest.Infrastructure/SqlServer/*' -or
                 $path -like 'docs/adr/mes/00*' -or $path -eq 'CONTEXT.md') {
                 'optimization-path-overlap-unattributed'
             } else {
