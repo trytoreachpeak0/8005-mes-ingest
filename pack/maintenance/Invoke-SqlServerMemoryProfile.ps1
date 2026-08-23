@@ -390,6 +390,7 @@ $diagnostics = $null
 $maintenanceDiagnostics = $null
 $restoreRequired = $false
 $succeeded = $false
+$instanceIdentityMatched = $false
 $configuration = [ordered]@{
     beforeMb = $null
     requestedMb = $RequestedMaxServerMemoryMb
@@ -437,6 +438,7 @@ SELECT CAST(SERVERPROPERTY('MachineName') AS nvarchar(128)) AS machine_name,
         $target.actualInstanceName -ine $ExpectedInstanceName) {
         throw 'SQL_INSTANCE_IDENTITY_MISMATCH'
     }
+    $instanceIdentityMatched = $true
     if ([int]$identity.can_alter_settings -ne 1 -or [int]$identity.can_view_server_state -ne 1) {
         throw 'SQL_ADMIN_PERMISSION_REQUIRED'
     }
@@ -456,13 +458,17 @@ SELECT CAST(SERVERPROPERTY('MachineName') AS nvarchar(128)) AS machine_name,
         }
         $succeeded = $true
     } elseif ($Action -eq 'Diagnose') {
-        if ($allowed -notcontains [int]$before.value_in_use_mb) {
-            throw 'UNSUPPORTED_CURRENT_MEMORY_PROFILE'
+        if ([int]$before.configured_mb -ne $normalMb -or
+            [int]$before.value_in_use_mb -ne $normalMb) {
+            throw 'NORMAL_PROFILE_REQUIRED_FOR_DIAGNOSIS'
         }
         $configuration.afterMb = [int]$before.configured_mb
         $configuration.valueInUseMb = [int]$before.value_in_use_mb
         try { $diagnostics = Get-Diagnostics $connection }
             catch { throw 'MEMORY_DIAGNOSTICS_FAILED' }
+        if (-not $diagnostics.processEnvelope.satisfied) {
+            throw 'PROCESS_MEMORY_ENVELOPE_EXCEEDED'
+        }
         $succeeded = $true
     } else {
         if ([int]$before.configured_mb -ne $normalMb -or [int]$before.value_in_use_mb -ne $normalMb) {
@@ -540,7 +546,7 @@ SELECT CAST(SERVERPROPERTY('MachineName') AS nvarchar(128)) AS machine_name,
             credentialsWritten = $false
             connectionStringWritten = $false
             partialApplicationReportedAsSuccess = $false
-            exactInstanceConfirmed = $true
+            exactInstanceConfirmed = $instanceIdentityMatched
         }
     }
     $jsonPath = Join-Path $runDirectory 'sql-memory-profile.json'

@@ -249,6 +249,59 @@ public sealed class SqlServerMemoryProfileTests
     }
 
     [Ticket01SqlServerFact]
+    public void Timed_out_maintenance_is_terminated_and_restores_normal()
+    {
+        var connectionString = Environment.GetEnvironmentVariable("MES_INGEST_TICKET01_SQLSERVER")
+                               ?? throw new InvalidOperationException("Real SQL Server connection is missing.");
+        var identity = ReadServerIdentity(connectionString);
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"mesingest-memory-timeout-{Guid.NewGuid():N}");
+        var outputRoot = Path.Combine(root, "evidence");
+        Directory.CreateDirectory(root);
+        var maintenanceScript = Path.Combine(root, "wait-past-timeout.ps1");
+        File.WriteAllText(maintenanceScript, "Start-Sleep -Seconds 5");
+
+        try
+        {
+            var start = NewPowerShellStart(MemoryProfileScriptPath());
+            AddArguments(
+                start,
+                "-Action", "RunMaintenance",
+                "-RequestedMaxServerMemoryMb", "2048",
+                "-ExpectedMachineName", identity.MachineName,
+                "-ExpectedInstanceName", identity.InstanceName,
+                "-ConfirmInstance", $"{identity.MachineName}\\{identity.InstanceName}",
+                "-Reason", "ticket-03 timeout restoration verification",
+                "-MaintenanceScriptPath", maintenanceScript,
+                "-MaintenanceTimeoutSeconds", "1",
+                "-StabilitySampleCount", "1",
+                "-StabilitySampleIntervalSeconds", "0",
+                "-OutputRoot", outputRoot);
+            start.Environment["MES_INGEST_SQLSERVER_ADMIN"] = connectionString;
+
+            var result = Run(start, TimeSpan.FromMinutes(1));
+            Assert.NotEqual(0, result.ExitCode);
+            var runDirectory = Assert.Single(Directory.GetDirectories(outputRoot));
+            using var document = JsonDocument.Parse(
+                File.ReadAllText(Path.Combine(runDirectory, "sql-memory-profile.json")));
+            var report = document.RootElement;
+            Assert.Equal("FAILED", report.GetProperty("status").GetString());
+            Assert.Equal("MAINTENANCE_TIMED_OUT", report.GetProperty("diagnosticCode").GetString());
+            Assert.Equal("TIMED_OUT", report.GetProperty("maintenance").GetProperty("outcome").GetString());
+            Assert.True(report.GetProperty("configuration").GetProperty("restoreSucceeded").GetBoolean());
+            Assert.Equal(1536, ReadMaxServerMemory(connectionString));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Ticket01SqlServerFact]
     public void Wrong_instance_confirmation_fails_before_changing_the_current_profile()
     {
         var connectionString = Environment.GetEnvironmentVariable("MES_INGEST_TICKET01_SQLSERVER")
@@ -282,6 +335,8 @@ public sealed class SqlServerMemoryProfileTests
             Assert.Equal(
                 "SQL_INSTANCE_IDENTITY_MISMATCH",
                 document.RootElement.GetProperty("diagnosticCode").GetString());
+            Assert.False(
+                document.RootElement.GetProperty("safety").GetProperty("exactInstanceConfirmed").GetBoolean());
             Assert.Equal(before, ReadMaxServerMemory(connectionString));
         }
         finally
@@ -325,6 +380,7 @@ public sealed class SqlServerMemoryProfileTests
             var report = document.RootElement;
             Assert.Equal("FAILED", report.GetProperty("status").GetString());
             Assert.Equal("SQL_CONNECTION_FAILED", report.GetProperty("diagnosticCode").GetString());
+            Assert.False(report.GetProperty("safety").GetProperty("exactInstanceConfirmed").GetBoolean());
             Assert.False(report.GetProperty("safety").GetProperty("partialApplicationReportedAsSuccess").GetBoolean());
             Assert.DoesNotContain(sqlUser, json, StringComparison.Ordinal);
             Assert.DoesNotContain(sqlPassword, json, StringComparison.Ordinal);
