@@ -155,15 +155,16 @@ TRX；不会启动或停止服务、修改数据库或写生产配置，也不�
 $env:MES_INGEST_TICKET01_SQLSERVER = '<approved real SQL Server master connection>'
 $env:MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR = '16'
 $env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL = '160'
-dotnet test MesIngest.Tests --configuration Release `
-  --results-directory .artifacts\runtime-feedback-tier1 `
-  --logger "trx;LogFileName=runtime-feedback-tier1.trx"
+.\Invoke-RuntimeFeedbackTier1.ps1 `
+  -ExpectedProductMajor 16 `
+  -ExpectedCompatibilityLevel 160
 ```
 
-随后在同一环境中把 TRX 传给收集器；只有 `Failed=0`、`Skipped=0`、`Total>=700`、连接目标
-不是 LocalDB，且三项 SQL 环境身份均存在时，报告才会写 `realSqlTier1Satisfied=true`。`700` 是防止
-误把筛选子集冒充完整 Tier 1 的保守下限；测试总数增长时无需修改，若套件有意缩减则显式传入新的
-`-MinimumTier1Total` 并在证据中记录。
+源码入口执行固定的 `dotnet test MesIngest.Tests` VSTest 命令并生成 TRX 与脱敏 attestation。随后在
+同一环境中把两者分别以 `-SqlTestTrxPath` 与 `-SqlTestAttestationPath` 传给收集器；只有
+`Failed=0`、`Skipped=0`、`Total>=700`、目标不是 LocalDB，并且新鲜 attestation 中的命令、
+程序集、TRX SHA-256、计数、SQL 目标和实际版本全部匹配时，报告才写
+`realSqlTier1Satisfied=true`。
 
 ## 基本故障排查
 

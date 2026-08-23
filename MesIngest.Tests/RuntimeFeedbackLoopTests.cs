@@ -18,6 +18,7 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.True(File.Exists(collectorPath), $"Missing runtime feedback collector: {collectorPath}");
 
         var collector = File.ReadAllText(collectorPath);
+        var tier1Runner = File.ReadAllText(Path.Combine(csharpRoot, "Invoke-RuntimeFeedbackTier1.ps1"));
         var publish = File.ReadAllText(Path.Combine(csharpRoot, "pack", "Publish-MesIngest.ps1"));
         var install = File.ReadAllText(Path.Combine(csharpRoot, "pack", "INSTALL.md"));
 
@@ -42,7 +43,11 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.Contains("Error: 17300", collector, StringComparison.Ordinal);
         Assert.Contains("Error: 17312", collector, StringComparison.Ordinal);
         Assert.Contains("notExecuted", collector, StringComparison.Ordinal);
-        Assert.Contains("MinimumTier1Total", collector, StringComparison.Ordinal);
+        Assert.Contains("SQL_TIER1_ATTESTATION_NOT_PROVIDED", collector, StringComparison.Ordinal);
+        Assert.True(File.Exists(Path.Combine(csharpRoot, "Invoke-RuntimeFeedbackTier1.ps1")));
+        Assert.Contains("dotnet test MesIngest.Tests", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("LocalDB is rejected", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("runtime-feedback-tier1-attestation.json", tier1Runner, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.json", collector, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.md", collector, StringComparison.Ordinal);
         Assert.Contains("Invoke-RuntimeFeedbackLoop.ps1", publish, StringComparison.Ordinal);
@@ -90,8 +95,11 @@ public sealed class RuntimeFeedbackLoopTests
             <?xml version="1.0" encoding="utf-8"?>
             <TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
               <ResultSummary outcome="Completed">
-                <Counters total="5" executed="4" passed="4" failed="0" notExecuted="0" />
+                <Counters total="725" executed="725" passed="725" failed="0" notExecuted="0" />
               </ResultSummary>
+              <TestDefinitions>
+                <UnitTest name="synthetic" storage="C:\fake\MesIngest.Tests.dll" />
+              </TestDefinitions>
             </TestRun>
             """);
 
@@ -124,6 +132,10 @@ public sealed class RuntimeFeedbackLoopTests
             {
                 start.ArgumentList.Add(argument);
             }
+            start.Environment["MES_INGEST_TICKET01_SQLSERVER"] =
+                $"Server=127.0.0.1,1;Database=master;User ID={sqlUser};Password={sqlPassword};Encrypt=False;TrustServerCertificate=True";
+            start.Environment["MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR"] = "16";
+            start.Environment["MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL"] = "160";
 
             using var process = Process.Start(start)
                                 ?? throw new InvalidOperationException("Windows PowerShell did not start");
@@ -145,10 +157,13 @@ public sealed class RuntimeFeedbackLoopTests
             Assert.False(report.GetProperty("safety").GetProperty("serviceStateChanged").GetBoolean());
             Assert.False(report.GetProperty("safety").GetProperty("databaseChanged").GetBoolean());
             Assert.False(report.GetProperty("safety").GetProperty("productionConfigurationChanged").GetBoolean());
-            Assert.Equal(5, report.GetProperty("tests").GetProperty("total").GetInt32());
-            Assert.Equal(4, report.GetProperty("tests").GetProperty("passed").GetInt32());
-            Assert.Equal(1, report.GetProperty("tests").GetProperty("skipped").GetInt32());
+            Assert.Equal(725, report.GetProperty("tests").GetProperty("total").GetInt32());
+            Assert.Equal(725, report.GetProperty("tests").GetProperty("passed").GetInt32());
+            Assert.Equal(0, report.GetProperty("tests").GetProperty("skipped").GetInt32());
             Assert.False(report.GetProperty("tests").GetProperty("realSqlTier1Satisfied").GetBoolean());
+            Assert.Equal(
+                "SQL_TIER1_ATTESTATION_NOT_PROVIDED",
+                report.GetProperty("tests").GetProperty("diagnosticCode").GetString());
             Assert.True(File.Exists(Path.Combine(run, "sha256-inventory.json")));
             Assert.DoesNotContain(sqlUser, json, StringComparison.Ordinal);
             Assert.DoesNotContain(sqlPassword, json, StringComparison.Ordinal);

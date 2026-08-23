@@ -21,10 +21,10 @@ param(
     [ValidateRange(1, 120)] [int] $SqlConnectionTimeoutSeconds = 5,
     [ValidateRange(1, 300)] [int] $SqlCommandTimeoutSeconds = 10,
     [ValidateRange(1, 8760)] [int] $EventLookbackHours = 168,
-    [ValidateRange(1, 2147483647)] [int] $MinimumTier1Total = 700,
     [string] $SharedSecretEnvironmentVariable = 'MES_INGEST_SHARED_SECRET',
     [string] $SqlConnectionStringEnvironmentVariable = '',
     [string] $SqlTestTrxPath = '',
+    [string] $SqlTestAttestationPath = '',
     [string] $RepositoryRoot = ''
 )
 
@@ -57,20 +57,23 @@ function Get-SafeBaseUrl {
     catch { return 'INVALID_BASE_URL' }
 }
 
+function Get-StreamSha256 {
+    param([Parameter(Mandatory = $true)][IO.Stream] $Stream)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($Stream))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
 function Get-Sha256String {
     param([Parameter(Mandatory = $true)][string] $Value)
-    $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
-    finally { $sha.Dispose() }
+    $stream = [IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($Value), $false)
+    try { return Get-StreamSha256 $stream } finally { $stream.Dispose() }
 }
 
 function Get-FileSha256 {
     param([Parameter(Mandatory = $true)][string] $Path)
     $stream = [IO.File]::OpenRead($Path)
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
-    finally { $sha.Dispose(); $stream.Dispose() }
+    try { return Get-StreamSha256 $stream } finally { $stream.Dispose() }
 }
 
 function Get-JsonErrorCode {
@@ -230,12 +233,12 @@ function Get-WorktreeInventory {
                 $path -eq 'mes/ingest/csharp/MesIngest.Tests/RuntimeFeedbackLoopTests.cs' -or
                 $path -eq 'mes/ingest/csharp/pack/Publish-MesIngest.ps1' -or
                 $path -eq 'mes/ingest/csharp/pack/INSTALL.md') {
-                'ticket-01'
+                'ticket-path-overlap-unattributed'
             } elseif ($path -like 'mes/ingest/csharp/MesIngest.Infrastructure/SqlServer/*' -or
                 $path -like 'docs/adr/mes/00*' -or $path -eq 'CONTEXT.md') {
-                'optimization-overlap-pre-existing-or-unattributed'
+                'optimization-path-overlap-unattributed'
             } else {
-                'unrelated-pre-existing-or-unattributed'
+                'other-path-unattributed'
             }
             [pscustomobject][ordered]@{ status = $line.Substring(0, 2); path = $path; scope = $scope; ownership = 'preserve-unattributed' }
         }
@@ -243,6 +246,14 @@ function Get-WorktreeInventory {
     } catch {
         return [pscustomobject][ordered]@{ available = $false; entries = @(); diagnosticCode = 'GIT_STATUS_FAILED' }
     }
+}
+
+function Test-SqlQueryAvailable {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]] $Queries,
+        [Parameter(Mandatory = $true)][string] $Name
+    )
+    return @($Queries | Where-Object { $_.name -eq $Name -and $_.available }).Count -eq 1
 }
 
 $resolvedInstallRoot = [IO.Path]::GetFullPath($InstallRoot)
@@ -491,13 +502,13 @@ $eventSignals = foreach ($signal in @('701', '17300', '17312', 'RESOURCE_SEMAPHO
     Get-ErrorSignalSummary -Events $sqlEvents -Signal $signal
 }
 $sqlEvidenceAvailability = [ordered]@{
-    maxServerMemory = @($sqlQueries | Where-Object { $_.name -eq 'max-server-memory' -and $_.available }).Count -eq 1
-    recoveryModel = @($sqlQueries | Where-Object { $_.name -eq 'server-and-database-identity' -and $_.available }).Count -eq 1
-    databaseFiles = @($sqlQueries | Where-Object { $_.name -eq 'database-files' -and $_.available }).Count -eq 1
-    processMemory = @($sqlQueries | Where-Object { $_.name -eq 'process-memory' -and $_.available }).Count -eq 1
-    memoryGrants = @($sqlQueries | Where-Object { $_.name -eq 'query-memory-grants' -and $_.available }).Count -eq 1
-    resourceSemaphore = @($sqlQueries | Where-Object { $_.name -eq 'resource-semaphores' -and $_.available }).Count -eq 1
-    spillDmv = @($sqlQueries | Where-Object { $_.name -eq 'cached-query-spills' -and $_.available }).Count -eq 1
+    maxServerMemory = Test-SqlQueryAvailable $sqlQueries 'max-server-memory'
+    recoveryModel = Test-SqlQueryAvailable $sqlQueries 'server-and-database-identity'
+    databaseFiles = Test-SqlQueryAvailable $sqlQueries 'database-files'
+    processMemory = Test-SqlQueryAvailable $sqlQueries 'process-memory'
+    memoryGrants = Test-SqlQueryAvailable $sqlQueries 'query-memory-grants'
+    resourceSemaphore = Test-SqlQueryAvailable $sqlQueries 'resource-semaphores'
+    spillDmv = Test-SqlQueryAvailable $sqlQueries 'cached-query-spills'
 }
 $lastMemoryChange = $null
 $memoryChangeEvent = $sqlEvents | Where-Object {
@@ -531,7 +542,9 @@ $testEvidence = [ordered]@{
     sqlTarget = $tier1SqlTarget
     expectedProductMajor = [Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR')
     expectedCompatibilityLevel = [Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL')
-    minimumTier1Total = $MinimumTier1Total
+    minimumTier1Total = 700
+    attestationProvided = -not [string]::IsNullOrWhiteSpace($SqlTestAttestationPath)
+    attestationValid = $false
     realSqlTier1Satisfied = $false
     diagnosticCode = if ([string]::IsNullOrWhiteSpace($SqlTestTrxPath)) { 'SQL_TIER1_TRX_NOT_PROVIDED' } else { '' }
     exactCommand = 'dotnet test MesIngest.Tests --configuration Release --results-directory <path> --logger "trx;LogFileName=runtime-feedback-tier1.trx"'
@@ -549,11 +562,46 @@ if (-not [string]::IsNullOrWhiteSpace($SqlTestTrxPath)) {
             # VSTest/xUnit v2 records skipped UnitTestResult rows as NotExecuted but can leave the
             # TRX notExecuted counter at zero. Total - Executed is the authoritative skip count.
             $testEvidence.skipped = $testEvidence.total - $testEvidence.executed
-            $testEvidence.realSqlTier1Satisfied = $testEvidence.total -ge $MinimumTier1Total -and $testEvidence.failed -eq 0 -and
-                $testEvidence.skipped -eq 0 -and $testEvidence.sqlEnvironmentConfigured -and $testEvidence.sqlTarget.realInstance -and
-                -not [string]::IsNullOrWhiteSpace($testEvidence.expectedProductMajor) -and
-                -not [string]::IsNullOrWhiteSpace($testEvidence.expectedCompatibilityLevel)
-            if (-not $testEvidence.realSqlTier1Satisfied) { $testEvidence.diagnosticCode = 'REAL_SQL_TIER1_NOT_PROVEN' }
+            $storageNames = @($trx.TestRun.TestDefinitions.UnitTest | ForEach-Object { [IO.Path]::GetFileName([string]$_.storage) } | Sort-Object -Unique)
+            $trxCandidateValid = $testEvidence.total -ge 700 -and $testEvidence.failed -eq 0 -and
+                $testEvidence.skipped -eq 0 -and $storageNames.Count -eq 1 -and
+                [string]::Equals($storageNames[0], 'MesIngest.Tests.dll', [StringComparison]::OrdinalIgnoreCase)
+            if (-not $trxCandidateValid) { $testEvidence.diagnosticCode = 'REAL_SQL_TIER1_TRX_NOT_FULL_SUITE' }
+
+            if ($trxCandidateValid -and -not [string]::IsNullOrWhiteSpace($SqlTestAttestationPath) -and
+                (Test-Path -LiteralPath $SqlTestAttestationPath -PathType Leaf)) {
+                try {
+                    $attestation = Get-Content -Raw -LiteralPath $SqlTestAttestationPath | ConvertFrom-Json
+                    $attestedCompletedAt = [DateTimeOffset]::Parse(
+                        [string]$attestation.completedAt,
+                        [Globalization.CultureInfo]::InvariantCulture)
+                    $attestationAge = [DateTimeOffset]::UtcNow - $attestedCompletedAt.ToUniversalTime()
+                    $testEvidence.attestationValid = $attestation.schemaVersion -eq 1 -and
+                        [string]::Equals([string]$attestation.commandPattern, $testEvidence.exactCommand, [StringComparison]::Ordinal) -and
+                        [string]::Equals([string]$attestation.testAssembly, 'MesIngest.Tests.dll', [StringComparison]::OrdinalIgnoreCase) -and
+                        [string]::Equals([string]$attestation.platform, 'VSTest', [StringComparison]::Ordinal) -and
+                        [string]::Equals([string]$attestation.framework, 'xUnit v2', [StringComparison]::Ordinal) -and
+                        $attestation.exitCode -eq 0 -and
+                        [string]::Equals([string]$attestation.trxSha256, (Get-FileSha256 $SqlTestTrxPath), [StringComparison]::OrdinalIgnoreCase) -and
+                        $attestation.counts.total -eq $testEvidence.total -and
+                        $attestation.counts.executed -eq $testEvidence.executed -and
+                        $attestation.counts.passed -eq $testEvidence.passed -and
+                        $attestation.counts.failed -eq $testEvidence.failed -and
+                        $attestation.counts.skipped -eq $testEvidence.skipped -and
+                        $attestationAge.TotalHours -ge 0 -and $attestationAge.TotalHours -le 24 -and
+                        $testEvidence.sqlEnvironmentConfigured -and $testEvidence.sqlTarget.realInstance -and
+                        [string]::Equals([string]$attestation.sqlTarget.dataSource, $testEvidence.sqlTarget.dataSource, [StringComparison]::OrdinalIgnoreCase) -and
+                        [string]::Equals([string]$attestation.sqlTarget.database, $testEvidence.sqlTarget.database, [StringComparison]::OrdinalIgnoreCase) -and
+                        [string]::Equals([string]$attestation.expectedProductMajor, $testEvidence.expectedProductMajor, [StringComparison]::Ordinal) -and
+                        [string]::Equals([string]$attestation.expectedCompatibilityLevel, $testEvidence.expectedCompatibilityLevel, [StringComparison]::Ordinal) -and
+                        $attestation.actualProductMajor -eq [int]$testEvidence.expectedProductMajor -and
+                        $attestation.actualCompatibilityLevel -eq [int]$testEvidence.expectedCompatibilityLevel
+                    if (-not $testEvidence.attestationValid) { $testEvidence.diagnosticCode = 'SQL_TIER1_ATTESTATION_MISMATCH' }
+                } catch { $testEvidence.diagnosticCode = 'SQL_TIER1_ATTESTATION_INVALID' }
+            } elseif ($trxCandidateValid) {
+                $testEvidence.diagnosticCode = 'SQL_TIER1_ATTESTATION_NOT_PROVIDED'
+            }
+            $testEvidence.realSqlTier1Satisfied = $trxCandidateValid -and $testEvidence.attestationValid
         } catch { $testEvidence.diagnosticCode = 'SQL_TIER1_TRX_INVALID' }
     } else { $testEvidence.diagnosticCode = 'SQL_TIER1_TRX_NOT_FOUND' }
 }
