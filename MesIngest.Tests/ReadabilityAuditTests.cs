@@ -108,6 +108,7 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
     public void Audit_tokens_bind_snapshot_filters_area_order_contract_and_reject_tampering_or_reuse()
     {
         var snapshot = new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "commit-ticket10-a",
             ProjectionSequence: 17,
             new DateTimeOffset(2026, 8, 13, 22, 10, 0, TimeSpan.Zero),
@@ -172,6 +173,17 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
             out _,
             out var mismatch));
         Assert.Equal(ReadabilityAuditErrorCodes.CursorMismatch, mismatch!.Code);
+
+        Assert.False(ReadabilityAuditTokenCodec.TryReadCursor(
+            cursor,
+            snapshot with { HistoryEpoch = HistoryEpoch.CreateNew() },
+            filter,
+            ReadabilityAuditOrder.Default,
+            expectedPageSize: 25,
+            TokenSigningKey,
+            out _,
+            out var historyEpochMismatch));
+        Assert.Equal(ReadabilityAuditErrorCodes.CursorMismatch, historyEpochMismatch!.Code);
 
         var separator = cursor.IndexOf('.');
         var tampered = string.Concat(
@@ -346,6 +358,7 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
                 == "SL-T10-MULTI-DUP"
             && item.GetProperty("transportDemandKey").GetProperty("workType").GetString()
                 == "WIRE_TO_NITROGEN");
+        Assert.Equal(2, duplicate.GetProperty("currentRawObservationCount").GetInt32());
         var snapshotReference = audit.GetProperty("snapshotReference").GetString()!;
         var detail = await GetJsonAsync(
             client,
@@ -628,6 +641,8 @@ public sealed class ReadabilityAuditTests : IClassFixture<WebApplicationFactory<
         var retained = page1.GetProperty("snapshot");
         var expiredReference = ReadabilityAuditTokenCodec.CreateSnapshotReference(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.FromGuid(Guid.Parse(
+                    retained.GetProperty("historyEpoch").GetString()!)),
                 $"missing-{Guid.NewGuid():N}",
                 retained.GetProperty("projectionSequence").GetInt64() + 1000,
                 retained.GetProperty("projectionCommittedAt").GetDateTimeOffset(),

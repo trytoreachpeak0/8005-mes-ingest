@@ -7,6 +7,7 @@ namespace MesIngest.Core.SeriesProjection;
 public enum ProjectionReadSurface
 {
     DemandSeries,
+    ReadabilityAudit,
     Catalog,
     CurrentIngestAttention,
 }

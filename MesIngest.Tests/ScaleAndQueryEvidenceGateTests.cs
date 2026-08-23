@@ -337,7 +337,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
     [InlineData("ExternallyReadableDemandCatalog", "EXTERNALLY_READABLE_DEMAND_CATALOG", true)]
     [InlineData("CurrentIngestAttention", "CURRENT_INGEST_ATTENTION", true)]
     [InlineData("Overview", "OVERVIEW", true)]
-    public void Evidence_validator_rejects_ticket_07_raw_history_and_resource_regressions_without_sql(
+    [InlineData("ReadabilityAudit", "READABILITY_AUDIT", true)]
+    public void Evidence_validator_rejects_bounded_current_read_regressions_without_sql(
         string querySurface,
         string failurePrefix,
         bool requiresZeroRawHistoryReads)

@@ -2174,6 +2174,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
         var at = DateTimeOffset.Parse("2026-08-14T06:02:00Z");
         return new ReadabilityAuditListSnapshot(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-ticket-21-audit",
                 23,
                 at,

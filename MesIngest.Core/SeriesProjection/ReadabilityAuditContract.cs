@@ -191,6 +191,7 @@ public sealed record ReadabilityAuditQuery(
 }
 
 public sealed record ReadabilityAuditSnapshotIdentity(
+    HistoryEpoch HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -325,6 +326,7 @@ public sealed record ReadabilityAuditDetailSnapshot(
 
 public sealed record ReadabilityAuditCursor(
     string ContractVersion,
+    HistoryEpoch HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     long CatalogRevision,

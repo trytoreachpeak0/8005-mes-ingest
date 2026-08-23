@@ -353,6 +353,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                         projectionCommitId,
                         group.Observations[0],
                         uniqueObservation,
+                        group.Observations.Count,
                         cancellationToken).ConfigureAwait(false);
                 }
                 else if (string.Equals(current.DemandStatus, GoneDemandStatus, StringComparison.Ordinal))
@@ -370,6 +371,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                             round,
                             projectionCommitId,
                             uniqueObservation,
+                            group.Observations.Count,
                             cancellationToken).ConfigureAwait(false);
                         longGoneButVisible = true;
                     }
@@ -384,6 +386,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                             projectionCommitId,
                             group.Observations[0],
                             uniqueObservation,
+                            group.Observations.Count,
                             cancellationToken).ConfigureAwait(false);
                     }
                 }
@@ -402,6 +405,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                             current,
                             round,
                             projectionCommitId,
+                            group.Observations.Count,
                             cancellationToken).ConfigureAwait(false);
                     }
                     else
@@ -413,6 +417,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                             uniqueObservation,
                             round,
                             projectionCommitId,
+                            group.Observations.Count,
                             cancellationToken).ConfigureAwait(false);
                     }
                     identity = new ProjectedIdentity(current.SeriesId, current.DemandId);
@@ -2153,11 +2158,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 d.Step,
                 d.MesSourceDate,
                 d.Package,
-                (SELECT COUNT_BIG(*)
-                 FROM mesingest.DemandRawObservations AS latestObservation
-                 WHERE latestObservation.DemandId = d.DemandId
-                   AND latestObservation.ProjectionCommitId =
-                       d.LatestObservationProjectionCommitId)
+                d.CurrentRawObservationCount
             FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
             LEFT JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
                 ON d.DemandId = s.CurrentDemandId
@@ -2193,7 +2194,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             GetNullableString(reader, 12),
             GetNullableDateTimeOffset(reader, 13),
             GetNullableString(reader, 14),
-            reader.GetInt64(15));
+            reader.GetInt32(15));
     }
 
     private static async Task<ProjectedIdentity> InsertFirstGenerationAsync(
@@ -2203,6 +2204,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string projectionCommitId,
         PreparedObservation item,
         MesTaskUnionObservation? liveObservation,
+        int currentRawObservationCount,
         CancellationToken cancellationToken)
     {
         var seriesId = NewId();
@@ -2226,12 +2228,14 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
+                     LatestObservationProjectionCommitId, CurrentRawObservationCount,
+                     DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, 1, NULL, N'VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @currentRawObservationCount, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2247,6 +2251,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
             AddNVarChar(command, "@demandId", 64, demandId);
+            command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+                currentRawObservationCount;
             AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
             AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
             AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
@@ -2300,6 +2306,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string projectionCommitId,
         PreparedObservation item,
         MesTaskUnionObservation? liveObservation,
+        int currentRawObservationCount,
         CancellationToken cancellationToken)
     {
         var demandId = NewId();
@@ -2312,12 +2319,14 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
+                     LatestObservationProjectionCommitId, CurrentRawObservationCount,
+                     DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, @generation, @predecessorDemandId, N'VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @currentRawObservationCount, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2335,6 +2344,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+                currentRawObservationCount;
             AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
             AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
             AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
@@ -2385,6 +2396,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionRound round,
         string projectionCommitId,
         MesTaskUnionObservation? liveObservation,
+        int currentRawObservationCount,
         CancellationToken cancellationToken)
     {
         var demandId = NewId();
@@ -2397,12 +2409,14 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
                      CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
                      CreatedProjectionCommitId, LatestProjectionCommitId,
-                     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt,
+                     LatestObservationProjectionCommitId, CurrentRawObservationCount,
+                     DemandRevision, ValueObservedAt,
                      Area, Eqp, Step, MesSourceDate, Package)
                 VALUES
                     (@demandId, @seriesId, @generation, @predecessorDemandId, N'LONG_GONE_BUT_VISIBLE',
                      @occurredAt, @occurredAt, NULL, @pollTraceId,
-                     @projectionCommitId, @projectionCommitId, @projectionCommitId, 1, @occurredAt,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @currentRawObservationCount, 1, @occurredAt,
                      @area, @eqp, @step, @mesSourceDate, @package);
 
                 UPDATE mesingest.DemandSeries
@@ -2421,6 +2435,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+                currentRawObservationCount;
             AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
             AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
             AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
@@ -2622,6 +2638,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         MesTaskUnionObservation observation,
         MesTaskUnionRound round,
         string projectionCommitId,
+        int currentRawObservationCount,
         CancellationToken cancellationToken)
     {
         var changes = GetLiveFieldChanges(current, observation);
@@ -2663,6 +2680,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
                 LatestObservationProjectionCommitId = @projectionCommitId,
+                CurrentRawObservationCount = @currentRawObservationCount,
                 DemandLastSeenAt = @completedAt,
                 DemandRevision = DemandRevision +
                     CASE WHEN @businessValueChanged = 1 THEN 1 ELSE 0 END,
@@ -2678,6 +2696,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddNVarChar(command, "@seriesId", 64, current.SeriesId);
         AddNVarChar(command, "@demandId", 64, current.DemandId);
+        command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+            currentRawObservationCount;
         command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = nextSequence - 1;
         command.Parameters.Add("@businessValueChanged", SqlDbType.Bit).Value = businessValueChanged;
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
@@ -2706,6 +2726,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         CurrentProjectionRow current,
         MesTaskUnionRound round,
         string projectionCommitId,
+        int currentRawObservationCount,
         CancellationToken cancellationToken)
     {
         var businessValueChanged = current.LatestObservationCount == 1;
@@ -2719,6 +2740,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             UPDATE mesingest.TransportDemands
             SET LatestProjectionCommitId = @projectionCommitId,
                 LatestObservationProjectionCommitId = @projectionCommitId,
+                CurrentRawObservationCount = @currentRawObservationCount,
                 DemandLastSeenAt = @completedAt,
                 DemandRevision = DemandRevision +
                     CASE WHEN @businessValueChanged = 1 THEN 1 ELSE 0 END,
@@ -2729,6 +2751,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddNVarChar(command, "@seriesId", 64, current.SeriesId);
         AddNVarChar(command, "@demandId", 64, current.DemandId);
+        command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+            currentRawObservationCount;
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
         command.Parameters.Add("@businessValueChanged", SqlDbType.Bit).Value = businessValueChanged;
         if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
@@ -4350,7 +4374,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string? Step,
         DateTimeOffset? MesSourceDate,
         string? Package,
-        long LatestObservationCount);
+        int LatestObservationCount);
 
     private sealed record DemandSeriesRow(
         string SeriesId,

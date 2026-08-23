@@ -1118,6 +1118,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
         var at = DateTimeOffset.Parse("2026-08-14T05:00:00Z");
         return new ReadabilityAuditListSnapshot(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-audit-source",
                 ProjectionSequence: 200,
                 at,

@@ -523,6 +523,7 @@ public sealed class ScriptedFakeHostV2SurfaceTests
     {
         var at = DateTimeOffset.Parse("2026-08-14T03:04:05Z");
         var identity = new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "audit-commit-18",
             19,
             at,

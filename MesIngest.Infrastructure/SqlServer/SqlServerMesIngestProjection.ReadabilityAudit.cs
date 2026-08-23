@@ -25,10 +25,19 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
         try
         {
+            var isCurrentRead = query.SnapshotReference is null;
+            if (isCurrentRead)
+            {
+                await AcquireCommitRoundReadFenceLockAsync(
+                    connection,
+                    transaction,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             var signingKey = await ReadSnapshotTokenSigningKeyAsync(
                 connection,
                 transaction,
@@ -38,6 +47,14 @@ public sealed partial class SqlServerMesIngestProjection
                 transaction,
                 query.SnapshotReference,
                 signingKey,
+                cancellationToken).ConfigureAwait(false);
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.ReadabilityAudit,
+                new ProjectionReadFence(
+                    snapshot.HistoryEpoch,
+                    snapshot.ProjectionCommitId,
+                    snapshot.ProjectionSequence,
+                    snapshot.CatalogRevision),
                 cancellationToken).ConfigureAwait(false);
 
             var pageNumber = query.PageNumber;
@@ -63,6 +80,7 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 snapshot.ProjectionSequence,
+                isCurrentRead,
                 query.Filter,
                 pageNumber,
                 query.PageSize,
@@ -124,7 +142,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
         try
         {
@@ -137,6 +155,14 @@ public sealed partial class SqlServerMesIngestProjection
                 transaction,
                 snapshotReference,
                 signingKey,
+                cancellationToken).ConfigureAwait(false);
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.ReadabilityAudit,
+                new ProjectionReadFence(
+                    snapshot.HistoryEpoch,
+                    snapshot.ProjectionCommitId,
+                    snapshot.ProjectionSequence,
+                    snapshot.CatalogRevision),
                 cancellationToken).ConfigureAwait(false);
             var state = (await ReadAuditStatesAsync(
                     connection,
@@ -203,7 +229,7 @@ public sealed partial class SqlServerMesIngestProjection
         }
     }
 
-    private static async Task<ReadabilityAuditSnapshotIdentity> ResolveReadabilityAuditSnapshotAsync(
+    private async Task<ReadabilityAuditSnapshotIdentity> ResolveReadabilityAuditSnapshotAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         string? snapshotReference,
@@ -221,27 +247,37 @@ public sealed partial class SqlServerMesIngestProjection
             throw new ReadabilityAuditException(tokenError!.Code, tokenError.Message);
         }
 
+        if (requested is not null && requested.HistoryEpoch != _historyEpoch)
+        {
+            throw new ReadabilityAuditException(
+                ReadabilityAuditErrorCodes.SnapshotMismatch,
+                "The audit snapshot reference belongs to another history epoch.");
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = requested is null
             ? """
               SELECT TOP (1) ProjectionCommitId, ProjectionSequence, CommittedAt,
-                     PollTraceId, CatalogRevision
+                     PollTraceId, CatalogRevision, HistoryEpoch
               FROM mesingest.ProjectionCommits
               ORDER BY ProjectionSequence DESC;
               """
             : """
               SELECT ProjectionCommitId, ProjectionSequence, CommittedAt,
-                     PollTraceId, CatalogRevision
+                     PollTraceId, CatalogRevision, HistoryEpoch
               FROM mesingest.ProjectionCommits
               WHERE ProjectionCommitId = @projectionCommitId
-                AND ProjectionSequence = @projectionSequence;
+                AND ProjectionSequence = @projectionSequence
+                AND HistoryEpoch = @historyEpoch;
               """;
         if (requested is not null)
         {
             AddNVarChar(command, "@projectionCommitId", 64, requested.ProjectionCommitId);
             command.Parameters.Add("@projectionSequence", SqlDbType.BigInt).Value =
                 requested.ProjectionSequence;
+            command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
+                requested.HistoryEpoch.Value;
         }
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -256,6 +292,7 @@ public sealed partial class SqlServerMesIngestProjection
                     : "The referenced projection commit is not retained.");
         }
         var resolved = new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.FromGuid(reader.GetGuid(5)),
             reader.GetString(0),
             reader.GetInt64(1),
             reader.GetFieldValue<DateTimeOffset>(2),
@@ -277,12 +314,24 @@ public sealed partial class SqlServerMesIngestProjection
         SqlConnection connection,
         SqlTransaction transaction,
         long snapshotSequence,
+        bool useCurrentReadModel,
         ReadabilityAuditFilter filter,
         int pageNumber,
         int pageSize,
         ReadabilityAuditCursor? cursor,
         CancellationToken cancellationToken)
     {
+        if (useCurrentReadModel)
+        {
+            return await ReadCurrentAuditPageAsync(
+                connection,
+                transaction,
+                filter,
+                pageNumber,
+                pageSize,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var normalized = filter.Normalize();
         var offset = checked((long)(pageNumber - 1) * pageSize);
         await using var command = connection.CreateCommand();
@@ -693,6 +742,15 @@ public sealed partial class SqlServerMesIngestProjection
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
+        return await ReadAuditPageResultsAsync(reader, pageSize, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<AuditPageState> ReadAuditPageResultsAsync(
+        SqlDataReader reader,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException("The readability audit total is missing.");

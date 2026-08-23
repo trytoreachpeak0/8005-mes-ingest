@@ -346,6 +346,7 @@ internal sealed record WatchV2FrozenDemandSeriesWire(
 }
 
 internal sealed record WatchV2ReadabilityAuditSnapshotIdentityWire(
+    string HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -354,6 +355,7 @@ internal sealed record WatchV2ReadabilityAuditSnapshotIdentityWire(
     string ContractVersion)
 {
     public ReadabilityAuditSnapshotIdentity ToCore() => new(
+        MesIngest.Core.SeriesProjection.HistoryEpoch.FromGuid(Guid.Parse(HistoryEpoch)),
         ProjectionCommitId,
         ProjectionSequence,
         ProjectionCommittedAt,

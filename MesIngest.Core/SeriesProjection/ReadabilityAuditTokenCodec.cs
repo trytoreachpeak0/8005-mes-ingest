@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MesIngest.Core.SeriesProjection;
 
@@ -10,7 +11,7 @@ public static class ReadabilityAuditTokenCodec
     private const string CursorPurpose = "readability-audit-cursor-v1";
     private const int MinimumKeyLength = 32;
     private const int MaximumTokenLength = 4096;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     public static string CreateSnapshotReference(
         ReadabilityAuditSnapshotIdentity identity,
@@ -97,6 +98,7 @@ public static class ReadabilityAuditTokenCodec
             CursorPurpose,
             new ReadabilityAuditCursor(
                 snapshot.ContractVersion,
+                snapshot.HistoryEpoch,
                 snapshot.ProjectionCommitId,
                 snapshot.ProjectionSequence,
                 snapshot.CatalogRevision,
@@ -142,6 +144,7 @@ public static class ReadabilityAuditTokenCodec
 
         if (!string.Equals(cursor!.ContractVersion, NewMesIngestContract.Version, StringComparison.Ordinal)
             || !string.Equals(cursor.ContractVersion, expectedSnapshot.ContractVersion, StringComparison.Ordinal)
+            || cursor.HistoryEpoch != expectedSnapshot.HistoryEpoch
             || !string.Equals(cursor.ProjectionCommitId, expectedSnapshot.ProjectionCommitId, StringComparison.Ordinal)
             || cursor.ProjectionSequence != expectedSnapshot.ProjectionSequence
             || cursor.CatalogRevision != expectedSnapshot.CatalogRevision
@@ -269,6 +272,7 @@ public static class ReadabilityAuditTokenCodec
 
     private static void ValidateIdentity(ReadabilityAuditSnapshotIdentity identity)
     {
+        ArgumentNullException.ThrowIfNull(identity.HistoryEpoch);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ProjectionCommitId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.PollTraceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ContractVersion);
@@ -332,6 +336,35 @@ public static class ReadabilityAuditTokenCodec
             bytes = [];
             return false;
         }
+    }
+
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new HistoryEpochJsonConverter());
+        return options;
+    }
+
+    private sealed class HistoryEpochJsonConverter : JsonConverter<HistoryEpoch>
+    {
+        public override HistoryEpoch Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            var text = reader.GetString();
+            if (!Guid.TryParseExact(text, "D", out var value) || value == Guid.Empty)
+            {
+                throw new JsonException("The HistoryEpoch token value is invalid.");
+            }
+
+            return HistoryEpoch.FromGuid(value);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            HistoryEpoch value,
+            JsonSerializerOptions options) => writer.WriteStringValue(value.ToString());
     }
 
     private sealed record CanonicalFilter(

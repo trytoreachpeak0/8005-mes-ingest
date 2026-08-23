@@ -838,6 +838,7 @@ public sealed class WatchV2AutoRefreshTests
                 ];
             return new ReadabilityAuditListSnapshot(
                 new ReadabilityAuditSnapshotIdentity(
+                    HistoryEpoch.CreateNew(),
                     projectionCommitId,
                     1,
                     at,

@@ -4814,6 +4814,7 @@
         "required": [
           "catalogRevision",
           "contractVersion",
+          "historyEpoch",
           "pollTraceId",
           "projectionCommitId",
           "projectionCommittedAt",
@@ -4821,6 +4822,10 @@
         ],
         "type": "object",
         "properties": {
+          "historyEpoch": {
+            "type": "string",
+            "description": "Frozen ReadabilityAuditSnapshotIdentityDto.historyEpoch contract field."
+          },
           "projectionCommitId": {
             "type": "string",
             "description": "ProjectionCommit identity from one atomic successful round."

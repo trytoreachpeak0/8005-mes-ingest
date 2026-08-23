@@ -78,6 +78,7 @@ public sealed class HistoryEpochTests
             new[]
             {
                 ProjectionReadSurface.DemandSeries,
+                ProjectionReadSurface.ReadabilityAudit,
                 ProjectionReadSurface.Catalog,
                 ProjectionReadSurface.CurrentIngestAttention,
             },
