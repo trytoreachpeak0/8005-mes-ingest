@@ -166,6 +166,36 @@ $env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL = '160'
 程序集、TRX SHA-256、计数、SQL 目标和实际版本全部匹配时，报告才写
 `realSqlTier1Satisfied=true`。
 
+## 规模数据与查询证据门禁
+
+`validation/Invoke-ScaleAndQueryEvidence.ps1` 是独立的破坏性验证入口，不属于日常 Host。它只接受
+指向 `master` 的真实 SQL Server 连接和一个尚不存在、名称匹配 `MesIngest_Scale_*` 的显式目标；
+系统库、LocalDB、现有库、`MesIngest_V2` 和无法证明所有权的库都会在删除前被拒绝。运行账号需要
+`CREATE ANY DATABASE` 与 `ALTER ANY EVENT SESSION`。先准备第 1 票生成的 Skipped=0 Tier 1
+attestation，再执行例如 7 天 profile：
+
+```powershell
+$env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master connection>'
+.alidation\Invoke-ScaleAndQueryEvidence.ps1 `
+  -ProfileDays 7 `
+  -DatabaseName MesIngest_Scale_Ticket02_7Day `
+  -ConfirmIsolatedDatabase MESINGEST_SCALE_EVIDENCE_ONLY `
+  -SqlTier1AttestationPath C:\MesIngestEvidence\runtime-feedback-tier1-attestation.json `
+  -OutputRoot C:\MesIngestEvidence\scale-query
+```
+
+可选 profile 只有 0、7、30。默认分布固定为每 14 秒 600 条观测、600 个 Series、70% 活跃、
+30% 归档、10% 活动错误；数据种子、锚点时间、查询参数、构建、contract/schema 和 SQL Server
+身份都会写入重放清单。工具通过包内生产 Host 的唯一 V2 API 驱动 DemandSeries、外部目录、当前关注、
+Overview、ReadabilityAudit、ErrorSearch 与原始证据，并以 Extended Events 记录每个查询面的实际计划、
+逻辑读、CPU/耗时、内存授予和 spill。存储报告分别列出逻辑已用空间、MDF/NDF、LDF、表、聚集索引、
+非聚集索引和压缩状态。
+
+默认成功或失败后都会验证数据库扩展属性中的精确 run ID，再删除本次创建的库；`-KeepDatabase` 只供
+人工故障调查。缺少任一查询面的实际计划/statement 指标、空数据、未知构建身份，或 Tier 1
+`Skipped` 非 0 时，仍会保存证据但门禁失败。7/30 天 profile 会写入约 2592 万/1.11 亿条原始观测，
+应预留足够时间与隔离磁盘；日常实现或 Tier 1 不会自动运行它们。
+
 ## 基本故障排查
 
 | 现象 | 检查 |

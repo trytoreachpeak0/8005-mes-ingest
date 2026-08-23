@@ -85,13 +85,19 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
     }
 
     [Fact]
-    public void The_attended_cutover_drill_is_the_only_thing_that_deletes_a_database()
+    public void Only_attended_cutover_or_owned_scale_validation_can_delete_a_database()
     {
         var cutoverDirectory = Path.Combine(RepositoryPaths.CSharpRoot, "pack", "cutover")
             + Path.DirectorySeparatorChar;
+        var ownedScaleValidation = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1");
 
         var offenders = ScannedFiles(ExecutableExtensions, includeTestProjects: false)
             .Where(path => !path.StartsWith(cutoverDirectory, StringComparison.OrdinalIgnoreCase))
+            .Where(path => !path.Equals(ownedScaleValidation, StringComparison.OrdinalIgnoreCase))
             .Where(path => DropDatabaseRegex().IsMatch(File.ReadAllText(path)))
             .Select(RepositoryPaths.ToRelative)
             .Order(StringComparer.Ordinal)
@@ -99,7 +105,7 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
 
         Assert.True(
             offenders.Length == 0,
-            "Only the attended cutover drill may delete a database; these can too: "
+            "Only attended cutover or owned scale validation may delete a database; these can too: "
             + string.Join(", ", offenders));
     }
 
