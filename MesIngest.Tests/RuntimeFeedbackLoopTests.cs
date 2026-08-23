@@ -48,6 +48,7 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.Contains("dotnet test MesIngest.Tests", tier1Runner, StringComparison.Ordinal);
         Assert.Contains("LocalDB is rejected", tier1Runner, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback-tier1-attestation.json", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("Convert]::ToInt32($reader.GetValue(1)", tier1Runner, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.json", collector, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.md", collector, StringComparison.Ordinal);
         Assert.Contains("Invoke-RuntimeFeedbackLoop.ps1", publish, StringComparison.Ordinal);

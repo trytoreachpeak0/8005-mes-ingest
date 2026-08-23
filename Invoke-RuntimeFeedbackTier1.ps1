@@ -47,8 +47,8 @@ WHERE d.name = DB_NAME();
         $reader = $command.ExecuteReader()
         try {
             if (-not $reader.Read()) { throw 'SQL Server identity query returned no row.' }
-            $actualProductMajor = $reader.GetInt32(0)
-            $actualCompatibilityLevel = $reader.GetInt32(1)
+            $actualProductMajor = [Convert]::ToInt32($reader.GetValue(0), [Globalization.CultureInfo]::InvariantCulture)
+            $actualCompatibilityLevel = [Convert]::ToInt32($reader.GetValue(1), [Globalization.CultureInfo]::InvariantCulture)
         } finally { $reader.Dispose() }
     } finally { $command.Dispose() }
 } finally { $connection.Dispose() }
