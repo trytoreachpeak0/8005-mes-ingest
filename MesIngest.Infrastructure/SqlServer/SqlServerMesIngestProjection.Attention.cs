@@ -32,6 +32,7 @@ public sealed partial class SqlServerMesIngestProjection
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.CurrentIngestAttention,
                 new ProjectionReadFence(
+                    _historyEpoch,
                     snapshot.ProjectionCommitId,
                     snapshot.ProjectionSequence,
                     snapshot.CatalogRevision,

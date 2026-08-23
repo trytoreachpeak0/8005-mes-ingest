@@ -1,3 +1,4 @@
+using MesIngest.Core.SeriesProjection;
 using Microsoft.Data.SqlClient;
 
 namespace MesIngest.Infrastructure.SqlServer;
@@ -17,7 +18,8 @@ public enum ProjectionCommitCheckpoint
 
 public sealed record ProjectionCommitCheckpointContext(
     string PollTraceId,
-    string ProjectionCommitId);
+    string ProjectionCommitId,
+    HistoryEpoch HistoryEpoch);
 
 /// <summary>
 /// Injectable production seam for observing or deliberately failing a SQL

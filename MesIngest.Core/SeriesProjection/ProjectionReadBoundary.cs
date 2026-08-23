@@ -16,6 +16,7 @@ public enum ProjectionReadSurface
 /// Fields that do not apply to a surface, and the initial empty catalog, are null.
 /// </summary>
 public sealed record ProjectionReadFence(
+    HistoryEpoch HistoryEpoch,
     string? ProjectionCommitId,
     long? ProjectionSequence,
     long? CatalogRevision = null,

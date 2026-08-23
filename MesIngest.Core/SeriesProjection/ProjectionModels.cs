@@ -7,7 +7,8 @@ public sealed record RoundCommitReceipt(
     IReadOnlyList<string> SeriesIds,
     IReadOnlyList<string> DemandIds,
     bool IsReplay,
-    long? ProjectionSequence = null);
+    long? ProjectionSequence = null,
+    HistoryEpoch? HistoryEpoch = null);
 
 public sealed record ProjectionCommitSnapshot(
     string ProjectionCommitId,

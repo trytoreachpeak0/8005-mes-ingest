@@ -40,11 +40,13 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     private readonly IWatchOverviewReadBoundaryObserver _overviewReadBoundaryObserver;
     private readonly IProjectionCommitCheckpointObserver _checkpointObserver;
     private readonly IProjectionReadBoundaryObserver _readBoundaryObserver;
+    private readonly HistoryEpochBootstrapIntent? _historyEpochBootstrapIntent;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
     private volatile bool _schemaEnsured;
     private volatile bool _hostSessionInitialized;
+    private HistoryEpoch _historyEpoch = null!;
 
     public SqlServerMesIngestProjection(
         string connectionString,
@@ -52,7 +54,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         TimeProvider? timeProvider = null,
         IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null,
         IProjectionCommitCheckpointObserver? checkpointObserver = null,
-        IProjectionReadBoundaryObserver? readBoundaryObserver = null)
+        IProjectionReadBoundaryObserver? readBoundaryObserver = null,
+        HistoryEpochBootstrapIntent? historyEpochBootstrapIntent = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -78,6 +81,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             ?? NoopProjectionCommitCheckpointObserver.Instance;
         _readBoundaryObserver = readBoundaryObserver
             ?? NoopProjectionReadBoundaryObserver.Instance;
+        _historyEpochBootstrapIntent = historyEpochBootstrapIntent;
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)
@@ -213,6 +217,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     connection,
                     transaction,
                     existing,
+                    _historyEpoch,
                     cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return replay;
@@ -254,10 +259,12 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 hostSession.RestartPhase,
                 restartPhaseAfter,
                 restartTransition.AbsenceAuthority,
+                _historyEpoch,
                 cancellationToken).ConfigureAwait(false);
             var checkpointContext = new ProjectionCommitCheckpointContext(
                 round.PollTraceId,
-                projectionCommitId);
+                projectionCommitId,
+                _historyEpoch);
             await _checkpointObserver.OnCheckpointAsync(
                 ProjectionCommitCheckpoint.RoundEvidencePersisted,
                 checkpointContext,
@@ -524,7 +531,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 StableDistinct(seriesIds),
                 StableDistinct(demandIds),
                 IsReplay: false,
-                projectionSequence);
+                projectionSequence,
+                _historyEpoch);
         }
         catch (Exception exception)
         {
@@ -1205,7 +1213,10 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
             await using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-            await SqlServerMesIngestSchema.EnsureAsync(connection, cancellationToken)
+            _historyEpoch = await SqlServerMesIngestSchema.EnsureAsync(
+                    connection,
+                    _historyEpochBootstrapIntent,
+                    cancellationToken)
                 .ConfigureAwait(false);
             _schemaEnsured = true;
         }
@@ -1696,6 +1707,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         SqlConnection connection,
         SqlTransaction transaction,
         PollTraceRow existing,
+        HistoryEpoch historyEpoch,
         CancellationToken cancellationToken)
     {
         if (existing.ProjectionCommitId is null)
@@ -1767,7 +1779,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             StableDistinct(seriesIds),
             StableDistinct(demandIds),
             IsReplay: true,
-            existing.ProjectionSequence);
+            existing.ProjectionSequence,
+            historyEpoch);
     }
 
     private static IReadOnlyList<string> StableDistinct(IReadOnlyList<string> values)
@@ -1828,6 +1841,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string restartPhaseBefore,
         string restartPhaseAfter,
         bool absenceAuthority,
+        HistoryEpoch historyEpoch,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -1842,11 +1856,13 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
 
             INSERT INTO mesingest.ProjectionCommits
                 (ProjectionCommitId, PollTraceId, CommittedAt, HostSessionId,
-                 RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority, CatalogRevision)
+                 RestartPhaseBefore, RestartPhaseAfter, AbsenceAuthority,
+                 CatalogRevision, HistoryEpoch)
             VALUES
                 (@projectionCommitId, @pollTraceId, @completedAt, @hostSessionId,
                  @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority,
-                 (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1));
+                 (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1),
+                 @historyEpoch);
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -1859,6 +1875,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNVarChar(command, "@restartPhaseBefore", 32, restartPhaseBefore);
         AddNVarChar(command, "@restartPhaseAfter", 32, restartPhaseAfter);
         command.Parameters.Add("@absenceAuthority", SqlDbType.Bit).Value = absenceAuthority;
+        command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
+            historyEpoch.Value;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 

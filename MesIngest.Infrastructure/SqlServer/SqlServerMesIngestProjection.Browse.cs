@@ -35,6 +35,7 @@ public sealed partial class SqlServerMesIngestProjection
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.DemandSeries,
                 new ProjectionReadFence(
+                    _historyEpoch,
                     snapshot.ProjectionCommitId,
                     snapshot.ProjectionSequence),
                 cancellationToken).ConfigureAwait(false);
@@ -143,6 +144,7 @@ public sealed partial class SqlServerMesIngestProjection
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.DemandSeries,
                 new ProjectionReadFence(
+                    _historyEpoch,
                     snapshot.ProjectionCommitId,
                     snapshot.ProjectionSequence),
                 cancellationToken).ConfigureAwait(false);

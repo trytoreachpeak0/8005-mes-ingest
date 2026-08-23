@@ -6,8 +6,9 @@ namespace MesIngest.Infrastructure.SqlServer;
 
 internal static class SqlServerMesIngestSchema
 {
-    public static async Task EnsureAsync(
+    public static async Task<HistoryEpoch> EnsureAsync(
         SqlConnection connection,
+        HistoryEpochBootstrapIntent? historyEpochBootstrapIntent,
         CancellationToken cancellationToken)
     {
         var sessionLockHeld = false;
@@ -19,6 +20,13 @@ internal static class SqlServerMesIngestSchema
                 await command.ExecuteScalarAsync(cancellationToken),
                 System.Globalization.CultureInfo.InvariantCulture);
             sessionLockHeld = true;
+
+            if (userObjectCount != 0 && historyEpochBootstrapIntent is not null)
+            {
+                throw new InvalidOperationException(
+                    "A new HistoryEpoch can only be requested for an empty database; "
+                    + "an existing database is never rotated in place.");
+            }
 
             if (userObjectCount == 0)
             {
@@ -46,6 +54,8 @@ internal static class SqlServerMesIngestSchema
                     NewMesIngestContract.Version;
                 command.Parameters.Add("@keyComparison", SqlDbType.NVarChar, 128).Value =
                     NewMesIngestContract.KeyComparison;
+                command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
+                    HistoryEpoch.CreateNew().Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
 
                 command.Parameters.Clear();
@@ -54,7 +64,8 @@ internal static class SqlServerMesIngestSchema
                         SchemaVersion,
                         ContractVersion,
                         TransportDemandKeyComparison,
-                        DATALENGTH(SnapshotTokenSigningKey)
+                        DATALENGTH(SnapshotTokenSigningKey),
+                        HistoryEpoch
                     FROM mesingest.SchemaInfo
                     WHERE Id = 1;
                     """;
@@ -63,14 +74,17 @@ internal static class SqlServerMesIngestSchema
                     || reader.GetInt32(0) != NewMesIngestContract.SchemaVersion
                     || !string.Equals(reader.GetString(1), NewMesIngestContract.Version, StringComparison.Ordinal)
                     || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal)
-                    || reader.GetInt32(3) != 32)
+                    || reader.GetInt32(3) != 32
+                    || reader.GetGuid(4) == Guid.Empty)
                 {
                     throw new InvalidOperationException(
                         "The configured database does not contain the expected new-MesIngest schema contract.");
                 }
 
+                var historyEpoch = HistoryEpoch.FromGuid(reader.GetGuid(4));
                 await reader.DisposeAsync();
                 await transaction.CommitAsync(cancellationToken);
+                return historyEpoch;
             }
             catch (Exception exception)
             {
@@ -141,6 +155,8 @@ internal static class SqlServerMesIngestSchema
             ContractVersion NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             TransportDemandKeyComparison NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             SnapshotTokenSigningKey VARBINARY(32) NOT NULL,
+            HistoryEpoch UNIQUEIDENTIFIER NOT NULL
+                CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch UNIQUE,
             CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
             CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
                 CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
@@ -185,10 +201,13 @@ internal static class SqlServerMesIngestSchema
             RestartPhaseAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             AbsenceAuthority BIT NOT NULL,
             CatalogRevision BIGINT NOT NULL,
+            HistoryEpoch UNIQUEIDENTIFIER NOT NULL,
             CONSTRAINT UQ_MesIngest_ProjectionCommits_Sequence UNIQUE (ProjectionSequence),
             CONSTRAINT UQ_MesIngest_ProjectionCommits_PollTrace UNIQUE (PollTraceId),
             CONSTRAINT FK_MesIngest_ProjectionCommits_PollTrace
-                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId)
+                FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
+            CONSTRAINT FK_MesIngest_ProjectionCommits_HistoryEpoch
+                FOREIGN KEY (HistoryEpoch) REFERENCES mesingest.SchemaInfo (HistoryEpoch)
         );
 
         CREATE TABLE mesingest.ProjectionCommitUnassignedObservationFacts
@@ -664,9 +683,11 @@ internal static class SqlServerMesIngestSchema
             (1, 0, NULL);
 
         INSERT INTO mesingest.SchemaInfo
-            (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison, SnapshotTokenSigningKey)
+            (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison,
+             SnapshotTokenSigningKey, HistoryEpoch)
         VALUES
-            (1, @schemaVersion, @contractVersion, @keyComparison, CRYPT_GEN_RANDOM(32));
+            (1, @schemaVersion, @contractVersion, @keyComparison,
+             CRYPT_GEN_RANDOM(32), @historyEpoch);
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -770,6 +791,7 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 3, N'ContractVersion', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'SchemaInfo', 4, N'TransportDemandKeyComparison', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
+            (N'SchemaInfo', 6, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -792,6 +814,7 @@ internal static class SqlServerMesIngestSchema
             (N'ProjectionCommits', 7, N'RestartPhaseAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 8, N'AbsenceAuthority', N'bit', 1, 1, 0, 0, NULL),
             (N'ProjectionCommits', 9, N'CatalogRevision', N'bigint', 8, 19, 0, 0, NULL),
+            (N'ProjectionCommits', 10, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
 
             (N'ProjectionCommitUnassignedObservationFacts', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommitUnassignedObservationFacts', 2, N'ObservationCount', N'int', 4, 10, 0, 0, NULL),
@@ -1067,6 +1090,7 @@ internal static class SqlServerMesIngestSchema
         );
         INSERT INTO @ExpectedKeys VALUES
             (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
+            (N'UQ_MesIngest_SchemaInfo_HistoryEpoch', N'SchemaInfo', 0, 1, 1, N'HistoryEpoch', 0),
             (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
             (N'UQ_MesIngest_PollTraces_Sequence', N'PollTraces', 0, 1, 1, N'PollTraceSequence', 0),
             (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
@@ -1176,6 +1200,7 @@ internal static class SqlServerMesIngestSchema
         );
         INSERT INTO @ExpectedForeignKeys VALUES
             (N'FK_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', N'PollTraceId', N'PollTraces', N'PollTraceId'),
+            (N'FK_MesIngest_ProjectionCommits_HistoryEpoch', N'ProjectionCommits', N'HistoryEpoch', N'SchemaInfo', N'HistoryEpoch'),
             (N'FK_MesIngest_ProjectionCommits_HostSession', N'ProjectionCommits', N'HostSessionId', N'HostSessions', N'HostSessionId'),
             (N'FK_MesIngest_ProjectionCommitUnassignedObservationFacts_Commit', N'ProjectionCommitUnassignedObservationFacts', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
             (N'FK_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
@@ -1226,7 +1251,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 47
+            WHERE s.name = N'mesingest') <> 48
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1653,6 +1678,7 @@ internal static class SqlServerMesIngestSchema
               AND ContractVersion = @contractVersion COLLATE Latin1_General_100_BIN2
               AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2
               AND DATALENGTH(SnapshotTokenSigningKey) = 32
+              AND HistoryEpoch <> '00000000-0000-0000-0000-000000000000'
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
         """;
