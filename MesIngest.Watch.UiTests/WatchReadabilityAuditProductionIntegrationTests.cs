@@ -811,6 +811,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
     }
 
     private static ReadabilityAuditSnapshotIdentity AuditIdentity(DateTimeOffset at) => new(
+        HistoryEpoch.FromGuid(Guid.Parse("12121212-1212-1212-1212-121212121212")),
         "audit-commit-21",
         211,
         at,

@@ -1745,6 +1745,7 @@ internal sealed record ReadabilityQualificationCheckDefinitionDto(
 }
 
 internal sealed record ReadabilityAuditSnapshotIdentityDto(
+    string HistoryEpoch,
     string ProjectionCommitId,
     long ProjectionSequence,
     DateTimeOffset ProjectionCommittedAt,
@@ -1754,6 +1755,7 @@ internal sealed record ReadabilityAuditSnapshotIdentityDto(
 {
     public static ReadabilityAuditSnapshotIdentityDto From(ReadabilityAuditSnapshotIdentity snapshot) =>
         new(
+            snapshot.HistoryEpoch.ToString(),
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,
             snapshot.ProjectionCommittedAt,

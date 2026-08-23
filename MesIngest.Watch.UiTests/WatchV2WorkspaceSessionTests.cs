@@ -1094,7 +1094,8 @@ public sealed class WatchV2WorkspaceSessionTests
         string demandId)
     {
         var at = DateTimeOffset.Parse("2026-08-14T01:00:00Z");
-        var identity = new ReadabilityAuditSnapshotIdentity(commit, 1, at, "poll-a", 1);
+        var identity = new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.CreateNew(), commit, 1, at, "poll-a", 1);
         var item = new ReadabilityAuditListItemSnapshot(
             demandId,
             "series-a",
@@ -1138,7 +1139,8 @@ public sealed class WatchV2WorkspaceSessionTests
     {
         var commit = snapshotReference["snapshot-".Length..];
         var at = DateTimeOffset.Parse("2026-08-14T01:00:00Z");
-        var identity = new ReadabilityAuditSnapshotIdentity(commit, 1, at, "poll-a", 1);
+        var identity = new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.CreateNew(), commit, 1, at, "poll-a", 1);
         var item = AuditSnapshot(
             commit,
             new ReadabilityAuditQuery(new ReadabilityAuditFilter()),

@@ -409,6 +409,7 @@ $boundedCurrentSurfaceFailurePrefixes = @{
     ExternallyReadableDemandCatalog = 'EXTERNALLY_READABLE_DEMAND_CATALOG'
     CurrentIngestAttention = 'CURRENT_INGEST_ATTENTION'
     Overview = 'OVERVIEW'
+    ReadabilityAudit = 'READABILITY_AUDIT'
 }
 
 function Get-BoundedCurrentSurfaceFailurePrefix {
@@ -699,14 +700,15 @@ FROM n;
 INSERT mesingest.TransportDemands
     (DemandId, SeriesId, Generation, PredecessorDemandId, Status, CreatedAt, DemandLastSeenAt,
      GoneConfirmedAt, CreatedPollTraceId, CreatedProjectionCommitId, LatestProjectionCommitId,
-     LatestObservationProjectionCommitId, DemandRevision, ValueObservedAt, Area, Eqp, Step, MesSourceDate, Package)
+     LatestObservationProjectionCommitId, CurrentRawObservationCount, DemandRevision,
+     ValueObservedAt, Area, Eqp, Step, MesSourceDate, Package)
 SELECT N'scale-demand-' + RIGHT(REPLICATE('0', 6) + CONVERT(varchar(10), n), 6),
        N'scale-series-' + RIGHT(REPLICATE('0', 6) + CONVERT(varchar(10), n), 6), 1, NULL,
        CASE WHEN n < @activeCount THEN N'VISIBLE' ELSE N'GONE' END,
        DATEADD(minute, -n, @anchorUtc), @anchorUtc,
        CASE WHEN n < @activeCount THEN NULL ELSE @anchorUtc END,
        N'scale-baseline-poll', N'scale-baseline-commit', N'scale-baseline-commit',
-       N'scale-baseline-commit', 1, @anchorUtc,
+       N'scale-baseline-commit', 1, 1, @anchorUtc,
        CASE WHEN n < @errorCount THEN N'INVALID AREA' ELSE N'A' + CONVERT(nvarchar(10), (n % 9) + 1) + N'-' + CONVERT(nvarchar(10), (n % 9) + 1) END,
        N'EQP-' + RIGHT(REPLICATE('0', 3) + CONVERT(varchar(10), n % 40), 3),
        N'STEP-' + CONVERT(nvarchar(10), n % 12), @anchorUtc,

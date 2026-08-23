@@ -67,17 +67,21 @@ public sealed class HistoryEpochTests
 
         var list = await recovered.ListDemandSeriesAsync(
             new DemandSeriesBrowseQuery(new DemandSeriesBrowseFilter()));
+        var audit = await recovered.ListReadabilityAuditAsync(
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()));
         var catalog = await recovered.ReadExternallyReadableDemandCatalogAsync();
         var attention = await recovered.ReadCurrentIngestAttentionAsync(
             new CurrentIngestAttentionQuery());
 
         Assert.Single(list.Items);
+        Assert.Single(audit.Items);
         Assert.NotNull(catalog.Snapshot);
         Assert.NotNull(attention.Snapshot);
         Assert.Equal(
             new[]
             {
                 ProjectionReadSurface.DemandSeries,
+                ProjectionReadSurface.ReadabilityAudit,
                 ProjectionReadSurface.Catalog,
                 ProjectionReadSurface.CurrentIngestAttention,
             },

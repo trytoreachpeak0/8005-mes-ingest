@@ -635,6 +635,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         };
 
     private static ReadabilityAuditSnapshotIdentity Identity(DateTimeOffset at) => new(
+        HistoryEpoch.CreateNew(),
         "commit-audit-21",
         ProjectionSequence: 321,
         at,

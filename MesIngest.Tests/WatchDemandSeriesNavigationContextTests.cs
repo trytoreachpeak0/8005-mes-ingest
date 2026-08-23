@@ -62,6 +62,7 @@ public sealed class WatchDemandSeriesNavigationContextTests
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         var source = new ReadabilityAuditListSnapshot(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-audit-20",
                 220,
                 at,

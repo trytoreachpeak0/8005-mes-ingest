@@ -489,6 +489,7 @@ internal static class SqlServerMesIngestSchema
             CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             LatestObservationProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CurrentRawObservationCount INT NOT NULL,
             DemandRevision BIGINT NOT NULL,
             ValueObservedAt DATETIMEOFFSET(7) NOT NULL,
             Area NVARCHAR(512) NULL,
@@ -514,6 +515,8 @@ internal static class SqlServerMesIngestSchema
                 FOREIGN KEY (LatestObservationProjectionCommitId)
                 REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
             CONSTRAINT CK_MesIngest_TransportDemands_Generation CHECK (Generation >= 1)
+            ,CONSTRAINT CK_MesIngest_TransportDemands_CurrentRawObservationCount
+                CHECK (CurrentRawObservationCount >= 1)
             ,CONSTRAINT CK_MesIngest_TransportDemands_DemandRevision CHECK (DemandRevision >= 1)
         );
 
@@ -970,13 +973,14 @@ internal static class SqlServerMesIngestSchema
             (N'TransportDemands', 10, N'CreatedProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 11, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 12, N'LatestObservationProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'TransportDemands', 13, N'DemandRevision', N'bigint', 8, 19, 0, 0, NULL),
-            (N'TransportDemands', 14, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'TransportDemands', 15, N'Area', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 16, N'Eqp', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 17, N'Step', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 18, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'TransportDemands', 19, N'Package', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 13, N'CurrentRawObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'TransportDemands', 14, N'DemandRevision', N'bigint', 8, 19, 0, 0, NULL),
+            (N'TransportDemands', 15, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'TransportDemands', 16, N'Area', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 17, N'Eqp', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 18, N'Step', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 19, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'TransportDemands', 20, N'Package', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'DemandRawObservations', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandRawObservations', 2, N'Ordinal', N'int', 4, 10, 0, 0, NULL),
@@ -1394,6 +1398,7 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_EffectiveAuthority', N'ProjectionCommitTaskTypeProtectionDecisions', N'([EffectiveAbsenceAuthorityAvailable]<=[ProtectionAllowsAbsenceAuthority])'),
             (N'CK_MesIngest_DemandSeries_LastSequence', N'DemandSeries', N'([LastSeriesSequence]>=(0))'),
             (N'CK_MesIngest_TransportDemands_Generation', N'TransportDemands', N'([Generation]>=(1))'),
+            (N'CK_MesIngest_TransportDemands_CurrentRawObservationCount', N'TransportDemands', N'([CurrentRawObservationCount]>=(1))'),
             (N'CK_MesIngest_TransportDemands_DemandRevision', N'TransportDemands', N'([DemandRevision]>=(1))'),
             (N'CK_MesIngest_DemandRawObservations_Ordinal', N'DemandRawObservations', N'([Ordinal]>=(0))'),
             (N'CK_MesIngest_DemandSeriesEvents_Sequence', N'DemandSeriesEvents', N'([SeriesSequence]>=(1))'),
@@ -1408,7 +1413,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 42
+            WHERE s.name = N'mesingest') <> 43
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e

@@ -777,6 +777,7 @@ public sealed class WatchV2ApiClientTests
         var at = DateTimeOffset.Parse("2026-08-14T04:05:06Z");
         return new ReadabilityAuditListSnapshot(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 "commit-readability",
                 50,
                 at,

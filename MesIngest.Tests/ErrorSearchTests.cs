@@ -258,6 +258,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
 
         var auditReference = ReadabilityAuditTokenCodec.CreateSnapshotReference(
             new ReadabilityAuditSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
                 identity.ProjectionCommitId,
                 identity.ProjectionSequence,
                 identity.ProjectionCommittedAt,

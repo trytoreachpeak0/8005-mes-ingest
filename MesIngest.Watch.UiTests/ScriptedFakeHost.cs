@@ -707,7 +707,7 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
     private static object ToReadabilityAuditListWire(ReadabilityAuditListSnapshot snapshot) => new
     {
         snapshot.SnapshotReference,
-        snapshot.Snapshot,
+        Snapshot = ToReadabilityAuditSnapshotWire(snapshot.Snapshot),
         snapshot.Filter,
         snapshot.ExactTotalDemandCount,
         snapshot.Facets,
@@ -723,7 +723,7 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
     private static object ToReadabilityAuditDetailWire(ReadabilityAuditDetailSnapshot detail) => new
     {
         detail.SnapshotReference,
-        detail.Snapshot,
+        Snapshot = ToReadabilityAuditSnapshotWire(detail.Snapshot),
         Demand = ToReadabilityAuditItemWire(detail.Demand),
         Series = new
         {
@@ -746,6 +746,18 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
             .ToArray(),
         detail.LatestObservationPollTrace,
     };
+
+    private static object ToReadabilityAuditSnapshotWire(
+        ReadabilityAuditSnapshotIdentity snapshot) => new
+        {
+            HistoryEpoch = snapshot.HistoryEpoch.ToString(),
+            snapshot.ProjectionCommitId,
+            snapshot.ProjectionSequence,
+            snapshot.ProjectionCommittedAt,
+            snapshot.PollTraceId,
+            snapshot.CatalogRevision,
+            snapshot.ContractVersion,
+        };
 
     private static object ToErrorSearchListWire(ErrorSearchListSnapshot snapshot) => new
     {

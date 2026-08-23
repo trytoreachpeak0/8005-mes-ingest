@@ -95,6 +95,7 @@ public sealed class WatchReadabilityAuditQueryTests
         int totalPages,
         string? nextCursor) => new(
         new ReadabilityAuditSnapshotIdentity(
+            HistoryEpoch.CreateNew(),
             "commit-visible",
             20,
             DateTimeOffset.Parse("2026-08-14T05:06:07Z"),
