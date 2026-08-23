@@ -576,6 +576,7 @@ internal sealed record WatchV2ReadabilityAuditDetailWire(
 }
 
 internal sealed record WatchV2ErrorSearchSnapshotIdentityWire(
+    string HistoryEpoch,
     DateTimeOffset ErrorSearchAsOf,
     string ProjectionCommitId,
     long ProjectionSequence,
@@ -584,6 +585,7 @@ internal sealed record WatchV2ErrorSearchSnapshotIdentityWire(
     string ContractVersion)
 {
     public ErrorSearchSnapshotIdentity ToCore() => new(
+        MesIngest.Core.SeriesProjection.HistoryEpoch.FromGuid(Guid.Parse(HistoryEpoch)),
         ErrorSearchAsOf,
         ProjectionCommitId,
         ProjectionSequence,

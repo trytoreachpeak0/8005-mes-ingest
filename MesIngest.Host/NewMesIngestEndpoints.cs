@@ -1975,6 +1975,7 @@ internal sealed record ReadabilityAuditDetailDto(
 }
 
 internal sealed record ErrorSearchSnapshotIdentityDto(
+    string HistoryEpoch,
     DateTimeOffset ErrorSearchAsOf,
     string ProjectionCommitId,
     long ProjectionSequence,
@@ -1984,6 +1985,7 @@ internal sealed record ErrorSearchSnapshotIdentityDto(
 {
     public static ErrorSearchSnapshotIdentityDto From(ErrorSearchSnapshotIdentity snapshot) =>
         new(
+            snapshot.HistoryEpoch.Value.ToString("D"),
             snapshot.ErrorSearchAsOf,
             snapshot.ProjectionCommitId,
             snapshot.ProjectionSequence,

@@ -265,6 +265,7 @@ public sealed record ErrorSearchQuery(
 }
 
 public sealed record ErrorSearchSnapshotIdentity(
+    HistoryEpoch HistoryEpoch,
     DateTimeOffset ErrorSearchAsOf,
     string ProjectionCommitId,
     long ProjectionSequence,

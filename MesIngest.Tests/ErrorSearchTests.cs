@@ -98,9 +98,10 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
     }
 
     [Fact]
-    public void Error_search_tokens_bind_asof_high_water_filter_window_order_and_page_size()
+    public void Error_search_tokens_bind_history_epoch_asof_high_water_filter_window_order_and_page_size()
     {
         var identity = new ErrorSearchSnapshotIdentity(
+            HistoryEpoch.FromGuid(Guid.Parse("11111111-1111-1111-1111-111111111111")),
             new DateTimeOffset(2026, 8, 14, 0, 15, 0, TimeSpan.Zero),
             "commit-ticket11-a",
             ProjectionSequence: 41,
@@ -184,6 +185,17 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             out _,
             out var highWaterMismatch));
         Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, highWaterMismatch!.Code);
+        Assert.False(ErrorSearchTokenCodec.TryReadCursor(
+            cursor,
+            snapshot with
+            {
+                Snapshot = identity with { HistoryEpoch = HistoryEpoch.CreateNew() },
+            },
+            expectedPageSize: 25,
+            TokenSigningKey,
+            out _,
+            out var historyEpochMismatch));
+        Assert.Equal(ErrorSearchErrorCodes.CursorMismatch, historyEpochMismatch!.Code);
 
         var previousContractSnapshot = snapshot with
         {
@@ -623,6 +635,10 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
         var frozenReference = page1.GetProperty("snapshotReference").GetString()!;
         var cursor = page1.GetProperty("nextCursor").GetString()!;
         var frozenSequence = page1.GetProperty("snapshot").GetProperty("projectionSequence").GetInt64();
+        var historyEpoch = await ReadHistoryEpochAsync(database.ConnectionString);
+        Assert.Equal(
+            historyEpoch.Value.ToString("D"),
+            page1.GetProperty("snapshot").GetProperty("historyEpoch").GetString());
         Assert.Equal(asOf, page1.GetProperty("snapshot").GetProperty("errorSearchAsOf").GetDateTimeOffset());
         Assert.Equal(3L, page1.GetProperty("totalSeriesCount").GetInt64());
         Assert.Equal(3, page1.GetProperty("totalPages").GetInt32());
@@ -738,9 +754,11 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
         }
 
         var signingKey = await ReadSnapshotSigningKeyAsync(database.ConnectionString);
+        var historyEpoch = await ReadHistoryEpochAsync(database.ConnectionString);
         var retained = empty.GetProperty("snapshot");
         var missingSnapshot = new ErrorSearchSnapshotReference(
             new ErrorSearchSnapshotIdentity(
+                historyEpoch,
                 retained.GetProperty("errorSearchAsOf").GetDateTimeOffset(),
                 $"missing-{Guid.NewGuid():N}",
                 retained.GetProperty("projectionSequence").GetInt64() + 1000,
@@ -774,6 +792,44 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
         {
             Assert.Equal(HttpStatusCode.BadRequest, mismatchedCursor.StatusCode);
             AssertErrorCode(mismatchedCursor, ErrorSearchErrorCodes.CursorMismatch);
+        }
+
+        var crossEpochSnapshot = new ErrorSearchSnapshotReference(
+            new ErrorSearchSnapshotIdentity(
+                HistoryEpoch.CreateNew(),
+                retained.GetProperty("errorSearchAsOf").GetDateTimeOffset(),
+                retained.GetProperty("projectionCommitId").GetString()!,
+                retained.GetProperty("projectionSequence").GetInt64(),
+                retained.GetProperty("projectionCommittedAt").GetDateTimeOffset(),
+                retained.GetProperty("pollTraceId").GetString()!),
+            new ErrorSearchFilter(),
+            ErrorSearchWindowSelection.Last7Days.Resolve(
+                retained.GetProperty("errorSearchAsOf").GetDateTimeOffset()),
+            ErrorSearchOrder.Default);
+        var crossEpochReference = ErrorSearchTokenCodec.CreateSnapshotReference(
+            crossEpochSnapshot,
+            signingKey);
+        using (var crossEpoch = await client.GetAsync(
+            "/api/v2/error-search?snapshot=" + Uri.EscapeDataString(crossEpochReference)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, crossEpoch.StatusCode);
+            AssertErrorCode(crossEpoch, ErrorSearchErrorCodes.SnapshotMismatch);
+        }
+
+        var crossEpochCursor = ErrorSearchTokenCodec.CreateCursor(
+            crossEpochSnapshot,
+            pageSize: ErrorSearchQuery.DefaultPageSize,
+            targetPageNumber: 2,
+            afterActivityRank: 0,
+            afterLatestMatchedEvidenceAt: crossEpochSnapshot.Snapshot.ErrorSearchAsOf.AddMinutes(-1),
+            afterSeriesId: "cross-epoch-series-anchor",
+            signingKey);
+        using (var crossEpoch = await client.GetAsync(
+            "/api/v2/error-search?snapshot=" + Uri.EscapeDataString(crossEpochReference)
+            + "&cursor=" + Uri.EscapeDataString(crossEpochCursor)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, crossEpoch.StatusCode);
+            AssertErrorCode(crossEpoch, ErrorSearchErrorCodes.CursorMismatch);
         }
 
         using (var expired = await client.GetAsync(
@@ -879,6 +935,15 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
         command.CommandText =
             "SELECT SnapshotTokenSigningKey FROM mesingest.SchemaInfo WHERE Id = 1;";
         return (byte[])(await command.ExecuteScalarAsync())!;
+    }
+
+    private static async Task<HistoryEpoch> ReadHistoryEpochAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT HistoryEpoch FROM mesingest.SchemaInfo WHERE Id = 1;";
+        return HistoryEpoch.FromGuid((Guid)(await command.ExecuteScalarAsync())!);
     }
 
     private WebApplicationFactory<Program> CreateFactory(AdjustableTimeProvider clock) =>

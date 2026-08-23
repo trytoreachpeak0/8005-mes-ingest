@@ -887,6 +887,7 @@ public sealed class WatchV2AutoRefreshTests
             return Task.FromResult(new ErrorSearchListSnapshot(
                 "snapshot-errors",
                 new ErrorSearchSnapshotIdentity(
+                    HistoryEpoch.FromGuid(Guid.Parse("44444444-4444-4444-4444-444444444444")),
                     at,
                     "commit-errors",
                     1,

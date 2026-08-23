@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MesIngest.Core.SeriesProjection;
 
@@ -10,7 +11,7 @@ public static class ErrorSearchTokenCodec
     private const string CursorPurpose = "error-search-cursor-v1";
     private const int MinimumKeyLength = 32;
     private const int MaximumTokenLength = 4096;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
     public static string CreateSnapshotReference(
         ErrorSearchSnapshotReference snapshot,
@@ -304,6 +305,7 @@ public static class ErrorSearchTokenCodec
 
     private static void ValidateIdentity(ErrorSearchSnapshotIdentity identity)
     {
+        ArgumentNullException.ThrowIfNull(identity.HistoryEpoch);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ProjectionCommitId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.PollTraceId);
         ArgumentException.ThrowIfNullOrWhiteSpace(identity.ContractVersion);
@@ -397,6 +399,36 @@ public static class ErrorSearchTokenCodec
                 $"The persistent HMAC key must contain at least {MinimumKeyLength} bytes.",
                 nameof(key));
         }
+    }
+
+    private static JsonSerializerOptions CreateJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new HistoryEpochJsonConverter());
+        return options;
+    }
+
+    private sealed class HistoryEpochJsonConverter : JsonConverter<HistoryEpoch>
+    {
+        public override HistoryEpoch Read(
+            ref Utf8JsonReader reader,
+            Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            var text = reader.GetString();
+            if (!Guid.TryParseExact(text, "D", out var value) || value == Guid.Empty)
+            {
+                throw new JsonException("The HistoryEpoch token value is invalid.");
+            }
+
+            return HistoryEpoch.FromGuid(value);
+        }
+
+        public override void Write(
+            Utf8JsonWriter writer,
+            HistoryEpoch value,
+            JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.Value.ToString("D"));
     }
 
     private static string Base64UrlEncode(ReadOnlySpan<byte> bytes) =>

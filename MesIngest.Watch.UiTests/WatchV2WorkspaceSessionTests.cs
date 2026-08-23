@@ -1161,7 +1161,13 @@ public sealed class WatchV2WorkspaceSessionTests
         var at = DateTimeOffset.Parse("2026-08-14T01:00:00Z");
         return new ErrorSearchListSnapshot(
             $"snapshot-{commit}",
-            new ErrorSearchSnapshotIdentity(at, commit, 1, at, "poll-a"),
+            new ErrorSearchSnapshotIdentity(
+                HistoryEpoch.FromGuid(Guid.Parse("99999999-9999-9999-9999-999999999999")),
+                at,
+                commit,
+                1,
+                at,
+                "poll-a"),
             query.Filter,
             new ErrorSearchResolvedWindow(query.Window.Kind, at.AddDays(-7), at),
             query.Order,

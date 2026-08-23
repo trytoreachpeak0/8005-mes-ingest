@@ -606,6 +606,7 @@ public sealed class ScriptedFakeHostV2SurfaceTests
     {
         var at = DateTimeOffset.Parse("2026-08-14T04:05:06Z");
         var identity = new ErrorSearchSnapshotIdentity(
+            HistoryEpoch.FromGuid(Guid.Parse("88888888-8888-8888-8888-888888888888")),
             at,
             "error-commit-18",
             20,

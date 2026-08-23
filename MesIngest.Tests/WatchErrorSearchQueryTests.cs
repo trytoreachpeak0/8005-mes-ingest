@@ -159,6 +159,7 @@ public sealed class WatchErrorSearchQueryTests
         return new ErrorSearchListSnapshot(
             "snapshot-visible-ticket-22",
             new ErrorSearchSnapshotIdentity(
+                HistoryEpoch.FromGuid(Guid.Parse("33333333-3333-3333-3333-333333333333")),
                 asOf,
                 "commit-visible-ticket-22",
                 ProjectionSequence: 220,

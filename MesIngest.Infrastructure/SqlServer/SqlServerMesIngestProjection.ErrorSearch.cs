@@ -151,6 +151,17 @@ public sealed partial class SqlServerMesIngestProjection
 
         if (requested is not null)
         {
+            if (requested.Snapshot.HistoryEpoch != _historyEpoch)
+            {
+                throw new ErrorSearchException(
+                    query.Cursor is null
+                        ? ErrorSearchErrorCodes.SnapshotMismatch
+                        : ErrorSearchErrorCodes.CursorMismatch,
+                    query.Cursor is null
+                        ? "The Error Search snapshot belongs to another HistoryEpoch."
+                        : "The Error Search cursor belongs to another HistoryEpoch.");
+            }
+
             var requestedWindow = query.Window.Resolve(requested.Snapshot.ErrorSearchAsOf);
             if (!string.Equals(
                     ErrorSearchTokenCodec.ComputeFilterHash(query.Filter),
@@ -176,16 +187,22 @@ public sealed partial class SqlServerMesIngestProjection
         command.Transaction = transaction;
         command.CommandText = requested is null
             ? """
-              SELECT TOP (1) ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId
+              SELECT TOP (1) ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId,
+                  HistoryEpoch
               FROM mesingest.ProjectionCommits
+              WHERE HistoryEpoch = @historyEpoch
               ORDER BY ProjectionSequence DESC;
               """
             : """
-              SELECT ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId
+              SELECT ProjectionCommitId, ProjectionSequence, CommittedAt, PollTraceId,
+                  HistoryEpoch
               FROM mesingest.ProjectionCommits
               WHERE ProjectionCommitId = @projectionCommitId
-                AND ProjectionSequence = @projectionSequence;
+                AND ProjectionSequence = @projectionSequence
+                AND HistoryEpoch = @historyEpoch;
               """;
+        command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
+            _historyEpoch.Value;
         if (requested is not null)
         {
             AddNVarChar(
@@ -207,7 +224,8 @@ public sealed partial class SqlServerMesIngestProjection
                     reader.GetString(0),
                     reader.GetInt64(1),
                     reader.GetFieldValue<DateTimeOffset>(2).ToUniversalTime(),
-                    reader.GetString(3));
+                    reader.GetString(3),
+                    HistoryEpoch.FromGuid(reader.GetGuid(4)));
             }
         }
 
@@ -233,7 +251,8 @@ public sealed partial class SqlServerMesIngestProjection
                 || !string.Equals(
                     requested.Snapshot.PollTraceId,
                     retained.PollTraceId,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)
+                || requested.Snapshot.HistoryEpoch != retained.HistoryEpoch)
             {
                 throw new ErrorSearchException(
                     ErrorSearchErrorCodes.SnapshotMismatch,
@@ -249,6 +268,7 @@ public sealed partial class SqlServerMesIngestProjection
         // this search without holding a range lock for the full history scan.
         var asOf = _timeProvider.GetUtcNow().ToUniversalTime();
         var identity = new ErrorSearchSnapshotIdentity(
+            retained.HistoryEpoch,
             asOf,
             retained.ProjectionCommitId,
             retained.ProjectionSequence,
@@ -330,40 +350,25 @@ public sealed partial class SqlServerMesIngestProjection
               AND (@sublotContains IS NULL
                    OR CHARINDEX(
                        @sublotContains COLLATE Latin1_General_100_CI_AS,
-                       series.Sublot COLLATE Latin1_General_100_CI_AS) > 0);
-
-            CREATE TABLE #EligibleEvidence
-            (
-                EvidenceId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
-                PeriodId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
-                DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
-                ObservedAt DATETIMEOFFSET(7) NOT NULL
-            );
-            INSERT INTO #EligibleEvidence (EvidenceId, PeriodId, DemandId, ObservedAt)
-            SELECT evidence.EvidenceId, evidence.PeriodId, evidence.DemandId,
-                evidence.ObservedAt
-            FROM mesingest.SeriesErrorPeriodEvidence AS evidence
-            INNER JOIN #AsOfPeriods AS period ON period.PeriodId = evidence.PeriodId
-            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
-                ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
-            WHERE evidenceCommit.ProjectionSequence <= @snapshotSequence
-              AND evidence.ObservedAt <= @asOf
-              AND (@demandId IS NULL
-                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS);
-
-            -- DemandId is an evidence-level restriction. Removing periods with
-            -- no qualifying evidence prevents a Series-level hit from pulling
-            -- unrelated Demand generations into counts or ordering.
-            DELETE period
-            FROM #AsOfPeriods AS period
-            WHERE NOT EXISTS
-                (SELECT 1 FROM #EligibleEvidence AS evidence
-                 WHERE evidence.PeriodId = period.PeriodId);
+                       series.Sublot COLLATE Latin1_General_100_CI_AS) > 0)
+              AND
+              (
+                  @demandId IS NULL
+                  OR EXISTS
+                  (
+                      SELECT 1
+                      FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+                      INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
+                          ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
+                      WHERE evidence.PeriodId = period.PeriodId
+                        AND evidenceCommit.ProjectionSequence <= @snapshotSequence
+                        AND evidence.ObservedAt <= @asOf
+                        AND evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS
+                  )
+              );
 
             CREATE INDEX IX_ErrorSearch_AsOfPeriods_Category
                 ON #AsOfPeriods (Category, SeriesId, ActivityRank);
-            CREATE INDEX IX_ErrorSearch_EligibleEvidence_Period
-                ON #EligibleEvidence (PeriodId, ObservedAt DESC, DemandId);
 
             CREATE TABLE #FilteredPeriods
             (
@@ -404,8 +409,14 @@ public sealed partial class SqlServerMesIngestProjection
             SELECT period.SeriesId, MIN(period.ActivityRank), MAX(evidence.ObservedAt),
                 COUNT(DISTINCT period.PeriodId), COUNT(DISTINCT evidence.DemandId)
             FROM #FilteredPeriods AS period
-            INNER JOIN #EligibleEvidence AS evidence
+            INNER JOIN mesingest.SeriesErrorPeriodEvidence AS evidence
                 ON evidence.PeriodId = period.PeriodId
+            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
+                ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
+            WHERE evidenceCommit.ProjectionSequence <= @snapshotSequence
+              AND evidence.ObservedAt <= @asOf
+              AND (@demandId IS NULL
+                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS)
             GROUP BY period.SeriesId;
 
             CREATE TABLE #ExactMatches
@@ -705,7 +716,8 @@ public sealed partial class SqlServerMesIngestProjection
         string ProjectionCommitId,
         long ProjectionSequence,
         DateTimeOffset ProjectionCommittedAt,
-        string PollTraceId);
+        string PollTraceId,
+        HistoryEpoch HistoryEpoch);
 
     private sealed record ErrorSearchPageState(
         long ExactTotalSeriesCount,

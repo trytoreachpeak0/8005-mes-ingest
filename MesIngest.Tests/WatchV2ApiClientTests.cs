@@ -896,6 +896,7 @@ public sealed class WatchV2ApiClientTests
         return new ErrorSearchListSnapshot(
             "snapshot-error",
             new ErrorSearchSnapshotIdentity(
+                HistoryEpoch.FromGuid(Guid.Parse("66666666-6666-6666-6666-666666666666")),
                 at,
                 "commit-error",
                 61,
@@ -992,6 +993,7 @@ public sealed class WatchV2ApiClientTests
         return new ErrorSearchRawEvidenceSnapshot(
             "snapshot-raw",
             new ErrorSearchSnapshotIdentity(
+                HistoryEpoch.FromGuid(Guid.Parse("77777777-7777-7777-7777-777777777777")),
                 at,
                 "commit-raw",
                 62,

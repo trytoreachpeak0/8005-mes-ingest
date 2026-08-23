@@ -1249,6 +1249,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
             });
 
     private static ErrorSearchSnapshotIdentity ErrorIdentity() => new(
+        HistoryEpoch.FromGuid(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
         ErrorSearchAsOf,
         "error-commit-22",
         222,

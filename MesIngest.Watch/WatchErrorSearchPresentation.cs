@@ -593,7 +593,7 @@ internal sealed record WatchErrorSearchPresentation(
     }
 
     private static string ProjectSnapshotFacts(ErrorSearchSnapshotIdentity identity) =>
-        $"ErrorSearchAsOf {FormatUtc(identity.ErrorSearchAsOf)} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId}";
+        $"ErrorSearchAsOf {FormatUtc(identity.ErrorSearchAsOf)} · HistoryEpoch {identity.HistoryEpoch.Value:D} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId}";
 
     private static string ProjectFilter(ErrorSearchFilter filter)
     {

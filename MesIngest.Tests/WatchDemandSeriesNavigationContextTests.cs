@@ -206,6 +206,7 @@ public sealed class WatchDemandSeriesNavigationContextTests
     {
         var asOf = DateTimeOffset.Parse("2026-08-14T06:00:00Z");
         var identity = new ErrorSearchSnapshotIdentity(
+            HistoryEpoch.FromGuid(Guid.Parse("22222222-2222-2222-2222-222222222222")),
             asOf,
             "commit-error-source",
             ProjectionSequence: 320,

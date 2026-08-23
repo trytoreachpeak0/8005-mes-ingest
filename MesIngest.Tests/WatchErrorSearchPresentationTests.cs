@@ -867,6 +867,7 @@ public sealed class WatchErrorSearchPresentationTests
     }
 
     private static ErrorSearchSnapshotIdentity Identity() => new(
+        HistoryEpoch.FromGuid(Guid.Parse("55555555-5555-5555-5555-555555555555")),
         AsOf,
         "commit-error-22",
         ProjectionSequence: 220,
