@@ -191,6 +191,10 @@ Overview、ReadabilityAudit、ErrorSearch 与原始证据，并以 Extended Even
 逻辑读、CPU/耗时、内存授予和 spill。存储报告分别列出逻辑已用空间、MDF/NDF、LDF、表、聚集索引、
 非聚集索引和压缩状态。
 
+Tier 1 attestation 必须使用 schema 2：工具会复核 `exitCode`、TRX SHA-256、TRX 内实际计数、
+SQL 实例/版本，并要求 `sourceCommit` 与 Host DLL SHA-256 精确匹配本次规模运行。旧构建、手改计数、
+缺失 TRX 或同实例上的陈旧 attestation 均不能使门禁变绿。
+
 默认成功或失败后都会验证数据库扩展属性中的精确 run ID，再删除本次创建的库；`-KeepDatabase` 只供
 人工故障调查。缺少任一查询面的实际计划/statement 指标、空数据、未知构建身份，或 Tier 1
 `Skipped` 非 0 时，仍会保存证据但门禁失败。7/30 天 profile 会写入约 2592 万/1.11 亿条原始观测，

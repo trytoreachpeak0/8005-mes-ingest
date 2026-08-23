@@ -31,6 +31,7 @@ param(
     [string] $SqlConnectionStringEnvironmentVariable = 'MES_INGEST_SCALE_EVIDENCE_SQLSERVER',
     [string] $SqlTier1AttestationPath = '',
     [string] $ValidateEvidenceFixturePath = '',
+    [string] $ValidatePercentileFixture = '',
     [ValidateSet('Release', 'Debug', 'Published')] [string] $BuildConfiguration = 'Release',
     [ValidateRange(1, 10000)] [int] $SeriesCount = 600,
     [ValidateRange(1, 10000)] [int] $ObservationsPerRound = 600,
@@ -103,6 +104,65 @@ function Get-Sha256String {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
     finally { $sha.Dispose() }
+}
+
+function Get-NearestRankPercentile {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][double[]] $Values,
+        [Parameter(Mandatory = $true)][ValidateRange(0.0, 1.0)][double] $Percentile
+    )
+    if ($Values.Count -eq 0) { throw 'A percentile requires at least one sample.' }
+    $sorted = @($Values | Sort-Object)
+    $rank = [Math]::Ceiling($Percentile * $sorted.Count)
+    $index = [Math]::Max(0, [int]$rank - 1)
+    return [double]$sorted[$index]
+}
+
+function Read-XEventEnvelope {
+    param([Parameter(Mandatory = $true)][string] $XmlText)
+    [xml]$eventXml = $XmlText
+    $values = @{}
+    foreach ($data in @($eventXml.SelectNodes('/event/data'))) {
+        $valueNode = $data.SelectSingleNode('value')
+        if ($null -ne $valueNode) {
+            $values[[string]$data.name] = if ([string]$data.name -eq 'showplan_xml') {
+                [string]$valueNode.InnerXml
+            } else {
+                [string]$valueNode.InnerText
+            }
+        }
+    }
+    return [pscustomobject]@{
+        Timestamp = [DateTimeOffset]::Parse(
+            [string]$eventXml.event.timestamp,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal).ToUniversalTime()
+        Values = $values
+    }
+}
+
+function Read-ShowPlanRuntimeIo {
+    param([Parameter(Mandatory = $true)][AllowEmptyString()][string] $PlanXml)
+    if ([string]::IsNullOrWhiteSpace($PlanXml)) { return @() }
+    [xml]$plan = $PlanXml
+    $items = New-Object System.Collections.ArrayList
+    foreach ($relOp in @($plan.SelectNodes("//*[local-name()='RelOp']"))) {
+        $object = $relOp.SelectSingleNode(".//*[local-name()='Object']")
+        foreach ($counter in @($relOp.SelectNodes(".//*[local-name()='RunTimeCountersPerThread']"))) {
+            if ($null -eq $object) { continue }
+            [void]$items.Add([pscustomobject][ordered]@{
+                database = [string]$object.Database; schema = [string]$object.Schema
+                table = [string]$object.Table; index = [string]$object.Index
+                physicalOperation = [string]$relOp.PhysicalOp; thread = [string]$counter.Thread
+                actualRows = [long]$counter.ActualRows; actualScans = [long]$counter.ActualScans
+                actualLogicalReads = [long]$counter.ActualLogicalReads
+                actualPhysicalReads = [long]$counter.ActualPhysicalReads
+                actualReadAheads = [long]$counter.ActualReadAheads
+                actualElapsedMs = [long]$counter.ActualElapsedms; actualCpuMs = [long]$counter.ActualCPUms
+            })
+        }
+    }
+    return @($items)
 }
 
 function Convert-DataTableRows {
@@ -304,6 +364,18 @@ function Get-EvidenceGateFailures {
     }
     if (-not $CanonicalScaleProfile) { [void]$failures.Add('NON_CANONICAL_SCALE_PROFILE') }
     return @($failures)
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ValidatePercentileFixture)) {
+    $percentileValues = @($ValidatePercentileFixture.Split(',') | ForEach-Object {
+        [double]::Parse($_, [Globalization.CultureInfo]::InvariantCulture)
+    })
+    Write-Output (
+        'MESINGEST_PERCENTILE_FIXTURE: p50={0} p95={1} p99={2}' -f
+        (Get-NearestRankPercentile $percentileValues 0.50).ToString([Globalization.CultureInfo]::InvariantCulture),
+        (Get-NearestRankPercentile $percentileValues 0.95).ToString([Globalization.CultureInfo]::InvariantCulture),
+        (Get-NearestRankPercentile $percentileValues 0.99).ToString([Globalization.CultureInfo]::InvariantCulture))
+    exit 0
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ValidateEvidenceFixturePath)) {
@@ -751,17 +823,10 @@ ORDER BY file_name, file_offset;
     if ($planEvents.Count -eq 0) { throw 'MISSING_ACTUAL_PLAN: query_post_execution_showplan returned no workload plan.' }
 
     $statementMetrics = foreach ($event in $statementEvents) {
-        [xml]$eventXml = [string]$event.event_xml
-        $values = @{}
-        foreach ($data in @($eventXml.SelectNodes('/event/data'))) {
-            $valueNode = $data.SelectSingleNode('value')
-            $values[[string]$data.name] = if ($null -eq $valueNode) { '' } else { [string]$valueNode.InnerText }
-        }
+        $envelope = Read-XEventEnvelope ([string]$event.event_xml)
+        $values = $envelope.Values
         [pscustomobject][ordered]@{
-            timestamp = [DateTimeOffset]::Parse(
-                [string]$eventXml.event.timestamp,
-                [Globalization.CultureInfo]::InvariantCulture,
-                [Globalization.DateTimeStyles]::AssumeUniversal).ToUniversalTime()
+            timestamp = $envelope.Timestamp
             logical_reads = if ($values.ContainsKey('logical_reads')) { [long]$values['logical_reads'] } else { 0L }
             duration = if ($values.ContainsKey('duration')) { [long]$values['duration'] } else { 0L }
             cpu_time = if ($values.ContainsKey('cpu_time')) { [long]$values['cpu_time'] } else { 0L }
@@ -772,35 +837,24 @@ ORDER BY file_name, file_offset;
     }
 
     $planSummaries = foreach ($event in $planEvents) {
-        [xml]$eventXml = [string]$event.event_xml
-        $values = @{}
-        foreach ($data in @($eventXml.SelectNodes('/event/data'))) {
-            $valueNode = $data.SelectSingleNode('value')
-            if ($null -ne $valueNode) {
-                $values[[string]$data.name] = if ([string]$data.name -eq 'showplan_xml') {
-                    [string]$valueNode.InnerXml
-                } else {
-                    [string]$valueNode.InnerText
-                }
-            }
-        }
+        $envelope = Read-XEventEnvelope ([string]$event.event_xml)
+        $values = $envelope.Values
         $planText = if ($values.ContainsKey('showplan_xml')) { [string]$values['showplan_xml'] } else { '' }
         [pscustomobject][ordered]@{
-            timestamp = [DateTimeOffset]::Parse(
-                [string]$eventXml.event.timestamp,
-                [Globalization.CultureInfo]::InvariantCulture,
-                [Globalization.DateTimeStyles]::AssumeUniversal).ToUniversalTime()
+            timestamp = $envelope.Timestamp
             granted_memory_kb = if ($values.ContainsKey('granted_memory_kb')) { [long]$values['granted_memory_kb'] } else { 0L }
             requested_memory_kb = if ($values.ContainsKey('requested_memory_kb')) { [long]$values['requested_memory_kb'] } else { 0L }
             used_memory_kb = if ($values.ContainsKey('used_memory_kb')) { [long]$values['used_memory_kb'] } else { 0L }
             spillToTempDb = $planText.IndexOf('SpillToTempDb', [StringComparison]::OrdinalIgnoreCase) -ge 0
             planSha256 = Get-Sha256String $planText
+            runtimeIo = @(Read-ShowPlanRuntimeIo $planText)
             planXml = $planText
         }
     }
 
     $queryEvidence = New-Object System.Collections.ArrayList
-    foreach ($surfaceName in @('DemandSeries','ExternallyReadableDemandCatalog','CurrentIngestAttention','Overview','ReadabilityAudit','ErrorSearch','RawEvidence')) {
+    $surfaceNames = @($surfaces | ForEach-Object { [string]$_.name }) + @('RawEvidence')
+    foreach ($surfaceName in $surfaceNames) {
         $surfaceSamples = @($measurements | Where-Object { $_.name -eq $surfaceName })
         if ($surfaceSamples.Count -ne $MeasurementCount) { throw "Missing measurement samples for $surfaceName." }
         $sampleWindows = @($surfaceSamples | ForEach-Object {
@@ -821,10 +875,10 @@ ORDER BY file_name, file_offset;
         [void]$queryEvidence.Add([pscustomobject][ordered]@{
             name = $surfaceName
             samples = $surfaceSamples.Count
-            p50LatencyMs = $sortedLatency[[int][Math]::Floor(($sortedLatency.Count - 1) * 0.50)]
-            p95LatencyMs = $sortedLatency[[int][Math]::Floor(($sortedLatency.Count - 1) * 0.95)]
-            p99LatencyMs = $sortedLatency[[int][Math]::Floor(($sortedLatency.Count - 1) * 0.99)]
-            statisticsSource = 'sql_statement_completed (STATISTICS IO/TIME equivalent)'
+            p50LatencyMs = Get-NearestRankPercentile $sortedLatency 0.50
+            p95LatencyMs = Get-NearestRankPercentile $sortedLatency 0.95
+            p99LatencyMs = Get-NearestRankPercentile $sortedLatency 0.99
+            statisticsSource = 'sql_statement_completed plus actual-plan per-object runtime IO/TIME counters'
             actualPlanSource = 'query_post_execution_showplan'
             statementCount = $surfaceStatements.Count
             actualPlanCount = $surfacePlans.Count
@@ -869,17 +923,54 @@ ORDER BY t.name, i.index_id;
         logicalUsedMb = [double](($allocations | Measure-Object -Property logical_used_mb -Sum).Sum)
     }
 
-    $tier1 = [ordered]@{ provided = $false; failed = $null; passed = $null; sqlSkippedTests = $null; total = $null; satisfied = $false }
+    $attestation = $null
+    $tier1 = [ordered]@{
+        provided = $false; attestationSchemaVersion = $null
+        failed = $null; passed = $null; sqlSkippedTests = $null; total = $null
+        exitCode = $null; trxVerified = $false; buildBound = $false
+        baseSatisfied = $false; satisfied = $false; diagnosticCode = 'SQL_TIER1_ATTESTATION_NOT_PROVIDED'
+    }
     if (-not [string]::IsNullOrWhiteSpace($SqlTier1AttestationPath) -and (Test-Path -LiteralPath $SqlTier1AttestationPath -PathType Leaf)) {
-        $attestation = Get-Content -Raw -LiteralPath $SqlTier1AttestationPath | ConvertFrom-Json
-        $tier1.provided = $true
-        $tier1.failed = [int]$attestation.counts.failed
-        $tier1.passed = [int]$attestation.counts.passed
-        $tier1.sqlSkippedTests = [int]$attestation.counts.skipped
-        $tier1.total = [int]$attestation.counts.total
-        $tier1.satisfied = $tier1.failed -eq 0 -and $tier1.sqlSkippedTests -eq 0 -and $tier1.total -ge 700 -and
-            [int]$attestation.actualProductMajor -eq [int]$serverIdentity.product_major -and
-            [string]::Equals([string]$attestation.sqlTarget.dataSource, $masterBuilder.DataSource, [StringComparison]::OrdinalIgnoreCase)
+        try {
+            $attestation = Get-Content -Raw -LiteralPath $SqlTier1AttestationPath | ConvertFrom-Json
+            $tier1.provided = $true
+            $tier1.attestationSchemaVersion = [int]$attestation.schemaVersion
+            $tier1.failed = [int]$attestation.counts.failed
+            $tier1.passed = [int]$attestation.counts.passed
+            $tier1.sqlSkippedTests = [int]$attestation.counts.skipped
+            $tier1.total = [int]$attestation.counts.total
+            $tier1.exitCode = [int]$attestation.exitCode
+            $attestedTrxPath = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($SqlTier1AttestationPath))) ([string]$attestation.trxFile)
+            if (Test-Path -LiteralPath $attestedTrxPath -PathType Leaf) {
+                [xml]$attestedTrx = Get-Content -Raw -LiteralPath $attestedTrxPath
+                $counters = $attestedTrx.TestRun.ResultSummary.Counters
+                $trxTotal = [int]$counters.total
+                $trxExecuted = [int]$counters.executed
+                $trxPassed = [int]$counters.passed
+                $trxFailed = [int]$counters.failed
+                $trxSkipped = $trxTotal - $trxExecuted
+                $trxAssemblies = @($attestedTrx.TestRun.TestDefinitions.UnitTest | ForEach-Object {
+                    [IO.Path]::GetFileName([string]$_.storage)
+                } | Sort-Object -Unique)
+                $tier1.trxVerified = (Get-FileSha256 $attestedTrxPath) -ceq [string]$attestation.trxSha256 -and
+                    $trxTotal -eq $tier1.total -and $trxPassed -eq $tier1.passed -and
+                    $trxFailed -eq $tier1.failed -and $trxSkipped -eq $tier1.sqlSkippedTests -and
+                    $trxAssemblies.Count -eq 1 -and
+                    [string]::Equals($trxAssemblies[0], 'MesIngest.Tests.dll', [StringComparison]::OrdinalIgnoreCase)
+            }
+            $tier1.baseSatisfied = $tier1.attestationSchemaVersion -ge 2 -and
+                $tier1.exitCode -eq 0 -and $tier1.failed -eq 0 -and
+                $tier1.sqlSkippedTests -eq 0 -and $tier1.total -ge 700 -and $tier1.trxVerified -and
+                [string]::Equals(
+                    [string]$attestation.commandPattern,
+                    'dotnet test MesIngest.Tests --configuration Release --results-directory <path> --logger "trx;LogFileName=runtime-feedback-tier1.trx"',
+                    [StringComparison]::Ordinal) -and
+                [int]$attestation.actualProductMajor -eq [int]$serverIdentity.product_major -and
+                [string]::Equals([string]$attestation.sqlTarget.dataSource, $masterBuilder.DataSource, [StringComparison]::OrdinalIgnoreCase)
+            $tier1.diagnosticCode = if ($tier1.baseSatisfied) { 'SQL_TIER1_AWAITING_BUILD_BINDING' } else { 'SQL_TIER1_ATTESTATION_INVALID' }
+        } catch {
+            $tier1.diagnosticCode = 'SQL_TIER1_ATTESTATION_INVALID'
+        }
     }
 
     $sourceCommit = @(& git -C $ServiceRoot rev-parse HEAD 2>$null) | Select-Object -First 1
@@ -897,14 +988,32 @@ ORDER BY t.name, i.index_id;
         $dirtyLine = if (Test-Path $versionFile) { [string](@(Get-Content $versionFile | Where-Object { $_ -like 'SourceDirty=*' } | Select-Object -First 1)) } else { '' }
         if ($dirtyLine -eq 'SourceDirty=True') { $true } elseif ($dirtyLine -eq 'SourceDirty=False') { $false } else { $null }
     }
-    $hostArtifactPath = if (Test-Path -LiteralPath (Join-Path $ServiceRoot 'MesIngest.Host.exe') -PathType Leaf) {
-        Join-Path $ServiceRoot 'MesIngest.Host.exe'
-    } else {
+    $hostArtifactPath = if (Test-Path -LiteralPath (Join-Path $ServiceRoot 'MesIngest.Host.dll') -PathType Leaf) {
         Join-Path $ServiceRoot 'MesIngest.Host.dll'
+    } else {
+        Join-Path $ServiceRoot 'MesIngest.Host.exe'
     }
     $hostArtifact = Get-Item -LiteralPath $hostArtifactPath
     $hostSha256 = Get-FileSha256 $hostArtifact.FullName
     $hostFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($hostArtifact.FullName).FileVersion
+    if ($null -ne $attestation) {
+        $tier1.buildBound = [string]::Equals(
+                [string]$attestation.sourceCommit,
+                $sourceCommit,
+                [StringComparison]::Ordinal) -and
+            [string]::Equals(
+                [string]$attestation.hostAssemblySha256,
+                $hostSha256,
+                [StringComparison]::OrdinalIgnoreCase)
+    }
+    $tier1.satisfied = $tier1.baseSatisfied -and $tier1.buildBound
+    $tier1.diagnosticCode = if ($tier1.satisfied) {
+        'SQL_TIER1_ATTESTATION_VERIFIED'
+    } elseif ($tier1.baseSatisfied) {
+        'SQL_TIER1_BUILD_MISMATCH'
+    } else {
+        [string]$tier1.diagnosticCode
+    }
     $gateFailures = @(Get-EvidenceGateFailures `
         -QueryEvidence @($queryEvidence) `
         -ActualPlanCount $planEvents.Count `

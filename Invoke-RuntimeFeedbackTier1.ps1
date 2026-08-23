@@ -106,9 +106,19 @@ $failed = [int]$counters.failed
 $skipped = $total - $executed
 $storageNames = @($trx.TestRun.TestDefinitions.UnitTest | ForEach-Object { [IO.Path]::GetFileName([string]$_.storage) } | Sort-Object -Unique)
 $completedAt = [DateTimeOffset]::UtcNow
+$sourceCommit = @(& git -C $PSScriptRoot rev-parse HEAD 2>$null) | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($sourceCommit)) { $sourceCommit = 'unknown' }
+$hostAssemblyPath = Join-Path $PSScriptRoot 'MesIngest.Host\bin\Release\net8.0\MesIngest.Host.dll'
+$testAssemblyPath = Join-Path $PSScriptRoot 'MesIngest.Tests\bin\Release\net8.0-windows\MesIngest.Tests.dll'
+if (-not (Test-Path -LiteralPath $hostAssemblyPath -PathType Leaf)) {
+    throw "Tier 1 did not produce the Host assembly to attest: $hostAssemblyPath"
+}
+if (-not (Test-Path -LiteralPath $testAssemblyPath -PathType Leaf)) {
+    throw "Tier 1 did not produce the test assembly to attest: $testAssemblyPath"
+}
 
 $attestation = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     commandPattern = $commandPattern
     workingDirectory = [IO.Path]::GetFullPath($PSScriptRoot)
     startedAt = $startedAt.ToString('o')
@@ -117,6 +127,10 @@ $attestation = [ordered]@{
     platform = 'VSTest'
     framework = 'xUnit v2'
     testAssembly = if ($storageNames.Count -eq 1) { $storageNames[0] } else { $storageNames -join ',' }
+    testAssemblySha256 = Get-FileSha256 $testAssemblyPath
+    hostAssembly = [IO.Path]::GetFileName($hostAssemblyPath)
+    hostAssemblySha256 = Get-FileSha256 $hostAssemblyPath
+    sourceCommit = $sourceCommit
     sdkVersion = [string](& dotnet --version)
     trxFile = $trxName
     trxSha256 = Get-FileSha256 $trxPath

@@ -18,6 +18,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.True(File.Exists(gatePath), $"Missing scale evidence gate: {gatePath}");
 
         var gate = File.ReadAllText(gatePath);
+        var tier1Runner = File.ReadAllText(Path.Combine(csharpRoot, "Invoke-RuntimeFeedbackTier1.ps1"));
         var install = File.ReadAllText(Path.Combine(csharpRoot, "pack", "INSTALL.md"));
         foreach (var profile in new[] { "0", "7", "30" })
         {
@@ -78,6 +79,11 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         Assert.Contains("Invoke-ScaleAndQueryEvidence.ps1", install, StringComparison.Ordinal);
         Assert.Contains("MESINGEST_SCALE_EVIDENCE_ONLY", install, StringComparison.Ordinal);
+        Assert.Contains("hostAssemblySha256", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("testAssemblySha256", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("sourceCommit", tier1Runner, StringComparison.Ordinal);
+        Assert.Contains("trxVerified", gate, StringComparison.Ordinal);
+        Assert.Contains("SQL_TIER1_BUILD_MISMATCH", gate, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -213,5 +219,45 @@ public sealed class ScaleAndQueryEvidenceGateTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Percentile_validator_uses_nearest_rank_for_small_tail_samples()
+    {
+        var script = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1");
+        var start = new ProcessStartInfo("powershell.exe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepositoryPaths.CSharpRoot,
+        };
+        foreach (var argument in new[]
+                 {
+                     "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                     "-ProfileDays", "0",
+                     "-DatabaseName", "MesIngest_Scale_PercentileOnly",
+                     "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                     "-ValidatePercentileFixture", "1,2,3,4,100",
+                 })
+        {
+            start.ArgumentList.Add(argument);
+        }
+        start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+        using var process = Process.Start(start)
+                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "Percentile fixture validation did not finish.");
+        Assert.True(process.ExitCode == 0, stdout + Environment.NewLine + stderr);
+        Assert.Contains("p50=3", stdout, StringComparison.Ordinal);
+        Assert.Contains("p95=100", stdout, StringComparison.Ordinal);
+        Assert.Contains("p99=100", stdout, StringComparison.Ordinal);
+        Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", stderr, StringComparison.Ordinal);
     }
 }
