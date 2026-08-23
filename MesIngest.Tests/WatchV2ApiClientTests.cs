@@ -1038,7 +1038,8 @@ public sealed class WatchV2ApiClientTests
                 81,
                 13,
                 at,
-                NewMesIngestContract.Version),
+                NewMesIngestContract.Version,
+                HistoryEpoch.FromGuid(Guid.Parse("77777777-7777-7777-7777-777777777777"))),
             1,
             new CurrentIngestAttentionFacets(
                 [new CurrentIngestAttentionFacetSnapshot(CurrentIngestAttentionKinds.SeriesError, 1)],
