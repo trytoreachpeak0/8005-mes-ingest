@@ -8,7 +8,7 @@ namespace MesIngest.Tests;
 public sealed class ReleasePackageValidationTests
 {
     private const string ContractVersion = "2026.08.new-mes-ingest.v2.0";
-    private const int ContractSchemaVersion = 17;
+    private const int ContractSchemaVersion = 18;
     private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
     private const string CanonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";

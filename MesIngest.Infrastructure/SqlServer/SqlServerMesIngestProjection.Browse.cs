@@ -275,15 +275,15 @@ public sealed partial class SqlServerMesIngestProjection
                 LatestObservationProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
                 LatestObservationPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
                 LatestObservationCount BIGINT NOT NULL,
-                Area NVARCHAR(MAX) NULL,
-                Eqp NVARCHAR(MAX) NULL,
-                Step NVARCHAR(MAX) NULL,
+                Area NVARCHAR(512) NULL,
+                Eqp NVARCHAR(512) NULL,
+                Step NVARCHAR(512) NULL,
                 MesSourceDate DATETIMEOFFSET(7) NULL,
-                Package NVARCHAR(MAX) NULL,
+                Package NVARCHAR(512) NULL,
                 LastSeriesSequence BIGINT NOT NULL,
                 LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 LatestPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
-                ConditionCodes NVARCHAR(MAX) NULL
+                ConditionCodes NVARCHAR(2048) NULL
             );
 
             WITH EligibleDemands AS
@@ -433,7 +433,7 @@ public sealed partial class SqlServerMesIngestProjection
             ) AS latest
             OUTER APPLY
             (
-                SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), active.ErrorCode), NCHAR(31))
+                SELECT STRING_AGG(CONVERT(NVARCHAR(128), active.ErrorCode), NCHAR(31))
                     WITHIN GROUP (ORDER BY active.ErrorCode) AS ConditionCodes
                 FROM
                 (
@@ -549,10 +549,18 @@ public sealed partial class SqlServerMesIngestProjection
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
-        AddNVarChar(command, "@lifecyclesJson", -1, JsonSerializer.Serialize(normalized.Lifecycles));
-        AddNVarChar(command, "@presencesJson", -1, JsonSerializer.Serialize(normalized.CurrentPresences));
-        AddNVarChar(command, "@workTypesJson", -1, JsonSerializer.Serialize(normalized.WorkTypes));
-        AddNVarChar(command, "@areasJson", -1, JsonSerializer.Serialize(normalized.MesAreas));
+        AddNVarChar(command, "@lifecyclesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.Lifecycles,
+            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@presencesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.CurrentPresences,
+            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@workTypesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.WorkTypes,
+            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@areasJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.MesAreas,
+            static message => new DemandSeriesBrowseException(DemandSeriesBrowseErrorCodes.InvalidQuery, message)));
         AddNullableNVarChar(command, "@sublotContains", 256, normalized.SublotContains);
         AddNullableNVarChar(command, "@seriesId", 64, normalized.SeriesId);
         AddNullableNVarChar(command, "@demandId", 64, normalized.DemandId);

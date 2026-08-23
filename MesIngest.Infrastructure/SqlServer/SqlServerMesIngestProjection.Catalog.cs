@@ -451,11 +451,11 @@ public sealed partial class SqlServerMesIngestProjection
         AddDateTimeOffset(command, "@valueObservedAt", item.ValueObservedAt);
         AddNVarChar(command, "@valuePollTraceId", 128, item.ValuePollTraceId);
         AddNVarChar(command, "@valueProjectionCommitId", 64, item.ValueProjectionCommitId);
-        AddNVarChar(command, "@area", -1, item.Fields.Area!);
-        AddNVarChar(command, "@eqp", -1, item.Fields.Eqp!);
-        AddNVarChar(command, "@step", -1, item.Fields.Step!);
+        AddNVarChar(command, "@area", CurrentMesFieldMaximumLength, item.Fields.Area!);
+        AddNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, item.Fields.Eqp!);
+        AddNVarChar(command, "@step", CurrentMesFieldMaximumLength, item.Fields.Step!);
         AddDateTimeOffset(command, "@mesSourceDate", item.Fields.MesSourceDate!.Value);
-        AddNVarChar(command, "@package", -1, item.Fields.Package!);
+        AddNVarChar(command, "@package", CurrentMesFieldMaximumLength, item.Fields.Package!);
     }
 
     private sealed record CatalogCandidate(

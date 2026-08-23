@@ -317,11 +317,11 @@ public sealed partial class SqlServerMesIngestProjection
                 LatestObservationProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 LatestObservationPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 RawObservationCount BIGINT NOT NULL,
-                Area NVARCHAR(MAX) NULL,
-                Eqp NVARCHAR(MAX) NULL,
-                Step NVARCHAR(MAX) NULL,
+                Area NVARCHAR(512) NULL,
+                Eqp NVARCHAR(512) NULL,
+                Step NVARCHAR(512) NULL,
                 MesSourceDate DATETIMEOFFSET(7) NULL,
-                Package NVARCHAR(MAX) NULL,
+                Package NVARCHAR(512) NULL,
                 IsAreaTrusted BIT NOT NULL,
                 SeriesStartedAt DATETIMEOFFSET(7) NOT NULL,
                 SeriesArchivedAt DATETIMEOFFSET(7) NULL,
@@ -648,7 +648,7 @@ public sealed partial class SqlServerMesIngestProjection
             INNER JOIN #AuditStates AS state ON state.DemandId = exact.DemandId
             OUTER APPLY
             (
-                SELECT STRING_AGG(CONVERT(NVARCHAR(MAX), blocker.Code), NCHAR(31))
+                SELECT STRING_AGG(CONVERT(NVARCHAR(128), blocker.Code), NCHAR(31))
                     WITHIN GROUP (ORDER BY blocker.Priority, blocker.Code) AS Codes
                 FROM #AuditBlockers AS blocker
                 WHERE blocker.DemandId = state.DemandId
@@ -669,11 +669,19 @@ public sealed partial class SqlServerMesIngestProjection
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
-        AddNVarChar(command, "@blockerCatalogJson", -1, ReadabilityBlockerCatalogJson);
-        AddNVarChar(command, "@statesJson", -1, JsonSerializer.Serialize(normalized.ReadabilityStates));
-        AddNVarChar(command, "@workTypesJson", -1, JsonSerializer.Serialize(normalized.WorkTypes));
-        AddNVarChar(command, "@blockersJson", -1, JsonSerializer.Serialize(normalized.Blockers));
-        AddNVarChar(command, "@areasJson", -1, JsonSerializer.Serialize(normalized.MesAreas));
+        AddNVarChar(command, "@blockerCatalogJson", SqlFilterJsonMaximumLength, ReadabilityBlockerCatalogJson);
+        AddNVarChar(command, "@statesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.ReadabilityStates,
+            static message => new ReadabilityAuditException(ReadabilityAuditErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@workTypesJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.WorkTypes,
+            static message => new ReadabilityAuditException(ReadabilityAuditErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@blockersJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.Blockers,
+            static message => new ReadabilityAuditException(ReadabilityAuditErrorCodes.InvalidQuery, message)));
+        AddNVarChar(command, "@areasJson", SqlFilterJsonMaximumLength, SerializeBoundedSqlFilter(
+            normalized.MesAreas,
+            static message => new ReadabilityAuditException(ReadabilityAuditErrorCodes.InvalidQuery, message)));
         AddNullableNVarChar(command, "@demandId", 64, normalized.DemandId);
         AddNullableNVarChar(command, "@sublotContains", 256, normalized.SublotContains);
         command.Parameters.Add("@offset", SqlDbType.BigInt).Value = cursor is null ? offset : 0;

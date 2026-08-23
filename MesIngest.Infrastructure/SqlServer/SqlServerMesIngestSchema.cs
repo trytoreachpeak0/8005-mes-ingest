@@ -10,61 +10,86 @@ internal static class SqlServerMesIngestSchema
         SqlConnection connection,
         CancellationToken cancellationToken)
     {
-        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
-            cancellationToken);
+        var sessionLockHeld = false;
         try
         {
             await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = AcquireSchemaLockAndCountSql;
-            var userTableCount = Convert.ToInt32(
+            command.CommandText = AcquireSessionSchemaLockAndCountSql;
+            var userObjectCount = Convert.ToInt32(
                 await command.ExecuteScalarAsync(cancellationToken),
                 System.Globalization.CultureInfo.InvariantCulture);
+            sessionLockHeld = true;
 
-            command.CommandText = userTableCount == 0
-                ? BootstrapSchemaSql
-                : ValidateExistingSchemaSql;
-            command.Parameters.Add("@schemaVersion", SqlDbType.Int).Value =
-                NewMesIngestContract.SchemaVersion;
-            command.Parameters.Add("@contractVersion", SqlDbType.NVarChar, 128).Value =
-                NewMesIngestContract.Version;
-            command.Parameters.Add("@keyComparison", SqlDbType.NVarChar, 128).Value =
-                NewMesIngestContract.KeyComparison;
-            await command.ExecuteNonQueryAsync(cancellationToken);
-
-            command.Parameters.Clear();
-            command.CommandText = """
-                SELECT
-                    SchemaVersion,
-                    ContractVersion,
-                    TransportDemandKeyComparison,
-                    DATALENGTH(SnapshotTokenSigningKey)
-                FROM mesingest.SchemaInfo
-                WHERE Id = 1;
-                """;
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            if (!await reader.ReadAsync(cancellationToken)
-                || reader.GetInt32(0) != NewMesIngestContract.SchemaVersion
-                || !string.Equals(reader.GetString(1), NewMesIngestContract.Version, StringComparison.Ordinal)
-                || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal)
-                || reader.GetInt32(3) != 32)
+            if (userObjectCount == 0)
             {
-                throw new InvalidOperationException(
-                    "The configured database does not contain the expected new-MesIngest schema contract.");
+                command.CommandText = SetSimpleRecoverySql;
+                await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            await reader.DisposeAsync();
-            await transaction.CommitAsync(cancellationToken);
+            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+                IsolationLevel.Serializable,
+                cancellationToken);
+            try
+            {
+                command.Transaction = transaction;
+                command.CommandText = CountUserObjectsSql;
+                userObjectCount = Convert.ToInt32(
+                    await command.ExecuteScalarAsync(cancellationToken),
+                    System.Globalization.CultureInfo.InvariantCulture);
+
+                command.CommandText = userObjectCount == 0
+                    ? BootstrapSchemaSql
+                    : ValidateExistingSchemaSql;
+                command.Parameters.Add("@schemaVersion", SqlDbType.Int).Value =
+                    NewMesIngestContract.SchemaVersion;
+                command.Parameters.Add("@contractVersion", SqlDbType.NVarChar, 128).Value =
+                    NewMesIngestContract.Version;
+                command.Parameters.Add("@keyComparison", SqlDbType.NVarChar, 128).Value =
+                    NewMesIngestContract.KeyComparison;
+                await command.ExecuteNonQueryAsync(cancellationToken);
+
+                command.Parameters.Clear();
+                command.CommandText = """
+                    SELECT
+                        SchemaVersion,
+                        ContractVersion,
+                        TransportDemandKeyComparison,
+                        DATALENGTH(SnapshotTokenSigningKey)
+                    FROM mesingest.SchemaInfo
+                    WHERE Id = 1;
+                    """;
+                await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+                if (!await reader.ReadAsync(cancellationToken)
+                    || reader.GetInt32(0) != NewMesIngestContract.SchemaVersion
+                    || !string.Equals(reader.GetString(1), NewMesIngestContract.Version, StringComparison.Ordinal)
+                    || !string.Equals(reader.GetString(2), NewMesIngestContract.KeyComparison, StringComparison.Ordinal)
+                    || reader.GetInt32(3) != 32)
+                {
+                    throw new InvalidOperationException(
+                        "The configured database does not contain the expected new-MesIngest schema contract.");
+                }
+
+                await reader.DisposeAsync();
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch (Exception exception)
+            {
+                await transaction.RollbackBestEffortAsync(exception);
+                throw;
+            }
         }
-        catch (Exception exception)
+        finally
         {
-            await transaction.RollbackBestEffortAsync(exception);
-            throw;
+            if (sessionLockHeld)
+            {
+                await using var releaseCommand = connection.CreateCommand();
+                releaseCommand.CommandText = ReleaseSessionSchemaLockSql;
+                await releaseCommand.ExecuteNonQueryAsync(CancellationToken.None);
+            }
         }
     }
 
-    private const string AcquireSchemaLockAndCountSql = """
+    private const string AcquireSessionSchemaLockAndCountSql = """
         SET XACT_ABORT ON;
 
         -- Keep the lock identity stable so old and new contract binaries cannot
@@ -73,12 +98,35 @@ internal static class SqlServerMesIngestSchema
         EXEC @lockResult = sys.sp_getapplock
             @Resource = N'mesingest.schema.contract.v1',
             @LockMode = N'Exclusive',
-            @LockOwner = N'Transaction',
+            @LockOwner = N'Session',
             @LockTimeout = 15000;
         IF @lockResult < 0
             THROW 51000, 'Could not acquire the new MesIngest schema contract lock.', 1;
 
-        SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0;
+        SELECT COUNT(*)
+        FROM sys.objects
+        WHERE is_ms_shipped = 0 AND parent_object_id = 0;
+        """;
+
+    private const string ReleaseSessionSchemaLockSql = """
+        DECLARE @lockResult INT;
+        EXEC @lockResult = sys.sp_releaseapplock
+            @Resource = N'mesingest.schema.contract.v1',
+            @LockOwner = N'Session';
+        IF @lockResult < 0
+            THROW 51000, 'Could not release the new MesIngest schema contract lock.', 1;
+        """;
+
+    private const string CountUserObjectsSql = """
+        SELECT COUNT(*)
+        FROM sys.objects
+        WHERE is_ms_shipped = 0 AND parent_object_id = 0;
+        """;
+
+    private const string SetSimpleRecoverySql = """
+        DECLARE @sql NVARCHAR(512) =
+            N'ALTER DATABASE ' + QUOTENAME(DB_NAME()) + N' SET RECOVERY SIMPLE;';
+        EXEC sys.sp_executesql @sql;
         """;
 
     private const string BootstrapSchemaSql = """
@@ -392,11 +440,11 @@ internal static class SqlServerMesIngestSchema
             LatestObservationProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             DemandRevision BIGINT NOT NULL,
             ValueObservedAt DATETIMEOFFSET(7) NOT NULL,
-            Area NVARCHAR(MAX) NULL,
-            Eqp NVARCHAR(MAX) NULL,
-            Step NVARCHAR(MAX) NULL,
+            Area NVARCHAR(512) NULL,
+            Eqp NVARCHAR(512) NULL,
+            Step NVARCHAR(512) NULL,
             MesSourceDate DATETIMEOFFSET(7) NULL,
-            Package NVARCHAR(MAX) NULL,
+            Package NVARCHAR(512) NULL,
             CONSTRAINT UQ_MesIngest_TransportDemands_SeriesGeneration
                 UNIQUE (SeriesId, Generation),
             CONSTRAINT FK_MesIngest_TransportDemands_Series
@@ -431,13 +479,14 @@ internal static class SqlServerMesIngestSchema
             DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
             WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
             Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NULL,
-            Area NVARCHAR(MAX) NULL,
-            Eqp NVARCHAR(MAX) NULL,
-            Step NVARCHAR(MAX) NULL,
+            Area NVARCHAR(512) NULL,
+            Eqp NVARCHAR(512) NULL,
+            Step NVARCHAR(512) NULL,
             MesSourceDate DATETIMEOFFSET(7) NULL,
-            Package NVARCHAR(MAX) NULL,
-            MesSourceDateRaw NVARCHAR(MAX) NULL,
-            CONSTRAINT PK_MesIngest_DemandRawObservations PRIMARY KEY (PollTraceId, Ordinal),
+            Package NVARCHAR(512) NULL,
+            MesSourceDateRaw NVARCHAR(128) NULL,
+            CONSTRAINT PK_MesIngest_DemandRawObservations PRIMARY KEY (PollTraceId, Ordinal)
+                WITH (DATA_COMPRESSION = PAGE),
             CONSTRAINT FK_MesIngest_DemandRawObservations_PollTrace
                 FOREIGN KEY (PollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
             CONSTRAINT FK_MesIngest_DemandRawObservations_Commit
@@ -450,7 +499,12 @@ internal static class SqlServerMesIngestSchema
             CONSTRAINT CK_MesIngest_DemandRawObservations_Ordinal CHECK (Ordinal >= 0)
         );
         CREATE INDEX IX_MesIngest_DemandRawObservations_Series
-            ON mesingest.DemandRawObservations (SeriesId, PollTraceId, Ordinal);
+            ON mesingest.DemandRawObservations (SeriesId, PollTraceId, Ordinal)
+            WITH (DATA_COMPRESSION = PAGE);
+        CREATE INDEX IX_MesIngest_DemandRawObservations_Demand
+            ON mesingest.DemandRawObservations (DemandId, ProjectionCommitId)
+            INCLUDE (Area)
+            WITH (DATA_COMPRESSION = PAGE);
 
         CREATE TABLE mesingest.DemandSeriesEvents
         (
@@ -586,11 +640,11 @@ internal static class SqlServerMesIngestSchema
             ValueObservedAt DATETIMEOFFSET(7) NOT NULL,
             ValuePollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
             ValueProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
-            Area NVARCHAR(MAX) NOT NULL,
-            Eqp NVARCHAR(MAX) NOT NULL,
-            Step NVARCHAR(MAX) NOT NULL,
+            Area NVARCHAR(512) NOT NULL,
+            Eqp NVARCHAR(512) NOT NULL,
+            Step NVARCHAR(512) NOT NULL,
             MesSourceDate DATETIMEOFFSET(7) NOT NULL,
-            Package NVARCHAR(MAX) NOT NULL,
+            Package NVARCHAR(512) NOT NULL,
             CONSTRAINT FK_MesIngest_CatalogItems_Demand
                 FOREIGN KEY (DemandId) REFERENCES mesingest.TransportDemands (DemandId),
             CONSTRAINT FK_MesIngest_CatalogItems_Series
@@ -617,6 +671,19 @@ internal static class SqlServerMesIngestSchema
 
     private const string ValidateExistingSchemaSql = """
         SET XACT_ABORT ON;
+
+        IF (SELECT recovery_model_desc FROM sys.databases WHERE name = DB_NAME()) <> N'SIMPLE'
+            THROW 51001, 'The configured new-MesIngest database must use SIMPLE recovery.', 1;
+
+        IF EXISTS
+        (
+            SELECT 1
+            FROM sys.objects
+            WHERE is_ms_shipped = 0
+              AND parent_object_id = 0
+              AND [type] <> N'U'
+        )
+            THROW 51001, 'The configured database contains an unexpected top-level user object.', 1;
 
         IF
         (
@@ -822,11 +889,11 @@ internal static class SqlServerMesIngestSchema
             (N'TransportDemands', 12, N'LatestObservationProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 13, N'DemandRevision', N'bigint', 8, 19, 0, 0, NULL),
             (N'TransportDemands', 14, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'TransportDemands', 15, N'Area', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 16, N'Eqp', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'TransportDemands', 17, N'Step', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 15, N'Area', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 16, N'Eqp', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 17, N'Step', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
             (N'TransportDemands', 18, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'TransportDemands', 19, N'Package', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'TransportDemands', 19, N'Package', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'DemandRawObservations', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandRawObservations', 2, N'Ordinal', N'int', 4, 10, 0, 0, NULL),
@@ -835,12 +902,12 @@ internal static class SqlServerMesIngestSchema
             (N'DemandRawObservations', 5, N'DemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'DemandRawObservations', 6, N'WorkType', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'DemandRawObservations', 7, N'Sublot', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
-            (N'DemandRawObservations', 8, N'Area', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'DemandRawObservations', 9, N'Eqp', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'DemandRawObservations', 10, N'Step', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 8, N'Area', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 9, N'Eqp', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 10, N'Step', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
             (N'DemandRawObservations', 11, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'DemandRawObservations', 12, N'Package', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'DemandRawObservations', 13, N'MesSourceDateRaw', N'nvarchar', -1, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 12, N'Package', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'DemandRawObservations', 13, N'MesSourceDateRaw', N'nvarchar', 256, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
 
             (N'DemandSeriesEvents', 1, N'EventId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeriesEvents', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -900,11 +967,11 @@ internal static class SqlServerMesIngestSchema
             (N'CatalogItems', 8, N'ValueObservedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
             (N'CatalogItems', 9, N'ValuePollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'CatalogItems', 10, N'ValueProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'CatalogItems', 11, N'Area', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'CatalogItems', 12, N'Eqp', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
-            (N'CatalogItems', 13, N'Step', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 11, N'Area', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 12, N'Eqp', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'CatalogItems', 13, N'Step', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
             (N'CatalogItems', 14, N'MesSourceDate', N'datetimeoffset', 10, 34, 7, 0, NULL),
-            (N'CatalogItems', 15, N'Package', N'nvarchar', -1, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation')));
+            (N'CatalogItems', 15, N'Package', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation')));
 
         IF EXISTS
         (
@@ -1315,6 +1382,78 @@ internal static class SqlServerMesIngestSchema
         (
             SELECT 1
             FROM sys.indexes AS i
+            WHERE i.object_id = OBJECT_ID(N'mesingest.DemandRawObservations')
+              AND i.name = N'PK_MesIngest_DemandRawObservations'
+              AND i.[type] = 1
+              AND i.is_primary_key = 1
+        )
+            THROW 51006, 'The new-MesIngest raw-observation primary key must remain clustered.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
+              AND t.name = N'DemandRawObservations'
+              AND i.name = N'IX_MesIngest_DemandRawObservations_Demand'
+              AND i.[type] IN (1, 2)
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND 2 = (SELECT COUNT(*) FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND N'DemandId,ProjectionCommitId' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND 0 = (SELECT SUM(CONVERT(INT, ic.is_descending_key))
+                       FROM sys.index_columns AS ic
+                       WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0)
+              AND N'Area' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.index_column_id)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.is_included_column = 1)
+        )
+            THROW 51006, 'The configured database is missing the new-MesIngest demand raw-observation index contract.', 1;
+
+        IF EXISTS
+        (
+            SELECT expected.IndexName
+            FROM (VALUES
+                (N'PK_MesIngest_DemandRawObservations'),
+                (N'IX_MesIngest_DemandRawObservations_Series'),
+                (N'IX_MesIngest_DemandRawObservations_Demand')
+            ) AS expected(IndexName)
+            WHERE NOT EXISTS
+            (
+                SELECT 1
+                FROM sys.indexes AS i
+                INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+                INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+                WHERE s.name = N'mesingest'
+                  AND t.name = N'DemandRawObservations'
+                  AND i.name = expected.IndexName
+                  AND NOT EXISTS
+                  (
+                      SELECT 1
+                      FROM sys.partitions AS p
+                      WHERE p.object_id = i.object_id
+                        AND p.index_id = i.index_id
+                        AND p.data_compression_desc <> N'PAGE'
+                  )
+            )
+        )
+            THROW 51006, 'The configured database is missing PAGE compression on a required raw-observation index.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
             INNER JOIN sys.tables AS t ON t.object_id = i.object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
             WHERE s.name = N'mesingest'
@@ -1454,6 +1593,46 @@ internal static class SqlServerMesIngestSchema
                      AND ic.is_included_column = 1)
         )
             THROW 51006, 'The configured database is missing the unassigned-observation overview event index contract.', 1;
+
+        DECLARE @ExpectedIndexes TABLE
+        (
+            TableName SYSNAME NOT NULL,
+            IndexName SYSNAME NOT NULL,
+            PRIMARY KEY (TableName, IndexName)
+        );
+        INSERT INTO @ExpectedIndexes (TableName, IndexName)
+        SELECT DISTINCT TableName, ConstraintName
+        FROM @ExpectedKeys;
+        INSERT INTO @ExpectedIndexes (TableName, IndexName) VALUES
+            (N'UnassignedMesObservationEvents', N'IX_MesIngest_UnassignedMesObservationEvents_Overview'),
+            (N'TaskTypeProtectionEvents', N'IX_MesIngest_TaskTypeProtectionEvents_Commit'),
+            (N'DemandRawObservations', N'IX_MesIngest_DemandRawObservations_Series'),
+            (N'DemandRawObservations', N'IX_MesIngest_DemandRawObservations_Demand'),
+            (N'SeriesErrorPeriodEvidence', N'IX_MesIngest_SeriesErrorPeriodEvidence_Period'),
+            (N'DemandSeriesErrorPeriods', N'IX_MesIngest_DemandSeriesErrorPeriods_Search'),
+            (N'SeriesErrorPeriodEvidence', N'IX_MesIngest_SeriesErrorPeriodEvidence_Demand');
+
+        IF EXISTS
+        (
+            SELECT TableName, IndexName FROM @ExpectedIndexes
+            EXCEPT
+            SELECT t.name, i.name
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND i.index_id > 0
+        )
+        OR EXISTS
+        (
+            SELECT t.name, i.name
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest' AND i.index_id > 0
+            EXCEPT
+            SELECT TableName, IndexName FROM @ExpectedIndexes
+        )
+            THROW 51006, 'The configured database contains an unexpected new-MesIngest index.', 1;
 
         IF EXISTS
         (

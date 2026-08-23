@@ -30,6 +30,9 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
     private const string ArchivedSeriesVisibilitySubject = DemandSeriesLifecycleContract.ArchivedSeriesVisibilitySubject;
     private const string PostarchiveReappearanceReason = DemandSeriesLifecycleContract.PostarchiveReappearanceReason;
     private const string SeriesArchivedBlocker = DemandSeriesLifecycleContract.SeriesArchivedBlocker;
+    private const int CurrentMesFieldMaximumLength = 512;
+    private const int RawMesSourceDateMaximumLength = 128;
+    private const int SqlFilterJsonMaximumLength = 4000;
 
     private readonly string _connectionString;
     private readonly int _zeroDropEnterThreshold;
@@ -1259,6 +1262,26 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 && !string.IsNullOrWhiteSpace(observation.Sublot);
             ValidateOptionalText(observation.WorkType, nameof(observation.WorkType), 128);
             ValidateOptionalText(observation.Sublot, nameof(observation.Sublot), 256);
+            ValidateOptionalText(
+                observation.Area,
+                nameof(observation.Area),
+                CurrentMesFieldMaximumLength);
+            ValidateOptionalText(
+                observation.Eqp,
+                nameof(observation.Eqp),
+                CurrentMesFieldMaximumLength);
+            ValidateOptionalText(
+                observation.Step,
+                nameof(observation.Step),
+                CurrentMesFieldMaximumLength);
+            ValidateOptionalText(
+                observation.Package,
+                nameof(observation.Package),
+                CurrentMesFieldMaximumLength);
+            ValidateOptionalText(
+                observation.MesSourceDateRaw,
+                nameof(observation.MesSourceDateRaw),
+                RawMesSourceDateMaximumLength);
 
             var keyToken = isAssigned
                 ? TransportDemandKeyIdentity.CreateToken(
@@ -2214,11 +2237,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
             AddNVarChar(command, "@demandId", 64, demandId);
-            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
-            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
-            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
             AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
-            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
+            AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, liveObservation?.Package);
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -2302,11 +2325,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
-            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
-            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
-            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
             AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
-            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
+            AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, liveObservation?.Package);
             if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
             {
                 throw new InvalidOperationException("The GONE Demand changed while creating its successor generation.");
@@ -2388,11 +2411,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
             AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
             AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
-            AddNullableNVarChar(command, "@area", -1, liveObservation?.Area);
-            AddNullableNVarChar(command, "@eqp", -1, liveObservation?.Eqp);
-            AddNullableNVarChar(command, "@step", -1, liveObservation?.Step);
+            AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
             AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
-            AddNullableNVarChar(command, "@package", -1, liveObservation?.Package);
+            AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, liveObservation?.Package);
             if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 2)
             {
                 throw new InvalidOperationException(
@@ -2648,16 +2671,16 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         command.Parameters.Add("@lastSeriesSequence", SqlDbType.BigInt).Value = nextSequence - 1;
         command.Parameters.Add("@businessValueChanged", SqlDbType.Bit).Value = businessValueChanged;
         AddDateTimeOffset(command, "@completedAt", round.CompletedAt);
-        AddNullableNVarChar(command, "@area", -1, observation.Area);
-        AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
-        AddNullableNVarChar(command, "@step", -1, observation.Step);
+        AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, observation.Area);
+        AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, observation.Eqp);
+        AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, observation.Step);
         AddNullableDateTimeOffset(
             command,
             "@mesSourceDate",
             MesTaskUnionValueSemantics.SourceDatesEqual(current.MesSourceDate, observation.MesSourceDate)
                 ? current.MesSourceDate
                 : observation.MesSourceDate);
-        AddNullableNVarChar(command, "@package", -1, observation.Package);
+        AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, observation.Package);
         var affected = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (affected != 2)
         {
@@ -3753,12 +3776,16 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         AddNullableNVarChar(command, "@demandId", 64, identity?.DemandId);
         AddNullableNVarChar(command, "@workType", 128, observation.WorkType);
         AddNullableNVarChar(command, "@sublot", 256, observation.Sublot);
-        AddNullableNVarChar(command, "@area", -1, observation.Area);
-        AddNullableNVarChar(command, "@eqp", -1, observation.Eqp);
-        AddNullableNVarChar(command, "@step", -1, observation.Step);
+        AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, observation.Area);
+        AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, observation.Eqp);
+        AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, observation.Step);
         AddNullableDateTimeOffset(command, "@mesSourceDate", observation.MesSourceDate);
-        AddNullableNVarChar(command, "@package", -1, observation.Package);
-        AddNullableNVarChar(command, "@mesSourceDateRaw", -1, observation.MesSourceDateRaw);
+        AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, observation.Package);
+        AddNullableNVarChar(
+            command,
+            "@mesSourceDateRaw",
+            RawMesSourceDateMaximumLength,
+            observation.MesSourceDateRaw);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -4196,6 +4223,19 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 parameterName,
                 $"Value exceeds the SQL contract maximum of {maxLength} characters.");
         }
+    }
+
+    private static string SerializeBoundedSqlFilter(
+        IReadOnlyList<string> values,
+        Func<string, Exception> exceptionFactory)
+    {
+        var json = JsonSerializer.Serialize(values);
+        if (json.Length > SqlFilterJsonMaximumLength)
+        {
+            throw exceptionFactory(
+                $"A serialized filter dimension must not exceed {SqlFilterJsonMaximumLength} characters.");
+        }
+        return json;
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");

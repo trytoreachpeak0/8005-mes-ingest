@@ -197,12 +197,16 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
 
         const string sublot = "SL-T12-RAW-REJECTIONS";
-        var oversizedValue = new string('Z', 3_000);
+        var boundaryValue = new string('\u754c', 512);
         await ingestor.IngestAsync(SuccessRound(
             "poll-ticket12-raw-rejections",
             observedAt,
-            Observation(sublot, "N3-3", "WB-31", oversizedValue),
-            Observation(sublot, "N3-4", "WB-32", oversizedValue)));
+            Enumerable.Range(0, 20)
+                .Select(_ => Observation(sublot, boundaryValue, boundaryValue, boundaryValue) with
+                {
+                    Step = boundaryValue,
+                })
+                .ToArray()));
 
         const string listUri = "/api/v2/error-search?window=ALL_HISTORY"
             + "&code=DUPLICATE_TRANSPORT_DEMAND_KEY&sublot=t12-raw-rejections&pageSize=20";
@@ -238,7 +242,7 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             var body = await AssertErrorCodeAsync(hidden, ErrorSearchErrorCodes.ObjectNotInSnapshot);
             Assert.DoesNotContain(seriesId, body, StringComparison.Ordinal);
             Assert.DoesNotContain(evidenceId, body, StringComparison.Ordinal);
-            Assert.DoesNotContain(oversizedValue, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(boundaryValue, body, StringComparison.Ordinal);
         }
 
         using (var evidenceHidden = await SendAuthorizedAsync(
@@ -251,7 +255,7 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
                 ErrorSearchErrorCodes.ObjectNotInSnapshot);
             Assert.DoesNotContain(seriesId, body, StringComparison.Ordinal);
             Assert.DoesNotContain(evidenceId, body, StringComparison.Ordinal);
-            Assert.DoesNotContain(oversizedValue, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(boundaryValue, body, StringComparison.Ordinal);
         }
 
         using (var fieldRejected = await SendAuthorizedAsync(
@@ -275,11 +279,11 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
 
         using (var payloadRejected = await SendAuthorizedAsync(
             client,
-            RawUri(seriesId, evidenceId, snapshotReference, "package", 20)))
+            RawUri(seriesId, evidenceId, snapshotReference, "area,eqp,step,package", 20)))
         {
             Assert.Equal((HttpStatusCode)413, payloadRejected.StatusCode);
             var body = await AssertErrorCodeAsync(payloadRejected, ErrorSearchErrorCodes.RawLimitExceeded);
-            Assert.DoesNotContain(oversizedValue, body, StringComparison.Ordinal);
+            Assert.DoesNotContain(boundaryValue, body, StringComparison.Ordinal);
         }
 
         var detailAfterRejections = await GetJsonAsync(client, detailUri);

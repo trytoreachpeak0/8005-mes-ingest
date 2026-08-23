@@ -75,7 +75,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'FactoryAcceptanceTools.ps1')
 
 $expectedContractVersion = '2026.08.new-mes-ingest.v2.0'
-$expectedContractSchemaVersion = 17
+$expectedContractSchemaVersion = 18
 $expectedCapabilityIds = @(
     'CONTRACT_DISCOVERY',
     'CURRENT_INGEST_ATTENTION',

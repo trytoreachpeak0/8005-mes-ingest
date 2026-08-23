@@ -40,7 +40,7 @@ $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
 $expectedContractVersion = '2026.08.new-mes-ingest.v2.0'
-$expectedContractSchemaVersion = 17
+$expectedContractSchemaVersion = 18
 $expectedOpenApiPaths = @(
     '/api/v2/absence-authority',
     '/api/v2/absence-authority/{hostSessionId}',
