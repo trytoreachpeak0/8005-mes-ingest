@@ -260,4 +260,67 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("p99=100", stdout, StringComparison.Ordinal);
         Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", stderr, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ShowPlan_validator_treats_missing_runtime_counter_attributes_as_zero_without_sql()
+    {
+        var script = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1");
+        var root = Path.Combine(Path.GetTempPath(), $"mesingest-showplan-fixture-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var fixturePath = Path.Combine(root, "showplan.xml");
+        File.WriteAllText(
+            fixturePath,
+            """
+            <ShowPlanXML>
+              <BatchSequence><Batch><Statements><StmtSimple><QueryPlan>
+                <RelOp PhysicalOp="Index Seek">
+                  <IndexScan><Object Database="[fixture]" Schema="[mesingest]" Table="[DemandSeries]" Index="[ix_fixture]" /></IndexScan>
+                  <RunTimeInformation><RunTimeCountersPerThread Thread="0" ActualRows="1" ActualLogicalReads="2" /></RunTimeInformation>
+                </RelOp>
+              </QueryPlan></StmtSimple></Statements></Batch></BatchSequence>
+            </ShowPlanXML>
+            """);
+
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = RepositoryPaths.CSharpRoot,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                         "-ProfileDays", "0",
+                         "-DatabaseName", "MesIngest_Scale_ShowPlanOnly",
+                         "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                         "-ValidateShowPlanFixturePath", fixturePath,
+                     })
+            {
+                start.ArgumentList.Add(argument);
+            }
+            start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+            using var process = Process.Start(start)
+                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            Assert.True(process.WaitForExit(30_000), "ShowPlan fixture validation did not finish.");
+            Assert.True(process.ExitCode == 0, stdout + Environment.NewLine + stderr);
+            Assert.Contains("operators=1", stdout, StringComparison.Ordinal);
+            Assert.Contains("scans=0", stdout, StringComparison.Ordinal);
+            Assert.Contains("logicalReads=2", stdout, StringComparison.Ordinal);
+            Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 }

@@ -32,6 +32,7 @@ param(
     [string] $SqlTier1AttestationPath = '',
     [string] $ValidateEvidenceFixturePath = '',
     [string] $ValidatePercentileFixture = '',
+    [string] $ValidateShowPlanFixturePath = '',
     [ValidateSet('Release', 'Debug', 'Published')] [string] $BuildConfiguration = 'Release',
     [ValidateRange(1, 10000)] [int] $SeriesCount = 600,
     [ValidateRange(1, 10000)] [int] $ObservationsPerRound = 600,
@@ -141,6 +142,22 @@ function Read-XEventEnvelope {
     }
 }
 
+function Get-XmlInt64Attribute {
+    param(
+        [Parameter(Mandatory = $true)][Xml.XmlElement] $Node,
+        [Parameter(Mandatory = $true)][string] $Name
+    )
+    $value = 0L
+    if ([long]::TryParse(
+        $Node.GetAttribute($Name),
+        [Globalization.NumberStyles]::Integer,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$value)) {
+        return $value
+    }
+    return 0L
+}
+
 function Read-ShowPlanRuntimeIo {
     param([Parameter(Mandatory = $true)][AllowEmptyString()][string] $PlanXml)
     if ([string]::IsNullOrWhiteSpace($PlanXml)) { return @() }
@@ -151,14 +168,16 @@ function Read-ShowPlanRuntimeIo {
         foreach ($counter in @($relOp.SelectNodes(".//*[local-name()='RunTimeCountersPerThread']"))) {
             if ($null -eq $object) { continue }
             [void]$items.Add([pscustomobject][ordered]@{
-                database = [string]$object.Database; schema = [string]$object.Schema
-                table = [string]$object.Table; index = [string]$object.Index
-                physicalOperation = [string]$relOp.PhysicalOp; thread = [string]$counter.Thread
-                actualRows = [long]$counter.ActualRows; actualScans = [long]$counter.ActualScans
-                actualLogicalReads = [long]$counter.ActualLogicalReads
-                actualPhysicalReads = [long]$counter.ActualPhysicalReads
-                actualReadAheads = [long]$counter.ActualReadAheads
-                actualElapsedMs = [long]$counter.ActualElapsedms; actualCpuMs = [long]$counter.ActualCPUms
+                database = $object.GetAttribute('Database'); schema = $object.GetAttribute('Schema')
+                table = $object.GetAttribute('Table'); index = $object.GetAttribute('Index')
+                physicalOperation = $relOp.GetAttribute('PhysicalOp'); thread = $counter.GetAttribute('Thread')
+                actualRows = Get-XmlInt64Attribute $counter 'ActualRows'
+                actualScans = Get-XmlInt64Attribute $counter 'ActualScans'
+                actualLogicalReads = Get-XmlInt64Attribute $counter 'ActualLogicalReads'
+                actualPhysicalReads = Get-XmlInt64Attribute $counter 'ActualPhysicalReads'
+                actualReadAheads = Get-XmlInt64Attribute $counter 'ActualReadAheads'
+                actualElapsedMs = Get-XmlInt64Attribute $counter 'ActualElapsedms'
+                actualCpuMs = Get-XmlInt64Attribute $counter 'ActualCPUms'
             })
         }
     }
@@ -375,6 +394,19 @@ if (-not [string]::IsNullOrWhiteSpace($ValidatePercentileFixture)) {
         (Get-NearestRankPercentile $percentileValues 0.50).ToString([Globalization.CultureInfo]::InvariantCulture),
         (Get-NearestRankPercentile $percentileValues 0.95).ToString([Globalization.CultureInfo]::InvariantCulture),
         (Get-NearestRankPercentile $percentileValues 0.99).ToString([Globalization.CultureInfo]::InvariantCulture))
+    exit 0
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ValidateShowPlanFixturePath)) {
+    if (-not (Test-Path -LiteralPath $ValidateShowPlanFixturePath -PathType Leaf)) {
+        throw "ShowPlan fixture not found: $ValidateShowPlanFixturePath"
+    }
+    $runtimeIo = @(Read-ShowPlanRuntimeIo (Get-Content -Raw -LiteralPath $ValidateShowPlanFixturePath))
+    Write-Output (
+        'MESINGEST_SHOWPLAN_FIXTURE: operators={0} scans={1} logicalReads={2}' -f
+        $runtimeIo.Count,
+        [long](($runtimeIo | Measure-Object -Property actualScans -Sum).Sum),
+        [long](($runtimeIo | Measure-Object -Property actualLogicalReads -Sum).Sum))
     exit 0
 }
 
