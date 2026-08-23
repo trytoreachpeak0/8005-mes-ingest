@@ -350,22 +350,37 @@ public sealed partial class SqlServerMesIngestProjection
               AND (@sublotContains IS NULL
                    OR CHARINDEX(
                        @sublotContains COLLATE Latin1_General_100_CI_AS,
-                       series.Sublot COLLATE Latin1_General_100_CI_AS) > 0)
-              AND
-              (
-                  @demandId IS NULL
-                  OR EXISTS
-                  (
-                      SELECT 1
-                      FROM mesingest.SeriesErrorPeriodEvidence AS evidence
-                      INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
-                          ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
-                      WHERE evidence.PeriodId = period.PeriodId
-                        AND evidenceCommit.ProjectionSequence <= @snapshotSequence
-                        AND evidence.ObservedAt <= @asOf
-                        AND evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS
-                  )
-              );
+                       series.Sublot COLLATE Latin1_General_100_CI_AS) > 0);
+
+            -- Materialize one immutable aggregate row per matching Period/Demand.
+            -- Every later count, facet, order and page operation consumes this
+            -- same set, so ReadCommitted never re-reads live evidence between
+            -- response components. Individual evidence is read only by the
+            -- object-bounded detail path after a Series has been selected.
+            CREATE TABLE #AsOfEvidence
+            (
+                PeriodId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                LatestObservedAt DATETIMEOFFSET(7) NOT NULL,
+                PRIMARY KEY (PeriodId, DemandId)
+            );
+            INSERT INTO #AsOfEvidence (PeriodId, DemandId, LatestObservedAt)
+            SELECT evidence.PeriodId, evidence.DemandId, MAX(evidence.ObservedAt)
+            FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+            INNER JOIN #AsOfPeriods AS period ON period.PeriodId = evidence.PeriodId
+            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
+                ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
+            WHERE evidenceCommit.ProjectionSequence <= @snapshotSequence
+              AND evidence.ObservedAt <= @asOf
+              AND (@demandId IS NULL
+                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS)
+            GROUP BY evidence.PeriodId, evidence.DemandId;
+
+            DELETE period
+            FROM #AsOfPeriods AS period
+            WHERE NOT EXISTS
+                (SELECT 1 FROM #AsOfEvidence AS evidence
+                 WHERE evidence.PeriodId = period.PeriodId);
 
             CREATE INDEX IX_ErrorSearch_AsOfPeriods_Category
                 ON #AsOfPeriods (Category, SeriesId, ActivityRank);
@@ -406,17 +421,11 @@ public sealed partial class SqlServerMesIngestProjection
             INSERT INTO #SeriesMatches
                 (SeriesId, ActivityRank, LatestMatchedEvidenceAt,
                  MatchedPeriodCount, MatchedDemandGenerationCount)
-            SELECT period.SeriesId, MIN(period.ActivityRank), MAX(evidence.ObservedAt),
+            SELECT period.SeriesId, MIN(period.ActivityRank), MAX(evidence.LatestObservedAt),
                 COUNT(DISTINCT period.PeriodId), COUNT(DISTINCT evidence.DemandId)
             FROM #FilteredPeriods AS period
-            INNER JOIN mesingest.SeriesErrorPeriodEvidence AS evidence
+            INNER JOIN #AsOfEvidence AS evidence
                 ON evidence.PeriodId = period.PeriodId
-            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
-                ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
-            WHERE evidenceCommit.ProjectionSequence <= @snapshotSequence
-              AND evidence.ObservedAt <= @asOf
-              AND (@demandId IS NULL
-                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS)
             GROUP BY period.SeriesId;
 
             CREATE TABLE #ExactMatches
