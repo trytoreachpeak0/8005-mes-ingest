@@ -21,6 +21,7 @@ param(
     [ValidateRange(1, 120)] [int] $SqlConnectionTimeoutSeconds = 5,
     [ValidateRange(1, 300)] [int] $SqlCommandTimeoutSeconds = 10,
     [ValidateRange(1, 8760)] [int] $EventLookbackHours = 168,
+    [ValidateRange(1, 2147483647)] [int] $MinimumTier1Total = 700,
     [string] $SharedSecretEnvironmentVariable = 'MES_INGEST_SHARED_SECRET',
     [string] $SqlConnectionStringEnvironmentVariable = '',
     [string] $SqlTestTrxPath = '',
@@ -29,6 +30,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Net.Http
 $startedAt = [DateTimeOffset]::UtcNow
 $runId = 'run-{0}-{1}' -f $startedAt.ToString('yyyyMMddTHHmmssZ'), ([Guid]::NewGuid().ToString('N').Substring(0, 8))
 $runDirectory = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) $runId
@@ -37,13 +39,22 @@ if (Test-Path -LiteralPath $runDirectory) {
 }
 [IO.Directory]::CreateDirectory($runDirectory) | Out-Null
 
-function Protect-SensitiveText {
-    param([AllowNull()][AllowEmptyString()][string] $Text)
-    if ([string]::IsNullOrEmpty($Text)) { return $Text }
-    $safe = $Text -replace '(?i)(Authorization\s*:\s*Bearer\s+)\S+', '$1[redacted]'
-    $safe = $safe -replace '(?i)((?:Password|Pwd|SharedSecret|User ID|UID)\s*[:=]\s*)[^;\s]+', '$1[redacted]'
-    $safe = $safe -replace '(?i)((?:Data Source|Server|Initial Catalog|Database)\s*=\s*)[^;\s]+', '$1[redacted]'
-    return $safe
+function Get-SafeExecutablePath {
+    param([AllowNull()][AllowEmptyString()][string] $CommandLine)
+    if ([string]::IsNullOrWhiteSpace($CommandLine)) { return '' }
+    if ($CommandLine -match '^\s*"([^"]+\.exe)"') { return $Matches[1] }
+    if ($CommandLine -match '^\s*([^\s]+\.exe)(?:\s|$)') { return $Matches[1] }
+    return 'UNRESOLVED_EXECUTABLE_PATH'
+}
+
+function Get-SafeBaseUrl {
+    param([Parameter(Mandatory = $true)][string] $Value)
+    try {
+        $uri = [Uri]$Value
+        $port = if ($uri.IsDefaultPort) { -1 } else { $uri.Port }
+        return ([UriBuilder]::new($uri.Scheme, $uri.Host, $port)).Uri.GetLeftPart([UriPartial]::Authority)
+    }
+    catch { return 'INVALID_BASE_URL' }
 }
 
 function Get-Sha256String {
@@ -52,6 +63,14 @@ function Get-Sha256String {
     $sha = [Security.Cryptography.SHA256]::Create()
     try { return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant() }
     finally { $sha.Dispose() }
+}
+
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string] $Path)
+    $stream = [IO.File]::OpenRead($Path)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
+    finally { $sha.Dispose(); $stream.Dispose() }
 }
 
 function Get-JsonErrorCode {
@@ -202,11 +221,11 @@ function Get-WorktreeInventory {
         return [pscustomobject][ordered]@{ available = $false; entries = @(); diagnosticCode = 'REPOSITORY_ROOT_NOT_PROVIDED' }
     }
     try {
-        $lines = @(& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=normal 2>$null)
+        $lines = @(& git -C $RepositoryRoot status --porcelain=v1 --untracked-files=all 2>$null)
         $entries = foreach ($line in $lines) {
             if ($line.Length -lt 4) { continue }
             $path = $line.Substring(3).Trim('"') -replace '\\', '/'
-            $scope = if ($path -like '.scratch/mes-ingest-bounded-storage-low-memory/*' -or
+            $scope = if ($path -like '.scratch/mes-ingest-bounded-storage-low-memory/evidence/runtime-feedback/*' -or
                 $path -eq 'mes/ingest/csharp/pack/validation/Invoke-RuntimeFeedbackLoop.ps1' -or
                 $path -eq 'mes/ingest/csharp/MesIngest.Tests/RuntimeFeedbackLoopTests.cs' -or
                 $path -eq 'mes/ingest/csharp/pack/Publish-MesIngest.ps1' -or
@@ -271,7 +290,7 @@ $assemblies = foreach ($relativePath in @('MesIngest.Host.exe', 'MesIngest.Host.
             length = $item.Length
             fileVersion = $item.VersionInfo.FileVersion
             productVersion = $item.VersionInfo.ProductVersion
-            sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            sha256 = Get-FileSha256 $path
             lastWriteTimeUtc = $item.LastWriteTimeUtc.ToString('o')
         }
     }
@@ -280,16 +299,34 @@ $assemblies = foreach ($relativePath in @('MesIngest.Host.exe', 'MesIngest.Host.
 $manifest = if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
     Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 } else { $null }
+$packageOpenApi = if (Test-Path -LiteralPath $openApiPath -PathType Leaf) {
+    try { Get-Content -Raw -LiteralPath $openApiPath | ConvertFrom-Json } catch { $null }
+} else { $null }
 $expectedContractVersion = if ($null -ne $manifest -and $null -ne $manifest.openApi) { [string]$manifest.openApi.contractVersion } else { '' }
 $expectedSchemaVersion = if ($null -ne $manifest -and $null -ne $manifest.openApi) { [int]$manifest.openApi.schemaVersion } else { 0 }
 $expectedOpenApiSha256 = if ($null -ne $manifest -and $null -ne $manifest.openApi) { ([string]$manifest.openApi.sha256).ToLowerInvariant() } else { '' }
+$expectedCapabilityIdentity = @()
+if ($null -ne $packageOpenApi) {
+    try {
+        $capabilitySchema = $packageOpenApi.components.schemas.NewMesIngestCapabilityDto
+        $capabilityVersions = @($capabilitySchema.properties.version.enum)
+        if ($capabilityVersions.Count -eq 1) {
+            $expectedCapabilityIdentity = @($capabilitySchema.properties.id.enum | ForEach-Object {
+                '{0}:{1}' -f $_, $capabilityVersions[0]
+            } | Sort-Object)
+        }
+    } catch { $expectedCapabilityIdentity = @() }
+}
+$expectedCapabilityIdentityText = $expectedCapabilityIdentity -join "`n"
+$expectedCapabilityIdentitySha256 = if ($expectedCapabilityIdentity.Count -gt 0) { Get-Sha256String $expectedCapabilityIdentityText } else { '' }
 
 $contractProbe = Invoke-EndpointProbe -Name 'contract' -RelativePath '/api/v2/contract' -CaptureBody
 $contractBody = if ($contractProbe.PSObject.Properties['capturedBody']) { [string]$contractProbe.capturedBody } else { '' }
 if ($contractProbe.PSObject.Properties['capturedBody']) { $contractProbe.PSObject.Properties.Remove('capturedBody') }
 $contractIdentity = [ordered]@{
     available = $false; contractVersion = ''; schemaVersion = 0; compatibilityPolicy = ''
-    capabilityCount = 0; capabilityIdentitySha256 = ''; expectedContractVersion = $expectedContractVersion
+    capabilityCount = 0; capabilityIdentitySha256 = ''; expectedCapabilityCount = $expectedCapabilityIdentity.Count
+    expectedCapabilityIdentitySha256 = $expectedCapabilityIdentitySha256; expectedContractVersion = $expectedContractVersion
     expectedSchemaVersion = $expectedSchemaVersion; exactPackageMatch = $false; classification = $contractProbe.classification
 }
 if (-not [string]::IsNullOrWhiteSpace($contractBody)) {
@@ -303,8 +340,10 @@ if (-not [string]::IsNullOrWhiteSpace($contractBody)) {
         $contractIdentity.capabilityCount = @($contract.capabilities).Count
         $contractIdentity.capabilityIdentitySha256 = Get-Sha256String $capabilityIdentity
         $contractIdentity.exactPackageMatch = -not [string]::IsNullOrWhiteSpace($expectedContractVersion) -and
+            $expectedCapabilityIdentity.Count -gt 0 -and
             [string]::Equals($contractIdentity.contractVersion, $expectedContractVersion, [StringComparison]::Ordinal) -and
             $contractIdentity.schemaVersion -eq $expectedSchemaVersion -and
+            [string]::Equals($contractIdentity.capabilityIdentitySha256, $expectedCapabilityIdentitySha256, [StringComparison]::Ordinal) -and
             [string]::Equals($contractIdentity.compatibilityPolicy, 'EXACT_VERSION_SCHEMA_AND_CAPABILITIES', [StringComparison]::Ordinal)
         if (-not $contractIdentity.exactPackageMatch) {
             $contractIdentity.classification = 'CONTRACT_MISMATCH'
@@ -325,7 +364,7 @@ if (-not [string]::IsNullOrWhiteSpace($openApiBody)) {
 }
 $openApiIdentity = [ordered]@{
     packageFilePresent = (Test-Path -LiteralPath $openApiPath -PathType Leaf)
-    packageFileSha256 = if (Test-Path -LiteralPath $openApiPath -PathType Leaf) { (Get-FileHash -LiteralPath $openApiPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { '' }
+    packageFileSha256 = if (Test-Path -LiteralPath $openApiPath -PathType Leaf) { Get-FileSha256 $openApiPath } else { '' }
     manifestSha256 = $expectedOpenApiSha256
     runtimeDocumentSha256 = if ([string]::IsNullOrEmpty($openApiBody)) { '' } else { Get-Sha256String $openApiBody }
     runtimeContractVersion = if ($null -ne $runtimeOpenApi) { [string]$runtimeOpenApi.info.version } else { '' }
@@ -451,6 +490,15 @@ $sqlEvents = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTi
 $eventSignals = foreach ($signal in @('701', '17300', '17312', 'RESOURCE_SEMAPHORE', 'spill')) {
     Get-ErrorSignalSummary -Events $sqlEvents -Signal $signal
 }
+$sqlEvidenceAvailability = [ordered]@{
+    maxServerMemory = @($sqlQueries | Where-Object { $_.name -eq 'max-server-memory' -and $_.available }).Count -eq 1
+    recoveryModel = @($sqlQueries | Where-Object { $_.name -eq 'server-and-database-identity' -and $_.available }).Count -eq 1
+    databaseFiles = @($sqlQueries | Where-Object { $_.name -eq 'database-files' -and $_.available }).Count -eq 1
+    processMemory = @($sqlQueries | Where-Object { $_.name -eq 'process-memory' -and $_.available }).Count -eq 1
+    memoryGrants = @($sqlQueries | Where-Object { $_.name -eq 'query-memory-grants' -and $_.available }).Count -eq 1
+    resourceSemaphore = @($sqlQueries | Where-Object { $_.name -eq 'resource-semaphores' -and $_.available }).Count -eq 1
+    spillDmv = @($sqlQueries | Where-Object { $_.name -eq 'cached-query-spills' -and $_.available }).Count -eq 1
+}
 $lastMemoryChange = $null
 $memoryChangeEvent = $sqlEvents | Where-Object {
     $_.Id -eq 15457 -and $_.Message -match "max server memory \(MB\).*changed from ([0-9]+) to ([0-9]+)"
@@ -465,13 +513,25 @@ if ($null -ne $memoryChangeEvent -and
     }
 }
 
+$tier1SqlConnectionString = [Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_SQLSERVER')
+$tier1SqlTarget = [ordered]@{ dataSource = ''; database = ''; realInstance = $false }
+if (-not [string]::IsNullOrWhiteSpace($tier1SqlConnectionString)) {
+    try {
+        $tier1Builder = [System.Data.SqlClient.SqlConnectionStringBuilder]::new($tier1SqlConnectionString)
+        $tier1SqlTarget.dataSource = $tier1Builder.DataSource
+        $tier1SqlTarget.database = $tier1Builder.InitialCatalog
+        $tier1SqlTarget.realInstance = $tier1Builder.DataSource.IndexOf('(localdb)', [StringComparison]::OrdinalIgnoreCase) -lt 0
+    } catch { }
+}
 $testEvidence = [ordered]@{
     provided = -not [string]::IsNullOrWhiteSpace($SqlTestTrxPath)
     trxPath = if ([string]::IsNullOrWhiteSpace($SqlTestTrxPath)) { '' } else { [IO.Path]::GetFullPath($SqlTestTrxPath) }
     total = 0; executed = 0; passed = 0; failed = 0; notExecuted = 0; skipped = 0
-    sqlEnvironmentConfigured = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_SQLSERVER'))
+    sqlEnvironmentConfigured = -not [string]::IsNullOrWhiteSpace($tier1SqlConnectionString)
+    sqlTarget = $tier1SqlTarget
     expectedProductMajor = [Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR')
     expectedCompatibilityLevel = [Environment]::GetEnvironmentVariable('MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL')
+    minimumTier1Total = $MinimumTier1Total
     realSqlTier1Satisfied = $false
     diagnosticCode = if ([string]::IsNullOrWhiteSpace($SqlTestTrxPath)) { 'SQL_TIER1_TRX_NOT_PROVIDED' } else { '' }
     exactCommand = 'dotnet test MesIngest.Tests --configuration Release --results-directory <path> --logger "trx;LogFileName=runtime-feedback-tier1.trx"'
@@ -489,8 +549,8 @@ if (-not [string]::IsNullOrWhiteSpace($SqlTestTrxPath)) {
             # VSTest/xUnit v2 records skipped UnitTestResult rows as NotExecuted but can leave the
             # TRX notExecuted counter at zero. Total - Executed is the authoritative skip count.
             $testEvidence.skipped = $testEvidence.total - $testEvidence.executed
-            $testEvidence.realSqlTier1Satisfied = $testEvidence.total -gt 0 -and $testEvidence.failed -eq 0 -and
-                $testEvidence.skipped -eq 0 -and $testEvidence.sqlEnvironmentConfigured -and
+            $testEvidence.realSqlTier1Satisfied = $testEvidence.total -ge $MinimumTier1Total -and $testEvidence.failed -eq 0 -and
+                $testEvidence.skipped -eq 0 -and $testEvidence.sqlEnvironmentConfigured -and $testEvidence.sqlTarget.realInstance -and
                 -not [string]::IsNullOrWhiteSpace($testEvidence.expectedProductMajor) -and
                 -not [string]::IsNullOrWhiteSpace($testEvidence.expectedCompatibilityLevel)
             if (-not $testEvidence.realSqlTier1Satisfied) { $testEvidence.diagnosticCode = 'REAL_SQL_TIER1_NOT_PROVEN' }
@@ -522,10 +582,10 @@ $report = [ordered]@{
     machine = [ordered]@{ name = $env:COMPUTERNAME; os = [Environment]::OSVersion.VersionString; powershell = $PSVersionTable.PSVersion.ToString() }
     diagnosis = [ordered]@{ primaryState = $primaryState; observations = @($observations) }
     host = [ordered]@{
-        service = if ($null -eq $service) { $null } else { [ordered]@{ name = $service.Name; displayName = $service.DisplayName; state = $service.State; startMode = $service.StartMode; startName = $service.StartName; processId = [int]$service.ProcessId; pathName = Protect-SensitiveText ([string]$service.PathName) } }
+        service = if ($null -eq $service) { $null } else { [ordered]@{ name = $service.Name; displayName = $service.DisplayName; state = $service.State; startMode = $service.StartMode; startName = $service.StartName; processId = [int]$service.ProcessId; executablePath = Get-SafeExecutablePath ([string]$service.PathName) } }
         process = if ($null -eq $process) { $null } else { [ordered]@{ id = $process.Id; name = $process.ProcessName; workingSetBytes = $process.WorkingSet64; privateMemoryBytes = $process.PrivateMemorySize64; startTime = try { $process.StartTime.ToUniversalTime().ToString('o') } catch { $null } } }
         listeners = @($listeners)
-        baseUrl = $BaseUrl
+        baseUrl = Get-SafeBaseUrl $BaseUrl
         configuration = [ordered]@{ localFilePresent = Test-Path -LiteralPath $localConfigPath; snapshotSource = if ($null -ne $mesConfig) { [string]$mesConfig.SnapshotSource } else { '' }; hasSqlConnectionString = -not [string]::IsNullOrWhiteSpace($connectionString); hasSharedSecret = -not [string]::IsNullOrWhiteSpace($sharedSecret) }
     }
     deployment = [ordered]@{
@@ -539,9 +599,10 @@ $report = [ordered]@{
     }
     endpoints = @($endpointProbes)
     sqlServer = [ordered]@{
-        service = if ($null -eq $sqlService) { $null } else { [ordered]@{ name = $sqlService.Name; state = $sqlService.State; startMode = $sqlService.StartMode; startName = $sqlService.StartName; pathName = Protect-SensitiveText ([string]$sqlService.PathName) } }
+        service = if ($null -eq $sqlService) { $null } else { [ordered]@{ name = $sqlService.Name; state = $sqlService.State; startMode = $sqlService.StartMode; startName = $sqlService.StartName; executablePath = Get-SafeExecutablePath ([string]$sqlService.PathName) } }
         target = $sqlTarget
         connection = $sqlState
+        evidenceAvailability = $sqlEvidenceAvailability
         queries = @($sqlQueries)
         windowsEventLookbackHours = $EventLookbackHours
         windowsEventSignals = @($eventSignals)
@@ -585,6 +646,7 @@ $markdown.Add('')
 $markdown.Add("- Service: $(if ($null -eq $sqlService) { 'not installed' } else { "$($sqlService.Name) / $($sqlService.State)" })")
 $markdown.Add("- Target identity (no credential): ``$($sqlTarget.dataSource)`` / ``$($sqlTarget.database)`` / $($sqlTarget.credentialMode)")
 $markdown.Add("- Connection: **$($sqlState.classification)** ($($sqlState.diagnosticCode), $($sqlState.connectDurationMs) ms)")
+$markdown.Add("- Current configuration/recovery/files available: $($sqlEvidenceAvailability.maxServerMemory) / $($sqlEvidenceAvailability.recoveryModel) / $($sqlEvidenceAvailability.databaseFiles)")
 $markdown.Add("- SQL query evidence objects: $($sqlQueries.Count); Windows SQL signal lookback: $EventLookbackHours hours")
 foreach ($signal in $eventSignals) { $markdown.Add("  - $($signal.signal): count=$($signal.count), first=$($signal.firstObservedAt), last=$($signal.lastObservedAt)") }
 $markdown.Add('')
@@ -601,7 +663,7 @@ $markdown | Set-Content -LiteralPath $markdownPath -Encoding UTF8
 
 $inventory = foreach ($path in @($jsonPath, $markdownPath)) {
     $item = Get-Item -LiteralPath $path
-    [pscustomobject][ordered]@{ file = $item.Name; length = $item.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+    [pscustomobject][ordered]@{ file = $item.Name; length = $item.Length; sha256 = Get-FileSha256 $path }
 }
 $inventoryPath = Join-Path $runDirectory 'sha256-inventory.json'
 $inventory | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $inventoryPath -Encoding UTF8

@@ -32,6 +32,7 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.Contains("SQL_UNAVAILABLE", collector, StringComparison.Ordinal);
         Assert.Contains("QUERY_TIMEOUT", collector, StringComparison.Ordinal);
         Assert.Contains("CONTRACT_MISMATCH", collector, StringComparison.Ordinal);
+        Assert.Contains("expectedCapabilityIdentitySha256", collector, StringComparison.Ordinal);
         Assert.Contains("max server memory (MB)", collector, StringComparison.Ordinal);
         Assert.Contains("recovery_model_desc", collector, StringComparison.Ordinal);
         Assert.Contains("sys.database_files", collector, StringComparison.Ordinal);
@@ -41,6 +42,7 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.Contains("Error: 17300", collector, StringComparison.Ordinal);
         Assert.Contains("Error: 17312", collector, StringComparison.Ordinal);
         Assert.Contains("notExecuted", collector, StringComparison.Ordinal);
+        Assert.Contains("MinimumTier1Total", collector, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.json", collector, StringComparison.Ordinal);
         Assert.Contains("runtime-feedback.md", collector, StringComparison.Ordinal);
         Assert.Contains("Invoke-RuntimeFeedbackLoop.ps1", publish, StringComparison.Ordinal);
@@ -54,6 +56,7 @@ public sealed class RuntimeFeedbackLoopTests
         Assert.DoesNotContain("ALTER SERVER CONFIGURATION", collector, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RECONFIGURE", collector, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("DROP DATABASE", collector, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("pathName =", collector, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -68,12 +71,14 @@ public sealed class RuntimeFeedbackLoopTests
 
         const string sqlUser = "ticket01-secret-user";
         const string sqlPassword = "ticket01-secret-password";
+        const string urlUser = "ticket01-url-user";
+        const string urlPassword = "ticket01-url-password";
         File.WriteAllText(
             Path.Combine(serviceRoot, "appsettings.Local.json"),
             $$"""
             {
               "MesIngest": {
-                "Urls": "http://127.0.0.1:1",
+                "Urls": "http://{{urlUser}}:{{urlPassword}}@127.0.0.1:1",
                 "SnapshotSource": "Oracle",
                 "NewSqlServerConnectionString": "Server=127.0.0.1,1;Database=MesIngestUnavailable;User ID={{sqlUser}};Password={{sqlPassword}};Encrypt=False;TrustServerCertificate=True"
               }
@@ -97,7 +102,7 @@ public sealed class RuntimeFeedbackLoopTests
                 "pack",
                 "validation",
                 "Invoke-RuntimeFeedbackLoop.ps1");
-            var start = new ProcessStartInfo("pwsh")
+            var start = new ProcessStartInfo("powershell.exe")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -106,12 +111,11 @@ public sealed class RuntimeFeedbackLoopTests
             };
             foreach (var argument in new[]
                      {
-                         "-NoProfile", "-NonInteractive", "-File", script,
+                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
                          "-InstallRoot", installRoot,
                          "-OutputRoot", outputRoot,
                          "-ServiceName", $"MissingMesIngest{Guid.NewGuid():N}",
                          "-SqlServiceName", $"MissingSql{Guid.NewGuid():N}",
-                         "-BaseUrl", "http://127.0.0.1:1",
                          "-RequestTimeoutSeconds", "1",
                          "-SqlConnectionTimeoutSeconds", "1",
                          "-EventLookbackHours", "1",
@@ -122,7 +126,7 @@ public sealed class RuntimeFeedbackLoopTests
             }
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("pwsh did not start");
+                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(60_000), "Runtime feedback collector did not finish.");
@@ -150,6 +154,10 @@ public sealed class RuntimeFeedbackLoopTests
             Assert.DoesNotContain(sqlPassword, json, StringComparison.Ordinal);
             Assert.DoesNotContain(sqlUser, markdown, StringComparison.Ordinal);
             Assert.DoesNotContain(sqlPassword, markdown, StringComparison.Ordinal);
+            Assert.DoesNotContain(urlUser, json, StringComparison.Ordinal);
+            Assert.DoesNotContain(urlPassword, json, StringComparison.Ordinal);
+            Assert.DoesNotContain(urlUser, markdown, StringComparison.Ordinal);
+            Assert.DoesNotContain(urlPassword, markdown, StringComparison.Ordinal);
         }
         finally
         {

@@ -160,8 +160,10 @@ dotnet test MesIngest.Tests --configuration Release `
   --logger "trx;LogFileName=runtime-feedback-tier1.trx"
 ```
 
-随后在同一环境中把 TRX 传给收集器；只有 `Failed=0`、`Skipped=0`、`Total>0` 且三项 SQL
-环境身份均存在时，报告才会写 `realSqlTier1Satisfied=true`。
+随后在同一环境中把 TRX 传给收集器；只有 `Failed=0`、`Skipped=0`、`Total>=700`、连接目标
+不是 LocalDB，且三项 SQL 环境身份均存在时，报告才会写 `realSqlTier1Satisfied=true`。`700` 是防止
+误把筛选子集冒充完整 Tier 1 的保守下限；测试总数增长时无需修改，若套件有意缩减则显式传入新的
+`-MinimumTier1Total` 并在证据中记录。
 
 ## 基本故障排查
 
