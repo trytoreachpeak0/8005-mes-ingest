@@ -46,6 +46,7 @@ $watchAcceptance = Join-Path $validationSrc "Invoke-WatchAcceptance.ps1"
 $installService = Join-Path $PSScriptRoot "install-service.ps1"
 $uninstallService = Join-Path $PSScriptRoot "uninstall-service.ps1"
 $cutoverSrc = Join-Path $PSScriptRoot "cutover"
+$maintenanceSrc = Join-Path $PSScriptRoot "maintenance"
 $openapiSrc = Join-Path $PSScriptRoot "openapi\v2.json"
 $canonicalQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\mes-task-union\query.sql"))
 $canonicalQueryId = 'MES_TASK_UNION'
@@ -67,6 +68,9 @@ if (-not (Test-Path $releaseSmoke)) { throw "Missing packaged release smoke: $re
 if (-not (Test-Path $watchAcceptance)) { throw "Missing packaged Watch acceptance entry: $watchAcceptance" }
 if (-not (Test-Path -LiteralPath $openapiSrc -PathType Leaf)) { throw "Missing frozen V2 OpenAPI source: $openapiSrc" }
 if (-not (Test-Path -LiteralPath $cutoverSrc -PathType Container)) { throw "Missing cutover drill scripts: $cutoverSrc" }
+if (-not (Test-Path -LiteralPath (Join-Path $maintenanceSrc 'Invoke-SqlServerMemoryProfile.ps1') -PathType Leaf)) {
+    throw "Missing SQL Server memory profile entry: $maintenanceSrc"
+}
 if (-not (Test-Path -LiteralPath $canonicalQuerySource -PathType Leaf)) { throw "Missing canonical query source: $canonicalQuerySource" }
 
 $resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
@@ -169,6 +173,9 @@ New-Item -ItemType Directory -Force -Path $cutoverDir | Out-Null
 Copy-Item (Join-Path $cutoverSrc "CutoverSqlTools.ps1") (Join-Path $cutoverDir "CutoverSqlTools.ps1") -Force
 Copy-Item (Join-Path $cutoverSrc "Invoke-EmptyDatabaseCutover.ps1") (Join-Path $cutoverDir "Invoke-EmptyDatabaseCutover.ps1") -Force
 Copy-Item (Join-Path $cutoverSrc "Invoke-CutoverRollback.ps1") (Join-Path $cutoverDir "Invoke-CutoverRollback.ps1") -Force
+$maintenanceDir = Join-Path $scriptsDir "maintenance"
+New-Item -ItemType Directory -Force -Path $maintenanceDir | Out-Null
+Copy-Item (Join-Path $maintenanceSrc "Invoke-SqlServerMemoryProfile.ps1") (Join-Path $maintenanceDir "Invoke-SqlServerMemoryProfile.ps1") -Force
 Copy-Item $installDoc (Join-Path $OutputDir "INSTALL.md") -Force
 Copy-Item $upgradeDoc (Join-Path $OutputDir "UPGRADE.md") -Force
 Copy-Item $factoryValidationDoc (Join-Path $OutputDir "FACTORY-VALIDATION.md") -Force

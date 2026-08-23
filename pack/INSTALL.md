@@ -166,6 +166,53 @@ $env:MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL = '160'
 程序集、TRX SHA-256、计数、SQL 目标和实际版本全部匹配时，报告才写
 `realSqlTier1Satisfied=true`。
 
+## SQL Server 低内存运行配置
+
+包内唯一受支持入口为
+`scripts/maintenance/Invoke-SqlServerMemoryProfile.ps1`。常态只允许 1536 MB，维护期只允许
+2048 MB；800 MB 及更低值属于已知不可运行配置，校验会在连接 SQL Server 前拒绝，禁止再次用生产
+负载重现 Error 701。
+
+入口只从进程环境变量读取管理员连接，且该连接必须显式指向 `master`。每次写操作还要同时给出
+SQL Server 实际 MachineName、InstanceName 和完全相同的 `MachineName\InstanceName` 确认文本；
+LocalDB、错误实例、缺少 `ALTER SETTINGS` / `VIEW SERVER STATE` 权限或读取失败都会非零退出。
+
+应用或重新确认常态配置：
+
+```powershell
+$env:MES_INGEST_SQLSERVER_ADMIN = '<approved SQL Server master connection>'
+.\scripts\maintenance\Invoke-SqlServerMemoryProfile.ps1 `
+  -Action ApplyNormal `
+  -RequestedMaxServerMemoryMb 1536 `
+  -ExpectedMachineName LAB-WIN-01 `
+  -ExpectedInstanceName MSSQLSERVER `
+  -ConfirmInstance 'LAB-WIN-01\MSSQLSERVER'
+```
+
+只读诊断使用相同目标参数并改为 `-Action Diagnose`。JSON/Markdown 证据默认写入
+`%ProgramData%\MesIngest\evidence\sql-memory-profile`，包含 SQL Server committed memory、
+workspace memory、grant 等待、RESOURCE_SEMAPHORE、Error 701、spill，以及默认三次
+`sqlservr` 物理内存采样对约 2 GB 目标的判定；不写连接字符串、账号密码或 SQL 错误日志原文。
+
+受控维护必须把实际维护动作放在一个明确的 `.ps1` 文件中，并由包装器执行：
+
+```powershell
+.\scripts\maintenance\Invoke-SqlServerMemoryProfile.ps1 `
+  -Action RunMaintenance `
+  -RequestedMaxServerMemoryMb 2048 `
+  -ExpectedMachineName LAB-WIN-01 `
+  -ExpectedInstanceName MSSQLSERVER `
+  -ConfirmInstance 'LAB-WIN-01\MSSQLSERVER' `
+  -Reason 'planned index maintenance CHG-1234' `
+  -MaintenanceScriptPath C:\MesIngestMaintenance\Invoke-PlannedWork.ps1
+```
+
+包装器只从已验证的 1536 MB 常态进入 2048 MB，并在子脚本成功、失败、超时或以 Windows
+取消码 1223 退出后，在 `finally` 中恢复并复核 1536 MB。报告记录 Windows 操作者、原因和 UTC
+起止时间。恢复失败时状态为 `RESTORE_FAILED` 并非零退出，绝不把部分应用报告为成功；此时停止
+后续维护并立即用 `ApplyNormal` 处置。不要用任务管理器或 `Stop-Process` 强杀包装器，因为操作系统
+强制终止无法执行任何进程内 `finally`。
+
 ## 规模数据与查询证据门禁
 
 `validation/Invoke-ScaleAndQueryEvidence.ps1` 是独立的破坏性验证入口，不属于日常 Host。它只接受

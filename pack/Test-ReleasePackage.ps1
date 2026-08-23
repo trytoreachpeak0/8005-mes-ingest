@@ -71,6 +71,7 @@ $required = @(
     "scripts\cutover\CutoverSqlTools.ps1",
     "scripts\cutover\Invoke-EmptyDatabaseCutover.ps1",
     "scripts\cutover\Invoke-CutoverRollback.ps1",
+    "scripts\maintenance\Invoke-SqlServerMemoryProfile.ps1",
     "validation\Invoke-FactoryValidation.ps1",
     "validation\Invoke-ReleaseSmoke.ps1",
     "validation\release-smoke-rounds.json",
