@@ -8,6 +8,10 @@ public partial class CatalogEmbeddedVariant
 
     public void SelectAreaVariant(string variant) => AreaFilterPage.SelectVariant(variant);
 
+    public void SelectAreaLiveVariant(string variant) => AreaLivePage.SelectVariant(variant);
+
+    public void ApplyAreaLiveScenario(string scenario) => AreaLivePage.ApplyScenario(scenario);
+
     public void SelectErrorVariant(string variant) => ErrorSearchPage.SelectVariant(variant);
 
     public void SelectOverviewVariant(string variant) => OverviewPage.SelectVariant(variant);
@@ -31,6 +35,10 @@ public partial class CatalogEmbeddedVariant
         {
             Show(AuditPage, AuditNav);
         }
+        else if (normalized is "area-live" or "arealive" or "live")
+        {
+            Show(AreaLivePage, AreaFilterNav);
+        }
         else if (normalized is "area" or "areas" or "area-filter" or "filters")
         {
             Show(AreaFilterPage, AreaFilterNav);
@@ -52,6 +60,7 @@ public partial class CatalogEmbeddedVariant
         AuditPage.Visibility = ReferenceEquals(page, AuditPage) ? Visibility.Visible : Visibility.Collapsed;
         ErrorSearchPage.Visibility = ReferenceEquals(page, ErrorSearchPage) ? Visibility.Visible : Visibility.Collapsed;
         AreaFilterPage.Visibility = ReferenceEquals(page, AreaFilterPage) ? Visibility.Visible : Visibility.Collapsed;
+        AreaLivePage.Visibility = ReferenceEquals(page, AreaLivePage) ? Visibility.Visible : Visibility.Collapsed;
         OverviewNav.IsActive = ReferenceEquals(nav, OverviewNav);
         SeriesNav.IsActive = ReferenceEquals(nav, SeriesNav);
         AuditNav.IsActive = ReferenceEquals(nav, AuditNav);

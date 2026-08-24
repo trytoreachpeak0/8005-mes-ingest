@@ -19,6 +19,19 @@ with `--variant=A|B|C`: A is category navigation plus evidence detail, B is a
 search-first faceted result workspace, and C is a category overview that drills
 down into a result table. No variant has been selected yet.
 
+The live-sync AREA rework asks: **once the page drops the scope banner, the
+reload button, the "AREA（每行一个）" strip and the save/discard row in favour of
+debounced autosave plus a directory watcher, how should the remaining surface be
+arranged?** Three deliberately different layouts are available via
+`--page=area-live --variant=D|E|F`: D keeps the master-detail split and moves
+every file command into the left profile card, E drops the master column for a
+top chip strip so the editor owns the full width, and F collapses everything
+into one full-width list whose selected row expands its editor inline. Add
+`--scenario=invalid` to see how each one reports an invalid draft. **Variant D
+was selected on 2026-08-20**; E/F remain rejected prototype comparisons. E was
+rejected because the top chip strip carries no marker for an invalid profile, and
+F because its inline editor is shorter than the layout it replaces.
+
 The overview redesign asks: **how should the landing page summarize every
 operational page without turning Host status into the main content?** Three
 layouts are available via `--page=overview --variant=A|B|C`: A uses page cards
@@ -60,7 +73,13 @@ dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPro
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=A
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=B
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=C
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=D
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=E
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=invalid
 ```
+
+The review bar on `--page=area-live` also carries a 切到非法态 button, so the
+invalid-draft state can be toggled without restarting.
 
 Deterministic local captures (not golden-machine evidence):
 
@@ -73,6 +92,12 @@ dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watc
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=A --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-filter-a.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=B --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-filter-b.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area --variant=C --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-filter-c.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=D --scenario=healthy --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-d-valid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=D --scenario=invalid --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-d-invalid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=E --scenario=healthy --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-e-valid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=E --scenario=invalid --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-e-invalid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=healthy --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-f-valid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=invalid --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-f-invalid.png
 ```
 
 Use the real navigation items to move between pages. Fake data exists only to

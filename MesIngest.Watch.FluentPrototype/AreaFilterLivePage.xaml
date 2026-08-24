@@ -1,0 +1,49 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.AreaFilterLivePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype">
+    <!-- PROTOTYPE: three live-sync AREA layouts (no banner, no reload button, no save/discard row). -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="12" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="AREA 筛选" Style="{StaticResource PageTitle}" />
+            <TextBlock Text="当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围" Style="{StaticResource BodySecondary}" Margin="0,3,0,0" />
+        </StackPanel>
+
+        <Grid Grid.Row="2" Margin="0,0,0,54">
+            <local:AreaFilterLiveVariantD x:Name="VariantD" />
+            <local:AreaFilterLiveVariantE x:Name="VariantE" Visibility="Collapsed" />
+            <local:AreaFilterLiveVariantF x:Name="VariantF" Visibility="Collapsed" />
+        </Grid>
+
+        <Border Grid.Row="2"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,4"
+                Padding="6"
+                CornerRadius="18"
+                Background="#E61F1F1F"
+                BorderBrush="#55000000"
+                BorderThickness="1">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="←" Click="OnPreviousVariant" Width="34" Height="30" Padding="0" />
+                <TextBlock x:Name="VariantLabel"
+                           Text="D — 主从 · 命令归左栏"
+                           Foreground="White"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Margin="12,0"
+                           MinWidth="208"
+                           TextAlignment="Center" />
+                <Button Content="→" Click="OnNextVariant" Width="34" Height="30" Padding="0" />
+                <Border Width="1" Background="#55FFFFFF" Margin="8,2" />
+                <Button x:Name="ScenarioButton" Content="切到非法态" Click="OnToggleScenario" Height="30" Padding="10,0" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

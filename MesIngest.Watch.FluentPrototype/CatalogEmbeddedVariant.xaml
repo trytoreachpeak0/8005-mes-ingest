@@ -47,6 +47,7 @@
                 <local:ReadabilityAuditPage x:Name="AuditPage" Visibility="Collapsed" />
                 <local:ErrorSearchPage x:Name="ErrorSearchPage" Visibility="Collapsed" />
                 <local:AreaFilterPage x:Name="AreaFilterPage" Visibility="Collapsed" />
+                <local:AreaFilterLivePage x:Name="AreaLivePage" Visibility="Collapsed" />
             </Grid>
         </ui:NavigationView.ContentOverlay>
     </ui:NavigationView>

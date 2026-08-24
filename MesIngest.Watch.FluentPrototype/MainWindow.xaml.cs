@@ -14,6 +14,8 @@ public partial class MainWindow
         var data = new PrototypeData();
         DataContext = data;
         SelectedPrototype.SelectAreaVariant(initialVariant);
+        SelectedPrototype.SelectAreaLiveVariant(initialVariant);
+        SelectedPrototype.ApplyAreaLiveScenario(scenario);
         SelectedPrototype.SelectErrorVariant(initialVariant);
         SelectedPrototype.SelectOverviewVariant(initialVariant);
         SelectedPrototype.Navigate(initialPage);
