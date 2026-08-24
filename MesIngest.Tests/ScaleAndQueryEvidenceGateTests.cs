@@ -77,6 +77,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1"));
+        var deterministicRunner = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "Invoke-Ticket28DeterministicContract.ps1"));
 
         foreach (var evidence in new[]
                  {
@@ -94,6 +97,13 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "historyEpochPreservedAcrossRestart",
                      "packagedWatchClientReads",
                      "packagedReferenceConsumerReads",
+                     "packageManifestSha256",
+                     "watchClientSha256",
+                     "referenceConsumerSha256",
+                     "testAssemblySha256",
+                     "Get-VerifiedPackageIdentity",
+                     "RELEASE_MANIFEST_FILE_HASH_MISMATCH",
+                     "ticket27LinearityTolerance",
                      "CapacityBlockerEvidencePath",
                      "ticket27CapacityBlocked",
                      "currentLogicalReadGrowthPassed",
@@ -115,6 +125,18 @@ public sealed class ScaleAndQueryEvidenceGateTests
         {
             Assert.Contains(evidence, script, StringComparison.Ordinal);
         }
+
+        Assert.Equal(
+            1,
+            script.Split("identity = [pscustomobject][ordered]@{", StringSplitOptions.None).Length - 1);
+        Assert.Contains("--configuration Release", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("TestDefinitions.UnitTest", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("testAssemblySha256", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("Copy-Item", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("sourceCommitBefore", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("sourceCommitAfter", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("sourceStatusBefore", deterministicRunner, StringComparison.Ordinal);
+        Assert.Contains("sourceStatusAfter", deterministicRunner, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -369,6 +391,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
         {
             sourceCommit = new string('a', 40),
             hostSha256 = new string('b', 64),
+            packageManifestSha256 = new string('c', 64),
+            watchClientSha256 = new string('d', 64),
+            referenceConsumerSha256 = new string('e', 64),
             contractVersion = "2026.08.new-mes-ingest.v2.1",
             schemaVersion = 28,
             historyEpoch = "11111111-1111-1111-1111-111111111111",

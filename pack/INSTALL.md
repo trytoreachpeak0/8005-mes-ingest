@@ -297,26 +297,13 @@ Ticket 28 的加速并发稳定性路径继续复用同一入口、同一固定 
 代表性历史运行 30–45 分钟。运行前把可控时间契约测试的 TRX 传给门禁：
 
 ```powershell
-dotnet test MesIngest.Tests `
-  --filter "FullyQualifiedName~SingleFlightPollLoopTests|FullyQualifiedName~HistoryCleanupHostedServiceTests|FullyQualifiedName~HistoryRetentionStateTests.Retention_clocks_use_exact_thirty_day_boundaries|FullyQualifiedName~WatchV2AutoRefreshTests.Settings_cover_all_five_host_data_views_and_expose_only_an_interval" `
-  --logger "trx;LogFileName=ticket28-deterministic.trx" `
-  --results-directory C:\MesIngestEvidence\ticket28-contract
-
-$trx = 'C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic.trx'
 $package = 'C:\MesIngestCandidate'
-[xml]$trxXml = Get-Content -Raw $trx
-$counters = $trxXml.TestRun.ResultSummary.Counters
-[ordered]@{
-  schemaVersion = 1
-  sourceCommit = (git rev-parse HEAD)
-  hostSha256 = (Get-FileHash "$package\service\MesIngest.Host.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
-  trxFile = [IO.Path]::GetFileName($trx)
-  trxSha256 = (Get-FileHash $trx -Algorithm SHA256).Hash.ToLowerInvariant()
-  passed = [int]$counters.passed
-  failed = [int]$counters.failed
-  skipped = [int]$counters.total - [int]$counters.executed
-  total = [int]$counters.total
-} | ConvertTo-Json | Set-Content C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic-attestation.json
+$contractOutput = .\Invoke-Ticket28DeterministicContract.ps1 `
+  -PackageRoot $package `
+  -ResultsRoot C:\MesIngestEvidence\ticket28-contract
+$contractOutput
+$deterministicAttestation = [string]($contractOutput | Where-Object { $_ -like 'ATTESTATION=*' })
+$deterministicAttestation = $deterministicAttestation.Substring('ATTESTATION='.Length)
 
 $env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master connection>'
 .\validation\Invoke-ScaleAndQueryEvidence.ps1 `
@@ -335,7 +322,7 @@ $baseline = 'C:\MesIngestEvidence\ticket28\<baseline-run>\scale-query-evidence.j
   -StabilityDurationMinutes 30 `
   -RepresentativeHistoryRounds 100 `
   -BaselineEvidencePath $baseline `
-  -DeterministicContractEvidencePath C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic-attestation.json `
+  -DeterministicContractEvidencePath $deterministicAttestation `
   -CapacityBlockerEvidencePath C:\MesIngestEvidence\ticket27\capacity-summary.json `
   -OutputRoot C:\MesIngestEvidence\ticket28
 ```

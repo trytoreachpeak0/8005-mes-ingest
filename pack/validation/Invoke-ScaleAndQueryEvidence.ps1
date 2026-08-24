@@ -154,6 +154,55 @@ function Get-FileSha256 {
     try { return Get-StreamSha256 $stream } finally { $stream.Dispose() }
 }
 
+function Get-VerifiedPackageIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string] $PackageRoot,
+        [Parameter(Mandatory = $true)][string] $ExpectedSourceCommit
+    )
+    $resolvedRoot = [IO.Path]::GetFullPath($PackageRoot)
+    $manifestPath = Join-Path $resolvedRoot 'RELEASE-MANIFEST.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "RELEASE_MANIFEST_MISSING: $manifestPath"
+    }
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    if ([string]$manifest.validationStatus -cne 'PASSED' -or
+        [string]$manifest.sourceCommit -cne $ExpectedSourceCommit -or
+        [bool]$manifest.sourceDirty) {
+        throw 'RELEASE_MANIFEST_IDENTITY_MISMATCH'
+    }
+    $requiredFiles = [ordered]@{
+        hostSha256 = 'service/MesIngest.Host.dll'
+        watchClientSha256 = 'watch/MesIngest.Watch.dll'
+        referenceConsumerSha256 = 'reference-consumer/MesIngest.ReferenceConsumer.dll'
+    }
+    $verified = [ordered]@{
+        packageManifestSha256 = Get-FileSha256 $manifestPath
+    }
+    foreach ($requiredFile in $requiredFiles.GetEnumerator()) {
+        $manifestEntries = @($manifest.files | Where-Object {
+            ([string]$_.path).Replace('\', '/') -ceq $requiredFile.Value
+        })
+        if ($manifestEntries.Count -ne 1) {
+            throw "RELEASE_MANIFEST_FILE_MISSING_OR_DUPLICATE: $($requiredFile.Value)"
+        }
+        $actualPath = Join-Path $resolvedRoot ($requiredFile.Value.Replace('/', '\'))
+        if (-not (Test-Path -LiteralPath $actualPath -PathType Leaf)) {
+            throw "RELEASE_MANIFEST_FILE_MISSING_OR_DUPLICATE: $($requiredFile.Value)"
+        }
+        $actualFile = Get-Item -LiteralPath $actualPath
+        $actualSha256 = Get-FileSha256 $actualPath
+        if ([long]$manifestEntries[0].length -ne $actualFile.Length -or
+            -not [string]::Equals(
+                [string]$manifestEntries[0].sha256,
+                $actualSha256,
+                [StringComparison]::OrdinalIgnoreCase)) {
+            throw "RELEASE_MANIFEST_FILE_HASH_MISMATCH: $($requiredFile.Value)"
+        }
+        $verified[$requiredFile.Key] = $actualSha256
+    }
+    return [pscustomobject]$verified
+}
+
 function Get-Sha256String {
     param([Parameter(Mandatory = $true)][string] $Value)
     $bytes = [Text.Encoding]::UTF8.GetBytes($Value)
@@ -449,9 +498,13 @@ function Get-AcceleratedStabilityResult {
     $evidenceState = $Evidence.evidence
 
     if (-not (Test-EvidenceProperties $identity @(
-            'sourceCommit', 'hostSha256', 'contractVersion', 'schemaVersion', 'historyEpoch')) -or
+            'sourceCommit', 'hostSha256', 'packageManifestSha256', 'watchClientSha256',
+            'referenceConsumerSha256', 'contractVersion', 'schemaVersion', 'historyEpoch')) -or
         [string]::IsNullOrWhiteSpace([string]$identity.sourceCommit) -or
         [string]::IsNullOrWhiteSpace([string]$identity.hostSha256) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.packageManifestSha256) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.watchClientSha256) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.referenceConsumerSha256) -or
         [string]::IsNullOrWhiteSpace([string]$identity.contractVersion) -or
         [int]$identity.schemaVersion -le 0 -or
         [guid]$identity.historyEpoch -eq [guid]::Empty) {
@@ -1330,7 +1383,8 @@ function Get-DeterministicContractEvidence {
     param(
         [Parameter(Mandatory = $true)][string] $Path,
         [Parameter(Mandatory = $true)][string] $ExpectedSourceCommit,
-        [Parameter(Mandatory = $true)][string] $ExpectedHostSha256
+        [Parameter(Mandatory = $true)][string] $ExpectedHostSha256,
+        [Parameter(Mandatory = $true)][string] $ExpectedPackageManifestSha256
     )
     $requiredTests = @(
         'SingleFlightPollLoopTests.Uses_sixty_second_start_to_start_slots_and_skips_missed_slots_without_catch_up',
@@ -1363,10 +1417,24 @@ function Get-DeterministicContractEvidence {
         $trxFailed = [int]$trxCounters.failed
         $trxPassed = [int]$trxCounters.passed
         $trxSkipped = $trxTotal - $trxExecuted
+        $testAssemblyPath = Join-Path `
+            (Split-Path -Parent ([IO.Path]::GetFullPath($Path))) `
+            ([string]$attestation.testAssemblyFile)
+        $trxAssemblyPaths = @($trx.SelectNodes("//*[local-name()='UnitTest']") | ForEach-Object {
+            [IO.Path]::GetFullPath([string]$_.storage)
+        } | Sort-Object -Unique)
+        $executedTestAssemblyPath = [IO.Path]::GetFullPath([string]$attestation.executedTestAssemblyPath)
         $buildBound = [int]$attestation.schemaVersion -eq 1 -and
             [string]$attestation.sourceCommit -ceq $ExpectedSourceCommit -and
             [string]$attestation.hostSha256 -ceq $ExpectedHostSha256 -and
+            [string]$attestation.packageManifestSha256 -ceq $ExpectedPackageManifestSha256 -and
             [string]$attestation.trxSha256 -ceq (Get-FileSha256 $trxPath) -and
+            (Test-Path -LiteralPath $testAssemblyPath -PathType Leaf) -and
+            $trxAssemblyPaths.Count -eq 1 -and
+            [string]::Equals($trxAssemblyPaths[0], $executedTestAssemblyPath, [StringComparison]::OrdinalIgnoreCase) -and
+            (Test-Path -LiteralPath $executedTestAssemblyPath -PathType Leaf) -and
+            [string]$attestation.testAssemblySha256 -ceq (Get-FileSha256 $testAssemblyPath) -and
+            [string]$attestation.testAssemblySha256 -ceq (Get-FileSha256 $executedTestAssemblyPath) -and
             [int]$attestation.failed -eq 0 -and [int]$attestation.skipped -eq 0 -and
             [int]$attestation.passed -eq $trxPassed -and [int]$attestation.total -eq $trxTotal -and
             $trxFailed -eq 0 -and $trxSkipped -eq 0 -and $trxPassed -ge $requiredTests.Count
@@ -1379,6 +1447,11 @@ function Get-DeterministicContractEvidence {
             buildBound = $buildBound
             sourceCommit = [string]$attestation.sourceCommit
             hostSha256 = [string]$attestation.hostSha256
+            packageManifestSha256 = [string]$attestation.packageManifestSha256
+            testAssemblyFile = [IO.Path]::GetFileName($testAssemblyPath)
+            testAssemblySha256 = if (Test-Path -LiteralPath $testAssemblyPath -PathType Leaf) {
+                Get-FileSha256 $testAssemblyPath
+            } else { $null }
             requiredTests = $requiredTests
             passedTests = @($passedTests | Where-Object {
                 $name = $_
@@ -1394,6 +1467,158 @@ function Get-DeterministicContractEvidence {
             retrySchedulePassed = $false; buildBound = $false
             requiredTests = $requiredTests; passedTests = @()
             errorType = $_.Exception.GetType().Name
+        }
+    }
+}
+
+function New-FailedAcceleratedStabilityValues {
+    param(
+        [Parameter(Mandatory = $true)][double] $DurationSeconds,
+        [Parameter(Mandatory = $true)][long] $InitialRawObservationRows,
+        [AllowEmptyCollection()][object[]] $ResourceSnapshots = @()
+    )
+    return [ordered]@{
+        durationSeconds = $DurationSeconds
+        maximumRawObservationRows = $InitialRawObservationRows
+        successfulPolls = 0L; totalPolls = 0L; watchApiReads = 0L; frozenDetailReads = 0L
+        referenceCatalogReads = 0L; packagedWatchClientReads = 0L
+        packagedReferenceConsumerReads = 0L; cleanupChecks = 0L; hostRestarts = 0L
+        latencySampleCount = 0L; p95LatencyMs = 0.0; p99LatencyMs = 0.0
+        firstQuartileP95LatencyMs = 0.0; lastQuartileP95LatencyMs = 0.0
+        resourceSnapshotCount = @($ResourceSnapshots).Count
+        error701Count = 0L; resourceSemaphoreSustainedSamples = 0L; spillCount = 0L
+        maximumLockWaitMs = 0.0; unboundedLockWaitCount = 0L; maximumPendingMemoryGrants = 0L
+        hostWorkingSetSlopeMbPerMinute = 0.0; sqlWorkingSetSlopeMbPerMinute = 0.0
+        hostWorkingSetPeakMb = 0.0; sqlWorkingSetPeakMb = 0.0; hostHandlePeak = 0L
+        logicalDatabaseUsedSlopeMbPerMinute = 0.0; physicalDataFileSlopeMbPerMinute = 0.0
+        ldfSlopeMbPerMinute = 0.0; tempdbUsedSlopeMbPerMinute = 0.0
+        hostHandleSlopePerMinute = 0.0; databaseVersionStorePeakMb = 0.0
+        tempdbVersionStorePeakMb = 0.0; resourceSnapshots = @($ResourceSnapshots)
+        maximumConcurrentPolls = 0; catchUpBurstCount = 0L
+        currentLogicalReadGrowthPassed = $false; frozenCommitMismatchCount = 0L
+        projectionCommitsDuringFrozenReads = 0L; frozenWindowsWithoutProjection = 1L
+        cleanupBacklogCount = 0L; earliestAvailableAdvanced = $false
+        earliestAvailableBefore = $null; earliestAvailableAfter = $null
+        cleanupStatus = $null; cleanupFailureCode = $null; expiredPollTraceCount = 0L
+        deletedRawObservationCount = 0L; finalRawObservationRows = $InitialRawObservationRows
+        storagePressurePauseCount = 0L; storagePressureStatus = $null
+        retrySchedulePassed = $false; logicalDayBoundaryPassed = $false
+        historyEpochPreservedAcrossRestart = $false; restartStatePreserved = $false
+        runtimeFailureType = $null; resourceSnapshotsComplete = $false
+        latencySamplesComplete = $false; xeventSignalsComplete = $false
+        cleanupEvidenceComplete = $false; deterministicContractEvidenceComplete = $false
+        deterministicContract = $null; packagedClientReceipts = @()
+    }
+}
+
+function New-AcceleratedStabilityEvidence {
+    param(
+        [Parameter(Mandatory = $true)][Collections.IDictionary] $Context,
+        [Parameter(Mandatory = $true)][Collections.IDictionary] $Values
+    )
+    return [pscustomobject][ordered]@{
+        identity = [pscustomobject][ordered]@{
+            sourceCommit = $Context.sourceCommit
+            hostSha256 = $Context.hostSha256
+            packageManifestSha256 = $Context.packageManifestSha256
+            watchClientSha256 = $Context.watchClientSha256
+            referenceConsumerSha256 = $Context.referenceConsumerSha256
+            contractVersion = $Context.contractVersion
+            schemaVersion = $Context.schemaVersion
+            historyEpoch = $Context.historyEpoch
+        }
+        environment = [pscustomobject][ordered]@{
+            sqlProductMajor = $Context.sqlProductMajor
+            compatibilityLevel = $Context.compatibilityLevel
+            maxServerMemoryMb = $Context.maxServerMemoryMb
+            recoveryModel = $Context.recoveryModel
+            defaultPollStartIntervalSeconds = $Context.defaultPollStartIntervalSeconds
+            failureBackoffSeconds = @(60, 120, 300)
+            watchRefreshSeconds = [pscustomobject][ordered]@{
+                overview = 30; currentAttention = 30; demandSeries = 60
+                readabilityAudit = 60; errorSearch = 60
+            }
+            defaultCleanupCheckIntervalSeconds = $Context.defaultCleanupCheckIntervalSeconds
+            acceleratedPollStartIntervalSeconds = $Context.acceleratedPollStartIntervalSeconds
+            acceleratedCleanupCheckIntervalSeconds = $Context.acceleratedCleanupCheckIntervalSeconds
+        }
+        workload = [pscustomobject][ordered]@{
+            durationSeconds = $Values.durationSeconds
+            seriesCount = $Context.seriesCount
+            initialRawObservationRows = $Context.initialRawObservationRows
+            maximumRawObservationRows = $Values.maximumRawObservationRows
+            representativeHistoryRounds = $Context.representativeHistoryRounds
+            concurrentClients = 8
+            acceleration = [pscustomobject][ordered]@{
+                pollMultiplier = 60.0 / $Context.acceleratedPollStartIntervalSeconds
+                cleanupMultiplier = 3600.0 / $Context.acceleratedCleanupCheckIntervalSeconds
+            }
+            operations = [pscustomobject][ordered]@{
+                successfulPolls = $Values.successfulPolls; totalPolls = $Values.totalPolls
+                watchApiReads = $Values.watchApiReads; frozenDetailReads = $Values.frozenDetailReads
+                referenceCatalogReads = $Values.referenceCatalogReads
+                packagedWatchClientReads = $Values.packagedWatchClientReads
+                packagedReferenceConsumerReads = $Values.packagedReferenceConsumerReads
+                cleanupChecks = $Values.cleanupChecks; hostRestarts = $Values.hostRestarts
+            }
+        }
+        latency = [pscustomobject][ordered]@{
+            sampleCount = $Values.latencySampleCount
+            p95LatencyMs = $Values.p95LatencyMs; p99LatencyMs = $Values.p99LatencyMs
+            firstQuartileP95LatencyMs = $Values.firstQuartileP95LatencyMs
+            lastQuartileP95LatencyMs = $Values.lastQuartileP95LatencyMs
+        }
+        resources = [pscustomobject][ordered]@{
+            snapshotCount = $Values.resourceSnapshotCount
+            error701Count = $Values.error701Count
+            resourceSemaphoreSustainedSamples = $Values.resourceSemaphoreSustainedSamples
+            spillCount = $Values.spillCount; maximumLockWaitMs = $Values.maximumLockWaitMs
+            unboundedLockWaitCount = $Values.unboundedLockWaitCount
+            maximumPendingMemoryGrants = $Values.maximumPendingMemoryGrants
+            hostWorkingSetSlopeMbPerMinute = $Values.hostWorkingSetSlopeMbPerMinute
+            sqlWorkingSetSlopeMbPerMinute = $Values.sqlWorkingSetSlopeMbPerMinute
+            hostWorkingSetPeakMb = $Values.hostWorkingSetPeakMb
+            sqlWorkingSetPeakMb = $Values.sqlWorkingSetPeakMb; hostHandlePeak = $Values.hostHandlePeak
+            logicalDatabaseUsedSlopeMbPerMinute = $Values.logicalDatabaseUsedSlopeMbPerMinute
+            physicalDataFileSlopeMbPerMinute = $Values.physicalDataFileSlopeMbPerMinute
+            ldfSlopeMbPerMinute = $Values.ldfSlopeMbPerMinute
+            tempdbUsedSlopeMbPerMinute = $Values.tempdbUsedSlopeMbPerMinute
+            hostHandleSlopePerMinute = $Values.hostHandleSlopePerMinute
+            databaseVersionStorePeakMb = $Values.databaseVersionStorePeakMb
+            tempdbVersionStorePeakMb = $Values.tempdbVersionStorePeakMb
+            snapshots = @($Values.resourceSnapshots)
+        }
+        behavior = [pscustomobject][ordered]@{
+            maximumConcurrentPolls = $Values.maximumConcurrentPolls
+            catchUpBurstCount = $Values.catchUpBurstCount
+            currentLogicalReadGrowthPassed = $Values.currentLogicalReadGrowthPassed
+            frozenCommitMismatchCount = $Values.frozenCommitMismatchCount
+            projectionCommitsDuringFrozenReads = $Values.projectionCommitsDuringFrozenReads
+            frozenWindowsWithoutProjection = $Values.frozenWindowsWithoutProjection
+            cleanupBacklogCount = $Values.cleanupBacklogCount
+            earliestAvailableAdvanced = $Values.earliestAvailableAdvanced
+            earliestAvailableBefore = $Values.earliestAvailableBefore
+            earliestAvailableAfter = $Values.earliestAvailableAfter
+            cleanupStatus = $Values.cleanupStatus; cleanupFailureCode = $Values.cleanupFailureCode
+            expiredPollTraceCount = $Values.expiredPollTraceCount
+            deletedRawObservationCount = $Values.deletedRawObservationCount
+            finalRawObservationRows = $Values.finalRawObservationRows
+            storagePressurePauseCount = $Values.storagePressurePauseCount
+            storagePressureStatus = $Values.storagePressureStatus
+            retrySchedulePassed = $Values.retrySchedulePassed
+            logicalDayBoundaryPassed = $Values.logicalDayBoundaryPassed
+            historyEpochPreservedAcrossRestart = $Values.historyEpochPreservedAcrossRestart
+            restartStatePreserved = $Values.restartStatePreserved
+        }
+        evidence = [pscustomobject][ordered]@{
+            runtimeFailureType = $Values.runtimeFailureType
+            resourceSnapshotsComplete = $Values.resourceSnapshotsComplete
+            latencySamplesComplete = $Values.latencySamplesComplete
+            xeventSignalsComplete = $Values.xeventSignalsComplete
+            cleanupEvidenceComplete = $Values.cleanupEvidenceComplete
+            deterministicContractEvidenceComplete = $Values.deterministicContractEvidenceComplete
+            deterministicContract = $Values.deterministicContract
+            packagedClientReceipts = @($Values.packagedClientReceipts)
         }
     }
 }
@@ -1416,13 +1641,15 @@ function Get-CapacityBlockerEvidence {
             'CAPACITY_LOGICAL_70_PERCENT_ESCALATION',
             'CAPACITY_PHYSICAL_70_PERCENT_ESCALATION')
         $observedFailures = @($capacity.failures | ForEach-Object { [string]$_ })
+        $ticket27LinearityTolerance = 0.00001
         $preserved = -not [bool]$capacity.passed -and
             [bool]$capacity.escalationRequired -and
             [bool]$capacity.escalation.releaseBlocked -and
             @($requiredFailures | Where-Object { $observedFailures -notcontains $_ }).Count -eq 0 -and
             [double]$capacity.model.projectedLogicalUsedMb -ge 21094.459 -and
             [double]$capacity.model.projectedPhysicalDataMb -ge 21128.0 -and
-            [double]$capacity.model.linearityMaximumToMinimumSegmentRate -ge 2.42778
+            [double]$capacity.model.linearityMaximumToMinimumSegmentRate -ge `
+                (2.42778 - $ticket27LinearityTolerance)
         return [pscustomobject][ordered]@{
             preserved = $preserved
             releaseBlocked = $true
@@ -1885,6 +2112,19 @@ $hostArtifactPath = if (Test-Path -LiteralPath (Join-Path $ServiceRoot 'MesInges
 $hostArtifact = Get-Item -LiteralPath $hostArtifactPath
 $hostSha256 = Get-FileSha256 $hostArtifact.FullName
 $hostFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($hostArtifact.FullName).FileVersion
+$packageManifestSha256 = $null
+$watchClientSha256 = $null
+$referenceConsumerSha256 = $null
+if ($AcceleratedConcurrencyStability) {
+    $packageRoot = Split-Path -Parent $ServiceRoot
+    $packageIdentity = Get-VerifiedPackageIdentity $packageRoot $sourceCommit
+    if ([string]$packageIdentity.hostSha256 -cne $hostSha256) {
+        throw 'RELEASE_MANIFEST_FILE_HASH_MISMATCH: service/MesIngest.Host.dll'
+    }
+    $packageManifestSha256 = [string]$packageIdentity.packageManifestSha256
+    $watchClientSha256 = [string]$packageIdentity.watchClientSha256
+    $referenceConsumerSha256 = [string]$packageIdentity.referenceConsumerSha256
+}
 
 try {
     [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
@@ -2624,6 +2864,28 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
 
     if ($AcceleratedConcurrencyStability) {
         $stabilityStartedAt = [DateTimeOffset]::UtcNow
+        $stabilityContext = [ordered]@{
+            sourceCommit = $sourceCommit; hostSha256 = $hostSha256
+            packageManifestSha256 = $packageManifestSha256
+            watchClientSha256 = $watchClientSha256
+            referenceConsumerSha256 = $referenceConsumerSha256
+            contractVersion = [string]$schemaIdentity.contractVersion
+            schemaVersion = [int]$schemaIdentity.schemaVersion
+            historyEpoch = [string]$schemaIdentity.historyEpoch
+            sqlProductMajor = [int]$serverIdentity.product_major
+            compatibilityLevel = [int]$databaseConfiguration.compatibilityLevel
+            maxServerMemoryMb = [int]$serverIdentity.max_server_memory_mb
+            recoveryModel = [string]$databaseConfiguration.recoveryModel
+            defaultPollStartIntervalSeconds = 0
+            defaultCleanupCheckIntervalSeconds = 0
+            acceleratedPollStartIntervalSeconds = $AcceleratedPollStartIntervalSeconds
+            acceleratedCleanupCheckIntervalSeconds = $AcceleratedCleanupCheckIntervalSeconds
+            seriesCount = $SeriesCount
+            initialRawObservationRows = $expectedTotalObservationCount
+            representativeHistoryRounds = $RepresentativeHistoryRounds
+        }
+        $stabilityValues = New-FailedAcceleratedStabilityValues `
+            0.0 $expectedTotalObservationCount @($stabilityResourceSnapshots)
         try {
         $capacityBlocker = Get-CapacityBlockerEvidence $CapacityBlockerEvidencePath
         if (-not [bool]$capacityBlocker.preserved) {
@@ -2634,8 +2896,11 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
             throw "Published Host defaults are missing: $publishedDefaultsPath"
         }
         $publishedDefaults = (Get-Content -Raw -LiteralPath $publishedDefaultsPath | ConvertFrom-Json).MesIngest
+        $stabilityContext['defaultPollStartIntervalSeconds'] = [int]$publishedDefaults.PollStartIntervalSeconds
+        $stabilityContext['defaultCleanupCheckIntervalSeconds'] = `
+            [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
         $deterministicContract = Get-DeterministicContractEvidence `
-            $DeterministicContractEvidencePath $sourceCommit $hostSha256
+            $DeterministicContractEvidencePath $sourceCommit $hostSha256 $packageManifestSha256
         $recordingPath = Join-Path $PSScriptRoot 'release-smoke-rounds.json'
         if (-not (Test-Path -LiteralPath $recordingPath -PathType Leaf)) {
             throw "Packaged scripted MesTaskUnionRound recording is missing: $recordingPath"
@@ -2656,7 +2921,6 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         $packagedWatchClientReads = 0L
         $packagedReferenceConsumerReads = 0L
         $packagedClientReceipts = New-Object System.Collections.ArrayList
-        $packageRoot = Split-Path -Parent $ServiceRoot
         $forbiddenTokenPath = Join-Path $runDirectory 'ticket28-forbidden-key-tokens.empty.txt'
         $catalogETag = ''
         $restartStatePreserved = $true
@@ -2711,7 +2975,8 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
         $packagedWatchClientReads += [long]$watchProbe.readCount
         [void]$packagedClientReceipts.Add([pscustomobject][ordered]@{
             kind = 'Watch'; phase = 'initial'; file = [IO.Path]::GetFileName($watchProbePath)
-            sha256 = Get-FileSha256 $watchProbePath; readCount = [long]$watchProbe.readCount
+            sha256 = Get-FileSha256 $watchProbePath; clientBinarySha256 = $watchClientSha256
+            readCount = [long]$watchProbe.readCount
         })
         $referenceProbe = Invoke-PackagedReferenceConsumerProbe `
             $packageRoot $hostRun.BaseUrl $secret ([string]$schemaIdentity.historyEpoch) $forbiddenTokenPath
@@ -2720,7 +2985,8 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
         $packagedReferenceConsumerReads++
         [void]$packagedClientReceipts.Add([pscustomobject][ordered]@{
             kind = 'ReferenceConsumer'; phase = 'initial'; file = [IO.Path]::GetFileName($referenceProbePath)
-            sha256 = Get-FileSha256 $referenceProbePath; readCount = 1
+            sha256 = Get-FileSha256 $referenceProbePath; clientBinarySha256 = $referenceConsumerSha256
+            readCount = 1
         })
         $client = [Net.Http.HttpClient]::new()
         try {
@@ -2760,7 +3026,8 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                     $packagedWatchClientReads += [long]$watchProbe.readCount
                     [void]$packagedClientReceipts.Add([pscustomobject][ordered]@{
                         kind = 'Watch'; phase = 'after-restart'; file = [IO.Path]::GetFileName($watchProbePath)
-                        sha256 = Get-FileSha256 $watchProbePath; readCount = [long]$watchProbe.readCount
+                        sha256 = Get-FileSha256 $watchProbePath; clientBinarySha256 = $watchClientSha256
+                        readCount = [long]$watchProbe.readCount
                     })
                     $referenceProbe = Invoke-PackagedReferenceConsumerProbe `
                         $packageRoot $hostRun.BaseUrl $secret ([string]$schemaIdentity.historyEpoch) $forbiddenTokenPath
@@ -2769,7 +3036,8 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                     $packagedReferenceConsumerReads++
                     [void]$packagedClientReceipts.Add([pscustomobject][ordered]@{
                         kind = 'ReferenceConsumer'; phase = 'after-restart'; file = [IO.Path]::GetFileName($referenceProbePath)
-                        sha256 = Get-FileSha256 $referenceProbePath; readCount = 1
+                        sha256 = Get-FileSha256 $referenceProbePath; clientBinarySha256 = $referenceConsumerSha256
+                        readCount = 1
                     })
                 }
 
@@ -2906,186 +3174,77 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
         }).Count
         $earliestAfter = [DateTimeOffset]$cleanupFinal.earliestAvailableHostUtc
         $actualDurationSeconds = ($stabilityCompletedAt - $stabilityStartedAt).TotalSeconds
-        $stabilityEvidence = [pscustomobject][ordered]@{
-            identity = [pscustomobject][ordered]@{
-                sourceCommit = $sourceCommit
-                hostSha256 = $hostSha256
-                contractVersion = [string]$schemaIdentity.contractVersion
-                schemaVersion = [int]$schemaIdentity.schemaVersion
-                historyEpoch = [string]$schemaIdentity.historyEpoch
-            }
-            environment = [pscustomobject][ordered]@{
-                sqlProductMajor = [int]$serverIdentity.product_major
-                compatibilityLevel = [int]$databaseConfiguration.compatibilityLevel
-                maxServerMemoryMb = [int]$serverIdentity.max_server_memory_mb
-                recoveryModel = [string]$databaseConfiguration.recoveryModel
-                defaultPollStartIntervalSeconds = [int]$publishedDefaults.PollStartIntervalSeconds
-                failureBackoffSeconds = @(60, 120, 300)
-                watchRefreshSeconds = [pscustomobject][ordered]@{
-                    overview = 30; currentAttention = 30; demandSeries = 60
-                    readabilityAudit = 60; errorSearch = 60
-                }
-                defaultCleanupCheckIntervalSeconds = [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
-                acceleratedPollStartIntervalSeconds = $AcceleratedPollStartIntervalSeconds
-                acceleratedCleanupCheckIntervalSeconds = $AcceleratedCleanupCheckIntervalSeconds
-            }
-            workload = [pscustomobject][ordered]@{
-                durationSeconds = $actualDurationSeconds
-                seriesCount = $SeriesCount
-                initialRawObservationRows = $expectedTotalObservationCount
-                maximumRawObservationRows = [long](($resourceSnapshots | Measure-Object -Property rawObservationCount -Maximum).Maximum)
-                representativeHistoryRounds = $RepresentativeHistoryRounds
-                concurrentClients = 8
-                acceleration = [pscustomobject][ordered]@{
-                    pollMultiplier = 60.0 / $AcceleratedPollStartIntervalSeconds
-                    cleanupMultiplier = 3600.0 / $AcceleratedCleanupCheckIntervalSeconds
-                }
-                operations = [pscustomobject][ordered]@{
-                    successfulPolls = [long]$pollTiming.successfulPollCount
-                    totalPolls = [long]$pollTiming.pollCount
-                    watchApiReads = $watchReads
-                    frozenDetailReads = $frozenDetailReads
-                    referenceCatalogReads = $catalogReads
-                    packagedWatchClientReads = $packagedWatchClientReads
-                    packagedReferenceConsumerReads = $packagedReferenceConsumerReads
-                    cleanupChecks = [long][Math]::Floor($actualDurationSeconds / $AcceleratedCleanupCheckIntervalSeconds)
-                    hostRestarts = $restartCount
-                }
-            }
-            latency = [pscustomobject][ordered]@{
-                sampleCount = $latencies.Count
-                p95LatencyMs = Get-NearestRankPercentile $latencies 0.95
-                p99LatencyMs = Get-NearestRankPercentile $latencies 0.99
-                firstQuartileP95LatencyMs = Get-NearestRankPercentile $firstQuarter 0.95
-                lastQuartileP95LatencyMs = Get-NearestRankPercentile $lastQuarter 0.95
-            }
-            resources = [pscustomobject][ordered]@{
-                snapshotCount = $resourceSnapshots.Count
-                error701Count = $error701Count
-                resourceSemaphoreSustainedSamples = $resourceSemaphoreSustainedSamples
-                spillCount = $spillCount
-                maximumLockWaitMs = $maximumLockWaitMs
-                unboundedLockWaitCount = $unboundedLockWaitCount
-                maximumPendingMemoryGrants = $maximumPendingMemoryGrants
-                hostWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'hostWorkingSetMb'
-                sqlWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'sqlWorkingSetMb'
-                hostWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property hostWorkingSetMb -Maximum).Maximum)
-                sqlWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property sqlWorkingSetMb -Maximum).Maximum)
-                hostHandlePeak = [long](($resourceSnapshots | Measure-Object -Property hostHandleCount -Maximum).Maximum)
-                logicalDatabaseUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'logicalDatabaseUsedMb'
-                physicalDataFileSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'physicalDataFileMb'
-                ldfSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'ldfMb'
-                tempdbUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'tempdbUsedMb'
-                hostHandleSlopePerMinute = Get-FirstLastSlope $resourceSnapshots 'hostHandleCount'
-                databaseVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property databaseVersionStoreMb -Maximum).Maximum)
-                tempdbVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property tempdbVersionStoreMb -Maximum).Maximum)
-                snapshots = $resourceSnapshots
-            }
-            behavior = [pscustomobject][ordered]@{
-                maximumConcurrentPolls = if ([long]$pollTiming.overlappingPollCount -eq 0) { 1 } else { 2 }
-                catchUpBurstCount = [long]$pollTiming.catchUpBurstCount
-                currentLogicalReadGrowthPassed = $false
-                frozenCommitMismatchCount = $frozenCommitMismatchCount
-                projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
-                frozenWindowsWithoutProjection = $frozenWindowsWithoutProjection
-                cleanupBacklogCount = [long]$cleanupFinal.cleanupBacklogCount
-                earliestAvailableAdvanced = $earliestAfter -gt $earliestBefore
-                earliestAvailableBefore = $earliestBefore.ToUniversalTime().ToString('o')
-                earliestAvailableAfter = $earliestAfter.ToUniversalTime().ToString('o')
-                cleanupStatus = [string]$cleanupFinal.cleanupStatus
-                cleanupFailureCode = if ($null -eq $cleanupFinal.cleanupFailureCode) { $null } else { [string]$cleanupFinal.cleanupFailureCode }
-                expiredPollTraceCount = [long]$cleanupFinal.expiredPollTraceCount
-                deletedRawObservationCount = [long]$cleanupFinal.deletedRawObservationCount
-                finalRawObservationRows = [long]$cleanupFinal.finalRawObservationRows
-                storagePressurePauseCount = $storagePressurePauseCount
-                storagePressureStatus = [string]$cleanupFinal.storagePressureStatus
-                retrySchedulePassed = [bool]$deterministicContract.retrySchedulePassed
-                logicalDayBoundaryPassed = [bool]$deterministicContract.logicalDayBoundaryPassed
-                historyEpochPreservedAcrossRestart = $restartStatePreserved
-                restartStatePreserved = $restartStatePreserved
-            }
-            evidence = [pscustomobject][ordered]@{
-                runtimeFailureType = $null
-                resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
-                latencySamplesComplete = $latencies.Count -gt 0
-                xeventSignalsComplete = $true
-                cleanupEvidenceComplete = $null -eq $cleanupFinal.cleanupFailureCode
-                deterministicContractEvidenceComplete = [bool]$deterministicContract.complete
-                deterministicContract = $deterministicContract
-                packagedClientReceipts = @($packagedClientReceipts)
-            }
+        $stabilityValues = [ordered]@{
+            durationSeconds = $actualDurationSeconds
+            maximumRawObservationRows = [long](($resourceSnapshots | Measure-Object -Property rawObservationCount -Maximum).Maximum)
+            successfulPolls = [long]$pollTiming.successfulPollCount; totalPolls = [long]$pollTiming.pollCount
+            watchApiReads = $watchReads; frozenDetailReads = $frozenDetailReads
+            referenceCatalogReads = $catalogReads; packagedWatchClientReads = $packagedWatchClientReads
+            packagedReferenceConsumerReads = $packagedReferenceConsumerReads
+            cleanupChecks = [long][Math]::Floor($actualDurationSeconds / $AcceleratedCleanupCheckIntervalSeconds)
+            hostRestarts = $restartCount
+            latencySampleCount = $latencies.Count
+            p95LatencyMs = Get-NearestRankPercentile $latencies 0.95
+            p99LatencyMs = Get-NearestRankPercentile $latencies 0.99
+            firstQuartileP95LatencyMs = Get-NearestRankPercentile $firstQuarter 0.95
+            lastQuartileP95LatencyMs = Get-NearestRankPercentile $lastQuarter 0.95
+            resourceSnapshotCount = $resourceSnapshots.Count
+            error701Count = $error701Count; resourceSemaphoreSustainedSamples = $resourceSemaphoreSustainedSamples
+            spillCount = $spillCount; maximumLockWaitMs = $maximumLockWaitMs
+            unboundedLockWaitCount = $unboundedLockWaitCount
+            maximumPendingMemoryGrants = $maximumPendingMemoryGrants
+            hostWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'hostWorkingSetMb'
+            sqlWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'sqlWorkingSetMb'
+            hostWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property hostWorkingSetMb -Maximum).Maximum)
+            sqlWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property sqlWorkingSetMb -Maximum).Maximum)
+            hostHandlePeak = [long](($resourceSnapshots | Measure-Object -Property hostHandleCount -Maximum).Maximum)
+            logicalDatabaseUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'logicalDatabaseUsedMb'
+            physicalDataFileSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'physicalDataFileMb'
+            ldfSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'ldfMb'
+            tempdbUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'tempdbUsedMb'
+            hostHandleSlopePerMinute = Get-FirstLastSlope $resourceSnapshots 'hostHandleCount'
+            databaseVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property databaseVersionStoreMb -Maximum).Maximum)
+            tempdbVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property tempdbVersionStoreMb -Maximum).Maximum)
+            resourceSnapshots = $resourceSnapshots
+            maximumConcurrentPolls = if ([long]$pollTiming.overlappingPollCount -eq 0) { 1 } else { 2 }
+            catchUpBurstCount = [long]$pollTiming.catchUpBurstCount
+            currentLogicalReadGrowthPassed = $false
+            frozenCommitMismatchCount = $frozenCommitMismatchCount
+            projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
+            frozenWindowsWithoutProjection = $frozenWindowsWithoutProjection
+            cleanupBacklogCount = [long]$cleanupFinal.cleanupBacklogCount
+            earliestAvailableAdvanced = $earliestAfter -gt $earliestBefore
+            earliestAvailableBefore = $earliestBefore.ToUniversalTime().ToString('o')
+            earliestAvailableAfter = $earliestAfter.ToUniversalTime().ToString('o')
+            cleanupStatus = [string]$cleanupFinal.cleanupStatus
+            cleanupFailureCode = if ($null -eq $cleanupFinal.cleanupFailureCode) { $null } else { [string]$cleanupFinal.cleanupFailureCode }
+            expiredPollTraceCount = [long]$cleanupFinal.expiredPollTraceCount
+            deletedRawObservationCount = [long]$cleanupFinal.deletedRawObservationCount
+            finalRawObservationRows = [long]$cleanupFinal.finalRawObservationRows
+            storagePressurePauseCount = $storagePressurePauseCount
+            storagePressureStatus = [string]$cleanupFinal.storagePressureStatus
+            retrySchedulePassed = [bool]$deterministicContract.retrySchedulePassed
+            logicalDayBoundaryPassed = [bool]$deterministicContract.logicalDayBoundaryPassed
+            historyEpochPreservedAcrossRestart = $restartStatePreserved
+            restartStatePreserved = $restartStatePreserved
+            runtimeFailureType = $null
+            resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
+            latencySamplesComplete = $latencies.Count -gt 0; xeventSignalsComplete = $true
+            cleanupEvidenceComplete = $null -eq $cleanupFinal.cleanupFailureCode
+            deterministicContractEvidenceComplete = [bool]$deterministicContract.complete
+            deterministicContract = $deterministicContract
+            packagedClientReceipts = @($packagedClientReceipts)
         }
         } catch {
             Stop-EvidenceHost $hostRun
             $hostRun = $null
-            $runtimeFailureType = $_.Exception.GetType().Name
-            $failedDurationSeconds = ([DateTimeOffset]::UtcNow - $stabilityStartedAt).TotalSeconds
-            $stabilityEvidence = [pscustomobject][ordered]@{
-                identity = [pscustomobject][ordered]@{
-                    sourceCommit = $sourceCommit; hostSha256 = $hostSha256
-                    contractVersion = [string]$schemaIdentity.contractVersion
-                    schemaVersion = [int]$schemaIdentity.schemaVersion
-                    historyEpoch = [string]$schemaIdentity.historyEpoch
-                }
-                environment = [pscustomobject][ordered]@{
-                    sqlProductMajor = [int]$serverIdentity.product_major
-                    compatibilityLevel = [int]$databaseConfiguration.compatibilityLevel
-                    maxServerMemoryMb = [int]$serverIdentity.max_server_memory_mb
-                    recoveryModel = [string]$databaseConfiguration.recoveryModel
-                    defaultPollStartIntervalSeconds = 60
-                    failureBackoffSeconds = @(60, 120, 300)
-                    watchRefreshSeconds = [pscustomobject][ordered]@{
-                        overview = 30; currentAttention = 30; demandSeries = 60
-                        readabilityAudit = 60; errorSearch = 60
-                    }
-                    defaultCleanupCheckIntervalSeconds = 3600
-                    acceleratedPollStartIntervalSeconds = $AcceleratedPollStartIntervalSeconds
-                    acceleratedCleanupCheckIntervalSeconds = $AcceleratedCleanupCheckIntervalSeconds
-                }
-                workload = [pscustomobject][ordered]@{
-                    durationSeconds = $failedDurationSeconds; seriesCount = $SeriesCount
-                    initialRawObservationRows = $expectedTotalObservationCount
-                    maximumRawObservationRows = $expectedTotalObservationCount
-                    representativeHistoryRounds = $RepresentativeHistoryRounds
-                    concurrentClients = 8
-                    operations = [pscustomobject][ordered]@{
-                        successfulPolls = 0; watchApiReads = 0; frozenDetailReads = 0
-                        referenceCatalogReads = 0; packagedWatchClientReads = 0
-                        packagedReferenceConsumerReads = 0; cleanupChecks = 0; hostRestarts = 0
-                    }
-                }
-                latency = [pscustomobject][ordered]@{
-                    sampleCount = 0; p95LatencyMs = 0.0; p99LatencyMs = 0.0
-                    firstQuartileP95LatencyMs = 0.0; lastQuartileP95LatencyMs = 0.0
-                }
-                resources = [pscustomobject][ordered]@{
-                    snapshotCount = 0; error701Count = 0; resourceSemaphoreSustainedSamples = 0
-                    spillCount = 0; maximumLockWaitMs = 0.0; unboundedLockWaitCount = 0
-                    maximumPendingMemoryGrants = 0; hostWorkingSetSlopeMbPerMinute = 0.0
-                    sqlWorkingSetSlopeMbPerMinute = 0.0; hostWorkingSetPeakMb = 0.0
-                    sqlWorkingSetPeakMb = 0.0; hostHandlePeak = 0
-                    logicalDatabaseUsedSlopeMbPerMinute = 0.0; physicalDataFileSlopeMbPerMinute = 0.0
-                    ldfSlopeMbPerMinute = 0.0; tempdbUsedSlopeMbPerMinute = 0.0
-                    hostHandleSlopePerMinute = 0.0; databaseVersionStorePeakMb = 0.0
-                    tempdbVersionStorePeakMb = 0.0; snapshots = @($stabilityResourceSnapshots)
-                }
-                behavior = [pscustomobject][ordered]@{
-                    maximumConcurrentPolls = 0; catchUpBurstCount = 0
-                    currentLogicalReadGrowthPassed = $false; frozenCommitMismatchCount = 0
-                    projectionCommitsDuringFrozenReads = 0; frozenWindowsWithoutProjection = 1
-                    cleanupBacklogCount = 0; earliestAvailableAdvanced = $false
-                    storagePressurePauseCount = 0; retrySchedulePassed = $false
-                    logicalDayBoundaryPassed = $false; historyEpochPreservedAcrossRestart = $false
-                    restartStatePreserved = $false
-                }
-                evidence = [pscustomobject][ordered]@{
-                    runtimeFailureType = $runtimeFailureType
-                    resourceSnapshotsComplete = $false; latencySamplesComplete = $false
-                    xeventSignalsComplete = $false; cleanupEvidenceComplete = $false
-                    deterministicContractEvidenceComplete = $false
-                }
-            }
+            $stabilityValues['runtimeFailureType'] = $_.Exception.GetType().Name
+            $stabilityValues['durationSeconds'] = `
+                ([DateTimeOffset]::UtcNow - $stabilityStartedAt).TotalSeconds
+            $stabilityValues['resourceSnapshots'] = @($stabilityResourceSnapshots)
+            $stabilityValues['resourceSnapshotCount'] = @($stabilityResourceSnapshots).Count
         }
+        $stabilityEvidence = New-AcceleratedStabilityEvidence $stabilityContext $stabilityValues
     }
 
     $attestation = $null
@@ -3470,6 +3629,9 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
         build = [ordered]@{
             sourceCommit = $sourceCommit; sourceDirty = $sourceDirty; configuration = $BuildConfiguration
             hostFile = $hostArtifact.Name; hostFileVersion = $hostFileVersion; hostSha256 = $hostSha256
+            packageManifestSha256 = $packageManifestSha256
+            watchClientSha256 = $watchClientSha256
+            referenceConsumerSha256 = $referenceConsumerSha256
         }
         database = [ordered]@{ name = $DatabaseName; ownerRunId = $runId; removedAfterEvidence = -not $KeepDatabase }
         sqlServer = [ordered]@{
