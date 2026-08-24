@@ -43,6 +43,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ("STABILITY_HANDLE_TREND", fixture => fixture["resources"]!["hostHandleSlopePerMinute"] = 1.1),
             ("STABILITY_OVERLAPPING_POLL", fixture => fixture["behavior"]!["maximumConcurrentPolls"] = 2),
             ("STABILITY_CATCH_UP_BURST", fixture => fixture["behavior"]!["catchUpBurstCount"] = 1),
+            ("STABILITY_HTTP_ERROR", fixture => fixture["behavior"]!["httpErrorCount"] = 1),
             ("STABILITY_CURRENT_LOGICAL_READ_GROWTH", fixture => fixture["behavior"]!["currentLogicalReadGrowthPassed"] = false),
             ("STABILITY_FROZEN_COMMIT_MISMATCH", fixture => fixture["behavior"]!["frozenCommitMismatchCount"] = 1),
             ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["projectionCommitsDuringFrozenReads"] = 0),
@@ -476,6 +477,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         {
             maximumConcurrentPolls = 1,
             catchUpBurstCount = 0,
+            httpErrorCount = 0,
             currentLogicalReadGrowthPassed = true,
             frozenCommitMismatchCount = 0,
             projectionCommitsDuringFrozenReads = 1_600,

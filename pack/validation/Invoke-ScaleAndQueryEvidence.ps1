@@ -666,6 +666,7 @@ function Get-AcceleratedStabilityResult {
 
     $behaviorComplete = Test-EvidenceProperties $behavior @(
         'maximumConcurrentPolls', 'catchUpBurstCount', 'currentLogicalReadGrowthPassed',
+        'httpErrorCount',
         'frozenCommitMismatchCount', 'projectionCommitsDuringFrozenReads',
         'frozenWindowsWithoutProjection', 'cleanupBacklogCount',
         'earliestAvailableAdvanced', 'storagePressurePauseCount', 'retrySchedulePassed',
@@ -675,6 +676,7 @@ function Get-AcceleratedStabilityResult {
     } else {
         if ([int]$behavior.maximumConcurrentPolls -ne 1) { [void]$failures.Add('STABILITY_OVERLAPPING_POLL') }
         if ([long]$behavior.catchUpBurstCount -ne 0) { [void]$failures.Add('STABILITY_CATCH_UP_BURST') }
+        if ([long]$behavior.httpErrorCount -ne 0) { [void]$failures.Add('STABILITY_HTTP_ERROR') }
         if (-not [bool]$behavior.currentLogicalReadGrowthPassed) { [void]$failures.Add('STABILITY_CURRENT_LOGICAL_READ_GROWTH') }
         if ([long]$behavior.frozenCommitMismatchCount -ne 0) { [void]$failures.Add('STABILITY_FROZEN_COMMIT_MISMATCH') }
         if ([long]$behavior.projectionCommitsDuringFrozenReads -le 0 -or
@@ -1518,6 +1520,7 @@ function New-FailedAcceleratedStabilityValues {
         hostHandleSlopePerMinute = 0.0; databaseVersionStorePeakMb = 0.0
         tempdbVersionStorePeakMb = 0.0; resourceSnapshots = @($ResourceSnapshots)
         maximumConcurrentPolls = 0; catchUpBurstCount = 0L
+        httpErrorCount = 0L
         currentLogicalReadGrowthPassed = $false; frozenCommitMismatchCount = 0L
         projectionCommitsDuringFrozenReads = 0L; frozenWindowsWithoutProjection = 1L
         cleanupBacklogCount = 0L; earliestAvailableAdvanced = $false
@@ -1617,6 +1620,7 @@ function New-AcceleratedStabilityEvidence {
         behavior = [pscustomobject][ordered]@{
             maximumConcurrentPolls = $Values.maximumConcurrentPolls
             catchUpBurstCount = $Values.catchUpBurstCount
+            httpErrorCount = $Values.httpErrorCount
             currentLogicalReadGrowthPassed = $Values.currentLogicalReadGrowthPassed
             frozenCommitMismatchCount = $Values.frozenCommitMismatchCount
             projectionCommitsDuringFrozenReads = $Values.projectionCommitsDuringFrozenReads
@@ -1862,6 +1866,7 @@ function Invoke-StabilityHttpBatch {
     }
     [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.task })).GetAwaiter().GetResult()
     $samples = New-Object System.Collections.ArrayList
+    $httpErrorCount = 0L
     $demandBody = $null
     foreach ($item in $pending) {
         try {
@@ -1869,19 +1874,21 @@ function Invoke-StabilityHttpBatch {
             try {
                 $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                 $statusCode = [int]$response.StatusCode
-                if ($statusCode -ne 200 -and -not ($item.spec.catalog -and $statusCode -eq 304)) {
-                    throw "$($item.spec.name) returned HTTP $statusCode."
-                }
-                if ($item.spec.name -eq 'DemandSeriesDefault') { $demandBody = $body }
-                if ($item.spec.catalog -and $null -ne $response.Headers.ETag) {
-                    $CatalogETag = [string]$response.Headers.ETag.ToString()
-                }
                 [void]$samples.Add([pscustomobject][ordered]@{
                     name = [string]$item.spec.name; batch = $BatchNumber
                     startedAt = $startedAt.ToString('o'); completedAt = [DateTimeOffset]::UtcNow.ToString('o')
                     statusCode = $statusCode; latencyMs = $timer.Elapsed.TotalMilliseconds
                     responseBytes = [Text.Encoding]::UTF8.GetByteCount($body)
                 })
+                $expectedStatus = $statusCode -eq 200 -or ($item.spec.catalog -and $statusCode -eq 304)
+                if (-not $expectedStatus) {
+                    $httpErrorCount++
+                    continue
+                }
+                if ($item.spec.name -eq 'DemandSeriesDefault') { $demandBody = $body }
+                if ($item.spec.catalog -and $null -ne $response.Headers.ETag) {
+                    $CatalogETag = [string]$response.Headers.ETag.ToString()
+                }
             } finally { $response.Dispose() }
         } finally { $item.request.Dispose() }
     }
@@ -1910,8 +1917,16 @@ function Invoke-StabilityHttpBatch {
                     $detailResponse = $detailTask.GetAwaiter().GetResult()
                     try {
                         $detailBody = $detailResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                        [void]$samples.Add([pscustomobject][ordered]@{
+                            name = 'DemandSeriesFrozenDetail'; batch = $BatchNumber
+                            startedAt = [DateTimeOffset]::UtcNow.Subtract($detailTimer.Elapsed).ToString('o')
+                            completedAt = [DateTimeOffset]::UtcNow.ToString('o')
+                            statusCode = [int]$detailResponse.StatusCode; latencyMs = $detailTimer.Elapsed.TotalMilliseconds
+                            responseBytes = [Text.Encoding]::UTF8.GetByteCount($detailBody)
+                        })
                         if (-not $detailResponse.IsSuccessStatusCode) {
-                            throw "Frozen DemandSeries detail returned HTTP $([int]$detailResponse.StatusCode)."
+                            $httpErrorCount++
+                            continue
                         }
                         $detail = $detailBody | ConvertFrom-Json
                         $frozenReadCount++
@@ -1920,13 +1935,6 @@ function Invoke-StabilityHttpBatch {
                             [string]$detail.snapshot.projectionCommitId -cne [string]$list.snapshot.projectionCommitId) {
                             $frozenMismatchCount++
                         }
-                        [void]$samples.Add([pscustomobject][ordered]@{
-                            name = 'DemandSeriesFrozenDetail'; batch = $BatchNumber
-                            startedAt = [DateTimeOffset]::UtcNow.Subtract($detailTimer.Elapsed).ToString('o')
-                            completedAt = [DateTimeOffset]::UtcNow.ToString('o')
-                            statusCode = [int]$detailResponse.StatusCode; latencyMs = $detailTimer.Elapsed.TotalMilliseconds
-                            responseBytes = [Text.Encoding]::UTF8.GetByteCount($detailBody)
-                        })
                     } finally { $detailResponse.Dispose() }
                 }
             } while ([DateTimeOffset]::UtcNow -lt $frozenWindowDeadline)
@@ -1942,6 +1950,7 @@ function Invoke-StabilityHttpBatch {
     return [pscustomobject][ordered]@{
         samples = @($samples); catalogETag = $CatalogETag
         frozenReadCount = $frozenReadCount; frozenMismatchCount = $frozenMismatchCount
+        httpErrorCount = $httpErrorCount
         projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
         frozenWindowWithoutProjection = $frozenWindowWithoutProjection
     }
@@ -2969,6 +2978,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         $frozenCommitMismatchCount = 0L
         $projectionCommitsDuringFrozenReads = 0L
         $frozenWindowsWithoutProjection = 0L
+        $httpErrorCount = 0L
         $catalogReads = 0L
         $watchReads = 0L
         $packagedWatchClientReads = 0L
@@ -3116,6 +3126,7 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                 $frozenCommitMismatchCount += [long]$batch.frozenMismatchCount
                 $projectionCommitsDuringFrozenReads += [long]$batch.projectionCommitsDuringFrozenReads
                 $frozenWindowsWithoutProjection += [long]$batch.frozenWindowWithoutProjection
+                $httpErrorCount += [long]$batch.httpErrorCount
                 $batchCount++
 
                 $now = [DateTimeOffset]::UtcNow
@@ -3281,6 +3292,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             resourceSnapshots = $resourceSnapshots
             maximumConcurrentPolls = if ([long]$pollTiming.overlappingPollCount -eq 0) { 1 } else { 2 }
             catchUpBurstCount = [long]$pollTiming.catchUpBurstCount
+            httpErrorCount = $httpErrorCount
             currentLogicalReadGrowthPassed = $false
             frozenCommitMismatchCount = $frozenCommitMismatchCount
             projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
