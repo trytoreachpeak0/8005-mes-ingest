@@ -495,6 +495,23 @@ internal static class SqlServerMesIngestSchema
             ON mesingest.DemandSeries (RetentionEligibilityAt, SeriesId)
             WHERE RetentionEligibilityAt IS NOT NULL;
 
+        CREATE TABLE mesingest.ArchivedDemandKeyTombstones
+        (
+            KeyToken CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_ArchivedDemandKeyTombstones PRIMARY KEY,
+            WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            OriginalSeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT UQ_MesIngest_ArchivedDemandKeyTombstones_OriginalSeries UNIQUE,
+            ArchivedAt DATETIMEOFFSET(7) NOT NULL,
+            ArchiveConclusion NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            TombstoneVersion INT NOT NULL,
+            CONSTRAINT CK_MesIngest_ArchivedDemandKeyTombstones_ArchiveConclusion
+                CHECK (ArchiveConclusion = N'ARCHIVED'),
+            CONSTRAINT CK_MesIngest_ArchivedDemandKeyTombstones_Version
+                CHECK (TombstoneVersion = 1)
+        );
+
         CREATE TABLE mesingest.CurrentOverviewErrorSeriesFacts
         (
             SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
@@ -786,7 +803,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 22
+        ) <> 23
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -809,6 +826,7 @@ internal static class SqlServerMesIngestSchema
                 (N'TaskTypeProtectionEvents'),
                 (N'ProjectionCommitTaskTypeProtectionDecisions'),
                 (N'DemandSeries'),
+                (N'ArchivedDemandKeyTombstones'),
                 (N'TransportDemands'),
                 (N'DemandRawObservations'),
                 (N'DemandSeriesEvents'),
@@ -837,6 +855,7 @@ internal static class SqlServerMesIngestSchema
                 (N'TaskTypeProtectionEvents'),
                 (N'ProjectionCommitTaskTypeProtectionDecisions'),
                 (N'DemandSeries'),
+                (N'ArchivedDemandKeyTombstones'),
                 (N'TransportDemands'),
                 (N'DemandRawObservations'),
                 (N'DemandSeriesEvents'),
@@ -1013,6 +1032,14 @@ internal static class SqlServerMesIngestSchema
             (N'DemandSeries', 12, N'CurrentDemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'DemandSeries', 13, N'LastSeriesSequence', N'bigint', 8, 19, 0, 0, NULL),
             (N'DemandSeries', 14, N'RetentionEligibilityAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+
+            (N'ArchivedDemandKeyTombstones', 1, N'KeyToken', N'char', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ArchivedDemandKeyTombstones', 2, N'WorkType', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ArchivedDemandKeyTombstones', 3, N'Sublot', N'nvarchar', 512, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ArchivedDemandKeyTombstones', 4, N'OriginalSeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ArchivedDemandKeyTombstones', 5, N'ArchivedAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'ArchivedDemandKeyTombstones', 6, N'ArchiveConclusion', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'ArchivedDemandKeyTombstones', 7, N'TombstoneVersion', N'int', 4, 10, 0, 0, NULL),
 
             (N'TransportDemands', 1, N'DemandId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -1229,6 +1256,8 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions', N'ProjectionCommitTaskTypeProtectionDecisions', 1, 1, 2, N'WorkType', 0),
             (N'PK_MesIngest_DemandSeries', N'DemandSeries', 1, 1, 1, N'SeriesId', 0),
             (N'UQ_MesIngest_DemandSeries_KeyToken', N'DemandSeries', 0, 1, 1, N'KeyToken', 0),
+            (N'PK_MesIngest_ArchivedDemandKeyTombstones', N'ArchivedDemandKeyTombstones', 1, 1, 1, N'KeyToken', 0),
+            (N'UQ_MesIngest_ArchivedDemandKeyTombstones_OriginalSeries', N'ArchivedDemandKeyTombstones', 0, 1, 1, N'OriginalSeriesId', 0),
             (N'PK_MesIngest_TransportDemands', N'TransportDemands', 1, 1, 1, N'DemandId', 0),
             (N'UQ_MesIngest_TransportDemands_SeriesGeneration', N'TransportDemands', 0, 1, 1, N'SeriesId', 0),
             (N'UQ_MesIngest_TransportDemands_SeriesGeneration', N'TransportDemands', 0, 1, 2, N'Generation', 0),
@@ -1454,6 +1483,8 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_StreakAfter', N'ProjectionCommitTaskTypeProtectionDecisions', N'([RecoveryStreakAfter]>=(0))'),
             (N'CK_MesIngest_ProjectionCommitTaskTypeProtectionDecisions_EffectiveAuthority', N'ProjectionCommitTaskTypeProtectionDecisions', N'([EffectiveAbsenceAuthorityAvailable]<=[ProtectionAllowsAbsenceAuthority])'),
             (N'CK_MesIngest_DemandSeries_LastSequence', N'DemandSeries', N'([LastSeriesSequence]>=(0))'),
+            (N'CK_MesIngest_ArchivedDemandKeyTombstones_ArchiveConclusion', N'ArchivedDemandKeyTombstones', N'([ArchiveConclusion]=N''ARCHIVED'')'),
+            (N'CK_MesIngest_ArchivedDemandKeyTombstones_Version', N'ArchivedDemandKeyTombstones', N'([TombstoneVersion]=(1))'),
             (N'CK_MesIngest_TransportDemands_Generation', N'TransportDemands', N'([Generation]>=(1))'),
             (N'CK_MesIngest_TransportDemands_CurrentRawObservationCount', N'TransportDemands', N'([CurrentRawObservationCount]>=(1))'),
             (N'CK_MesIngest_TransportDemands_DemandRevision', N'TransportDemands', N'([DemandRevision]>=(1))'),
@@ -1470,7 +1501,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 44
+            WHERE s.name = N'mesingest') <> 46
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e

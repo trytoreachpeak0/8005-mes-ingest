@@ -31,3 +31,16 @@ public sealed record HistoryRetentionAdvanceResult(
     int ExpiredPollTraceCount,
     int DeletedRawObservationCount,
     DateTimeOffset EarliestAvailableHostUtc);
+
+/// <summary>
+/// The durable identity left by one committed whole-Series cleanup. Detailed
+/// generations, observations, events and error evidence are deliberately not
+/// part of this result or the permanent tombstone.
+/// </summary>
+public sealed record RetentionEligibleSeriesCleanupResult(
+    DateTimeOffset CleanedAt,
+    string SeriesId,
+    string WorkType,
+    string Sublot,
+    DateTimeOffset ArchivedAt,
+    int TombstoneVersion);

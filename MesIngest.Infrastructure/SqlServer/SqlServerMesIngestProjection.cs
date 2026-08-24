@@ -340,11 +340,32 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     transaction,
                     group.KeyToken,
                     cancellationToken).ConfigureAwait(false);
+                var tombstone = current is null
+                    ? await LoadArchivedDemandKeyTombstoneForUpdateAsync(
+                        connection,
+                        transaction,
+                        group.KeyToken,
+                        cancellationToken).ConfigureAwait(false)
+                    : null;
 
                 ProjectedIdentity identity;
                 var longGoneButVisible = false;
                 var demandRevisionAdvancedThisRound = true;
-                if (current is null)
+                if (tombstone is not null)
+                {
+                    EnsureTombstonedKeyMatchesObservation(tombstone, identityObservation);
+                    identity = await InsertTombstonedKeyReappearanceAsync(
+                        connection,
+                        transaction,
+                        tombstone,
+                        round,
+                        projectionCommitId,
+                        uniqueObservation,
+                        group.Observations.Count,
+                        cancellationToken).ConfigureAwait(false);
+                    longGoneButVisible = true;
+                }
+                else if (current is null)
                 {
                     identity = await InsertFirstGenerationAsync(
                         connection,
@@ -1928,11 +1949,15 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                             AND LatestEndedPeriodStartedAt < @toUtc))
             FROM mesingest.ProjectionCommits AS commitRow
             WHERE commitRow.ProjectionCommitId = @projectionCommitId;
+
+            SELECT @@ROWCOUNT;
             """;
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         AddDateTimeOffset(command, "@fromUtc", snapshotAsOf.ToUniversalTime().AddDays(-7));
         AddDateTimeOffset(command, "@toUtc", snapshotAsOf.ToUniversalTime());
-        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+        if (Convert.ToInt32(
+                await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                CultureInfo.InvariantCulture) != 1)
         {
             throw new InvalidOperationException(
                 "The current overview error summary could not be bound to its projection commit.");
@@ -2149,6 +2174,153 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             GetNullableDateTimeOffset(reader, 13),
             GetNullableString(reader, 14),
             reader.GetInt32(15));
+    }
+
+    private static async Task<ArchivedDemandKeyTombstoneRow?> LoadArchivedDemandKeyTombstoneForUpdateAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        string keyToken,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT WorkType, Sublot, OriginalSeriesId, ArchivedAt,
+                   ArchiveConclusion, TombstoneVersion
+            FROM mesingest.ArchivedDemandKeyTombstones WITH (UPDLOCK, HOLDLOCK)
+            WHERE KeyToken = @keyToken;
+            """;
+        AddChar(command, "@keyToken", 64, keyToken);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        var row = new ArchivedDemandKeyTombstoneRow(
+            keyToken,
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            reader.GetFieldValue<DateTimeOffset>(3),
+            reader.GetString(4),
+            reader.GetInt32(5));
+        if (!string.Equals(row.ArchiveConclusion, ArchivedLifecycle, StringComparison.Ordinal)
+            || row.TombstoneVersion != 1)
+        {
+            throw new InvalidOperationException(
+                "The archived Demand key tombstone has an unsupported safety conclusion or version.");
+        }
+
+        return row;
+    }
+
+    private static void EnsureTombstonedKeyMatchesObservation(
+        ArchivedDemandKeyTombstoneRow tombstone,
+        MesTaskUnionObservation observation)
+    {
+        if (!string.Equals(tombstone.WorkType, observation.WorkType, StringComparison.Ordinal)
+            || !string.Equals(tombstone.Sublot, observation.Sublot, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "The archived Demand key tombstone does not match the reappearing business key.");
+        }
+    }
+
+    private static async Task<ProjectedIdentity> InsertTombstonedKeyReappearanceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ArchivedDemandKeyTombstoneRow tombstone,
+        MesTaskUnionRound round,
+        string projectionCommitId,
+        MesTaskUnionObservation? liveObservation,
+        int currentRawObservationCount,
+        CancellationToken cancellationToken)
+    {
+        var demandId = NewId();
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+                INSERT INTO mesingest.DemandSeries
+                    (SeriesId, KeyToken, WorkType, Sublot, Lifecycle, CurrentPresence,
+                     StartedAt, ArchivedAt, CreatedPollTraceId, CreatedProjectionCommitId,
+                     LatestProjectionCommitId, CurrentDemandId, LastSeriesSequence,
+                     RetentionEligibilityAt)
+                VALUES
+                    (@seriesId, @keyToken, @workType, @sublot, N'ARCHIVED',
+                     N'LONG_GONE_BUT_VISIBLE', @occurredAt, @archivedAt, @pollTraceId,
+                     @projectionCommitId, @projectionCommitId, NULL, 0, NULL);
+
+                INSERT INTO mesingest.TransportDemands
+                    (DemandId, SeriesId, Generation, PredecessorDemandId, Status,
+                     CreatedAt, DemandLastSeenAt, GoneConfirmedAt, CreatedPollTraceId,
+                     CreatedProjectionCommitId, LatestProjectionCommitId,
+                     LatestObservationProjectionCommitId, CurrentRawObservationCount,
+                     DemandRevision, ValueObservedAt,
+                     Area, Eqp, Step, MesSourceDate, Package)
+                VALUES
+                    (@demandId, @seriesId, 1, NULL, N'LONG_GONE_BUT_VISIBLE',
+                     @occurredAt, @occurredAt, NULL, @pollTraceId,
+                     @projectionCommitId, @projectionCommitId, @projectionCommitId,
+                     @currentRawObservationCount, 1, @occurredAt,
+                     @area, @eqp, @step, @mesSourceDate, @package);
+
+                UPDATE mesingest.DemandSeries
+                SET CurrentDemandId = @demandId,
+                    LastSeriesSequence = 2
+                WHERE SeriesId = @seriesId;
+                """;
+            AddNVarChar(command, "@seriesId", 64, tombstone.OriginalSeriesId);
+            AddChar(command, "@keyToken", 64, tombstone.KeyToken);
+            AddNVarChar(command, "@workType", 128, tombstone.WorkType);
+            AddNVarChar(command, "@sublot", 256, tombstone.Sublot);
+            AddDateTimeOffset(command, "@occurredAt", round.CompletedAt);
+            AddDateTimeOffset(command, "@archivedAt", tombstone.ArchivedAt);
+            AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
+            AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+            AddNVarChar(command, "@demandId", 64, demandId);
+            command.Parameters.Add("@currentRawObservationCount", SqlDbType.Int).Value =
+                currentRawObservationCount;
+            AddNullableNVarChar(command, "@area", CurrentMesFieldMaximumLength, liveObservation?.Area);
+            AddNullableNVarChar(command, "@eqp", CurrentMesFieldMaximumLength, liveObservation?.Eqp);
+            AddNullableNVarChar(command, "@step", CurrentMesFieldMaximumLength, liveObservation?.Step);
+            AddNullableDateTimeOffset(command, "@mesSourceDate", liveObservation?.MesSourceDate);
+            AddNullableNVarChar(command, "@package", CurrentMesFieldMaximumLength, liveObservation?.Package);
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await InsertInitialEventAsync(
+            connection,
+            transaction,
+            tombstone.OriginalSeriesId,
+            sequence: 1,
+            SeriesArchivedEvent,
+            "SERIES",
+            tombstone.OriginalSeriesId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new
+            {
+                tombstone.OriginalSeriesId,
+                tombstone.TombstoneVersion,
+            }),
+            cancellationToken).ConfigureAwait(false);
+        await InsertInitialEventAsync(
+            connection,
+            transaction,
+            tombstone.OriginalSeriesId,
+            sequence: 2,
+            DemandCreatedEvent,
+            "DEMAND",
+            demandId,
+            round,
+            projectionCommitId,
+            JsonSerializer.Serialize(new { demandId, generation = 1 }),
+            cancellationToken).ConfigureAwait(false);
+
+        return new ProjectedIdentity(tombstone.OriginalSeriesId, demandId);
     }
 
     private static async Task<ProjectedIdentity> InsertFirstGenerationAsync(
@@ -4195,6 +4367,15 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         int Ordinal,
         string? KeyToken,
         MesTaskUnionObservation Observation);
+
+    private sealed record ArchivedDemandKeyTombstoneRow(
+        string KeyToken,
+        string WorkType,
+        string Sublot,
+        string OriginalSeriesId,
+        DateTimeOffset ArchivedAt,
+        string ArchiveConclusion,
+        int TombstoneVersion);
 
     private sealed record PreparedObservationGroup(
         string KeyToken,

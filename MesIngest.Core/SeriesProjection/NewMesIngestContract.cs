@@ -9,7 +9,7 @@ public static class NewMesIngestContract
 {
     public const string Version = "2026.08.new-mes-ingest.v2.0";
 
-    public const int SchemaVersion = 23;
+    public const int SchemaVersion = 24;
 
     public const string CompatibilityPolicy = "EXACT_VERSION_SCHEMA_AND_CAPABILITIES";
 

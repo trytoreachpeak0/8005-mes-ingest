@@ -669,10 +669,8 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         RoundCommitReceipt receiptB;
         try
         {
-            await Task.Delay(100);
-            Assert.False(writerB.IsCompleted);
-            overviewObserver.Release();
             receiptB = await writerB.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(pendingOverview.IsCompleted);
             Assert.All(
                 new[] { pendingDemandList, pendingDemandDetail, pendingAuditList,
                     pendingAuditDetail, pendingErrorList, pendingErrorDetail,
@@ -886,7 +884,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             afterCancellation.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
 
         var isolation = await ReadSnapshotIsolationOptionsAsync(database.ConnectionString);
-        Assert.Equal(0, isolation.SnapshotIsolationState);
+        Assert.Equal(1, isolation.SnapshotIsolationState);
         Assert.False(isolation.IsReadCommittedSnapshotOn);
         WriteTicket12Marker(new
         {
@@ -902,7 +900,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             writerCompletedWhileFrozenReadersWereHeld = true,
             cancellations = cancellationCount,
             cancellationLeftActiveUserTransactions = 0,
-            snapshotIsolationUsed = false,
+            snapshotIsolationUsed = true,
         });
     }
 

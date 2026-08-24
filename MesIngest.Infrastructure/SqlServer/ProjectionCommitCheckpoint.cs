@@ -4,7 +4,7 @@ using Microsoft.Data.SqlClient;
 namespace MesIngest.Infrastructure.SqlServer;
 
 /// <summary>
-/// Stable checkpoints within one successful ProjectionCommit transaction.
+/// Stable checkpoints within a projection or whole-Series cleanup transaction.
 /// </summary>
 public enum ProjectionCommitCheckpoint
 {
@@ -16,6 +16,31 @@ public enum ProjectionCommitCheckpoint
     BeforeCommit,
 }
 
+public enum SeriesCleanupCheckpoint
+{
+    ArchivedKeyTombstonePersisted,
+    CurrentReadModelsDeleted,
+    ErrorGraphDeleted,
+    EventsDeleted,
+    DemandsDeleted,
+    SeriesRootDeleted,
+    BeforeCommit,
+}
+
+public static class SeriesCleanupCheckpointContract
+{
+    public static IReadOnlyList<SeriesCleanupCheckpoint> TransactionFailpoints { get; } =
+    [
+        SeriesCleanupCheckpoint.ArchivedKeyTombstonePersisted,
+        SeriesCleanupCheckpoint.CurrentReadModelsDeleted,
+        SeriesCleanupCheckpoint.ErrorGraphDeleted,
+        SeriesCleanupCheckpoint.EventsDeleted,
+        SeriesCleanupCheckpoint.DemandsDeleted,
+        SeriesCleanupCheckpoint.SeriesRootDeleted,
+        SeriesCleanupCheckpoint.BeforeCommit,
+    ];
+}
+
 public sealed record ProjectionCommitCheckpointContext(
     string PollTraceId,
     string ProjectionCommitId,
@@ -23,7 +48,8 @@ public sealed record ProjectionCommitCheckpointContext(
 
 /// <summary>
 /// Injectable production seam for observing or deliberately failing a SQL
-/// projection transaction without replacing its connection or transaction.
+/// projection or Series-cleanup transaction without replacing its connection
+/// or transaction.
 /// </summary>
 public interface IProjectionCommitCheckpointObserver
 {
@@ -33,6 +59,13 @@ public interface IProjectionCommitCheckpointObserver
         SqlConnection connection,
         SqlTransaction transaction,
         CancellationToken cancellationToken);
+
+    Task OnSeriesCleanupCheckpointAsync(
+        SeriesCleanupCheckpoint checkpoint,
+        ProjectionCommitCheckpointContext context,
+        SqlConnection connection,
+        SqlTransaction transaction,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public sealed class NoopProjectionCommitCheckpointObserver

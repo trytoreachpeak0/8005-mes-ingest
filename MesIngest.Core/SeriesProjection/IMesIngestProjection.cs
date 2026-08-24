@@ -130,6 +130,15 @@ public interface IMesIngestProjection
     Task<HistoryRetentionAdvanceResult> AdvanceHistoryRetentionAsync(
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Atomically cleans at most one due RetentionEligibleDemandSeries. The
+    /// transaction persists its permanent key tombstone before deleting the
+    /// whole detailed graph. A null result means no Series is currently due.
+    /// Ticket 16 owns the budgeted loop around this one-Series transaction.
+    /// </summary>
+    Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesAsync(
+        CancellationToken cancellationToken = default);
+
     Task<AbsenceAuthoritySnapshot> GetAbsenceAuthorityAsync(
         CancellationToken cancellationToken = default);
 
