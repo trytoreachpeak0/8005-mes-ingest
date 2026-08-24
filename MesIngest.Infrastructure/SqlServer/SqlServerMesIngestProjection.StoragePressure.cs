@@ -185,12 +185,17 @@ public sealed partial class SqlServerMesIngestProjection :
                          StatusBefore, StatusAfter, OccurredAt,
                          VolumeRoot, TotalBytes, AvailableBytes)
                     VALUES
-                        (@auditId, N'STORAGE_PRESSURE_RECOVERY', @pauseId,
+                        (@auditId, @operation, @pauseId,
                          @historyEpoch, @databaseName, @executionIdentity, @databaseHost,
                          @reason, NULL, @statusBefore, @statusAfter, @recoveredAt,
                          @volumeRoot, @totalBytes, @availableBytes);
                     """;
                 AddNVarChar(audit, "@auditId", 64, auditId);
+                AddNVarChar(
+                    audit,
+                    "@operation",
+                    64,
+                    LocalAdministrationOperations.StoragePressureRecovery);
                 AddNVarChar(audit, "@pauseId", 64, current.PauseId!);
                 audit.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value = current.HistoryEpoch.Value;
                 AddNVarChar(audit, "@databaseName", 128, current.DatabaseName);
@@ -282,16 +287,23 @@ public sealed partial class SqlServerMesIngestProjection :
                 (
                     SELECT 1 FROM mesingest.LocalAdministrationAudits AS audit
                     WHERE audit.AuditId = s.RecoveryAuditId
-                      AND audit.Operation = N'STORAGE_PRESSURE_RECOVERY'
+                      AND audit.Operation = @operation
                       AND audit.OperationTargetId = s.PauseId
                       AND audit.HistoryEpoch = s.HistoryEpoch
                       AND audit.DatabaseName = s.DatabaseName
-                      AND audit.StatusBefore = N'STORAGE_PRESSURE_PAUSE'
-                      AND audit.StatusAfter = N'HEALTHY'
+                      AND audit.StatusBefore = @pausedStatus
+                      AND audit.StatusAfter = @healthyStatus
                 ) THEN 1 ELSE 0 END AS HasUnrecoveredPause
             FROM mesingest.StoragePressureState AS s{(forUpdate ? " WITH (UPDLOCK, HOLDLOCK)" : string.Empty)}
             WHERE s.Id = 1;
             """;
+        AddNVarChar(
+            command,
+            "@operation",
+            64,
+            LocalAdministrationOperations.StoragePressureRecovery);
+        AddNVarChar(command, "@pausedStatus", 32, StoragePressureStatuses.Paused);
+        AddNVarChar(command, "@healthyStatus", 32, StoragePressureStatuses.Healthy);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

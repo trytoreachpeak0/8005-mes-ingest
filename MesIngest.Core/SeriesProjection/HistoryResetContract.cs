@@ -36,17 +36,6 @@ public interface IHistoryResetOperations
         CancellationToken cancellationToken = default);
 }
 
-public interface IMesIngestLocalAdministration
-{
-    Task<StoragePressureStateSnapshot> ResumeStoragePressureAsync(
-        StoragePressureRecoveryRequest request,
-        CancellationToken cancellationToken = default);
-
-    Task<HistoryResetStateSnapshot> AcknowledgeHistoryResetAsync(
-        HistoryResetAcknowledgementRequest request,
-        CancellationToken cancellationToken = default);
-}
-
 public static class HistoryResetAdministrationErrorCodes
 {
     public const string Unauthorized = "HISTORY_RESET_ACKNOWLEDGEMENT_UNAUTHORIZED";

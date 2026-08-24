@@ -69,12 +69,17 @@ public sealed partial class SqlServerMesIngestProjection :
                          StatusBefore, StatusAfter, OccurredAt,
                          VolumeRoot, TotalBytes, AvailableBytes)
                     VALUES
-                        (@auditId, N'HISTORY_RESET_ACKNOWLEDGEMENT', @operationTargetId,
+                        (@auditId, @operation, @operationTargetId,
                          @historyEpoch, @databaseName, @executionIdentity, @databaseHost,
                          @reason, @riskAcceptance, @statusBefore, @statusAfter,
                          @occurredAt, NULL, NULL, NULL);
                     """;
                 AddNVarChar(audit, "@auditId", 64, auditId);
+                AddNVarChar(
+                    audit,
+                    "@operation",
+                    64,
+                    LocalAdministrationOperations.HistoryResetAcknowledgement);
                 AddNVarChar(
                     audit,
                     "@operationTargetId",
@@ -106,13 +111,18 @@ public sealed partial class SqlServerMesIngestProjection :
                 update.Transaction = transaction;
                 update.CommandText = """
                     UPDATE mesingest.SchemaInfo
-                    SET HistoryResetStatus = N'ACKNOWLEDGED',
+                    SET HistoryResetStatus = @acknowledgedStatus,
                         HistoryResetAcknowledgementAuditId = @auditId
                     WHERE Id = 1
                       AND HistoryEpoch = @historyEpoch
                       AND HistoryResetRequiredAt IS NOT NULL;
                     """;
                 AddNVarChar(update, "@auditId", 64, auditId);
+                AddNVarChar(
+                    update,
+                    "@acknowledgedStatus",
+                    32,
+                    HistoryResetStatuses.Acknowledged);
                 update.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
                     current.HistoryEpoch.Value;
                 if (await update.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
@@ -148,32 +158,58 @@ public sealed partial class SqlServerMesIngestProjection :
         command.CommandText = $"""
             SELECT
                 CASE
-                    WHEN info.HistoryResetRequiredAt IS NULL THEN N'NOT_REQUIRED'
-                    WHEN EXISTS
-                    (
-                        SELECT 1
-                        FROM mesingest.LocalAdministrationAudits AS audit
-                        WHERE audit.AuditId = info.HistoryResetAcknowledgementAuditId
-                          AND audit.Operation = N'HISTORY_RESET_ACKNOWLEDGEMENT'
-                          AND TRY_CONVERT(UNIQUEIDENTIFIER, audit.OperationTargetId) =
-                              info.HistoryEpoch
-                          AND audit.HistoryEpoch = info.HistoryEpoch
-                          AND audit.DatabaseName = DB_NAME()
-                          AND audit.RiskAcceptance =
-                              N'I_ACCEPT_UNRECOVERABLE_LOSS_OF_PRIOR_HISTORY_AND_TOMBSTONES'
-                          AND audit.StatusBefore = N'ACKNOWLEDGEMENT_REQUIRED'
-                          AND audit.StatusAfter = N'ACKNOWLEDGED'
-                    ) THEN N'ACKNOWLEDGED'
-                    ELSE N'ACKNOWLEDGEMENT_REQUIRED'
+                    WHEN info.HistoryResetRequiredAt IS NULL THEN @notRequiredStatus
+                    WHEN validAudit.AuditId IS NOT NULL THEN @acknowledgedStatus
+                    ELSE @requiredStatus
                 END,
                 info.HistoryEpoch,
                 DB_NAME(),
                 info.HistoryEpochEstablishedAt,
-                info.HistoryResetAcknowledgementAuditId,
+                CASE WHEN info.HistoryResetRequiredAt IS NULL
+                     THEN NULL ELSE validAudit.AuditId END,
                 info.HistoryResetRequiredAt
             FROM mesingest.SchemaInfo AS info{(forUpdate ? " WITH (UPDLOCK, HOLDLOCK)" : string.Empty)}
+            OUTER APPLY
+            (
+                SELECT audit.AuditId
+                FROM mesingest.LocalAdministrationAudits AS audit
+                WHERE audit.AuditId = info.HistoryResetAcknowledgementAuditId
+                  AND audit.Operation = @operation
+                  AND TRY_CONVERT(UNIQUEIDENTIFIER, audit.OperationTargetId) =
+                      info.HistoryEpoch
+                  AND audit.HistoryEpoch = info.HistoryEpoch
+                  AND audit.DatabaseName = DB_NAME()
+                  AND audit.RiskAcceptance = @riskAcceptance
+                  AND audit.StatusBefore = @requiredStatus
+                  AND audit.StatusAfter = @acknowledgedStatus
+            ) AS validAudit
             WHERE Id = 1;
             """;
+        AddNVarChar(
+            command,
+            "@notRequiredStatus",
+            32,
+            HistoryResetStatuses.NotRequired);
+        AddNVarChar(
+            command,
+            "@requiredStatus",
+            32,
+            HistoryResetStatuses.AcknowledgementRequired);
+        AddNVarChar(
+            command,
+            "@acknowledgedStatus",
+            32,
+            HistoryResetStatuses.Acknowledged);
+        AddNVarChar(
+            command,
+            "@operation",
+            64,
+            LocalAdministrationOperations.HistoryResetAcknowledgement);
+        AddNVarChar(
+            command,
+            "@riskAcceptance",
+            128,
+            HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

@@ -29,9 +29,9 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
         await projection.BeginHostSessionAsync();
         var volume = await projection.ResolveDatabaseVolumeAsync();
 
-        await projection.CommitRoundAsync(SuccessRound("poll-history-reset-1", 1));
-        await projection.CommitRoundAsync(SuccessRound("poll-history-reset-2", 2));
-        await projection.CommitRoundAsync(SuccessRound("poll-history-reset-3", 3));
+        await projection.CommitRoundAsync(EmptySuccessRound("poll-history-reset-1", 1));
+        await projection.CommitRoundAsync(EmptySuccessRound("poll-history-reset-2", 2));
+        await projection.CommitRoundAsync(EmptySuccessRound("poll-history-reset-3", 3));
         await projection.ObserveStoragePressureAsync(
             volume,
             VolumeSpaceSample.FromPercent(volume.VolumeRoot, 1_000_000, 50m),
@@ -100,7 +100,9 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
         Assert.Equal(HistoryResetStatuses.Acknowledged, acknowledged.Status);
         Assert.Equal(acknowledged.AcknowledgementAuditId, repeated.AcknowledgementAuditId);
         Assert.NotNull(acknowledged.AcknowledgementAuditId);
-        Assert.NotNull((await administration.ReadExternallyReadableDemandCatalogAsync()).Snapshot);
+        var newEpochCatalog = await administration.ReadExternallyReadableDemandCatalogAsync();
+        Assert.Equal(required.HistoryEpoch, newEpochCatalog.Identity.HistoryEpoch);
+        Assert.Empty(newEpochCatalog.Snapshot!.Items);
         await Assert.ThrowsAsync<HistoryEpochMismatchException>(() =>
             administration.ReadExternallyReadableDemandCatalogAsync(
                 new ExternallyReadableDemandCatalogIdentity(
@@ -153,7 +155,9 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
             await command.ExecuteNonQueryAsync();
         }
 
-        Assert.True((await projection.ReadHistoryResetStateAsync()).RequiresAcknowledgement);
+        var afterDirectEdit = await projection.ReadHistoryResetStateAsync();
+        Assert.True(afterDirectEdit.RequiresAcknowledgement);
+        Assert.Null(afterDirectEdit.AcknowledgementAuditId);
         var administration = new SqlServerMesIngestProjection(
             database.ConnectionString,
             localAdministrationContextProvider: new FixedAdministrationContextProvider(
@@ -181,7 +185,7 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
         Assert.Equal(0, Convert.ToInt32(await auditCount.ExecuteScalarAsync()));
     }
 
-    private static MesTaskUnionRound SuccessRound(string pollTraceId, int minute)
+    private static MesTaskUnionRound EmptySuccessRound(string pollTraceId, int minute)
     {
         var at = new DateTimeOffset(2026, 8, 24, 12, minute, 0, TimeSpan.Zero);
         return new MesTaskUnionRound(
@@ -190,14 +194,7 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
             MesTaskUnionRoundOutcome.Success,
             at,
             at.AddSeconds(1),
-            [new MesTaskUnionObservation(
-                "WIRE_TO_NITROGEN",
-                "HISTORY-RESET-001",
-                "A1",
-                "EQ-1",
-                "STEP",
-                at,
-                "PKG")]);
+            []);
     }
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
