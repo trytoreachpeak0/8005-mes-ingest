@@ -1527,7 +1527,8 @@ function New-FailedAcceleratedStabilityValues {
         storagePressurePauseCount = 0L; storagePressureStatus = $null
         retrySchedulePassed = $false; logicalDayBoundaryPassed = $false
         historyEpochPreservedAcrossRestart = $false; restartStatePreserved = $false
-        runtimeFailureType = $null; runtimeFailureStage = $null; resourceSnapshotsComplete = $false
+        runtimeFailureType = $null; runtimeFailureStage = $null; runtimeFailureDetailType = $null
+        hostExitedBeforeFailure = $null; hostExitCode = $null; resourceSnapshotsComplete = $false
         latencySamplesComplete = $false; xeventSignalsComplete = $false
         cleanupEvidenceComplete = $false; deterministicContractEvidenceComplete = $false
         deterministicContract = $null; packagedClientReceipts = @()
@@ -1637,6 +1638,9 @@ function New-AcceleratedStabilityEvidence {
         evidence = [pscustomobject][ordered]@{
             runtimeFailureType = $Values.runtimeFailureType
             runtimeFailureStage = $Values.runtimeFailureStage
+            runtimeFailureDetailType = $Values.runtimeFailureDetailType
+            hostExitedBeforeFailure = $Values.hostExitedBeforeFailure
+            hostExitCode = $Values.hostExitCode
             resourceSnapshotsComplete = $Values.resourceSnapshotsComplete
             latencySamplesComplete = $Values.latencySamplesComplete
             xeventSignalsComplete = $Values.xeventSignalsComplete
@@ -3094,6 +3098,7 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                     })
                 }
 
+                $stabilityStage = 'concurrent-http-batch'
                 $batch = Invoke-StabilityHttpBatch `
                     -Client $client -BaseUrl $hostRun.BaseUrl `
                     -DatabaseConnectionString $databaseConnectionString `
@@ -3113,11 +3118,13 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
 
                 $now = [DateTimeOffset]::UtcNow
                 if ($now -ge $nextResourceAt) {
+                    $stabilityStage = 'concurrent-resource-snapshot'
                     [void]$stabilityResourceSnapshots.Add((Get-StabilityResourceSnapshot `
                         $masterConnectionString $databaseConnectionString $DatabaseName `
                         $hostRun ([int]$serverIdentity.process_id) "minute-$($stabilityResourceSnapshots.Count)"))
                     $nextResourceAt = $nextResourceAt.AddMinutes(1)
                 }
+                $stabilityStage = 'concurrent-workload'
                 if ($now -ge $nextProgressAt) {
                     Write-Output ("MESINGEST_STABILITY_PROGRESS: elapsedMinutes={0:F1} batches={1} apiReads={2} frozenReads={3}" -f `
                         ($now - $stabilityStartedAt).TotalMinutes, $batchCount,
@@ -3293,6 +3300,9 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             restartStatePreserved = $restartStatePreserved
             runtimeFailureType = $null
             runtimeFailureStage = $null
+            runtimeFailureDetailType = $null
+            hostExitedBeforeFailure = $null
+            hostExitCode = $null
             resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
             latencySamplesComplete = $latencies.Count -gt 0; xeventSignalsComplete = $true
             cleanupEvidenceComplete = $null -eq $cleanupFinal.cleanupFailureCode
@@ -3301,10 +3311,20 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             packagedClientReceipts = @($packagedClientReceipts)
         }
         } catch {
+            $hostExitedBeforeFailure = $null -ne $hostRun -and $hostRun.Process.HasExited
+            $hostExitCode = if ($hostExitedBeforeFailure) { [int]$hostRun.Process.ExitCode } else { $null }
+            $runtimeFailureDetailType = if ($null -eq $_.Exception.InnerException) {
+                $null
+            } else {
+                $_.Exception.InnerException.GetType().Name
+            }
             Stop-EvidenceHost $hostRun
             $hostRun = $null
             $stabilityValues['runtimeFailureType'] = $_.Exception.GetType().Name
             $stabilityValues['runtimeFailureStage'] = $stabilityStage
+            $stabilityValues['runtimeFailureDetailType'] = $runtimeFailureDetailType
+            $stabilityValues['hostExitedBeforeFailure'] = $hostExitedBeforeFailure
+            $stabilityValues['hostExitCode'] = $hostExitCode
             $stabilityValues['durationSeconds'] = `
                 ([DateTimeOffset]::UtcNow - $stabilityStartedAt).TotalSeconds
             $stabilityValues['resourceSnapshots'] = @($stabilityResourceSnapshots)
