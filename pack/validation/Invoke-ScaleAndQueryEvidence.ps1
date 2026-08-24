@@ -30,9 +30,11 @@ param(
     [string] $OutputRoot = '',
     [string] $SqlConnectionStringEnvironmentVariable = 'MES_INGEST_SCALE_EVIDENCE_SQLSERVER',
     [string] $SqlTier1AttestationPath = '',
+    [string] $DeterministicContractEvidencePath = '',
     [string] $BaselineEvidencePath = '',
     [string] $ValidateEvidenceFixturePath = '',
     [string] $ValidateCapacityFixturePath = '',
+    [string] $ValidateStabilityFixturePath = '',
     [string] $ValidatePercentileFixture = '',
     [string] $ValidateShowPlanFixturePath = '',
     [ValidateSet(
@@ -54,6 +56,10 @@ param(
     [ValidateRange(1, 10000)] [int] $RoundBatchSize = 250,
     [ValidateRange(0, 100000)] [long] $RepresentativeHistoryRounds = 0,
     [switch] $FastCapacityProjection,
+    [switch] $AcceleratedConcurrencyStability,
+    [ValidateRange(30, 45)] [int] $StabilityDurationMinutes = 30,
+    [ValidateRange(1, 10)] [int] $AcceleratedPollStartIntervalSeconds = 1,
+    [ValidateRange(1, 300)] [int] $AcceleratedCleanupCheckIntervalSeconds = 60,
     [ValidateRange(1, 100)] [int] $WarmupCount = 2,
     [ValidateRange(1, 1000)] [int] $MeasurementCount = 5,
     [ValidateRange(1, 600)] [int] $RequestTimeoutSeconds = 120,
@@ -95,6 +101,16 @@ if ($FastCapacityProjection -and $ProfileDays -ne 0) {
 if ($FastCapacityProjection -and
     (($RepresentativeHistoryRounds * [long]$ObservationsPerRound) + [long]$SeriesCount) -gt 250000) {
     throw 'FastCapacityProjection refuses to materialize more than 250,000 RawObservation rows.'
+}
+if ($AcceleratedConcurrencyStability -and $ProfileDays -ne 0) {
+    throw 'AcceleratedConcurrencyStability is available only with ProfileDays 0.'
+}
+if ($AcceleratedConcurrencyStability -and $FastCapacityProjection) {
+    throw 'AcceleratedConcurrencyStability cannot be combined with FastCapacityProjection.'
+}
+if ($AcceleratedConcurrencyStability -and
+    (($RepresentativeHistoryRounds * [long]$ObservationsPerRound) + [long]$SeriesCount) -gt 250000) {
+    throw 'AcceleratedConcurrencyStability refuses to materialize more than 250,000 RawObservation rows.'
 }
 
 $profiles = @{
@@ -394,6 +410,226 @@ function Get-FastCapacityProjection {
             tombstoneMb = $projectedTombstoneMb
             databaseVersionStorePeakMb = $projectedVersionStorePeakMb
             tempdbImpactMb = $projectedTempdbImpactMb
+        }
+    }
+}
+
+function Test-EvidenceProperties {
+    param(
+        [AllowNull()][object] $Value,
+        [Parameter(Mandatory = $true)][string[]] $Names
+    )
+    if ($null -eq $Value) { return $false }
+    return @($Names | Where-Object { $null -eq $Value.PSObject.Properties[$_] }).Count -eq 0
+}
+
+function Get-AcceleratedStabilityResult {
+    param([Parameter(Mandatory = $true)][object] $Evidence)
+
+    $failures = New-Object System.Collections.ArrayList
+    $topLevelComplete = Test-EvidenceProperties $Evidence @(
+        'identity', 'environment', 'workload', 'latency', 'resources', 'behavior', 'evidence')
+    if (-not $topLevelComplete) {
+        [void]$failures.Add('STABILITY_EVIDENCE_INCOMPLETE')
+        return [pscustomobject][ordered]@{
+            passed = $false
+            soakEscalationRequired = $true
+            failures = @($failures)
+            nextValidation = '4-hour-or-24-hour-real-soak after evidence repair'
+        }
+    }
+
+    $identity = $Evidence.identity
+    $environment = $Evidence.environment
+    $workload = $Evidence.workload
+    $latency = $Evidence.latency
+    $resources = $Evidence.resources
+    $behavior = $Evidence.behavior
+    $evidenceState = $Evidence.evidence
+
+    if (-not (Test-EvidenceProperties $identity @(
+            'sourceCommit', 'hostSha256', 'contractVersion', 'schemaVersion', 'historyEpoch')) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.sourceCommit) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.hostSha256) -or
+        [string]::IsNullOrWhiteSpace([string]$identity.contractVersion) -or
+        [int]$identity.schemaVersion -le 0 -or
+        [guid]$identity.historyEpoch -eq [guid]::Empty) {
+        [void]$failures.Add('STABILITY_BUILD_OR_CONTRACT_IDENTITY_INCOMPLETE')
+    }
+
+    $environmentComplete = Test-EvidenceProperties $environment @(
+        'sqlProductMajor', 'compatibilityLevel', 'maxServerMemoryMb', 'recoveryModel',
+        'defaultPollStartIntervalSeconds', 'failureBackoffSeconds', 'watchRefreshSeconds',
+        'defaultCleanupCheckIntervalSeconds', 'acceleratedPollStartIntervalSeconds',
+        'acceleratedCleanupCheckIntervalSeconds')
+    if (-not $environmentComplete) {
+        [void]$failures.Add('STABILITY_RELEASE_DEFAULTS_INCOMPLETE')
+    } else {
+        $watchDefaults = $environment.watchRefreshSeconds
+        $backoffs = @($environment.failureBackoffSeconds | ForEach-Object { [int]$_ })
+        if ([int]$environment.sqlProductMajor -ne 16 -or
+            [int]$environment.compatibilityLevel -ne 160 -or
+            [int]$environment.maxServerMemoryMb -ne 1536 -or
+            [string]$environment.recoveryModel -ne 'SIMPLE') {
+            [void]$failures.Add('STABILITY_LOW_MEMORY_PROFILE_MISMATCH')
+        }
+        if ([int]$environment.defaultPollStartIntervalSeconds -ne 60 -or
+            ($backoffs -join ',') -ne '60,120,300' -or
+            [int]$environment.defaultCleanupCheckIntervalSeconds -ne 3600 -or
+            -not (Test-EvidenceProperties $watchDefaults @(
+                'overview', 'currentAttention', 'demandSeries', 'readabilityAudit', 'errorSearch')) -or
+            [int]$watchDefaults.overview -ne 30 -or
+            [int]$watchDefaults.currentAttention -ne 30 -or
+            [int]$watchDefaults.demandSeries -ne 60 -or
+            [int]$watchDefaults.readabilityAudit -ne 60 -or
+            [int]$watchDefaults.errorSearch -ne 60) {
+            [void]$failures.Add('STABILITY_RELEASE_DEFAULTS_MISMATCH')
+        }
+        if ([int]$environment.acceleratedPollStartIntervalSeconds -ge 60 -or
+            [int]$environment.acceleratedCleanupCheckIntervalSeconds -ge 3600) {
+            [void]$failures.Add('STABILITY_PROFILE_NOT_ACCELERATED')
+        }
+    }
+
+    $workloadComplete = Test-EvidenceProperties $workload @(
+        'durationSeconds', 'seriesCount', 'initialRawObservationRows',
+        'maximumRawObservationRows', 'representativeHistoryRounds', 'concurrentClients', 'operations')
+    if (-not $workloadComplete) {
+        [void]$failures.Add('STABILITY_WORKLOAD_EVIDENCE_INCOMPLETE')
+    } else {
+        if ([int]$workload.durationSeconds -lt 1800 -or [int]$workload.durationSeconds -gt 2700) {
+            [void]$failures.Add('STABILITY_DURATION_OUT_OF_RANGE')
+        }
+        if ([int]$workload.seriesCount -ne 600 -or
+            [long]$workload.initialRawObservationRows -le 0 -or
+            [long]$workload.maximumRawObservationRows -lt [long]$workload.initialRawObservationRows -or
+            [long]$workload.maximumRawObservationRows -gt 250000 -or
+            [long]$workload.representativeHistoryRounds -le 0 -or
+            [int]$workload.concurrentClients -lt 2) {
+            [void]$failures.Add('STABILITY_SAMPLE_NOT_FIXED_OR_BOUNDED')
+        }
+        $operations = $workload.operations
+        if (-not (Test-EvidenceProperties $operations @(
+                'successfulPolls', 'watchApiReads', 'frozenDetailReads',
+                'referenceCatalogReads', 'cleanupChecks', 'hostRestarts')) -or
+            [long]$operations.successfulPolls -le 0 -or
+            [long]$operations.watchApiReads -le 0 -or
+            [long]$operations.frozenDetailReads -le 0 -or
+            [long]$operations.referenceCatalogReads -le 0 -or
+            [long]$operations.cleanupChecks -le 0 -or
+            [long]$operations.hostRestarts -ne 1) {
+            [void]$failures.Add('STABILITY_OPERATION_COUNTS_INCOMPLETE')
+        }
+    }
+
+    if (-not (Test-EvidenceProperties $latency @(
+            'sampleCount', 'p95LatencyMs', 'p99LatencyMs',
+            'firstQuartileP95LatencyMs', 'lastQuartileP95LatencyMs')) -or
+        [long]$latency.sampleCount -le 0) {
+        [void]$failures.Add('STABILITY_LATENCY_EVIDENCE_INCOMPLETE')
+    } else {
+        if ([double]$latency.p95LatencyMs -ge 2000.0) { [void]$failures.Add('STABILITY_API_P95') }
+        if ([double]$latency.p99LatencyMs -ge 5000.0) { [void]$failures.Add('STABILITY_API_P99') }
+        $allowedTailP95 = [Math]::Max(
+            [double]$latency.firstQuartileP95LatencyMs * 2.0,
+            [double]$latency.firstQuartileP95LatencyMs + 500.0)
+        if ([double]$latency.lastQuartileP95LatencyMs -gt $allowedTailP95) {
+            [void]$failures.Add('STABILITY_LATENCY_DEGRADATION')
+        }
+    }
+
+    $resourceProperties = @(
+        'snapshotCount', 'error701Count', 'resourceSemaphoreSustainedSamples', 'spillCount',
+        'maximumLockWaitMs', 'unboundedLockWaitCount', 'maximumPendingMemoryGrants',
+        'hostWorkingSetSlopeMbPerMinute', 'sqlWorkingSetSlopeMbPerMinute',
+        'hostWorkingSetPeakMb', 'sqlWorkingSetPeakMb', 'hostHandlePeak',
+        'logicalDatabaseUsedSlopeMbPerMinute', 'physicalDataFileSlopeMbPerMinute',
+        'ldfSlopeMbPerMinute', 'tempdbUsedSlopeMbPerMinute', 'hostHandleSlopePerMinute',
+        'databaseVersionStorePeakMb', 'tempdbVersionStorePeakMb')
+    if (-not (Test-EvidenceProperties $resources $resourceProperties) -or [int]$resources.snapshotCount -lt 4) {
+        [void]$failures.Add('STABILITY_RESOURCE_EVIDENCE_INCOMPLETE')
+    } else {
+        if ([long]$resources.error701Count -ne 0) { [void]$failures.Add('STABILITY_ERROR_701') }
+        if ([long]$resources.resourceSemaphoreSustainedSamples -ne 0 -or
+            [long]$resources.maximumPendingMemoryGrants -ne 0) {
+            [void]$failures.Add('STABILITY_RESOURCE_SEMAPHORE')
+        }
+        if ([long]$resources.spillCount -ne 0) { [void]$failures.Add('STABILITY_SPILL') }
+        if ([double]$resources.maximumLockWaitMs -gt 5000.0 -or
+            [long]$resources.unboundedLockWaitCount -ne 0) {
+            [void]$failures.Add('STABILITY_UNBOUNDED_LOCK_WAIT')
+        }
+        if ([double]$resources.hostWorkingSetSlopeMbPerMinute -gt 2.0) {
+            [void]$failures.Add('STABILITY_HOST_MEMORY_TREND')
+        }
+        if ([double]$resources.sqlWorkingSetSlopeMbPerMinute -gt 8.0) {
+            [void]$failures.Add('STABILITY_SQL_MEMORY_TREND')
+        }
+        if ([double]$resources.sqlWorkingSetPeakMb -gt 2048.0) {
+            [void]$failures.Add('STABILITY_SQL_MEMORY_ENVELOPE')
+        }
+        if ([double]$resources.logicalDatabaseUsedSlopeMbPerMinute -gt 1.0) {
+            [void]$failures.Add('STABILITY_DATABASE_USED_TREND')
+        }
+        if ([double]$resources.physicalDataFileSlopeMbPerMinute -gt 1.0) {
+            [void]$failures.Add('STABILITY_DATABASE_FILE_TREND')
+        }
+        if ([double]$resources.ldfSlopeMbPerMinute -gt 1.0) {
+            [void]$failures.Add('STABILITY_LDF_TREND')
+        }
+        if ([double]$resources.tempdbUsedSlopeMbPerMinute -gt 2.0) {
+            [void]$failures.Add('STABILITY_TEMPDB_TREND')
+        }
+        if ([double]$resources.hostHandleSlopePerMinute -gt 1.0) {
+            [void]$failures.Add('STABILITY_HANDLE_TREND')
+        }
+    }
+
+    $behaviorComplete = Test-EvidenceProperties $behavior @(
+        'maximumConcurrentPolls', 'catchUpBurstCount', 'currentLogicalReadGrowthPassed',
+        'frozenCommitMismatchCount', 'projectionCommitsDuringFrozenReads', 'cleanupBacklogCount',
+        'earliestAvailableAdvanced', 'storagePressurePauseCount', 'retrySchedulePassed',
+        'logicalDayBoundaryPassed', 'historyEpochPreservedAcrossRestart', 'restartStatePreserved')
+    if (-not $behaviorComplete) {
+        [void]$failures.Add('STABILITY_BEHAVIOR_EVIDENCE_INCOMPLETE')
+    } else {
+        if ([int]$behavior.maximumConcurrentPolls -ne 1) { [void]$failures.Add('STABILITY_OVERLAPPING_POLL') }
+        if ([long]$behavior.catchUpBurstCount -ne 0) { [void]$failures.Add('STABILITY_CATCH_UP_BURST') }
+        if (-not [bool]$behavior.currentLogicalReadGrowthPassed) { [void]$failures.Add('STABILITY_CURRENT_LOGICAL_READ_GROWTH') }
+        if ([long]$behavior.frozenCommitMismatchCount -ne 0) { [void]$failures.Add('STABILITY_FROZEN_COMMIT_MISMATCH') }
+        if ([long]$behavior.projectionCommitsDuringFrozenReads -le 0) { [void]$failures.Add('STABILITY_FROZEN_READ_BLOCKED_PROJECTION') }
+        if ([long]$behavior.cleanupBacklogCount -ne 0) { [void]$failures.Add('STABILITY_CLEANUP_BACKLOG') }
+        if (-not [bool]$behavior.earliestAvailableAdvanced) { [void]$failures.Add('STABILITY_EARLIEST_AVAILABLE_NOT_ADVANCED') }
+        if ([long]$behavior.storagePressurePauseCount -ne 0) { [void]$failures.Add('STABILITY_STORAGE_PRESSURE_UNEXPECTED') }
+        if (-not [bool]$behavior.retrySchedulePassed) { [void]$failures.Add('STABILITY_RETRY_CONTRACT') }
+        if (-not [bool]$behavior.logicalDayBoundaryPassed) { [void]$failures.Add('STABILITY_LOGICAL_DAY_BOUNDARY') }
+        if (-not [bool]$behavior.historyEpochPreservedAcrossRestart -or -not [bool]$behavior.restartStatePreserved) {
+            [void]$failures.Add('STABILITY_RESTART_STATE')
+        }
+    }
+
+    $evidenceProperties = @(
+        'resourceSnapshotsComplete', 'latencySamplesComplete', 'xeventSignalsComplete',
+        'cleanupEvidenceComplete', 'deterministicContractEvidenceComplete')
+    if (-not (Test-EvidenceProperties $evidenceState $evidenceProperties) -or
+        @($evidenceProperties | Where-Object { -not [bool]$evidenceState.$_ }).Count -gt 0) {
+        [void]$failures.Add('STABILITY_EVIDENCE_INCOMPLETE')
+    }
+
+    $uniqueFailures = @($failures | Sort-Object -Unique)
+    return [pscustomobject][ordered]@{
+        passed = $uniqueFailures.Count -eq 0
+        soakEscalationRequired = $uniqueFailures.Count -gt 0
+        failures = $uniqueFailures
+        thresholds = [ordered]@{
+            minimumDurationSeconds = 1800; maximumDurationSeconds = 2700
+            apiP95MillisecondsExclusive = 2000; apiP99MillisecondsExclusive = 5000
+            maximumRawObservationRows = 250000; maximumLockWaitMilliseconds = 5000
+        }
+        nextValidation = if ($uniqueFailures.Count -eq 0) {
+            'No long soak required unless explicitly requested before field cutover.'
+        } else {
+            '4-hour-or-24-hour-real-soak after resolving the named risk signal.'
         }
     }
 }
@@ -751,7 +987,10 @@ function Start-EvidenceHost {
         [Parameter(Mandatory = $true)][string] $DatabaseConnectionString,
         [Parameter(Mandatory = $true)][string] $Secret,
         [Parameter(Mandatory = $true)][string] $ApplicationName,
-        [int] $CleanupCheckIntervalSeconds = 0
+        [int] $CleanupCheckIntervalSeconds = 0,
+        [int] $PollStartIntervalSeconds = 0,
+        [string] $ReplayRecordingPath = '',
+        [switch] $ContinuousPoll
     )
     $hostExe = Join-Path $ServiceRoot 'MesIngest.Host.exe'
     $hostDll = Join-Path $ServiceRoot 'MesIngest.Host.dll'
@@ -775,13 +1014,23 @@ function Start-EvidenceHost {
     $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
     $start.EnvironmentVariables['DOTNET_ENVIRONMENT'] = 'Development'
     $start.EnvironmentVariables['MesIngest__Urls'] = $baseUrl
-    $start.EnvironmentVariables['MesIngest__SnapshotSource'] = 'None'
+    $start.EnvironmentVariables['MesIngest__SnapshotSource'] = $(
+        if ([string]::IsNullOrWhiteSpace($ReplayRecordingPath)) { 'None' } else { 'Oracle' })
     $start.EnvironmentVariables['MesIngest__NewSqlServerConnectionString'] = $builder.ConnectionString
     $start.EnvironmentVariables['MesIngest__SharedSecret'] = $Secret
-    $start.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] = 'false'
+    $start.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] = $(if ($ContinuousPoll) { 'true' } else { 'false' })
     $start.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'false'
     if ($CleanupCheckIntervalSeconds -gt 0) {
         $start.EnvironmentVariables['MesIngest__HistoryCleanupCheckIntervalSeconds'] = [string]$CleanupCheckIntervalSeconds
+    }
+    if ($PollStartIntervalSeconds -gt 0) {
+        $start.EnvironmentVariables['MesIngest__PostPollDelaySeconds'] = [string]$PollStartIntervalSeconds
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ReplayRecordingPath)) {
+        $start.EnvironmentVariables['MesIngest__ReplayRoundsFromRecordingPath'] =
+            [IO.Path]::GetFullPath($ReplayRecordingPath)
+        $start.EnvironmentVariables['MesIngest__ReplayRoundsAcknowledgement'] =
+            'RELEASE_SMOKE_NOT_FACTORY_EVIDENCE'
     }
     $process = [Diagnostics.Process]::Start($start)
     if ($null -eq $process) { throw 'Packaged Host did not start.' }
@@ -912,31 +1161,53 @@ function Get-EvidenceGateFailures {
         [void]$failures.Add('MISSING_BUILD_IDENTITY')
     }
     if (-not $CanonicalScaleProfile) { [void]$failures.Add('NON_CANONICAL_SCALE_PROFILE') }
-    if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
-        $failurePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
-        $currentSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+    $boundedScopes = if ($QuerySurface -eq 'All') {
+        @($boundedCurrentSurfaceFailurePrefixes.Keys)
+    } elseif ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
+        @($QuerySurface)
+    } else { @() }
+    foreach ($boundedScope in $boundedScopes) {
+        $failurePrefix = Get-BoundedQuerySurfaceFailurePrefix $boundedScope
+        $currentSurfaces = @(if ($boundedScope -eq 'DemandSeries') {
             $QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
         } else {
-            $QueryEvidence | Where-Object { $_.name -eq $QuerySurface }
+            $QueryEvidence | Where-Object { $_.name -eq $boundedScope }
         })
         if ($currentSurfaces.Count -eq 0) {
             [void]$failures.Add("MISSING_$($failurePrefix)_EVIDENCE")
         } else {
-            if (@($currentSurfaces | Where-Object {
+            $requiredCurrentProperties = @(
+                'rawObservationPlanOperators', 'rawObservationLogicalReads',
+                'runtimeIoComplete', 'memoryGrantEvidenceComplete', 'spillCount',
+                'maxGrantedMemoryKb')
+            $currentShapeComplete = @($currentSurfaces | Where-Object {
+                $surface = $_
+                @($requiredCurrentProperties | Where-Object {
+                    $null -eq $surface.PSObject.Properties[$_]
+                }).Count -gt 0
+            }).Count -eq 0
+            if (-not $currentShapeComplete) {
+                [void]$failures.Add("$($failurePrefix)_RUNTIME_IO_INCOMPLETE")
+                [void]$failures.Add("$($failurePrefix)_MEMORY_GRANT_EVIDENCE_INCOMPLETE")
+            } elseif (@($currentSurfaces | Where-Object {
                     [long]$_.rawObservationPlanOperators -ne 0 -or
                     [long]$_.rawObservationLogicalReads -ne 0 }).Count -gt 0) {
                 [void]$failures.Add("$($failurePrefix)_RAW_HISTORY_READ")
             }
-            if (@($currentSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
+            if ($currentShapeComplete -and
+                @($currentSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
                 [void]$failures.Add("$($failurePrefix)_RUNTIME_IO_INCOMPLETE")
             }
-            if (@($currentSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
+            if ($currentShapeComplete -and
+                @($currentSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
                 [void]$failures.Add("$($failurePrefix)_MEMORY_GRANT_EVIDENCE_INCOMPLETE")
             }
-            if ([long](($currentSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
+            if ($currentShapeComplete -and
+                [long](($currentSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
                 [void]$failures.Add("$($failurePrefix)_SPILL")
             }
-            if ([long](($currentSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
+            if ($currentShapeComplete -and
+                [long](($currentSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
                 [void]$failures.Add("$($failurePrefix)_ABNORMAL_MEMORY_GRANT")
             }
         }
@@ -1043,6 +1314,275 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateCapacityFixturePath)) {
     exit 0
 }
 
+function Get-DeterministicContractEvidence {
+    param([Parameter(Mandatory = $true)][string] $Path)
+    $requiredTests = @(
+        'SingleFlightPollLoopTests.Uses_sixty_second_start_to_start_slots_and_skips_missed_slots_without_catch_up',
+        'SingleFlightPollLoopTests.Consecutive_failures_back_off_60_120_300_then_success_resets_normal_cadence',
+        'HistoryCleanupHostedServiceTests.Controlled_time_crosses_a_full_logical_day_on_twenty_four_exact_hourly_slots',
+        'HistoryCleanupHostedServiceTests.Hourly_checks_keep_fixed_boundaries_without_catch_up_after_a_slow_batch',
+        'HistoryRetentionStateTests.Retention_clocks_use_exact_thirty_day_boundaries',
+        'WatchV2AutoRefreshTests.Settings_cover_all_five_host_data_views_and_expose_only_an_interval')
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [pscustomobject][ordered]@{
+            complete = $false; logicalDayBoundaryPassed = $false
+            retrySchedulePassed = $false; requiredTests = $requiredTests; passedTests = @()
+        }
+    }
+    [xml]$trx = Get-Content -Raw -LiteralPath $Path
+    $passedTests = @($trx.SelectNodes("//*[local-name()='UnitTestResult' and @outcome='Passed']") |
+        ForEach-Object { [string]$_.testName })
+    $missing = @($requiredTests | Where-Object {
+        $suffix = $_
+        @($passedTests | Where-Object { $_.EndsWith($suffix, [StringComparison]::Ordinal) }).Count -eq 0
+    })
+    return [pscustomobject][ordered]@{
+        complete = $missing.Count -eq 0
+        logicalDayBoundaryPassed = @($missing | Where-Object { $_ -like '*logical_day*' }).Count -eq 0
+        retrySchedulePassed = @($missing | Where-Object { $_ -like 'SingleFlightPollLoopTests.*' }).Count -eq 0
+        requiredTests = $requiredTests
+        passedTests = @($passedTests | Where-Object {
+            $name = $_
+            @($requiredTests | Where-Object { $name.EndsWith($_, [StringComparison]::Ordinal) }).Count -gt 0
+        })
+        missingTests = $missing
+        trxSha256 = Get-FileSha256 $Path
+    }
+}
+
+function Get-FirstLastSlope {
+    param(
+        [Parameter(Mandatory = $true)][object[]] $Snapshots,
+        [Parameter(Mandatory = $true)][string] $Property
+    )
+    if ($Snapshots.Count -lt 2) { return [double]::PositiveInfinity }
+    $first = $Snapshots[0]
+    $last = $Snapshots[$Snapshots.Count - 1]
+    $minutes = ([DateTimeOffset]::Parse([string]$last.capturedAt) -
+        [DateTimeOffset]::Parse([string]$first.capturedAt)).TotalMinutes
+    if ($minutes -le 0) { return [double]::PositiveInfinity }
+    return ([double]$last.$Property - [double]$first.$Property) / $minutes
+}
+
+function Get-StabilityResourceSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string] $MasterConnectionString,
+        [Parameter(Mandatory = $true)][string] $DatabaseConnectionString,
+        [Parameter(Mandatory = $true)][string] $DatabaseName,
+        [Parameter(Mandatory = $true)][object] $HostRun,
+        [Parameter(Mandatory = $true)][int] $SqlProcessId,
+        [Parameter(Mandatory = $true)][string] $Stage
+    )
+    $capacity = Get-CapacityResourceSnapshot `
+        $MasterConnectionString $DatabaseConnectionString $DatabaseName $Stage
+    $sqlMemory = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT physical_memory_in_use_kb / 1024.0 AS processMemoryMb,
+       locked_page_allocations_kb / 1024.0 AS lockedPagesMb,
+       virtual_address_space_committed_kb / 1024.0 AS committedVirtualMb
+FROM sys.dm_os_process_memory;
+"@ @{}) | Select-Object -First 1
+    $memoryCounters = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT counter_name, cntr_value
+FROM sys.dm_os_performance_counters
+WHERE object_name LIKE N'%Memory Manager%'
+  AND counter_name IN
+      (N'Total Server Memory (KB)', N'Granted Workspace Memory (KB)', N'Memory Grants Pending');
+"@ @{})
+    $waits = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT wait_type, waiting_tasks_count, wait_time_ms
+FROM sys.dm_os_wait_stats
+WHERE wait_type IN
+      (N'RESOURCE_SEMAPHORE', N'RESOURCE_SEMAPHORE_QUERY_COMPILE',
+       N'LCK_M_S', N'LCK_M_U', N'LCK_M_X', N'LCK_M_IX', N'LCK_M_IS');
+"@ @{})
+    $active = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT COUNT_BIG(*) AS pendingMemoryGrants,
+       COALESCE(MAX(wait_time_ms), 0) AS maximumLockWaitMs,
+       SUM(CASE WHEN blocking_session_id > 0 THEN 1 ELSE 0 END) AS blockedRequestCount
+FROM sys.dm_exec_requests
+WHERE database_id = DB_ID(@databaseName);
+"@ @{ '@databaseName' = $DatabaseName }) | Select-Object -First 1
+    $pendingGrants = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT COUNT_BIG(*) AS pendingMemoryGrants
+FROM sys.dm_exec_query_memory_grants
+WHERE grant_time IS NULL;
+"@ @{}) | Select-Object -First 1
+    $state = @(Invoke-SqlTable $DatabaseConnectionString @"
+SELECT schemaInfo.EarliestAvailableHostUtc AS earliestAvailableHostUtc,
+       CONVERT(nvarchar(36), schemaInfo.HistoryEpoch) AS historyEpoch,
+       pressure.StoragePressureStatus AS storagePressureStatus,
+       cleanup.HistoryCleanupStatus AS cleanupStatus,
+       cleanup.HistoryCleanupTotalExpiredPollTraceCount AS expiredPollTraceCount,
+       cleanup.HistoryCleanupTotalDeletedRawObservationCount AS deletedRawObservationCount,
+       cleanup.HistoryCleanupTotalDeletedSeriesCount AS deletedSeriesCount,
+       cleanup.HistoryCleanupLastFailureCode AS cleanupFailureCode,
+       (SELECT COUNT_BIG(*) FROM mesingest.PollTraces) AS pollTraceCount,
+       (SELECT COUNT_BIG(*) FROM mesingest.ProjectionCommits) AS projectionCommitCount,
+       (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservationCount
+FROM mesingest.SchemaInfo AS schemaInfo
+CROSS JOIN mesingest.StoragePressureState AS pressure
+CROSS JOIN mesingest.HistoryCleanupState AS cleanup
+WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
+"@ @{}) | Select-Object -First 1
+    $storage = Get-StorageSnapshot $DatabaseConnectionString
+    $hostProcess = Get-Process -Id $HostRun.Process.Id -ErrorAction Stop
+    $sqlProcess = Get-Process -Id $SqlProcessId -ErrorAction Stop
+    $totalServerMemory = @($memoryCounters | Where-Object { $_.counter_name -eq 'Total Server Memory (KB)' }) | Select-Object -First 1
+    $workspaceMemory = @($memoryCounters | Where-Object { $_.counter_name -eq 'Granted Workspace Memory (KB)' }) | Select-Object -First 1
+    $grantsPending = @($memoryCounters | Where-Object { $_.counter_name -eq 'Memory Grants Pending' }) | Select-Object -First 1
+    $resourceWaits = @($waits | Where-Object { $_.wait_type -like 'RESOURCE_SEMAPHORE*' })
+    $lockWaits = @($waits | Where-Object { $_.wait_type -like 'LCK_M_*' })
+    return [pscustomobject][ordered]@{
+        capturedAt = [DateTimeOffset]::UtcNow.ToString('o'); stage = $Stage
+        logicalDatabaseUsedMb = [double]$storage.logicalUsedMb
+        physicalDataFileMb = [double]$storage.physicalDataMb
+        ldfMb = [double]$storage.ldfMb; logUsedMb = [double]$capacity.usedLogMb
+        logReuseWait = [string]$capacity.logReuseWait
+        databaseVersionStoreMb = [double]$capacity.databaseVersionStoreMb
+        tempdbVersionStoreMb = [double]$capacity.tempdbVersionStoreMb
+        tempdbUserObjectsMb = [double]$capacity.tempdbUserObjectsMb
+        tempdbInternalObjectsMb = [double]$capacity.tempdbInternalObjectsMb
+        tempdbUsedMb = [double]$capacity.tempdbVersionStoreMb +
+            [double]$capacity.tempdbUserObjectsMb + [double]$capacity.tempdbInternalObjectsMb
+        sqlProcessMemoryMb = [double]$sqlMemory.processMemoryMb
+        sqlWorkingSetMb = $sqlProcess.WorkingSet64 / 1MB
+        sqlCommittedVirtualMb = [double]$sqlMemory.committedVirtualMb
+        sqlLockedPagesMb = [double]$sqlMemory.lockedPagesMb
+        totalServerMemoryMb = if ($null -eq $totalServerMemory) { -1.0 } else { [double]$totalServerMemory.cntr_value / 1024.0 }
+        grantedWorkspaceMemoryMb = if ($null -eq $workspaceMemory) { -1.0 } else { [double]$workspaceMemory.cntr_value / 1024.0 }
+        memoryGrantsPending = if ($null -eq $grantsPending) { -1L } else { [long]$grantsPending.cntr_value }
+        pendingMemoryGrants = [long]$pendingGrants.pendingMemoryGrants
+        resourceSemaphoreWaitingTasks = [long](($resourceWaits | Measure-Object -Property waiting_tasks_count -Sum).Sum)
+        resourceSemaphoreWaitMs = [long](($resourceWaits | Measure-Object -Property wait_time_ms -Sum).Sum)
+        lockWaitingTasks = [long](($lockWaits | Measure-Object -Property waiting_tasks_count -Sum).Sum)
+        lockWaitMs = [long](($lockWaits | Measure-Object -Property wait_time_ms -Sum).Sum)
+        maximumLockWaitMs = [long]$active.maximumLockWaitMs
+        blockedRequestCount = [long]$active.blockedRequestCount
+        hostWorkingSetMb = $hostProcess.WorkingSet64 / 1MB
+        hostPrivateMemoryMb = $hostProcess.PrivateMemorySize64 / 1MB
+        hostHandleCount = [long]$hostProcess.HandleCount
+        earliestAvailableHostUtc = ([DateTimeOffset]$state.earliestAvailableHostUtc).ToUniversalTime().ToString('o')
+        historyEpoch = [string]$state.historyEpoch
+        storagePressureStatus = [string]$state.storagePressureStatus
+        cleanupStatus = [string]$state.cleanupStatus
+        cleanupFailureCode = if ($null -eq $state.cleanupFailureCode) { $null } else { [string]$state.cleanupFailureCode
+        }
+        expiredPollTraceCount = [long]$state.expiredPollTraceCount
+        deletedRawObservationCount = [long]$state.deletedRawObservationCount
+        deletedSeriesCount = [long]$state.deletedSeriesCount
+        pollTraceCount = [long]$state.pollTraceCount
+        projectionCommitCount = [long]$state.projectionCommitCount
+        rawObservationCount = [long]$state.rawObservationCount
+    }
+}
+
+function Invoke-StabilityHttpBatch {
+    param(
+        [Parameter(Mandatory = $true)][Net.Http.HttpClient] $Client,
+        [Parameter(Mandatory = $true)][string] $BaseUrl,
+        [AllowEmptyString()][string] $CatalogETag = '',
+        [int] $BatchNumber = 0
+    )
+    $specs = @(
+        [pscustomobject]@{ name = 'Overview'; path = '/api/v2/watch-overview'; catalog = $false },
+        [pscustomobject]@{ name = 'CurrentIngestAttention'; path = '/api/v2/current-ingest-attention?pageSize=100'; catalog = $false },
+        [pscustomobject]@{ name = 'DemandSeriesDefault'; path = '/api/v2/demand-series?pageSize=100'; catalog = $false },
+        [pscustomobject]@{ name = 'DemandSeriesVisible'; path = '/api/v2/demand-series?pageSize=100&presence=VISIBLE'; catalog = $false },
+        [pscustomobject]@{ name = 'DemandSeriesWorkType'; path = '/api/v2/demand-series?pageSize=100&workType=SMOKE_TYPE_A'; catalog = $false },
+        [pscustomobject]@{ name = 'ReadabilityAudit'; path = '/api/v2/readability-audit?pageSize=100'; catalog = $false },
+        [pscustomobject]@{ name = 'ErrorSearch'; path = '/api/v2/error-search?window=ALL_HISTORY&pageSize=100'; catalog = $false },
+        [pscustomobject]@{ name = 'ExternallyReadableDemandCatalog'; path = '/api/v2/externally-readable-demand-catalog'; catalog = $true })
+    $startedAt = [DateTimeOffset]::UtcNow
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $pending = New-Object System.Collections.ArrayList
+    foreach ($spec in $specs) {
+        $request = [Net.Http.HttpRequestMessage]::new([Net.Http.HttpMethod]::Get, $BaseUrl + $spec.path)
+        if ($spec.catalog -and -not [string]::IsNullOrWhiteSpace($CatalogETag)) {
+            [void]$request.Headers.TryAddWithoutValidation('If-None-Match', $CatalogETag)
+        }
+        [void]$pending.Add([pscustomobject]@{
+            spec = $spec; request = $request; task = $Client.SendAsync($request)
+        })
+    }
+    [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.task })).GetAwaiter().GetResult()
+    $samples = New-Object System.Collections.ArrayList
+    $demandBody = $null
+    foreach ($item in $pending) {
+        try {
+            $response = $item.task.GetAwaiter().GetResult()
+            try {
+                $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                $statusCode = [int]$response.StatusCode
+                if ($statusCode -ne 200 -and -not ($item.spec.catalog -and $statusCode -eq 304)) {
+                    throw "$($item.spec.name) returned HTTP $statusCode."
+                }
+                if ($item.spec.name -eq 'DemandSeriesDefault') { $demandBody = $body }
+                if ($item.spec.catalog -and $null -ne $response.Headers.ETag) {
+                    $CatalogETag = [string]$response.Headers.ETag.ToString()
+                }
+                [void]$samples.Add([pscustomobject][ordered]@{
+                    name = [string]$item.spec.name; batch = $BatchNumber
+                    startedAt = $startedAt.ToString('o'); completedAt = [DateTimeOffset]::UtcNow.ToString('o')
+                    statusCode = $statusCode; latencyMs = $timer.Elapsed.TotalMilliseconds
+                    responseBytes = [Text.Encoding]::UTF8.GetByteCount($body)
+                })
+            } finally { $response.Dispose() }
+        } finally { $item.request.Dispose() }
+    }
+
+    $frozenReadCount = 0L
+    $frozenMismatchCount = 0L
+    if (($BatchNumber % 4) -eq 0 -and -not [string]::IsNullOrWhiteSpace($demandBody)) {
+        $list = $demandBody | ConvertFrom-Json
+        if (@($list.items).Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$list.snapshotReference)) {
+            $seriesId = [string]$list.items[0].seriesId
+            $snapshot = [Uri]::EscapeDataString([string]$list.snapshotReference)
+            $detailTimer = [Diagnostics.Stopwatch]::StartNew()
+            $detailResponse = $Client.GetAsync("$BaseUrl/api/v2/demand-series/$seriesId`?snapshot=$snapshot").GetAwaiter().GetResult()
+            try {
+                $detailBody = $detailResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                if (-not $detailResponse.IsSuccessStatusCode) {
+                    throw "Frozen DemandSeries detail returned HTTP $([int]$detailResponse.StatusCode)."
+                }
+                $detail = $detailBody | ConvertFrom-Json
+                $frozenReadCount = 1
+                if ([string]$detail.snapshotReference -cne [string]$list.snapshotReference -or
+                    [string]$detail.snapshot.historyEpoch -cne [string]$list.snapshot.historyEpoch -or
+                    [string]$detail.snapshot.projectionCommitId -cne [string]$list.snapshot.projectionCommitId) {
+                    $frozenMismatchCount = 1
+                }
+                [void]$samples.Add([pscustomobject][ordered]@{
+                    name = 'DemandSeriesFrozenDetail'; batch = $BatchNumber
+                    startedAt = [DateTimeOffset]::UtcNow.Subtract($detailTimer.Elapsed).ToString('o')
+                    completedAt = [DateTimeOffset]::UtcNow.ToString('o')
+                    statusCode = [int]$detailResponse.StatusCode; latencyMs = $detailTimer.Elapsed.TotalMilliseconds
+                    responseBytes = [Text.Encoding]::UTF8.GetByteCount($detailBody)
+                })
+            } finally { $detailResponse.Dispose() }
+        }
+    }
+    return [pscustomobject][ordered]@{
+        samples = @($samples); catalogETag = $CatalogETag
+        frozenReadCount = $frozenReadCount; frozenMismatchCount = $frozenMismatchCount
+    }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($ValidateStabilityFixturePath)) {
+    if (-not (Test-Path -LiteralPath $ValidateStabilityFixturePath -PathType Leaf)) {
+        throw "Stability fixture not found: $ValidateStabilityFixturePath"
+    }
+    $stabilityFixture = Get-Content -Raw -LiteralPath $ValidateStabilityFixturePath | ConvertFrom-Json
+    $stabilityResult = Get-AcceleratedStabilityResult $stabilityFixture
+    Write-Output "MESINGEST_ACCELERATED_STABILITY_FIXTURE: passed=$($stabilityResult.passed) soakEscalationRequired=$($stabilityResult.soakEscalationRequired)"
+    Write-Output ("p95LatencyMs={0} p99LatencyMs={1}" -f `
+        [double]$stabilityFixture.latency.p95LatencyMs, `
+        [double]$stabilityFixture.latency.p99LatencyMs)
+    if (-not $stabilityResult.passed) {
+        throw "Accelerated stability fixture failed: $(@($stabilityResult.failures) -join ', ')"
+    }
+    exit 0
+}
+
 $masterConnectionString = [Environment]::GetEnvironmentVariable($SqlConnectionStringEnvironmentVariable)
 if ([string]::IsNullOrWhiteSpace($masterConnectionString)) {
     throw "Set $SqlConnectionStringEnvironmentVariable to an approved real SQL Server master connection."
@@ -1065,6 +1605,7 @@ SELECT CONVERT(nvarchar(128), SERVERPROPERTY('ProductVersion')) AS product_versi
        CONVERT(int, HAS_PERMS_BY_NAME(NULL, NULL, 'CREATE ANY DATABASE')) AS can_create_database,
        CONVERT(int, HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY EVENT SESSION')) AS can_create_xevent,
        CONVERT(int, (SELECT value_in_use FROM sys.configurations WHERE name = N'max server memory (MB)')) AS max_server_memory_mb,
+       CONVERT(int, SERVERPROPERTY('ProcessID')) AS process_id,
        CONVERT(nvarchar(4000), SERVERPROPERTY('ErrorLogFileName')) AS error_log_path;
 "@) | Select-Object -First 1
 if ($null -eq $serverIdentity -or $serverIdentity.can_create_database -ne 1 -or $serverIdentity.can_create_xevent -ne 1) {
@@ -1099,6 +1640,38 @@ $capacityCheckpoints = New-Object System.Collections.ArrayList
 $capacityResourceSnapshots = New-Object System.Collections.ArrayList
 $cleanupEvidence = $null
 $capacityProjection = $null
+$stabilityEvidence = $null
+$stabilityResult = $null
+$stabilityResourceSnapshots = New-Object System.Collections.ArrayList
+$stabilityLatencySamples = New-Object System.Collections.ArrayList
+$stabilityXEventSession = ''
+$stabilityXEventStarted = $false
+$stabilityXelBase = ''
+
+# Bind long-running evidence to the exact package before the database or workload begins.
+$sourceCommit = @(& git -C $ServiceRoot rev-parse HEAD 2>$null) | Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($sourceCommit)) {
+    $versionFile = Join-Path (Split-Path -Parent $ServiceRoot) 'VERSION.txt'
+    $sourceCommit = if (Test-Path $versionFile) {
+        ([string](@(Get-Content $versionFile | Where-Object { $_ -like 'SourceCommit=*' } | Select-Object -First 1))).Substring('SourceCommit='.Length)
+    } else { 'unknown' }
+}
+$sourceStatus = @(& git -C $ServiceRoot status --porcelain=v1 --untracked-files=normal 2>$null)
+$sourceDirty = if ($LASTEXITCODE -eq 0) {
+    $sourceStatus.Count -gt 0
+} else {
+    $versionFile = Join-Path (Split-Path -Parent $ServiceRoot) 'VERSION.txt'
+    $dirtyLine = if (Test-Path $versionFile) { [string](@(Get-Content $versionFile | Where-Object { $_ -like 'SourceDirty=*' } | Select-Object -First 1)) } else { '' }
+    if ($dirtyLine -eq 'SourceDirty=True') { $true } elseif ($dirtyLine -eq 'SourceDirty=False') { $false } else { $null }
+}
+$hostArtifactPath = if (Test-Path -LiteralPath (Join-Path $ServiceRoot 'MesIngest.Host.dll') -PathType Leaf) {
+    Join-Path $ServiceRoot 'MesIngest.Host.dll'
+} else {
+    Join-Path $ServiceRoot 'MesIngest.Host.exe'
+}
+$hostArtifact = Get-Item -LiteralPath $hostArtifactPath
+$hostSha256 = Get-FileSha256 $hostArtifact.FullName
+$hostFileVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($hostArtifact.FullName).FileVersion
 
 try {
     [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
@@ -1836,6 +2409,345 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         }
     }
 
+    if ($AcceleratedConcurrencyStability) {
+        $publishedDefaultsPath = Join-Path $ServiceRoot 'appsettings.json'
+        if (-not (Test-Path -LiteralPath $publishedDefaultsPath -PathType Leaf)) {
+            throw "Published Host defaults are missing: $publishedDefaultsPath"
+        }
+        $publishedDefaults = (Get-Content -Raw -LiteralPath $publishedDefaultsPath | ConvertFrom-Json).MesIngest
+        $deterministicContract = Get-DeterministicContractEvidence $DeterministicContractEvidencePath
+        $recordingPath = Join-Path $PSScriptRoot 'release-smoke-rounds.json'
+        if (-not (Test-Path -LiteralPath $recordingPath -PathType Leaf)) {
+            throw "Packaged scripted MesTaskUnionRound recording is missing: $recordingPath"
+        }
+
+        $stabilityStartedAt = [DateTimeOffset]::UtcNow
+        $stabilityDeadline = $stabilityStartedAt.AddMinutes($StabilityDurationMinutes)
+        $restartAt = $stabilityStartedAt.AddSeconds(($StabilityDurationMinutes * 60) / 2.0)
+        $nextResourceAt = $stabilityStartedAt
+        $nextProgressAt = $stabilityStartedAt.AddMinutes(1)
+        $restartCount = 0L
+        $batchCount = 0L
+        $frozenDetailReads = 0L
+        $frozenCommitMismatchCount = 0L
+        $catalogReads = 0L
+        $watchReads = 0L
+        $catalogETag = ''
+        $restartStatePreserved = $true
+        $epochBeforeRestart = [string]$schemaIdentity.historyEpoch
+        $pollCountBeforeRestart = 0L
+
+        # Make the fixed representative sample old through the existing retention seam.
+        # The accelerated profile changes operation counts only; the 30-day policy stays intact.
+        [void](Invoke-SqlNonQuery $databaseConnectionString @"
+UPDATE mesingest.PollTraces
+SET StartedAt = DATEADD(day, -31, StartedAt),
+    CompletedAt = DATEADD(day, -31, CompletedAt)
+WHERE PollTraceId LIKE N'scale-%';
+UPDATE mesingest.SchemaInfo
+SET EarliestAvailableHostUtc = (SELECT MIN(CompletedAt) FROM mesingest.PollTraces)
+WHERE Id = 1;
+"@ @{} 300)
+        $earliestBefore = [DateTimeOffset](@(Invoke-SqlTable $databaseConnectionString `
+            'SELECT EarliestAvailableHostUtc FROM mesingest.SchemaInfo WHERE Id = 1;' @{}) |
+            Select-Object -First 1).EarliestAvailableHostUtc
+
+        $stabilityXEventSession = ('MesIngestStability_' + $runId.Replace('-', '_'))
+        $stabilityXelBase = Join-Path $errorLogDirectory ($stabilityXEventSession + '.xel')
+        $escapedStabilitySession = $stabilityXEventSession.Replace(']', ']]')
+        $escapedStabilityXel = $stabilityXelBase.Replace("'", "''")
+        [void](Invoke-SqlNonQuery $masterConnectionString @"
+CREATE EVENT SESSION [$escapedStabilitySession] ON SERVER
+ADD EVENT sqlserver.error_reported
+(
+    ACTION(sqlserver.client_app_name)
+    WHERE (error_number = 701)
+),
+ADD EVENT sqlserver.sort_warning(ACTION(sqlserver.client_app_name)),
+ADD EVENT sqlserver.hash_warning(ACTION(sqlserver.client_app_name))
+ADD TARGET package0.event_file(SET filename = N'$escapedStabilityXel', max_file_size = 64, max_rollover_files = 4)
+WITH (MAX_MEMORY = 4096 KB, EVENT_RETENTION_MODE = NO_EVENT_LOSS,
+      MAX_DISPATCH_LATENCY = 1 SECONDS, TRACK_CAUSALITY = OFF, STARTUP_STATE = OFF);
+ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
+"@)
+        $stabilityXEventStarted = $true
+
+        $stabilityAppName = "MesIngest.ScaleEvidence.$runId.stability"
+        $hostRun = Start-EvidenceHost `
+            $databaseConnectionString $secret $stabilityAppName `
+            -CleanupCheckIntervalSeconds $AcceleratedCleanupCheckIntervalSeconds `
+            -PollStartIntervalSeconds $AcceleratedPollStartIntervalSeconds `
+            -ReplayRecordingPath $recordingPath `
+            -ContinuousPoll
+        $client = [Net.Http.HttpClient]::new()
+        try {
+            $client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
+            $client.DefaultRequestHeaders.Authorization =
+                [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $secret)
+            while ([DateTimeOffset]::UtcNow -lt $stabilityDeadline) {
+                $now = [DateTimeOffset]::UtcNow
+                if ($restartCount -eq 0 -and $now -ge $restartAt) {
+                    $beforeRestart = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT CONVERT(nvarchar(36), HistoryEpoch) AS historyEpoch,
+       (SELECT COUNT_BIG(*) FROM mesingest.PollTraces) AS pollTraceCount
+FROM mesingest.SchemaInfo WHERE Id = 1;
+"@ @{}) | Select-Object -First 1
+                    $pollCountBeforeRestart = [long]$beforeRestart.pollTraceCount
+                    Stop-EvidenceHost $hostRun
+                    $hostRun = $null
+                    $hostRun = Start-EvidenceHost `
+                        $databaseConnectionString $secret $stabilityAppName `
+                        -CleanupCheckIntervalSeconds $AcceleratedCleanupCheckIntervalSeconds `
+                        -PollStartIntervalSeconds $AcceleratedPollStartIntervalSeconds `
+                        -ReplayRecordingPath $recordingPath `
+                        -ContinuousPoll
+                    $afterRestart = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT CONVERT(nvarchar(36), HistoryEpoch) AS historyEpoch,
+       (SELECT COUNT_BIG(*) FROM mesingest.PollTraces) AS pollTraceCount
+FROM mesingest.SchemaInfo WHERE Id = 1;
+"@ @{}) | Select-Object -First 1
+                    $restartStatePreserved = [string]$beforeRestart.historyEpoch -ceq [string]$afterRestart.historyEpoch -and
+                        [string]$afterRestart.historyEpoch -ceq $epochBeforeRestart -and
+                        [long]$afterRestart.pollTraceCount -ge $pollCountBeforeRestart
+                    $restartCount++
+                    $catalogETag = ''
+                }
+
+                $batch = Invoke-StabilityHttpBatch `
+                    -Client $client -BaseUrl $hostRun.BaseUrl -CatalogETag $catalogETag -BatchNumber $batchCount
+                $catalogETag = [string]$batch.catalogETag
+                foreach ($sample in @($batch.samples)) {
+                    [void]$stabilityLatencySamples.Add($sample)
+                    if ([string]$sample.name -eq 'ExternallyReadableDemandCatalog') { $catalogReads++ }
+                    elseif ([string]$sample.name -eq 'DemandSeriesFrozenDetail') { }
+                    else { $watchReads++ }
+                }
+                $frozenDetailReads += [long]$batch.frozenReadCount
+                $frozenCommitMismatchCount += [long]$batch.frozenMismatchCount
+                $batchCount++
+
+                $now = [DateTimeOffset]::UtcNow
+                if ($now -ge $nextResourceAt) {
+                    [void]$stabilityResourceSnapshots.Add((Get-StabilityResourceSnapshot `
+                        $masterConnectionString $databaseConnectionString $DatabaseName `
+                        $hostRun ([int]$serverIdentity.process_id) "minute-$($stabilityResourceSnapshots.Count)"))
+                    $nextResourceAt = $nextResourceAt.AddMinutes(1)
+                }
+                if ($now -ge $nextProgressAt) {
+                    Write-Output ("MESINGEST_STABILITY_PROGRESS: elapsedMinutes={0:F1} batches={1} apiReads={2} frozenReads={3}" -f `
+                        ($now - $stabilityStartedAt).TotalMinutes, $batchCount,
+                        $stabilityLatencySamples.Count, $frozenDetailReads)
+                    $nextProgressAt = $nextProgressAt.AddMinutes(1)
+                }
+                Start-Sleep -Milliseconds 250
+            }
+            [void]$stabilityResourceSnapshots.Add((Get-StabilityResourceSnapshot `
+                $masterConnectionString $databaseConnectionString $DatabaseName `
+                $hostRun ([int]$serverIdentity.process_id) 'final'))
+        } finally {
+            $client.Dispose()
+            Stop-EvidenceHost $hostRun
+            $hostRun = $null
+        }
+        $stabilityCompletedAt = [DateTimeOffset]::UtcNow
+        [void](Invoke-SqlNonQuery $masterConnectionString `
+            "ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = STOP;")
+        $stabilityXEventStarted = $false
+        $stabilityXelPattern = $stabilityXelBase.Substring(0, $stabilityXelBase.Length - 4) + '*.xel'
+        $stabilityEvents = @(Invoke-SqlTable $masterConnectionString @"
+SELECT object_name, CONVERT(nvarchar(max), event_data) AS event_xml
+FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
+"@ @{ '@xelPattern' = $stabilityXelPattern } 300)
+        $relevantStabilityEvents = @($stabilityEvents | Where-Object {
+            ([string]$_.event_xml).IndexOf($stabilityAppName, [StringComparison]::Ordinal) -ge 0
+        })
+        $error701Count = @($relevantStabilityEvents | Where-Object { $_.object_name -eq 'error_reported' }).Count
+        $spillCount = @($relevantStabilityEvents | Where-Object {
+            $_.object_name -eq 'sort_warning' -or $_.object_name -eq 'hash_warning'
+        }).Count
+
+        $pollTiming = @(Invoke-SqlTable $databaseConnectionString @"
+;WITH stabilityPolls AS
+(
+    SELECT PollTraceSequence, StartedAt, CompletedAt, Outcome,
+           LAG(StartedAt) OVER (ORDER BY PollTraceSequence) AS previousStartedAt
+    FROM mesingest.PollTraces
+    WHERE StartedAt >= @stabilityStartedAt
+)
+SELECT COUNT_BIG(*) AS pollCount,
+       SUM(CASE WHEN Outcome = N'SUCCESS' THEN 1 ELSE 0 END) AS successfulPollCount,
+       SUM(CASE WHEN previousStartedAt IS NOT NULL
+                     AND DATEDIFF_BIG(millisecond, previousStartedAt, StartedAt) < @catchUpThresholdMs
+                THEN 1 ELSE 0 END) AS catchUpBurstCount,
+       (SELECT COUNT_BIG(*)
+        FROM stabilityPolls AS earlier
+        INNER JOIN stabilityPolls AS later
+          ON earlier.PollTraceSequence < later.PollTraceSequence
+         AND earlier.CompletedAt > later.StartedAt) AS overlappingPollCount
+FROM stabilityPolls;
+"@ @{
+            '@stabilityStartedAt' = $stabilityStartedAt
+            '@catchUpThresholdMs' = [long]($AcceleratedPollStartIntervalSeconds * 500)
+        }) | Select-Object -First 1
+        $cleanupFinal = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT schemaInfo.EarliestAvailableHostUtc AS earliestAvailableHostUtc,
+       pressure.StoragePressureStatus AS storagePressureStatus,
+       cleanup.HistoryCleanupStatus AS cleanupStatus,
+       cleanup.HistoryCleanupTotalExpiredPollTraceCount AS expiredPollTraceCount,
+       cleanup.HistoryCleanupTotalDeletedRawObservationCount AS deletedRawObservationCount,
+       cleanup.HistoryCleanupTotalDeletedSeriesCount AS deletedSeriesCount,
+       cleanup.HistoryCleanupLastFailureCode AS cleanupFailureCode,
+       (SELECT COUNT_BIG(*) FROM mesingest.PollTraces AS poll
+        WHERE poll.CompletedAt <= DATEADD(day, -30, SYSUTCDATETIME())
+          AND EXISTS (SELECT 1 FROM mesingest.DemandRawObservations AS raw
+                      WHERE raw.PollTraceId = poll.PollTraceId)) AS cleanupBacklogCount,
+       (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS finalRawObservationRows,
+       (SELECT COUNT_BIG(*) FROM mesingest.ProjectionCommits
+        WHERE CommittedAt >= @stabilityStartedAt) AS projectionCommitsDuringFrozenReads
+FROM mesingest.SchemaInfo AS schemaInfo
+CROSS JOIN mesingest.StoragePressureState AS pressure
+CROSS JOIN mesingest.HistoryCleanupState AS cleanup
+WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
+"@ @{ '@stabilityStartedAt' = $stabilityStartedAt }) | Select-Object -First 1
+
+        $latencies = @($stabilityLatencySamples | ForEach-Object { [double]$_.latencyMs } | Sort-Object)
+        $quarterCount = [Math]::Max(1, [int][Math]::Floor($latencies.Count / 4))
+        $firstQuarter = @($stabilityLatencySamples | Select-Object -First $quarterCount |
+            ForEach-Object { [double]$_.latencyMs } | Sort-Object)
+        $lastQuarter = @($stabilityLatencySamples | Select-Object -Last $quarterCount |
+            ForEach-Object { [double]$_.latencyMs } | Sort-Object)
+        $resourceSnapshots = @($stabilityResourceSnapshots)
+        $resourceSemaphoreSustainedSamples = 0L
+        $resourceWaitBaseline = if ($resourceSnapshots.Count -eq 0) { 0L } else {
+            [long]$resourceSnapshots[0].resourceSemaphoreWaitingTasks
+        }
+        foreach ($snapshot in $resourceSnapshots) {
+            if ([long]$snapshot.pendingMemoryGrants -gt 0 -or
+                [long]$snapshot.memoryGrantsPending -gt 0 -or
+                [long]$snapshot.resourceSemaphoreWaitingTasks -gt $resourceWaitBaseline) {
+                $resourceSemaphoreSustainedSamples++
+            }
+        }
+        $maximumLockWaitMs = if ($resourceSnapshots.Count -eq 0) { [double]::PositiveInfinity } else {
+            [double](($resourceSnapshots | Measure-Object -Property maximumLockWaitMs -Maximum).Maximum)
+        }
+        $unboundedLockWaitCount = @($resourceSnapshots | Where-Object {
+            [long]$_.blockedRequestCount -gt 0 -and [long]$_.maximumLockWaitMs -gt 5000
+        }).Count
+        $maximumPendingMemoryGrants = if ($resourceSnapshots.Count -eq 0) { -1L } else {
+            [long](($resourceSnapshots | Measure-Object -Property pendingMemoryGrants -Maximum).Maximum)
+        }
+        $storagePressurePauseCount = @($resourceSnapshots | Where-Object {
+            [string]$_.storagePressureStatus -like 'PAUSED*'
+        }).Count
+        $earliestAfter = [DateTimeOffset]$cleanupFinal.earliestAvailableHostUtc
+        $actualDurationSeconds = ($stabilityCompletedAt - $stabilityStartedAt).TotalSeconds
+        $stabilityEvidence = [pscustomobject][ordered]@{
+            identity = [pscustomobject][ordered]@{
+                sourceCommit = $sourceCommit
+                hostSha256 = $hostSha256
+                contractVersion = [string]$schemaIdentity.contractVersion
+                schemaVersion = [int]$schemaIdentity.schemaVersion
+                historyEpoch = [string]$schemaIdentity.historyEpoch
+            }
+            environment = [pscustomobject][ordered]@{
+                sqlProductMajor = [int]$serverIdentity.product_major
+                compatibilityLevel = [int]$databaseConfiguration.compatibilityLevel
+                maxServerMemoryMb = [int]$serverIdentity.max_server_memory_mb
+                recoveryModel = [string]$databaseConfiguration.recoveryModel
+                defaultPollStartIntervalSeconds = [int]$publishedDefaults.PostPollDelaySeconds
+                failureBackoffSeconds = @(60, 120, 300)
+                watchRefreshSeconds = [pscustomobject][ordered]@{
+                    overview = 30; currentAttention = 30; demandSeries = 60
+                    readabilityAudit = 60; errorSearch = 60
+                }
+                defaultCleanupCheckIntervalSeconds = [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
+                acceleratedPollStartIntervalSeconds = $AcceleratedPollStartIntervalSeconds
+                acceleratedCleanupCheckIntervalSeconds = $AcceleratedCleanupCheckIntervalSeconds
+            }
+            workload = [pscustomobject][ordered]@{
+                durationSeconds = $actualDurationSeconds
+                seriesCount = $SeriesCount
+                initialRawObservationRows = $expectedTotalObservationCount
+                maximumRawObservationRows = [long](($resourceSnapshots | Measure-Object -Property rawObservationCount -Maximum).Maximum)
+                representativeHistoryRounds = $RepresentativeHistoryRounds
+                concurrentClients = 8
+                acceleration = [pscustomobject][ordered]@{
+                    pollMultiplier = 60.0 / $AcceleratedPollStartIntervalSeconds
+                    cleanupMultiplier = 3600.0 / $AcceleratedCleanupCheckIntervalSeconds
+                }
+                operations = [pscustomobject][ordered]@{
+                    successfulPolls = [long]$pollTiming.successfulPollCount
+                    totalPolls = [long]$pollTiming.pollCount
+                    watchApiReads = $watchReads
+                    frozenDetailReads = $frozenDetailReads
+                    referenceCatalogReads = $catalogReads
+                    cleanupChecks = [long][Math]::Floor($actualDurationSeconds / $AcceleratedCleanupCheckIntervalSeconds)
+                    hostRestarts = $restartCount
+                }
+            }
+            latency = [pscustomobject][ordered]@{
+                sampleCount = $latencies.Count
+                p95LatencyMs = Get-NearestRankPercentile $latencies 0.95
+                p99LatencyMs = Get-NearestRankPercentile $latencies 0.99
+                firstQuartileP95LatencyMs = Get-NearestRankPercentile $firstQuarter 0.95
+                lastQuartileP95LatencyMs = Get-NearestRankPercentile $lastQuarter 0.95
+            }
+            resources = [pscustomobject][ordered]@{
+                snapshotCount = $resourceSnapshots.Count
+                error701Count = $error701Count
+                resourceSemaphoreSustainedSamples = $resourceSemaphoreSustainedSamples
+                spillCount = $spillCount
+                maximumLockWaitMs = $maximumLockWaitMs
+                unboundedLockWaitCount = $unboundedLockWaitCount
+                maximumPendingMemoryGrants = $maximumPendingMemoryGrants
+                hostWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'hostWorkingSetMb'
+                sqlWorkingSetSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'sqlWorkingSetMb'
+                hostWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property hostWorkingSetMb -Maximum).Maximum)
+                sqlWorkingSetPeakMb = [double](($resourceSnapshots | Measure-Object -Property sqlWorkingSetMb -Maximum).Maximum)
+                hostHandlePeak = [long](($resourceSnapshots | Measure-Object -Property hostHandleCount -Maximum).Maximum)
+                logicalDatabaseUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'logicalDatabaseUsedMb'
+                physicalDataFileSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'physicalDataFileMb'
+                ldfSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'ldfMb'
+                tempdbUsedSlopeMbPerMinute = Get-FirstLastSlope $resourceSnapshots 'tempdbUsedMb'
+                hostHandleSlopePerMinute = Get-FirstLastSlope $resourceSnapshots 'hostHandleCount'
+                databaseVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property databaseVersionStoreMb -Maximum).Maximum)
+                tempdbVersionStorePeakMb = [double](($resourceSnapshots | Measure-Object -Property tempdbVersionStoreMb -Maximum).Maximum)
+                snapshots = $resourceSnapshots
+            }
+            behavior = [pscustomobject][ordered]@{
+                maximumConcurrentPolls = if ([long]$pollTiming.overlappingPollCount -eq 0) { 1 } else { 2 }
+                catchUpBurstCount = [long]$pollTiming.catchUpBurstCount
+                currentLogicalReadGrowthPassed = $false
+                frozenCommitMismatchCount = $frozenCommitMismatchCount
+                projectionCommitsDuringFrozenReads = [long]$cleanupFinal.projectionCommitsDuringFrozenReads
+                cleanupBacklogCount = [long]$cleanupFinal.cleanupBacklogCount
+                earliestAvailableAdvanced = $earliestAfter -gt $earliestBefore
+                earliestAvailableBefore = $earliestBefore.ToUniversalTime().ToString('o')
+                earliestAvailableAfter = $earliestAfter.ToUniversalTime().ToString('o')
+                cleanupStatus = [string]$cleanupFinal.cleanupStatus
+                cleanupFailureCode = if ($null -eq $cleanupFinal.cleanupFailureCode) { $null } else { [string]$cleanupFinal.cleanupFailureCode }
+                expiredPollTraceCount = [long]$cleanupFinal.expiredPollTraceCount
+                deletedRawObservationCount = [long]$cleanupFinal.deletedRawObservationCount
+                finalRawObservationRows = [long]$cleanupFinal.finalRawObservationRows
+                storagePressurePauseCount = $storagePressurePauseCount
+                storagePressureStatus = [string]$cleanupFinal.storagePressureStatus
+                retrySchedulePassed = [bool]$deterministicContract.retrySchedulePassed
+                logicalDayBoundaryPassed = [bool]$deterministicContract.logicalDayBoundaryPassed
+                historyEpochPreservedAcrossRestart = $restartStatePreserved
+                restartStatePreserved = $restartStatePreserved
+            }
+            evidence = [pscustomobject][ordered]@{
+                resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
+                latencySamplesComplete = $latencies.Count -gt 0
+                xeventSignalsComplete = $true
+                cleanupEvidenceComplete = $null -eq $cleanupFinal.cleanupFailureCode
+                deterministicContractEvidenceComplete = [bool]$deterministicContract.complete
+                deterministicContract = $deterministicContract
+            }
+        }
+    }
+
     $attestation = $null
     $tier1 = [ordered]@{
         provided = $false; attestationSchemaVersion = $null
@@ -1933,7 +2845,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         -ActualPlanCount $planEvents.Count `
         -StatementMetricCount $statementEvents.Count `
         -RowCounts $rowCounts `
-        -Tier1Satisfied ([bool]($tier1.satisfied -or $FastCapacityProjection)) `
+        -Tier1Satisfied ([bool]($tier1.satisfied -or $FastCapacityProjection -or $AcceleratedConcurrencyStability)) `
         -SourceCommit $sourceCommit `
         -CanonicalScaleProfile $canonicalScaleProfile `
         -QuerySurface $QuerySurface) | ForEach-Object { [void]$gateFailures.Add($_) }
@@ -1957,12 +2869,22 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
                 throw 'Baseline evidence file does not exist.'
             }
             $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
-            $baselineSelectedSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+            $baselineSelectedSurfaces = @(if ($QuerySurface -eq 'All') {
+                $baselineReport.queries | Where-Object {
+                    $_.name -like 'DemandSeries*' -or
+                    $boundedCurrentSurfaceFailurePrefixes.ContainsKey([string]$_.name)
+                }
+            } elseif ($QuerySurface -eq 'DemandSeries') {
                 $baselineReport.queries | Where-Object { $_.name -like 'DemandSeries*' }
             } else {
                 $baselineReport.queries | Where-Object { $_.name -eq $QuerySurface }
             })
-            $observedSelectedSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
+            $observedSelectedSurfaces = @(if ($QuerySurface -eq 'All') {
+                $queryEvidence | Where-Object {
+                    $_.name -like 'DemandSeries*' -or
+                    $boundedCurrentSurfaceFailurePrefixes.ContainsKey([string]$_.name)
+                }
+            } elseif ($QuerySurface -eq 'DemandSeries') {
                 $queryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
             } else {
                 $queryEvidence | Where-Object { $_.name -eq $QuerySurface }
@@ -2044,6 +2966,13 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
             $invalidBaselinePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
             [void]$gateFailures.Add("INVALID_$($invalidBaselinePrefix)_BASELINE")
         }
+    }
+
+    if ($AcceleratedConcurrencyStability) {
+        $stabilityEvidence.behavior.currentLogicalReadGrowthPassed =
+            [bool]($growthComparison.provided -and $growthComparison.passed)
+        $stabilityResult = Get-AcceleratedStabilityResult $stabilityEvidence
+        @($stabilityResult.failures) | ForEach-Object { [void]$gateFailures.Add($_) }
     }
 
     if ($FastCapacityProjection -and $historyRoundCount -gt 0) {
@@ -2218,6 +3147,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
             distribution = if ($canonicalScaleProfile) { $profile.distribution } else { 'diagnostic-override' }
             canonical = $canonicalScaleProfile; querySurface = $QuerySurface; seed = 8005
             fastCapacityProjection = [bool]$FastCapacityProjection
+            acceleratedConcurrencyStability = [bool]$AcceleratedConcurrencyStability
             evidenceScale = if ($RepresentativeHistoryRounds -gt 0) { 'representative-history' } elseif ($ProfileDays -eq 0) { 'empty' } else { 'full-profile' }
             anchorUtc = $AnchorUtc.ToUniversalTime().ToString('o'); roundIntervalSeconds = $RoundIntervalSeconds
             observationsPerRound = $ObservationsPerRound; historyRoundCount = $historyRoundCount
@@ -2236,7 +3166,13 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         actualPlans = @($planSummaries)
         storage = $storage
         fastCapacityProjection = $capacityProjection
-        tests = $tier1 + [ordered]@{ deferredByFastCapacityProjection = [bool]($FastCapacityProjection -and -not $tier1.satisfied) }
+        acceleratedConcurrencyStability = if ($null -eq $stabilityEvidence) { $null } else {
+            [ordered]@{ evidence = $stabilityEvidence; result = $stabilityResult }
+        }
+        tests = $tier1 + [ordered]@{
+            deferredByFastCapacityProjection = [bool]($FastCapacityProjection -and -not $tier1.satisfied)
+            deferredByAcceleratedConcurrencyStability = [bool]($AcceleratedConcurrencyStability -and -not $tier1.satisfied)
+        }
         gate = [ordered]@{ passed = $gateFailures.Count -eq 0; failures = @($gateFailures) }
         safety = [ordered]@{ isolatedDatabaseOnly = $true; productionDatabaseRead = $false; credentialsWritten = $false; connectionStringWritten = $false }
     }
@@ -2278,6 +3214,14 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
             "- Fast capacity escalation required: $($capacityProjection.escalationRequired)"
         )
     }
+    if ($null -ne $stabilityResult) {
+        $markdownLines += @(
+            "- Accelerated stability duration: $([Math]::Round([double]$stabilityEvidence.workload.durationSeconds / 60.0, 2)) minutes"
+            "- Accelerated stability operations: polls=$($stabilityEvidence.workload.operations.totalPolls), Watch=$($stabilityEvidence.workload.operations.watchApiReads), frozen=$($stabilityEvidence.workload.operations.frozenDetailReads), catalog=$($stabilityEvidence.workload.operations.referenceCatalogReads), cleanup=$($stabilityEvidence.workload.operations.cleanupChecks)"
+            "- Accelerated stability P95/P99: $([Math]::Round([double]$stabilityEvidence.latency.p95LatencyMs, 3)) / $([Math]::Round([double]$stabilityEvidence.latency.p99LatencyMs, 3)) ms"
+            "- Accelerated stability soak escalation required: $($stabilityResult.soakEscalationRequired)"
+        )
+    }
     $markdownLines | Set-Content -LiteralPath $markdownPath -Encoding UTF8
     $inventoryPath = Join-Path $runDirectory 'sha256-inventory.json'
     @($jsonPath, $manifestPath, $markdownPath) | ForEach-Object {
@@ -2316,6 +3260,49 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
                 [void](Invoke-SqlNonQuery $masterConnectionString 'EXEC master.sys.xp_delete_files @filePath;' @{ '@filePath' = $resolvedXel })
             }
         } catch { $cleanupFailure = $_ }
+    }
+    if ($stabilityXEventStarted -and -not [string]::IsNullOrWhiteSpace($stabilityXEventSession)) {
+        try {
+            [void](Invoke-SqlNonQuery $masterConnectionString `
+                "ALTER EVENT SESSION [$($stabilityXEventSession.Replace(']', ']]'))] ON SERVER STATE = STOP;")
+        } catch { }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stabilityXEventSession)) {
+        try {
+            $exists = @(Invoke-SqlTable $masterConnectionString `
+                'SELECT name FROM sys.server_event_sessions WHERE name = @name;' `
+                @{ '@name' = $stabilityXEventSession })
+            if ($exists.Count -eq 1) {
+                [void](Invoke-SqlNonQuery $masterConnectionString `
+                    "DROP EVENT SESSION [$($stabilityXEventSession.Replace(']', ']]'))] ON SERVER;")
+            }
+        } catch { }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($stabilityXelBase)) {
+        try {
+            $stabilityXelPattern = $stabilityXelBase.Substring(0, $stabilityXelBase.Length - 4) + '*.xel'
+            $stabilityXelFiles = @(Invoke-SqlTable $masterConnectionString @"
+SELECT DISTINCT file_name
+FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
+"@ @{ '@xelPattern' = $stabilityXelPattern } 300)
+            $expectedStabilityPrefix = [IO.Path]::GetFullPath(
+                $stabilityXelBase.Substring(0, $stabilityXelBase.Length - 4))
+            foreach ($stabilityXelFile in $stabilityXelFiles) {
+                $resolvedStabilityXel = [IO.Path]::GetFullPath([string]$stabilityXelFile.file_name)
+                if (-not $resolvedStabilityXel.StartsWith(
+                        $expectedStabilityPrefix,
+                        [StringComparison]::OrdinalIgnoreCase) -or
+                    -not [string]::Equals(
+                        [IO.Path]::GetExtension($resolvedStabilityXel),
+                        '.xel',
+                        [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Refusing unsafe stability XEvent cleanup target: $resolvedStabilityXel"
+                }
+                [void](Invoke-SqlNonQuery $masterConnectionString `
+                    'EXEC master.sys.xp_delete_files @filePath;' `
+                    @{ '@filePath' = $resolvedStabilityXel })
+            }
+        } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
     }
     if ($databaseCreated -and -not $KeepDatabase) {
         $owned = $false

@@ -5,6 +5,96 @@ namespace MesIngest.Tests;
 public class SingleFlightPollLoopTests
 {
     [Fact]
+    public void Production_defaults_are_sixty_second_start_slots_with_60_120_300_failure_backoff()
+    {
+        Assert.Equal(60, new MesIngest.Host.MesIngestHostOptions().PostPollDelaySeconds);
+        Assert.Equal(
+            [60, 120, 300],
+            SingleFlightPollLoop.FailureBackoffDelays.Select(value => (int)value.TotalSeconds));
+    }
+
+    [Fact]
+    public async Task Uses_sixty_second_start_to_start_slots_and_skips_missed_slots_without_catch_up()
+    {
+        var now = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        var starts = new List<DateTimeOffset>();
+        var delays = new List<TimeSpan>();
+        var durations = new Queue<TimeSpan>(
+            [TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(75), TimeSpan.Zero]);
+        using var cts = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                starts.Add(now);
+                now += durations.Dequeue();
+                if (starts.Count == 3)
+                {
+                    cts.Cancel();
+                }
+
+                return Task.FromResult(true);
+            },
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cts.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                delays.Add(wait);
+                now += wait;
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal(
+            [
+                DateTimeOffset.Parse("2026-08-25T00:00:00Z"),
+                DateTimeOffset.Parse("2026-08-25T00:01:00Z"),
+                DateTimeOffset.Parse("2026-08-25T00:03:00Z"),
+            ],
+            starts);
+        Assert.Equal([TimeSpan.FromSeconds(50), TimeSpan.FromSeconds(45)], delays);
+    }
+
+    [Fact]
+    public async Task Consecutive_failures_back_off_60_120_300_then_success_resets_normal_cadence()
+    {
+        var now = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        var starts = new List<DateTimeOffset>();
+        var delays = new List<TimeSpan>();
+        var outcomes = new Queue<bool>([false, false, false, false, true, true]);
+        using var cts = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                starts.Add(now);
+                var succeeded = outcomes.Dequeue();
+                if (starts.Count == 6)
+                {
+                    cts.Cancel();
+                }
+
+                return Task.FromResult(succeeded);
+            },
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cts.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                delays.Add(wait);
+                now += wait;
+                return Task.CompletedTask;
+            });
+
+        Assert.Equal(
+            [60, 120, 300, 300, 60],
+            delays.Select(value => (int)value.TotalSeconds));
+        Assert.Equal(
+            [0, 60, 180, 480, 780, 840],
+            starts.Select(value => (int)(value - starts[0]).TotalSeconds));
+    }
+
+    [Fact]
     public async Task Runs_rounds_sequentially_never_overlapping()
     {
         var inFlight = 0;
@@ -30,18 +120,19 @@ public class SingleFlightPollLoopTests
                 Interlocked.Increment(ref delayCalls);
                 await Task.Delay(1, ct);
             },
-            postPollDelay: TimeSpan.FromMilliseconds(5),
+            pollStartInterval: TimeSpan.FromMilliseconds(5),
             cancellationToken: cts.Token);
 
         Assert.Equal(3, rounds);
         Assert.Equal(1, maxInFlight);
-        Assert.Equal(3, delayCalls);
+        Assert.Equal(2, delayCalls);
     }
 
     [Fact]
-    public async Task Waits_post_poll_delay_after_each_completed_round()
+    public async Task Waits_until_the_next_start_slot_after_each_completed_round()
     {
         var events = new List<string>();
+        var now = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
         using var cts = new CancellationTokenSource();
         var rounds = 0;
 
@@ -58,12 +149,14 @@ public class SingleFlightPollLoopTests
             delay: async (wait, ct) =>
             {
                 events.Add($"delay:{wait.TotalMilliseconds}");
+                now += wait;
                 await Task.Yield();
             },
-            postPollDelay: TimeSpan.FromMilliseconds(10),
+            pollStartInterval: TimeSpan.FromMilliseconds(10),
+            utcNow: () => now,
             cancellationToken: cts.Token);
 
-        Assert.Equal(["round", "delay:10", "round", "delay:10"], events);
+        Assert.Equal(["round", "delay:10", "round"], events);
     }
 
     [Fact]
@@ -80,7 +173,7 @@ public class SingleFlightPollLoopTests
                 await Task.Yield();
             },
             delay: async (_, ct) => await Task.Delay(Timeout.Infinite, ct),
-            postPollDelay: TimeSpan.FromHours(1),
+            pollStartInterval: TimeSpan.FromHours(1),
             cancellationToken: cts.Token);
 
         Assert.Equal(1, rounds);
@@ -109,7 +202,7 @@ public class SingleFlightPollLoopTests
                 return Task.CompletedTask;
             },
             delay: async (_, ct) => await Task.Yield(),
-            postPollDelay: TimeSpan.FromMilliseconds(1),
+            pollStartInterval: TimeSpan.FromMilliseconds(1),
             cancellationToken: cts.Token);
 
         Assert.Equal(3, rounds);

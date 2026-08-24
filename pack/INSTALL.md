@@ -291,6 +291,46 @@ LDF、固定 MB 自动增长、SIMPLE recovery、`log_reuse_wait_desc`、1536 MB
 `ProfileDays 30` 升级命令。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在
 同一真实 SQL Server 上完成一次 `Failed=0 / Skipped=0` Tier 1。
 
+Ticket 28 的加速并发稳定性路径继续复用同一入口、同一固定 600 Series 分布、发布 Host、
+录制 `MES_TASK_UNION` 轮次、V2 HTTP 客户端、冻结读取、清理和 SQL 诊断，不创建第二套 soak
+平台。先为同一候选生成 0-history 基线并保留 JSON；再以不超过 250,000 条 RawObservation 的
+代表性历史运行 30–45 分钟。运行前把可控时间契约测试的 TRX 传给门禁：
+
+```powershell
+dotnet test MesIngest.Tests `
+  --filter "FullyQualifiedName~SingleFlightPollLoopTests|FullyQualifiedName~HistoryCleanupHostedServiceTests|FullyQualifiedName~HistoryRetentionStateTests.Retention_clocks_use_exact_thirty_day_boundaries|FullyQualifiedName~WatchV2AutoRefreshTests.Settings_cover_all_five_host_data_views_and_expose_only_an_interval" `
+  --logger "trx;LogFileName=ticket28-deterministic.trx" `
+  --results-directory C:\MesIngestEvidence\ticket28-contract
+
+$env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master connection>'
+.\validation\Invoke-ScaleAndQueryEvidence.ps1 `
+  -ProfileDays 0 `
+  -DatabaseName MesIngest_Scale_Ticket28_Baseline `
+  -ConfirmIsolatedDatabase MESINGEST_SCALE_EVIDENCE_ONLY `
+  -FastCapacityProjection `
+  -OutputRoot C:\MesIngestEvidence\ticket28
+
+$baseline = 'C:\MesIngestEvidence\ticket28\<baseline-run>\scale-query-evidence.json'
+.\validation\Invoke-ScaleAndQueryEvidence.ps1 `
+  -ProfileDays 0 `
+  -DatabaseName MesIngest_Scale_Ticket28_Stability `
+  -ConfirmIsolatedDatabase MESINGEST_SCALE_EVIDENCE_ONLY `
+  -AcceleratedConcurrencyStability `
+  -StabilityDurationMinutes 30 `
+  -RepresentativeHistoryRounds 100 `
+  -BaselineEvidencePath $baseline `
+  -DeterministicContractEvidencePath C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic.trx `
+  -OutputRoot C:\MesIngestEvidence\ticket28
+```
+
+该 profile 只把轮询 start-to-start 间隔缩短到 1 秒、清理检查缩短到 60 秒并增加并发读取次数；
+发布 `appsettings.json` 仍是 60 秒 start-to-start、60/120/300 秒失败退避和每小时清理，Watch
+默认仍是 Overview/Current Attention 30 秒及 Demand Series/Readability Audit/Error Search 60 秒。
+门禁连续采集 API P95/P99、数据库/LDF/tempdb/version store、SQL/Host 内存、句柄、grant、
+RESOURCE_SEMAPHORE、锁等待、spill、Error 701、清理、earliest available、StoragePressurePause、
+重启与趋势。任一风险或缺证都会以具名 `STABILITY_*` 失败退出，并要求 4 小时或 24 小时真实
+soak；正常快速路径仍需在关闭 Ticket 时另行绑定唯一一次 Skipped=0 的真实 SQL Server Tier 1。
+
 ## 基本故障排查
 
 | 现象 | 检查 |

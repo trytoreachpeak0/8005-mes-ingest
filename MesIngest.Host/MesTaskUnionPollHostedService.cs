@@ -34,10 +34,10 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
             return;
         }
 
-        var delay = TimeSpan.FromSeconds(Math.Max(0, _options.PostPollDelaySeconds));
+        var pollStartInterval = TimeSpan.FromSeconds(_options.PostPollDelaySeconds);
         _logger.LogInformation(
-            "Starting V2 Oracle single-flight poll loop (post-delay={Delay}, command-timeout={Timeout}s).",
-            delay,
+            "Starting V2 Oracle single-flight poll loop (start-to-start={Interval}, failure-backoff=60/120/300s, command-timeout={Timeout}s).",
+            pollStartInterval,
             _options.QueryTimeoutSeconds);
 
         await SingleFlightPollLoop.RunAsync(
@@ -53,7 +53,7 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
                     {
                         _logger.LogCritical(
                             "MES query skipped because the durable StoragePressurePause gate is closed.");
-                        return;
+                        return true;
                     }
 
                     _logger.LogInformation(
@@ -61,6 +61,7 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
                         receipt.PollTraceId,
                         receipt.Outcome,
                         receipt.ProjectionCommitId);
+                    return receipt.Outcome is MesTaskUnionRoundOutcome.Success;
                 }
                 catch (Exception exception) when (exception is not OperationCanceledException)
                 {
@@ -73,7 +74,7 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
                     throw;
                 }
             },
-            postPollDelay: delay,
+            pollStartInterval: pollStartInterval,
             cancellationToken: stoppingToken).ConfigureAwait(false);
     }
 }

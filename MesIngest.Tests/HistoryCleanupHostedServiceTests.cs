@@ -7,6 +7,34 @@ namespace MesIngest.Tests;
 public sealed class HistoryCleanupHostedServiceTests
 {
     [Fact]
+    public async Task Controlled_time_crosses_a_full_logical_day_on_twenty_four_exact_hourly_slots()
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 24, 0, 0, 0, TimeSpan.Zero);
+        var clock = new ManualTimerTimeProvider(startedAt);
+        var runner = new RecordingHistoryCleanupBatchRunner();
+        var service = new HistoryCleanupHostedService(
+            runner,
+            new MesIngestHostOptions(),
+            clock,
+            NullLogger<HistoryCleanupHostedService>.Instance);
+
+        await service.StartAsync(CancellationToken.None);
+        for (var hour = 1; hour <= 24; hour++)
+        {
+            clock.Advance(TimeSpan.FromHours(1));
+            await runner.WaitForRunsAsync(hour);
+        }
+
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(24, runner.RunCount);
+        Assert.Equal(
+            Enumerable.Range(1, 24).Select(hour => startedAt.AddHours(hour)),
+            runner.StartedAt);
+        Assert.Equal(startedAt.AddDays(1), clock.GetUtcNow());
+    }
+
+    [Fact]
     public async Task Host_checks_cleanup_once_per_default_hour_without_an_external_scheduler()
     {
         var startedAt = new DateTimeOffset(2026, 8, 24, 1, 0, 0, TimeSpan.Zero);
@@ -116,8 +144,15 @@ public sealed class HistoryCleanupHostedServiceTests
 
         public async Task WaitForRunsAsync(int count)
         {
-            await (count == 1 ? _firstRun.Task : _secondRun.Task)
-                .WaitAsync(TimeSpan.FromSeconds(5));
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            while (RunCount < count)
+            {
+                await Task.Delay(1, timeout.Token);
+            }
+
+            // Let the hosted-service continuation arm its next TimeProvider timer
+            // before the test advances the following logical hour.
+            await Task.Delay(1, timeout.Token);
         }
     }
 

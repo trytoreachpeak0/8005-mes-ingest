@@ -61,8 +61,11 @@ public sealed class MesIngestHostOptions
     /// </summary>
     public bool ContinuousPollEnabled { get; set; }
 
-    /// <summary>Seconds to wait after each completed poll round before starting the next.</summary>
-    public int PostPollDelaySeconds { get; set; } = 10;
+    /// <summary>
+    /// Fixed start-to-start poll interval. Slow rounds skip missed slots instead of
+    /// overlapping or catching up; failures use the fixed 60/120/300 second policy.
+    /// </summary>
+    public int PostPollDelaySeconds { get; set; } = 60;
 
     /// <summary>Per-round snapshot read timeout in seconds.</summary>
     public int QueryTimeoutSeconds { get; set; } = 30;

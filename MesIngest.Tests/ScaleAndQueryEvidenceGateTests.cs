@@ -7,6 +7,111 @@ namespace MesIngest.Tests;
 public sealed class ScaleAndQueryEvidenceGateTests
 {
     [Fact]
+    public void Accelerated_stability_fixture_passes_only_with_complete_bounded_concurrent_evidence()
+    {
+        var result = RunStabilityFixture(CreatePassingStabilityFixture());
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Contains("MESINGEST_ACCELERATED_STABILITY_FIXTURE: passed=True", result.Output, StringComparison.Ordinal);
+        Assert.Contains("soakEscalationRequired=False", result.Output, StringComparison.Ordinal);
+        Assert.Contains("p95LatencyMs=125", result.Output, StringComparison.Ordinal);
+        Assert.Contains("p99LatencyMs=410", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_fails_closed_for_every_runtime_risk_or_missing_evidence()
+    {
+        var cases = new (string ExpectedCode, Action<JsonObject> Mutate)[]
+        {
+            ("STABILITY_DURATION_OUT_OF_RANGE", fixture => fixture["workload"]!["durationSeconds"] = 1_799),
+            ("STABILITY_SAMPLE_NOT_FIXED_OR_BOUNDED", fixture => fixture["workload"]!["maximumRawObservationRows"] = 250_001),
+            ("STABILITY_API_P95", fixture => fixture["latency"]!["p95LatencyMs"] = 2_000),
+            ("STABILITY_API_P99", fixture => fixture["latency"]!["p99LatencyMs"] = 5_000),
+            ("STABILITY_LATENCY_DEGRADATION", fixture => fixture["latency"]!["lastQuartileP95LatencyMs"] = 800),
+            ("STABILITY_ERROR_701", fixture => fixture["resources"]!["error701Count"] = 1),
+            ("STABILITY_RESOURCE_SEMAPHORE", fixture => fixture["resources"]!["resourceSemaphoreSustainedSamples"] = 2),
+            ("STABILITY_SPILL", fixture => fixture["resources"]!["spillCount"] = 1),
+            ("STABILITY_UNBOUNDED_LOCK_WAIT", fixture => fixture["resources"]!["maximumLockWaitMs"] = 5_001),
+            ("STABILITY_HOST_MEMORY_TREND", fixture => fixture["resources"]!["hostWorkingSetSlopeMbPerMinute"] = 2.1),
+            ("STABILITY_SQL_MEMORY_TREND", fixture => fixture["resources"]!["sqlWorkingSetSlopeMbPerMinute"] = 8.1),
+            ("STABILITY_SQL_MEMORY_ENVELOPE", fixture => fixture["resources"]!["sqlWorkingSetPeakMb"] = 2_049.0),
+            ("STABILITY_DATABASE_USED_TREND", fixture => fixture["resources"]!["logicalDatabaseUsedSlopeMbPerMinute"] = 1.1),
+            ("STABILITY_DATABASE_FILE_TREND", fixture => fixture["resources"]!["physicalDataFileSlopeMbPerMinute"] = 1.1),
+            ("STABILITY_LDF_TREND", fixture => fixture["resources"]!["ldfSlopeMbPerMinute"] = 1.1),
+            ("STABILITY_TEMPDB_TREND", fixture => fixture["resources"]!["tempdbUsedSlopeMbPerMinute"] = 2.1),
+            ("STABILITY_HANDLE_TREND", fixture => fixture["resources"]!["hostHandleSlopePerMinute"] = 1.1),
+            ("STABILITY_OVERLAPPING_POLL", fixture => fixture["behavior"]!["maximumConcurrentPolls"] = 2),
+            ("STABILITY_CATCH_UP_BURST", fixture => fixture["behavior"]!["catchUpBurstCount"] = 1),
+            ("STABILITY_CURRENT_LOGICAL_READ_GROWTH", fixture => fixture["behavior"]!["currentLogicalReadGrowthPassed"] = false),
+            ("STABILITY_FROZEN_COMMIT_MISMATCH", fixture => fixture["behavior"]!["frozenCommitMismatchCount"] = 1),
+            ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["projectionCommitsDuringFrozenReads"] = 0),
+            ("STABILITY_CLEANUP_BACKLOG", fixture => fixture["behavior"]!["cleanupBacklogCount"] = 1),
+            ("STABILITY_EARLIEST_AVAILABLE_NOT_ADVANCED", fixture => fixture["behavior"]!["earliestAvailableAdvanced"] = false),
+            ("STABILITY_STORAGE_PRESSURE_UNEXPECTED", fixture => fixture["behavior"]!["storagePressurePauseCount"] = 1),
+            ("STABILITY_RETRY_CONTRACT", fixture => fixture["behavior"]!["retrySchedulePassed"] = false),
+            ("STABILITY_LOGICAL_DAY_BOUNDARY", fixture => fixture["behavior"]!["logicalDayBoundaryPassed"] = false),
+            ("STABILITY_RESTART_STATE", fixture => fixture["behavior"]!["historyEpochPreservedAcrossRestart"] = false),
+            ("STABILITY_EVIDENCE_INCOMPLETE", fixture => fixture["evidence"]!.AsObject().Remove("resourceSnapshotsComplete")),
+        };
+
+        foreach (var (expectedCode, mutate) in cases)
+        {
+            var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+            mutate(fixture);
+
+            var result = RunStabilityFixture(fixture);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains(expectedCode, result.Output, StringComparison.Ordinal);
+            Assert.Contains("soakEscalationRequired=True", result.Output, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Packaged_accelerated_stability_gate_declares_ticket_28_workload_and_diagnostics()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1"));
+
+        foreach (var evidence in new[]
+                 {
+                     "AcceleratedConcurrencyStability",
+                     "ValidateStabilityFixturePath",
+                     "StabilityDurationMinutes",
+                     "acceleratedPollStartIntervalSeconds",
+                     "acceleratedCleanupCheckIntervalSeconds",
+                     "defaultPollStartIntervalSeconds",
+                     "failureBackoffSeconds",
+                     "watchRefreshSeconds",
+                     "referenceCatalogReads",
+                     "frozenDetailReads",
+                     "logicalDayBoundaryPassed",
+                     "historyEpochPreservedAcrossRestart",
+                     "currentLogicalReadGrowthPassed",
+                     "frozenCommitMismatchCount",
+                     "projectionCommitsDuringFrozenReads",
+                     "sys.dm_os_process_memory",
+                     "sys.dm_exec_query_memory_grants",
+                     "sys.dm_os_wait_stats",
+                     "RESOURCE_SEMAPHORE",
+                     "error701Count",
+                     "spillCount",
+                     "maximumLockWaitMs",
+                     "tempdbVersionStoreMb",
+                     "StoragePressureStatus",
+                     "EarliestAvailableHostUtc",
+                     "soakEscalationRequired",
+                     "4-hour-or-24-hour-real-soak",
+                 })
+        {
+            Assert.Contains(evidence, script, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Fast_capacity_fixture_projects_thirty_days_with_margin_below_escalation_thresholds()
     {
         var fixture = CreatePassingCapacityFixture();
@@ -244,6 +349,149 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("trxVerified", gate, StringComparison.Ordinal);
         Assert.Contains("SQL_TIER1_BUILD_MISMATCH", gate, StringComparison.Ordinal);
     }
+
+    private static (int ExitCode, string Output) RunStabilityFixture(object fixture)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mesingest-stability-fixture-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var fixturePath = Path.Combine(root, "fixture.json");
+        File.WriteAllText(fixturePath, JsonSerializer.Serialize(fixture));
+
+        try
+        {
+            var script = Path.Combine(
+                RepositoryPaths.CSharpRoot,
+                "pack",
+                "validation",
+                "Invoke-ScaleAndQueryEvidence.ps1");
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = RepositoryPaths.CSharpRoot,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                         "-ProfileDays", "0",
+                         "-DatabaseName", "MesIngest_Scale_StabilityFixture",
+                         "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                         "-ValidateStabilityFixturePath", fixturePath,
+                     })
+            {
+                start.ArgumentList.Add(argument);
+            }
+            start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+            using var process = Process.Start(start)
+                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            Assert.True(process.WaitForExit(30_000), "Stability fixture validation did not finish.");
+            return (process.ExitCode, stdout + Environment.NewLine + stderr);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static object CreatePassingStabilityFixture() => new
+    {
+        identity = new
+        {
+            sourceCommit = new string('a', 40),
+            hostSha256 = new string('b', 64),
+            contractVersion = "2026.08.new-mes-ingest.v2.1",
+            schemaVersion = 28,
+            historyEpoch = "11111111-1111-1111-1111-111111111111",
+        },
+        environment = new
+        {
+            sqlProductMajor = 16,
+            compatibilityLevel = 160,
+            maxServerMemoryMb = 1536,
+            recoveryModel = "SIMPLE",
+            defaultPollStartIntervalSeconds = 60,
+            failureBackoffSeconds = new[] { 60, 120, 300 },
+            watchRefreshSeconds = new { overview = 30, currentAttention = 30, demandSeries = 60, readabilityAudit = 60, errorSearch = 60 },
+            defaultCleanupCheckIntervalSeconds = 3600,
+            acceleratedPollStartIntervalSeconds = 1,
+            acceleratedCleanupCheckIntervalSeconds = 60,
+        },
+        workload = new
+        {
+            durationSeconds = 1_800,
+            seriesCount = 600,
+            initialRawObservationRows = 60_600,
+            maximumRawObservationRows = 65_000,
+            representativeHistoryRounds = 100,
+            concurrentClients = 8,
+            operations = new
+            {
+                successfulPolls = 1_700,
+                watchApiReads = 20_000,
+                frozenDetailReads = 2_000,
+                referenceCatalogReads = 2_000,
+                cleanupChecks = 30,
+                hostRestarts = 1,
+            },
+        },
+        latency = new
+        {
+            sampleCount = 24_000,
+            p95LatencyMs = 125.0,
+            p99LatencyMs = 410.0,
+            firstQuartileP95LatencyMs = 120.0,
+            lastQuartileP95LatencyMs = 130.0,
+        },
+        resources = new
+        {
+            snapshotCount = 31,
+            error701Count = 0,
+            resourceSemaphoreSustainedSamples = 0,
+            spillCount = 0,
+            maximumLockWaitMs = 1_000.0,
+            unboundedLockWaitCount = 0,
+            maximumPendingMemoryGrants = 0,
+            hostWorkingSetSlopeMbPerMinute = 0.1,
+            sqlWorkingSetSlopeMbPerMinute = 0.5,
+            hostWorkingSetPeakMb = 180.0,
+            sqlWorkingSetPeakMb = 1_900.0,
+            hostHandlePeak = 400,
+            logicalDatabaseUsedSlopeMbPerMinute = 0.01,
+            physicalDataFileSlopeMbPerMinute = 0.0,
+            ldfSlopeMbPerMinute = 0.0,
+            tempdbUsedSlopeMbPerMinute = 0.1,
+            hostHandleSlopePerMinute = 0.1,
+            databaseVersionStorePeakMb = 1.0,
+            tempdbVersionStorePeakMb = 2.0,
+        },
+        behavior = new
+        {
+            maximumConcurrentPolls = 1,
+            catchUpBurstCount = 0,
+            currentLogicalReadGrowthPassed = true,
+            frozenCommitMismatchCount = 0,
+            projectionCommitsDuringFrozenReads = 1_600,
+            cleanupBacklogCount = 0,
+            earliestAvailableAdvanced = true,
+            storagePressurePauseCount = 0,
+            retrySchedulePassed = true,
+            logicalDayBoundaryPassed = true,
+            historyEpochPreservedAcrossRestart = true,
+            restartStatePreserved = true,
+        },
+        evidence = new
+        {
+            resourceSnapshotsComplete = true,
+            latencySamplesComplete = true,
+            xeventSignalsComplete = true,
+            cleanupEvidenceComplete = true,
+            deterministicContractEvidenceComplete = true,
+        },
+    };
 
     private static (int ExitCode, string Output) RunCapacityFixture(object fixture)
     {

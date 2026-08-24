@@ -114,7 +114,7 @@ public sealed class MesTaskUnionPollRunnerTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             var call = Interlocked.Increment(ref _calls);
-            return Task.FromResult(CreateRound(MesTaskUnionRoundOutcome.Failure, $"host-poll-{call}"));
+            return Task.FromResult(CreateRound(MesTaskUnionRoundOutcome.Success, $"host-poll-{call}"));
         }
 
         public async Task WaitForCallsAsync(int expected, TimeSpan timeout)
