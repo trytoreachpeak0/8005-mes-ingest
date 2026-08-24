@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Runs the Ticket 23 no-delete MesIngest cutover gates for one explicit CutoverRunId.
+  Runs the one-time MesIngest cutover and deletes only the exact proven old database.
 
 .DESCRIPTION
   Reads only ArchivedDemandKeyTombstone identity facts from the explicit old database,
@@ -10,8 +10,14 @@
   old/new database identities, three consecutive projections, the V2 Watch APIs, the
   external catalog, and the production reference consumer to agree on one HistoryEpoch.
 
-  This entry point never drops, backs up, restores, or authorizes deletion of a database.
-  Ticket 25 owns any future deletion capability.
+  Immediately before deletion it re-resolves every destructive gate for the same
+  CutoverRunId, writes immutable pre-delete evidence and a Windows event, then creates
+  a run-scoped SQL principal with CONTROL on only the proven old database. The principal,
+  its mapped user, and all temporary permissions are removed in every exit path.
+
+  The privileged broker is accepted only by this attended one-time entry point. It is
+  never passed to Host, Watch, or the reference consumer. This run creates no backup and
+  has no retry or rollback path after deletion.
 #>
 [CmdletBinding()]
 param(
@@ -21,6 +27,7 @@ param(
 
     [Parameter(Mandatory = $true)] [string] $OldConnectionString,
     [Parameter(Mandatory = $true)] [string] $NewConnectionString,
+    [Parameter(Mandatory = $true)] [string] $PrivilegeConnectionString,
 
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$')]
@@ -64,6 +71,7 @@ function Open-ExplicitCutoverDatabaseConnection {
             [StringComparison]::Ordinal)) {
         throw 'CUTOVER_CONNECTION_DATABASE_MISMATCH: each connection must name its explicit database.'
     }
+    $builder['Pooling'] = $false
     $connection = [Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
     $connection.Open()
     return $connection
@@ -140,18 +148,34 @@ $forbiddenTokenFile = $null
 $tombstoneProof = $null
 $oldIdentity = $null
 $newIdentity = $null
+$provenOldIdentity = $null
+$provenNewIdentity = $null
 $projectionGate = $null
 $postSeedPollTraceHighWater = $null
 $evidenceWritten = $false
+$preDeleteEvidenceWritten = $false
+$permissionLifecycle = [pscustomobject][ordered]@{
+    CutoverRunId = $CutoverRunId
+    PrincipalName = 'MesIngestCutover_' + $CutoverRunId.Replace('-', '').ToLowerInvariant()
+    FinalStatus = 'NOT_GRANTED_BY_THIS_RUN'
+    VerifiedAbsent = $false
+    Events = @()
+}
 
 try {
     $jsonEvidencePath = Join-Path ([IO.Path]::GetFullPath($EvidenceDirectory)) "$CutoverRunId.json"
     $markdownEvidencePath = Join-Path ([IO.Path]::GetFullPath($EvidenceDirectory)) "$CutoverRunId.md"
+    $preDeleteJsonEvidencePath = Join-Path ([IO.Path]::GetFullPath($EvidenceDirectory)) "$CutoverRunId.pre-delete.json"
+    $preDeleteMarkdownEvidencePath = Join-Path ([IO.Path]::GetFullPath($EvidenceDirectory)) "$CutoverRunId.pre-delete.md"
     if (Test-Path -LiteralPath $jsonEvidencePath -PathType Leaf -ErrorAction SilentlyContinue) {
         throw "CUTOVER_EVIDENCE_EXISTS: evidence for CutoverRunId $CutoverRunId is immutable."
     }
     if (Test-Path -LiteralPath $markdownEvidencePath -PathType Leaf -ErrorAction SilentlyContinue) {
         throw "CUTOVER_EVIDENCE_EXISTS: evidence for CutoverRunId $CutoverRunId is immutable."
+    }
+    if ((Test-Path -LiteralPath $preDeleteJsonEvidencePath -PathType Leaf -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $preDeleteMarkdownEvidencePath -PathType Leaf -ErrorAction SilentlyContinue)) {
+        throw "CUTOVER_EVIDENCE_EXISTS: pre-delete evidence for CutoverRunId $CutoverRunId is immutable."
     }
 
     Assert-OldCutoverHostStopped
@@ -165,6 +189,8 @@ try {
         -ExpectedDatabaseName $NewDatabaseName
     $oldIdentity = Get-CutoverDatabaseIdentityEvidence -Connection $oldConnection
     $newIdentity = Get-CutoverDatabaseIdentityEvidence -Connection $newConnection
+    $provenOldIdentity = $oldIdentity
+    $provenNewIdentity = $newIdentity
     $identityGates = @(Assert-CutoverDatabaseIdentityPolicy `
         -CutoverRunId $CutoverRunId `
         -OldIdentity $oldIdentity `
@@ -322,13 +348,26 @@ try {
     $newIdentity = $finalNewIdentity
 
     $gateSet = Assert-CutoverGateSet -CutoverRunId $CutoverRunId -GateResults @($completedGates)
-    $completedAt = [DateTimeOffset]::UtcNow
-    $evidence = [ordered]@{
-        SchemaVersion = 1
+    $authorization = Assert-CutoverDeleteAuthorization `
+        -CutoverRunId $CutoverRunId `
+        -GateResults @($completedGates) `
+        -ProvenOldIdentity $provenOldIdentity `
+        -CurrentOldIdentity $finalOldIdentity `
+        -ProvenNewIdentity $provenNewIdentity `
+        -CurrentNewIdentity $finalNewIdentity `
+        -ProvenTombstoneProof $tombstoneProof `
+        -CurrentOldTombstoneProof $finalOldProof `
+        -CurrentNewTombstoneProof $finalNewProof `
+        -ExpectedOldDatabaseName $OldDatabaseName `
+        -ExpectedNewDatabaseName $NewDatabaseName `
+        -ExpectedSqlDataDirectory $ExpectedSqlDataDirectory
+
+    $preDeleteEvidence = [ordered]@{
+        SchemaVersion = 2
         CutoverRunId = $CutoverRunId
-        Status = 'PASSED_WITHOUT_DELETE_AUTHORIZATION'
+        Status = 'DELETE_AUTHORIZED_BEFORE_ELEVATION'
         StartedAtUtc = $startedAt.ToString('o')
-        CompletedAtUtc = $completedAt.ToString('o')
+        CompletedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
         Operator = "$env:USERDOMAIN\$env:USERNAME"
         ExecutionLogin = $oldIdentity.ExecutionLogin
         HistoryEpoch = $ExpectedHistoryEpoch
@@ -338,6 +377,7 @@ try {
             ServerIdentity = $oldIdentity.ServerIdentity
             DatabaseName = $oldIdentity.DatabaseName
             DatabaseId = $oldIdentity.DatabaseId
+            CreateDateUtc = $oldIdentity.CreateDateUtc
             ContractVersion = $oldIdentity.ContractVersion
             SchemaIdentity = $oldIdentity.SchemaVersion
             DataDirectories = $oldIdentity.DataDirectories
@@ -347,6 +387,7 @@ try {
             ServerIdentity = $newIdentity.ServerIdentity
             DatabaseName = $newIdentity.DatabaseName
             DatabaseId = $newIdentity.DatabaseId
+            CreateDateUtc = $newIdentity.CreateDateUtc
             ContractVersion = $newIdentity.ContractVersion
             SchemaIdentity = $newIdentity.SchemaVersion
             DataDirectories = $newIdentity.DataDirectories
@@ -370,22 +411,89 @@ try {
         PostSeedPollTraceHighWater = $postSeedPollTraceHighWater
         Gates = @($completedGates)
         GateCount = $gateSet.Count
-        DatabaseDeletion = 'NOT_AUTHORIZED_TICKET_23'
+        DeleteAuthorization = $authorization
+        PermissionLifecycle = $permissionLifecycle
+        DatabaseDeletion = 'PENDING_EXACT_PROVEN_OLD_DATABASE'
         IsDatabaseBackup = $false
+        HasRollbackPath = $false
     }
+    Write-CutoverWindowsEvent `
+        -CutoverRunId $CutoverRunId `
+        -Status $preDeleteEvidence.Status `
+        -HistoryEpoch $ExpectedHistoryEpoch `
+        -TombstoneSha256 $tombstoneProof.Sha256 `
+        -KeyTokenAlgorithmVersion $tombstoneProof.KeyTokenAlgorithmVersion `
+        -DatabaseDeletion $preDeleteEvidence.DatabaseDeletion `
+        -PermissionStatus $permissionLifecycle.FinalStatus `
+        -ServerIdentity $oldIdentity.ServerIdentity `
+        -OldDatabaseIdentity "$($oldIdentity.DatabaseName)/$($oldIdentity.DatabaseId)/$($oldIdentity.CreateDateUtc)" `
+        -NewDatabaseIdentity "$($newIdentity.DatabaseName)/$($newIdentity.DatabaseId)/$($newIdentity.CreateDateUtc)" `
+        -ContractSchemaIdentity "$ExpectedNewContractVersion/$ExpectedNewSchemaVersion" `
+        -ProjectionIdentity "$($projectionGate.LatestProjectionCommitId)/$($projectionGate.LatestProjectionSequence)" `
+        -InterfaceGateSummary "gateCount=$($gateSet.Count);watch=passed;catalog=passed;reference=passed" `
+        -ExecutionIdentity "$env:USERDOMAIN\$env:USERNAME|$($oldIdentity.ExecutionLogin)" `
+        -StartedAtUtc $preDeleteEvidence.StartedAtUtc `
+        -CompletedAtUtc $preDeleteEvidence.CompletedAtUtc
+    $preDeletePaths = Write-CutoverEvidence `
+        -EvidenceDirectory $EvidenceDirectory `
+        -Evidence $preDeleteEvidence `
+        -Stage 'pre-delete'
+    $preDeleteEvidenceWritten = $true
+
+    $oldConnection.Dispose()
+    $oldConnection = $null
+    $newConnection.Dispose()
+    $newConnection = $null
+    [Data.SqlClient.SqlConnection]::ClearAllPools()
+    $deletion = Invoke-CutoverProvenOldDatabaseDeletion `
+        -CutoverRunId $CutoverRunId `
+        -PrivilegeConnectionString $PrivilegeConnectionString `
+        -EvidenceDirectory $EvidenceDirectory `
+        -OldHostServiceName $OldHostServiceName `
+        -GateResults @($completedGates) `
+        -ProvenOldIdentity $provenOldIdentity `
+        -CurrentOldIdentity $finalOldIdentity `
+        -ProvenNewIdentity $provenNewIdentity `
+        -CurrentNewIdentity $finalNewIdentity `
+        -ProvenTombstoneProof $tombstoneProof `
+        -CurrentOldTombstoneProof $finalOldProof `
+        -CurrentNewTombstoneProof $finalNewProof `
+        -ExpectedOldDatabaseName $OldDatabaseName `
+        -ExpectedNewDatabaseName $NewDatabaseName `
+        -ExpectedSqlDataDirectory $ExpectedSqlDataDirectory
+    $permissionLifecycle = $deletion.PermissionLifecycle
+
+    $evidence = [ordered]@{} + $preDeleteEvidence
+    $evidence.Status = 'PASSED_OLD_DATABASE_DELETED'
+    $evidence.CompletedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+    $evidence.PermissionLifecycle = $permissionLifecycle
+    $evidence.DatabaseDeletion = 'DELETED_EXACT_PROVEN_OLD_DATABASE'
     Write-CutoverWindowsEvent `
         -CutoverRunId $CutoverRunId `
         -Status $evidence.Status `
         -HistoryEpoch $ExpectedHistoryEpoch `
         -TombstoneSha256 $tombstoneProof.Sha256 `
-        -KeyTokenAlgorithmVersion $tombstoneProof.KeyTokenAlgorithmVersion
+        -KeyTokenAlgorithmVersion $tombstoneProof.KeyTokenAlgorithmVersion `
+        -DatabaseDeletion $evidence.DatabaseDeletion `
+        -PermissionStatus $permissionLifecycle.FinalStatus `
+        -ServerIdentity $oldIdentity.ServerIdentity `
+        -OldDatabaseIdentity "$($oldIdentity.DatabaseName)/$($oldIdentity.DatabaseId)/$($oldIdentity.CreateDateUtc)" `
+        -NewDatabaseIdentity "$($newIdentity.DatabaseName)/$($newIdentity.DatabaseId)/$($newIdentity.CreateDateUtc)" `
+        -ContractSchemaIdentity "$ExpectedNewContractVersion/$ExpectedNewSchemaVersion" `
+        -ProjectionIdentity "$($projectionGate.LatestProjectionCommitId)/$($projectionGate.LatestProjectionSequence)" `
+        -InterfaceGateSummary "gateCount=$($gateSet.Count);watch=passed;catalog=passed;reference=passed" `
+        -ExecutionIdentity "$env:USERDOMAIN\$env:USERNAME|$($oldIdentity.ExecutionLogin)" `
+        -StartedAtUtc $evidence.StartedAtUtc `
+        -CompletedAtUtc $evidence.CompletedAtUtc
     $paths = Write-CutoverEvidence -EvidenceDirectory $EvidenceDirectory -Evidence $evidence
     $evidenceWritten = $true
 
     Write-Host "MESINGEST_CUTOVER_RUN_PASSED: CutoverRunId=$CutoverRunId"
+    Write-Host "CUTOVER_PRE_DELETE_EVIDENCE_JSON: $($preDeletePaths.JsonPath)"
+    Write-Host "CUTOVER_PRE_DELETE_EVIDENCE_MARKDOWN: $($preDeletePaths.MarkdownPath)"
     Write-Host "CUTOVER_EVIDENCE_JSON: $($paths.JsonPath)"
     Write-Host "CUTOVER_EVIDENCE_MARKDOWN: $($paths.MarkdownPath)"
-    Write-Host 'DATABASE_DELETION: NOT_AUTHORIZED_TICKET_23'
+    Write-Host "DATABASE_DELETION: $($evidence.DatabaseDeletion)"
 }
 catch {
     $primary = $_
@@ -396,6 +504,20 @@ catch {
     }
     if (-not $evidenceWritten) {
         try {
+            $errorPermissionLifecycle = $primary.Exception.Data['MesIngest.CutoverPermissionLifecycle']
+            if ($null -ne $errorPermissionLifecycle) {
+                $permissionLifecycle = $errorPermissionLifecycle
+            }
+            $deleteCompleted = @($permissionLifecycle.Events | Where-Object {
+                [string]$_.Action -ceq 'EXACT_DATABASE_DELETED'
+            }).Count -gt 0
+            $databaseDeletion = if ($deleteCompleted) {
+                'DELETED_EXACT_PROVEN_OLD_DATABASE'
+            } elseif ($preDeleteEvidenceWritten) {
+                'DELETE_FAILED_OLD_DATABASE_PRESERVED'
+            } else {
+                'NOT_ATTEMPTED_GATE_FAILURE'
+            }
             $failureProof = if ($null -eq $tombstoneProof) {
                 [pscustomobject]@{
                     AlgorithmVersion = 'NOT_COMPUTED'
@@ -405,9 +527,9 @@ catch {
                 }
             } else { $tombstoneProof }
             $failureEvidence = [ordered]@{
-                SchemaVersion = 1
+                SchemaVersion = 2
                 CutoverRunId = $CutoverRunId
-                Status = 'FAILED_WITHOUT_DELETE_AUTHORIZATION'
+                Status = if ($preDeleteEvidenceWritten) { 'FAILED_AFTER_DELETE_AUTHORIZATION' } else { 'FAILED_BEFORE_DELETE_AUTHORIZATION' }
                 StartedAtUtc = $startedAt.ToString('o')
                 CompletedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
                 Operator = "$env:USERDOMAIN\$env:USERNAME"
@@ -421,8 +543,10 @@ catch {
                 }
                 GateCount = $completedGates.Count
                 Gates = @($completedGates)
-                DatabaseDeletion = 'NOT_AUTHORIZED_TICKET_23'
+                PermissionLifecycle = $permissionLifecycle
+                DatabaseDeletion = $databaseDeletion
                 IsDatabaseBackup = $false
+                HasRollbackPath = $false
             }
             try {
                 Write-CutoverWindowsEvent `
@@ -430,7 +554,9 @@ catch {
                     -Status $failureEvidence.Status `
                     -HistoryEpoch $ExpectedHistoryEpoch `
                     -TombstoneSha256 $failureProof.Sha256 `
-                    -KeyTokenAlgorithmVersion $failureProof.KeyTokenAlgorithmVersion
+                    -KeyTokenAlgorithmVersion $failureProof.KeyTokenAlgorithmVersion `
+                    -DatabaseDeletion $failureEvidence.DatabaseDeletion `
+                    -PermissionStatus $permissionLifecycle.FinalStatus
             } catch {
                 $primary.Exception.Data['MesIngest.CutoverEventLogFailure'] = $_.Exception.Message
             }
@@ -445,6 +571,7 @@ finally {
     if ($null -ne $http) { $http.Dispose() }
     if ($null -ne $oldConnection) { $oldConnection.Dispose() }
     if ($null -ne $newConnection) { $newConnection.Dispose() }
+    [Data.SqlClient.SqlConnection]::ClearAllPools()
     if ($null -ne $forbiddenTokenFile -and (Test-Path -LiteralPath $forbiddenTokenFile)) {
         Remove-Item -LiteralPath $forbiddenTokenFile -Force
     }

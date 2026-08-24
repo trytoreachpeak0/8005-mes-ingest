@@ -5,9 +5,10 @@
 
 .DESCRIPTION
   Every function here is dot-sourced by the two drill entry points. None of them is
-  reachable from the Host, the Watch client, or install/uninstall, and none of them
-  drops or overwrites a database without the caller having passed
-  Assert-CutoverOperatorConfirmation for that exact resolved identity first.
+  reachable from the Host, the Watch client, or install/uninstall. Legacy cutover and
+  rollback drills require Assert-CutoverOperatorConfirmation. The Ticket 25 deletion
+  helper instead requires the full same-run gate, identity, tombstone, stopped-service,
+  and immutable-evidence workflow owned by Invoke-MesIngestCutoverRun.ps1.
 #>
 
 Set-StrictMode -Version Latest
@@ -74,6 +75,478 @@ function Assert-CutoverGateSet {
         CutoverRunId = $CutoverRunId
         Count = $required.Count
         Names = $required
+    }
+}
+
+function Assert-CutoverDeleteAuthorization {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')]
+        [string] $CutoverRunId,
+        [Parameter(Mandatory = $true)] [object[]] $GateResults,
+        [Parameter(Mandatory = $true)] $ProvenOldIdentity,
+        [Parameter(Mandatory = $true)] $CurrentOldIdentity,
+        [Parameter(Mandatory = $true)] $ProvenNewIdentity,
+        [Parameter(Mandatory = $true)] $CurrentNewIdentity,
+        [Parameter(Mandatory = $true)] $ProvenTombstoneProof,
+        [Parameter(Mandatory = $true)] $CurrentOldTombstoneProof,
+        [Parameter(Mandatory = $true)] $CurrentNewTombstoneProof,
+        [Parameter(Mandatory = $true)] [string] $ExpectedOldDatabaseName,
+        [Parameter(Mandatory = $true)] [string] $ExpectedNewDatabaseName,
+        [Parameter(Mandatory = $true)] [string] $ExpectedSqlDataDirectory
+    )
+
+    try {
+        $gateSet = Assert-CutoverGateSet -CutoverRunId $CutoverRunId -GateResults $GateResults
+    } catch {
+        throw "CUTOVER_DELETE_GATE_SET_INVALID: $($_.Exception.Message)"
+    }
+
+    foreach ($name in @($ExpectedOldDatabaseName, $ExpectedNewDatabaseName)) {
+        if ($name -notmatch '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$' -or
+            $name.IndexOfAny([char[]]'*?[]%') -ge 0) {
+            throw 'CUTOVER_DELETE_DATABASE_NAME_NOT_EXACT: database names cannot contain patterns or wildcards.'
+        }
+    }
+    if ([string]::Equals($ExpectedOldDatabaseName, $ExpectedNewDatabaseName, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'CUTOVER_DELETE_TARGET_IS_NEW_DATABASE: the old and new database names must be distinct.'
+    }
+
+    $expectedDirectory = [IO.Path]::GetFullPath($ExpectedSqlDataDirectory).TrimEnd('\', '/')
+    foreach ($pair in @(
+            @($ProvenOldIdentity, $CurrentOldIdentity, $ExpectedOldDatabaseName, 'OLD'),
+            @($ProvenNewIdentity, $CurrentNewIdentity, $ExpectedNewDatabaseName, 'NEW'))) {
+        $proven = $pair[0]
+        $current = $pair[1]
+        $expectedName = [string]$pair[2]
+        $label = [string]$pair[3]
+        $currentDirectories = @($current.DataDirectories | ForEach-Object {
+            [IO.Path]::GetFullPath([string]$_).TrimEnd('\', '/')
+        } | Sort-Object -Unique)
+        if ([string]$current.DatabaseName -cne $expectedName -or
+            [string]$proven.DatabaseName -cne $expectedName) {
+            throw "CUTOVER_DELETE_${label}_DATABASE_NAME_CHANGED: the resolved database is not the explicit target."
+        }
+        if ([bool]$current.IsSystemDatabase -or [int]$current.DatabaseId -le 4) {
+            throw "CUTOVER_DELETE_${label}_DATABASE_IS_SYSTEM: a system database can never be a cutover target."
+        }
+        if ([string]$current.ServerIdentity -cne [string]$proven.ServerIdentity -or
+            [int]$current.DatabaseId -ne [int]$proven.DatabaseId -or
+            [string]$current.CreateDateUtc -cne [string]$proven.CreateDateUtc) {
+            throw "CUTOVER_DELETE_${label}_DATABASE_WAS_REPLACED: the database identity changed after the gates passed."
+        }
+        if ([int]$current.SchemaVersion -ne [int]$proven.SchemaVersion -or
+            [string]$current.ContractVersion -cne [string]$proven.ContractVersion -or
+            [string]$current.HistoryEpoch -cne [string]$proven.HistoryEpoch) {
+            throw "CUTOVER_DELETE_${label}_CONTRACT_SCHEMA_CHANGED: the database contract identity changed."
+        }
+        if ($currentDirectories.Count -ne 1 -or
+            -not [string]::Equals($currentDirectories[0], $expectedDirectory, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "CUTOVER_DELETE_${label}_DATA_DIRECTORY_CHANGED: the database files are outside the exact SQL data directory."
+        }
+        if ([bool]$current.HasDeletePermission) {
+            throw "CUTOVER_DELETE_BASE_IDENTITY_ALREADY_PRIVILEGED: deletion permission must not exist before one-time elevation."
+        }
+    }
+    if ([string]$CurrentOldIdentity.ServerIdentity -cne [string]$CurrentNewIdentity.ServerIdentity -or
+        [int]$CurrentOldIdentity.DatabaseId -eq [int]$CurrentNewIdentity.DatabaseId -or
+        [string]$CurrentOldIdentity.ExecutionLogin -cne [string]$CurrentNewIdentity.ExecutionLogin) {
+        throw 'CUTOVER_DELETE_DATABASE_IDENTITIES_NOT_DISTINCT: old and new must be distinct databases reached by one base identity.'
+    }
+    if (-not [bool]$CurrentOldIdentity.HasGlobalSessionVisibility) {
+        throw 'CUTOVER_DELETE_SESSION_VISIBILITY_REQUIRED: the base identity cannot prove every SQL Server session.'
+    }
+    if ([int]$CurrentOldIdentity.ForeignSessionCount -ne 0) {
+        throw 'CUTOVER_DELETE_OLD_DATABASE_STILL_IN_USE: a foreign business connection exists.'
+    }
+
+    foreach ($proof in @($CurrentOldTombstoneProof, $CurrentNewTombstoneProof)) {
+        if ([string]$proof.AlgorithmVersion -cne [string]$ProvenTombstoneProof.AlgorithmVersion -or
+            [string]$proof.KeyTokenAlgorithmVersion -cne [string]$ProvenTombstoneProof.KeyTokenAlgorithmVersion -or
+            [int]$proof.Count -ne [int]$ProvenTombstoneProof.Count -or
+            [string]$proof.Sha256 -cne [string]$ProvenTombstoneProof.Sha256) {
+            throw 'CUTOVER_DELETE_TOMBSTONE_PROOF_CHANGED: old, new, and proven tombstone sets differ.'
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        AuthorizationType = 'CUTOVER_DELETE_AUTHORIZATION_V1'
+        CutoverRunId = $CutoverRunId
+        GateCount = $gateSet.Count
+        ServerIdentity = [string]$CurrentOldIdentity.ServerIdentity
+        OldDatabaseName = $ExpectedOldDatabaseName
+        OldDatabaseId = [int]$CurrentOldIdentity.DatabaseId
+        OldDatabaseCreateDateUtc = [string]$CurrentOldIdentity.CreateDateUtc
+        OldSchemaVersion = [int]$CurrentOldIdentity.SchemaVersion
+        OldContractVersion = [string]$CurrentOldIdentity.ContractVersion
+        OldHistoryEpoch = [string]$CurrentOldIdentity.HistoryEpoch
+        NewDatabaseName = $ExpectedNewDatabaseName
+        NewDatabaseId = [int]$CurrentNewIdentity.DatabaseId
+        NewDatabaseCreateDateUtc = [string]$CurrentNewIdentity.CreateDateUtc
+        NewSchemaVersion = [int]$CurrentNewIdentity.SchemaVersion
+        NewContractVersion = [string]$CurrentNewIdentity.ContractVersion
+        NewHistoryEpoch = [string]$CurrentNewIdentity.HistoryEpoch
+        SqlDataDirectory = $expectedDirectory
+        BaseExecutionLogin = [string]$CurrentOldIdentity.ExecutionLogin
+        TombstoneAlgorithmVersion = [string]$ProvenTombstoneProof.AlgorithmVersion
+        KeyTokenAlgorithmVersion = [string]$ProvenTombstoneProof.KeyTokenAlgorithmVersion
+        TombstoneCount = [int]$ProvenTombstoneProof.Count
+        TombstoneSha256 = [string]$ProvenTombstoneProof.Sha256
+    }
+}
+
+function Invoke-CutoverProvenOldDatabaseDeletion {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$')]
+        [string] $CutoverRunId,
+        [Parameter(Mandatory = $true)] [string] $PrivilegeConnectionString,
+        [Parameter(Mandatory = $true)] [string] $EvidenceDirectory,
+        [Parameter(Mandatory = $true)] [string] $OldHostServiceName,
+        [Parameter(Mandatory = $true)] [object[]] $GateResults,
+        [Parameter(Mandatory = $true)] $ProvenOldIdentity,
+        [Parameter(Mandatory = $true)] $CurrentOldIdentity,
+        [Parameter(Mandatory = $true)] $ProvenNewIdentity,
+        [Parameter(Mandatory = $true)] $CurrentNewIdentity,
+        [Parameter(Mandatory = $true)] $ProvenTombstoneProof,
+        [Parameter(Mandatory = $true)] $CurrentOldTombstoneProof,
+        [Parameter(Mandatory = $true)] $CurrentNewTombstoneProof,
+        [Parameter(Mandatory = $true)] [string] $ExpectedOldDatabaseName,
+        [Parameter(Mandatory = $true)] [string] $ExpectedNewDatabaseName,
+        [Parameter(Mandatory = $true)] [string] $ExpectedSqlDataDirectory
+    )
+
+    $authorization = Assert-CutoverDeleteAuthorization `
+        -CutoverRunId $CutoverRunId `
+        -GateResults $GateResults `
+        -ProvenOldIdentity $ProvenOldIdentity `
+        -CurrentOldIdentity $CurrentOldIdentity `
+        -ProvenNewIdentity $ProvenNewIdentity `
+        -CurrentNewIdentity $CurrentNewIdentity `
+        -ProvenTombstoneProof $ProvenTombstoneProof `
+        -CurrentOldTombstoneProof $CurrentOldTombstoneProof `
+        -CurrentNewTombstoneProof $CurrentNewTombstoneProof `
+        -ExpectedOldDatabaseName $ExpectedOldDatabaseName `
+        -ExpectedNewDatabaseName $ExpectedNewDatabaseName `
+        -ExpectedSqlDataDirectory $ExpectedSqlDataDirectory
+    $oldHost = Get-Service -Name $OldHostServiceName -ErrorAction Stop
+    if ($oldHost.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) {
+        throw "CUTOVER_DELETE_OLD_HOST_RUNNING: service $OldHostServiceName is $($oldHost.Status)."
+    }
+    $resolvedEvidenceDirectory = [IO.Path]::GetFullPath($EvidenceDirectory)
+    $preDeleteJsonPath = Join-Path $resolvedEvidenceDirectory "$CutoverRunId.pre-delete.json"
+    $preDeleteMarkdownPath = Join-Path $resolvedEvidenceDirectory "$CutoverRunId.pre-delete.md"
+    if (-not (Test-Path -LiteralPath $preDeleteJsonPath -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $preDeleteMarkdownPath -PathType Leaf)) {
+        throw 'CUTOVER_DELETE_PRE_DELETE_EVIDENCE_MISSING: immutable JSON and Markdown evidence must exist before elevation.'
+    }
+    $preDeleteEvidence = Get-Content -LiteralPath $preDeleteJsonPath -Raw | ConvertFrom-Json
+    $preDeleteMarkdown = Get-Content -LiteralPath $preDeleteMarkdownPath -Raw
+    if ([string]$preDeleteEvidence.CutoverRunId -cne $CutoverRunId -or
+        [string]$preDeleteEvidence.Status -cne 'DELETE_AUTHORIZED_BEFORE_ELEVATION' -or
+        [string]$preDeleteEvidence.DatabaseDeletion -cne 'PENDING_EXACT_PROVEN_OLD_DATABASE' -or
+        [string]$preDeleteEvidence.OldDatabase.DatabaseName -cne [string]$authorization.OldDatabaseName -or
+        [int]$preDeleteEvidence.OldDatabase.DatabaseId -ne [int]$authorization.OldDatabaseId -or
+        $preDeleteMarkdown -notmatch [regex]::Escape($CutoverRunId)) {
+        throw 'CUTOVER_DELETE_PRE_DELETE_EVIDENCE_MISMATCH: external evidence does not authorize this exact run and database.'
+    }
+
+    Add-Type -AssemblyName System.Data | Out-Null
+    $builder = [Data.SqlClient.SqlConnectionStringBuilder]::new($PrivilegeConnectionString)
+    if (-not [string]::Equals([string]$builder['Initial Catalog'], 'master', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'CUTOVER_DELETE_PRIVILEGE_CONNECTION_NOT_MASTER: the one-time broker must explicitly connect to master.'
+    }
+    $builder['Pooling'] = $false
+
+    $principalName = 'MesIngestCutover_' + $CutoverRunId.Replace('-', '').ToLowerInvariant()
+    $auditEvents = [Collections.Generic.List[object]]::new()
+    $audit = [ordered]@{
+        CutoverRunId = $CutoverRunId
+        PrincipalName = $principalName
+        DeletePermission = "CONTROL DATABASE::$([string]$Authorization.OldDatabaseName)"
+        SessionVisibilityPermission = 'VIEW SERVER STATE; VIEW SERVER PERFORMANCE STATE'
+        GrantedAtUtc = $null
+        RevokedAtUtc = $null
+        FinalStatus = 'NOT_GRANTED'
+        VerifiedAbsent = $false
+        Events = $auditEvents
+    }
+    $connection = $null
+    $principalCreated = $false
+    $principalCreationAttempted = $false
+    $impersonated = $false
+    $databaseDeleted = $false
+    $primaryError = $null
+
+    try {
+        $connection = [Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+        $connection.Open()
+        $isBroker = [int](Invoke-CutoverScalar -Connection $connection -Sql @'
+SELECT CASE WHEN IS_SRVROLEMEMBER(N'sysadmin') = 1 THEN 1 ELSE 0 END;
+'@)
+        if ($isBroker -ne 1) {
+            throw 'CUTOVER_DELETE_PRIVILEGE_BROKER_REQUIRED: the supplied one-time broker is not sysadmin.'
+        }
+        $machine = [string](Invoke-CutoverScalar -Connection $connection `
+            -Sql "SELECT CONVERT(NVARCHAR(256), SERVERPROPERTY('MachineName'));")
+        $instance = Invoke-CutoverScalar -Connection $connection `
+            -Sql "SELECT CONVERT(NVARCHAR(256), SERVERPROPERTY('InstanceName'));"
+        $instanceName = if ($null -eq $instance -or $instance -is [DBNull]) { 'MSSQLSERVER' } else { [string]$instance }
+        if ("$machine\$instanceName" -cne [string]$Authorization.ServerIdentity) {
+            throw 'CUTOVER_DELETE_PRIVILEGE_SERVER_MISMATCH: the broker points at another SQL Server instance.'
+        }
+        $existingPrincipal = [int](Invoke-CutoverScalar -Connection $connection `
+            -Sql 'SELECT COUNT(*) FROM sys.server_principals WHERE name = @name;' `
+            -Parameters @{ '@name' = $principalName })
+        if ($existingPrincipal -ne 0) {
+            throw 'CUTOVER_DELETE_RUN_PRINCIPAL_EXISTS: this CutoverRunId already has a SQL principal.'
+        }
+
+        foreach ($target in @(
+                @([string]$Authorization.OldDatabaseName, [int]$Authorization.OldDatabaseId,
+                    [string]$Authorization.OldDatabaseCreateDateUtc, [int]$Authorization.OldSchemaVersion,
+                    [string]$Authorization.OldContractVersion, [string]$Authorization.OldHistoryEpoch, 'OLD'),
+                @([string]$Authorization.NewDatabaseName, [int]$Authorization.NewDatabaseId,
+                    [string]$Authorization.NewDatabaseCreateDateUtc, [int]$Authorization.NewSchemaVersion,
+                    [string]$Authorization.NewContractVersion, [string]$Authorization.NewHistoryEpoch, 'NEW'))) {
+            $connection.ChangeDatabase([string]$target[0])
+            $identity = Get-CutoverDatabaseIdentityEvidence -Connection $connection
+            $resolvedDirectories = @($identity.DataDirectories | ForEach-Object {
+                [IO.Path]::GetFullPath([string]$_).TrimEnd('\', '/')
+            } | Sort-Object -Unique)
+            if ([string]$identity.ServerIdentity -cne [string]$Authorization.ServerIdentity -or
+                [string]$identity.DatabaseName -cne [string]$target[0] -or
+                [int]$identity.DatabaseId -ne [int]$target[1] -or
+                [string]$identity.CreateDateUtc -cne [string]$target[2] -or
+                [int]$identity.SchemaVersion -ne [int]$target[3] -or
+                [string]$identity.ContractVersion -cne [string]$target[4] -or
+                [string]$identity.HistoryEpoch -cne [string]$target[5] -or
+                $resolvedDirectories.Count -ne 1 -or
+                -not [string]::Equals($resolvedDirectories[0], [string]$Authorization.SqlDataDirectory,
+                    [StringComparison]::OrdinalIgnoreCase)) {
+                throw "CUTOVER_DELETE_$($target[6])_DATABASE_WAS_REPLACED: the broker re-resolved another database identity."
+            }
+            $resolvedProof = Get-CutoverTombstoneProof -Tombstones @(
+                Get-CutoverArchivedTombstones -Connection $connection)
+            if ([string]$resolvedProof.AlgorithmVersion -cne [string]$Authorization.TombstoneAlgorithmVersion -or
+                [string]$resolvedProof.KeyTokenAlgorithmVersion -cne [string]$Authorization.KeyTokenAlgorithmVersion -or
+                [int]$resolvedProof.Count -ne [int]$Authorization.TombstoneCount -or
+                [string]$resolvedProof.Sha256 -cne [string]$Authorization.TombstoneSha256) {
+                throw "CUTOVER_DELETE_$($target[6])_TOMBSTONE_PROOF_CHANGED: the broker resolved a changed tombstone set."
+            }
+            if ($target[6] -eq 'OLD' -and [int]$identity.ForeignSessionCount -ne 0) {
+                throw 'CUTOVER_DELETE_OLD_DATABASE_STILL_IN_USE: a connection appeared immediately before elevation.'
+            }
+        }
+        $connection.ChangeDatabase('master')
+
+        $passwordBytes = [byte[]]::new(48)
+        [Security.Cryptography.RandomNumberGenerator]::Fill($passwordBytes)
+        $ephemeralPassword = [Convert]::ToBase64String($passwordBytes)
+        $principalCreationAttempted = $true
+        Invoke-CutoverNonQuery -Connection $connection -Sql @'
+DECLARE @quotedLogin nvarchar(258) = QUOTENAME(CONVERT(sysname, @login));
+DECLARE @passwordLiteral nvarchar(514) = QUOTENAME(@password, NCHAR(39));
+EXEC(N'CREATE LOGIN ' + @quotedLogin + N' WITH PASSWORD = ' + @passwordLiteral
+    + N', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF;');
+EXEC(N'ALTER LOGIN ' + @quotedLogin + N' DISABLE;');
+EXEC(N'DENY CONNECT SQL TO ' + @quotedLogin + N';');
+'@ -Parameters @{
+            '@login' = $principalName
+            '@password' = $ephemeralPassword
+        }
+        $principalCreated = $true
+        Invoke-CutoverNonQuery -Connection $connection -Sql @'
+DECLARE @quotedLogin nvarchar(258) = QUOTENAME(CONVERT(sysname, @login));
+DECLARE @quotedDatabase nvarchar(258) = QUOTENAME(CONVERT(sysname, @database));
+EXEC(N'GRANT VIEW SERVER STATE TO ' + @quotedLogin + N';');
+EXEC(N'GRANT VIEW SERVER PERFORMANCE STATE TO ' + @quotedLogin + N';');
+EXEC(N'USE ' + @quotedDatabase + N'; CREATE USER ' + @quotedLogin
+    + N' FOR LOGIN ' + @quotedLogin + N'; GRANT CONTROL TO ' + @quotedLogin + N';');
+'@ -Parameters @{
+            '@login' = $principalName
+            '@database' = [string]$Authorization.OldDatabaseName
+        }
+        $ephemeralPassword = $null
+        [Array]::Clear($passwordBytes, 0, $passwordBytes.Length)
+        $audit.GrantedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+        $audit.FinalStatus = 'GRANTED_FOR_CURRENT_RUN'
+        $auditEvents.Add([pscustomobject]@{
+            AtUtc = $audit.GrantedAtUtc; Action = 'GRANTED';
+            Detail = "principal=$principalName;database=$([string]$Authorization.OldDatabaseName)"
+        })
+
+        $oldHost = Get-Service -Name $OldHostServiceName -ErrorAction Stop
+        if ($oldHost.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) {
+            throw "CUTOVER_DELETE_OLD_HOST_RESTARTED: service $OldHostServiceName is $($oldHost.Status)."
+        }
+        Assert-CutoverGateSet -CutoverRunId $CutoverRunId -GateResults $GateResults | Out-Null
+        $connection.ChangeDatabase([string]$Authorization.OldDatabaseName)
+        $brokerFinalIdentity = Get-CutoverDatabaseIdentityEvidence -Connection $connection
+        $brokerFinalDirectories = @($brokerFinalIdentity.DataDirectories | ForEach-Object {
+            [IO.Path]::GetFullPath([string]$_).TrimEnd('\', '/')
+        } | Sort-Object -Unique)
+        $brokerFinalProof = Get-CutoverTombstoneProof -Tombstones @(
+            Get-CutoverArchivedTombstones -Connection $connection)
+        if ([int]$brokerFinalIdentity.DatabaseId -ne [int]$Authorization.OldDatabaseId -or
+            [string]$brokerFinalIdentity.CreateDateUtc -cne [string]$Authorization.OldDatabaseCreateDateUtc -or
+            [int]$brokerFinalIdentity.SchemaVersion -ne [int]$Authorization.OldSchemaVersion -or
+            [string]$brokerFinalIdentity.ContractVersion -cne [string]$Authorization.OldContractVersion -or
+            [string]$brokerFinalIdentity.HistoryEpoch -cne [string]$Authorization.OldHistoryEpoch -or
+            $brokerFinalDirectories.Count -ne 1 -or
+            -not [string]::Equals($brokerFinalDirectories[0], [string]$Authorization.SqlDataDirectory,
+                [StringComparison]::OrdinalIgnoreCase) -or
+            [string]$brokerFinalProof.AlgorithmVersion -cne [string]$Authorization.TombstoneAlgorithmVersion -or
+            [string]$brokerFinalProof.KeyTokenAlgorithmVersion -cne [string]$Authorization.KeyTokenAlgorithmVersion -or
+            [int]$brokerFinalProof.Count -ne [int]$Authorization.TombstoneCount -or
+            [string]$brokerFinalProof.Sha256 -cne [string]$Authorization.TombstoneSha256 -or
+            -not [bool]$brokerFinalIdentity.HasGlobalSessionVisibility -or
+            [int]$brokerFinalIdentity.ForeignSessionCount -ne 0) {
+            throw 'CUTOVER_DELETE_FINAL_BROKER_REVALIDATION_FAILED: target identity or connection state changed after elevation.'
+        }
+        $connection.ChangeDatabase([string]$Authorization.NewDatabaseName)
+        $brokerFinalNewIdentity = Get-CutoverDatabaseIdentityEvidence -Connection $connection
+        $brokerFinalNewDirectories = @($brokerFinalNewIdentity.DataDirectories | ForEach-Object {
+            [IO.Path]::GetFullPath([string]$_).TrimEnd('\', '/')
+        } | Sort-Object -Unique)
+        $brokerFinalNewProof = Get-CutoverTombstoneProof -Tombstones @(
+            Get-CutoverArchivedTombstones -Connection $connection)
+        if ([int]$brokerFinalNewIdentity.DatabaseId -ne [int]$Authorization.NewDatabaseId -or
+            [string]$brokerFinalNewIdentity.CreateDateUtc -cne [string]$Authorization.NewDatabaseCreateDateUtc -or
+            [int]$brokerFinalNewIdentity.SchemaVersion -ne [int]$Authorization.NewSchemaVersion -or
+            [string]$brokerFinalNewIdentity.ContractVersion -cne [string]$Authorization.NewContractVersion -or
+            [string]$brokerFinalNewIdentity.HistoryEpoch -cne [string]$Authorization.NewHistoryEpoch -or
+            $brokerFinalNewDirectories.Count -ne 1 -or
+            -not [string]::Equals($brokerFinalNewDirectories[0], [string]$Authorization.SqlDataDirectory,
+                [StringComparison]::OrdinalIgnoreCase) -or
+            [string]$brokerFinalNewProof.AlgorithmVersion -cne [string]$Authorization.TombstoneAlgorithmVersion -or
+            [string]$brokerFinalNewProof.KeyTokenAlgorithmVersion -cne [string]$Authorization.KeyTokenAlgorithmVersion -or
+            [int]$brokerFinalNewProof.Count -ne [int]$Authorization.TombstoneCount -or
+            [string]$brokerFinalNewProof.Sha256 -cne [string]$Authorization.TombstoneSha256) {
+            throw 'CUTOVER_DELETE_FINAL_NEW_DATABASE_REVALIDATION_FAILED: the new database identity or tombstone proof changed after elevation.'
+        }
+        $connection.ChangeDatabase('master')
+
+        Invoke-CutoverNonQuery -Connection $connection `
+            -Sql "EXECUTE AS LOGIN = '$principalName';"
+        $impersonated = $true
+        $connection.ChangeDatabase([string]$Authorization.OldDatabaseName)
+        $elevatedIdentity = Get-CutoverDatabaseIdentityEvidence -Connection $connection
+        if ([string]$elevatedIdentity.DatabaseName -cne [string]$Authorization.OldDatabaseName -or
+            [int]$elevatedIdentity.DatabaseId -ne [int]$Authorization.OldDatabaseId -or
+            [string]$elevatedIdentity.CreateDateUtc -cne [string]$Authorization.OldDatabaseCreateDateUtc -or
+            -not [bool]$elevatedIdentity.HasDeletePermission -or
+            [int]$elevatedIdentity.ForeignSessionCount -ne 0) {
+            throw ("CUTOVER_DELETE_ELEVATED_IDENTITY_MISMATCH: temporary permission did not resolve " +
+                "to the exact proven old database; name=$($elevatedIdentity.DatabaseName);" +
+                "databaseId=$($elevatedIdentity.DatabaseId);createDateUtc=$($elevatedIdentity.CreateDateUtc);" +
+                "hasDeletePermission=$($elevatedIdentity.HasDeletePermission);" +
+                "hasGlobalSessionVisibility=$($elevatedIdentity.HasGlobalSessionVisibility);" +
+                "foreignSessionCount=$($elevatedIdentity.ForeignSessionCount).")
+        }
+        $connection.ChangeDatabase('master')
+        $auditEvents.Add([pscustomobject]@{
+            AtUtc = [DateTimeOffset]::UtcNow.ToString('o'); Action = 'REVERIFIED_BEFORE_DROP';
+            Detail = "databaseId=$($elevatedIdentity.DatabaseId);createDateUtc=$($elevatedIdentity.CreateDateUtc)"
+        })
+
+        Invoke-CutoverDropDatabaseIfUnused `
+            -Connection $connection `
+            -DatabaseName ([string]$Authorization.OldDatabaseName)
+        $databaseDeleted = $true
+        $auditEvents.Add([pscustomobject]@{
+            AtUtc = [DateTimeOffset]::UtcNow.ToString('o'); Action = 'EXACT_DATABASE_DELETED';
+            Detail = "database=$([string]$Authorization.OldDatabaseName);databaseId=$([int]$Authorization.OldDatabaseId)"
+        })
+    } catch {
+        $primaryError = $_
+    } finally {
+        $cleanupError = $null
+        if ($null -ne $connection) {
+            $connection.Dispose()
+            $connection = $null
+            if ($impersonated) {
+                $impersonated = $false
+                $auditEvents.Add([pscustomobject]@{
+                    AtUtc = [DateTimeOffset]::UtcNow.ToString('o'); Action = 'IMPERSONATED_SESSION_CLOSED'; Detail = $principalName
+                })
+            }
+        }
+        foreach ($cleanupAttempt in 1..3) {
+            $cleanupConnection = $null
+            try {
+                $cleanupConnection = [Data.SqlClient.SqlConnection]::new($builder.ConnectionString)
+                $cleanupConnection.Open()
+                if ($principalCreationAttempted) {
+                    Invoke-CutoverNonQuery -Connection $cleanupConnection -Sql @'
+DECLARE @quotedLogin nvarchar(258) = QUOTENAME(CONVERT(sysname, @login));
+IF DB_ID(@database) IS NOT NULL
+BEGIN
+    DECLARE @quotedDatabase nvarchar(258) = QUOTENAME(CONVERT(sysname, @database));
+    DECLARE @loginLiteral nvarchar(258) = QUOTENAME(CONVERT(sysname, @login), NCHAR(39));
+    DECLARE @dropUserSql nvarchar(max) = N'USE ' + @quotedDatabase
+        + N'; IF USER_ID(' + @loginLiteral + N') IS NOT NULL DROP USER ' + @quotedLogin + N';';
+    EXEC sys.sp_executesql @dropUserSql;
+END;
+IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @login)
+    EXEC(N'DROP LOGIN ' + @quotedLogin + N';');
+'@ -Parameters @{
+                        '@login' = $principalName
+                        '@database' = [string]$Authorization.OldDatabaseName
+                    }
+                    $principalCreated = $false
+                    $principalCreationAttempted = $false
+                }
+                $remaining = [int](Invoke-CutoverScalar -Connection $cleanupConnection `
+                    -Sql 'SELECT COUNT(*) FROM sys.server_principals WHERE name = @name;' `
+                    -Parameters @{ '@name' = $principalName })
+                if ($remaining -ne 0) {
+                    throw 'CUTOVER_DELETE_PERMISSION_REVOCATION_NOT_PROVEN: the temporary principal still exists.'
+                }
+                $cleanupError = $null
+                $audit.RevokedAtUtc = [DateTimeOffset]::UtcNow.ToString('o')
+                $audit.FinalStatus = 'REVOKED_AND_PRINCIPAL_DROPPED'
+                $audit.VerifiedAbsent = $true
+                $auditEvents.Add([pscustomobject]@{
+                    AtUtc = $audit.RevokedAtUtc; Action = 'VERIFIED_ABSENT';
+                    Detail = "$principalName;cleanupAttempt=$cleanupAttempt"
+                })
+                break
+            } catch {
+                $cleanupError = $_
+                $audit.FinalStatus = 'REVOCATION_RETRY_REQUIRED'
+                $auditEvents.Add([pscustomobject]@{
+                    AtUtc = [DateTimeOffset]::UtcNow.ToString('o'); Action = 'REVOCATION_ATTEMPT_FAILED';
+                    Detail = "attempt=$cleanupAttempt;error=$($_.Exception.Message)"
+                })
+                if ($cleanupAttempt -eq 3) { $audit.FinalStatus = 'REVOCATION_FAILED' }
+            } finally {
+                if ($null -ne $cleanupConnection) { $cleanupConnection.Dispose() }
+            }
+        }
+
+        if ($null -ne $primaryError) {
+            $primaryError.Exception.Data['MesIngest.CutoverPermissionLifecycle'] = [pscustomobject]$audit
+            if ($null -ne $cleanupError) {
+                $primaryError.Exception.Data['MesIngest.CutoverPermissionRevocationFailure'] = $cleanupError.Exception.Message
+            }
+        } elseif ($null -ne $cleanupError) {
+            $cleanupError.Exception.Data['MesIngest.CutoverPermissionLifecycle'] = [pscustomobject]$audit
+            $primaryError = $cleanupError
+        }
+    }
+
+    if ($null -ne $primaryError) { throw $primaryError }
+    return [pscustomobject][ordered]@{
+        CutoverRunId = $CutoverRunId
+        ServerIdentity = [string]$Authorization.ServerIdentity
+        OldDatabaseName = [string]$Authorization.OldDatabaseName
+        OldDatabaseId = [int]$Authorization.OldDatabaseId
+        OldDatabaseCreateDateUtc = [string]$Authorization.OldDatabaseCreateDateUtc
+        DatabaseDeleted = $databaseDeleted
+        PermissionLifecycle = [pscustomobject]$audit
     }
 }
 
@@ -175,7 +648,9 @@ function Write-CutoverEvidence {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)] [string] $EvidenceDirectory,
-        [Parameter(Mandatory = $true)] $Evidence
+        [Parameter(Mandatory = $true)] $Evidence,
+        [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')]
+        [string] $Stage
     )
 
     $runId = [string]$Evidence.CutoverRunId
@@ -184,8 +659,9 @@ function Write-CutoverEvidence {
     }
     $directory = [IO.Path]::GetFullPath($EvidenceDirectory)
     [IO.Directory]::CreateDirectory($directory) | Out-Null
-    $jsonPath = Join-Path $directory "$runId.json"
-    $markdownPath = Join-Path $directory "$runId.md"
+    $stageSuffix = if ([string]::IsNullOrWhiteSpace($Stage)) { '' } else { ".$Stage" }
+    $jsonPath = Join-Path $directory "$runId$stageSuffix.json"
+    $markdownPath = Join-Path $directory "$runId$stageSuffix.md"
     if ([IO.File]::Exists($jsonPath) -or [IO.File]::Exists($markdownPath)) {
         throw "CUTOVER_EVIDENCE_EXISTS: evidence for CutoverRunId $runId is immutable."
     }
@@ -193,6 +669,12 @@ function Write-CutoverEvidence {
     $json = $Evidence | ConvertTo-Json -Depth 12
     if ($json -match '(?i)"(WorkType|Sublot|BusinessPayload|RawObservation|DemandRawObservation)"\s*:') {
         throw 'CUTOVER_EVIDENCE_CONTAINS_BUSINESS_DATA: evidence contains a forbidden business field.'
+    }
+    $permissionStatus = 'NOT_RECORDED'
+    if ($Evidence -is [Collections.IDictionary] -and $Evidence.Contains('PermissionLifecycle')) {
+        $permissionStatus = [string]$Evidence['PermissionLifecycle'].FinalStatus
+    } elseif ($null -ne $Evidence.PSObject.Properties['PermissionLifecycle']) {
+        $permissionStatus = [string]$Evidence.PermissionLifecycle.FinalStatus
     }
     $markdown = @(
         '# MesIngest CutoverRun evidence'
@@ -206,6 +688,7 @@ function Write-CutoverEvidence {
         "- Tombstone SHA-256: $([string]$Evidence.TombstoneProof.Sha256)"
         "- Gate count: $([string]$Evidence.GateCount)"
         "- Database deletion: $([string]$Evidence.DatabaseDeletion)"
+        "- Permission lifecycle: $permissionStatus"
         ''
         'This evidence contains identities and gate summaries only. It is not a database backup.'
     ) -join "`n"
@@ -299,7 +782,7 @@ function Get-CutoverDatabaseIdentityEvidence {
 SELECT
     CONVERT(NVARCHAR(256), SERVERPROPERTY('MachineName')),
     COALESCE(CONVERT(NVARCHAR(256), SERVERPROPERTY('InstanceName')), N'MSSQLSERVER'),
-    DB_NAME(), DB_ID(),
+    DB_NAME(), DB_ID(), databaseIdentity.create_date,
     CASE WHEN DB_ID() <= 4 THEN CONVERT(BIT, 1) ELSE CONVERT(BIT, 0) END,
     schemaInfo.SchemaVersion,
     schemaInfo.ContractVersion,
@@ -316,6 +799,7 @@ SELECT
         THEN 1 ELSE 0 END),
     ORIGINAL_LOGIN()
 FROM mesingest.SchemaInfo AS schemaInfo
+INNER JOIN sys.databases AS databaseIdentity ON databaseIdentity.database_id = DB_ID()
 WHERE schemaInfo.Id = 1;
 
 SELECT physical_name
@@ -337,13 +821,14 @@ WHERE sessionRow.database_id = DB_ID()
             $serverIdentity = "$($reader.GetString(0))\$($reader.GetString(1))"
             $databaseName = $reader.GetString(2)
             $databaseId = [Convert]::ToInt32($reader.GetValue(3), [Globalization.CultureInfo]::InvariantCulture)
-            $isSystemDatabase = $reader.GetBoolean(4)
-            $schemaVersion = [Convert]::ToInt32($reader.GetValue(5), [Globalization.CultureInfo]::InvariantCulture)
-            $contractVersion = $reader.GetString(6)
-            $historyEpoch = $reader.GetGuid(7).ToString('D')
-            $hasDeletePermission = $reader.GetBoolean(8)
-            $hasGlobalSessionVisibility = $reader.GetBoolean(9)
-            $executionLogin = $reader.GetString(10)
+            $createDateUtc = [DateTime]::SpecifyKind($reader.GetDateTime(4), [DateTimeKind]::Utc).ToString('o')
+            $isSystemDatabase = $reader.GetBoolean(5)
+            $schemaVersion = [Convert]::ToInt32($reader.GetValue(6), [Globalization.CultureInfo]::InvariantCulture)
+            $contractVersion = $reader.GetString(7)
+            $historyEpoch = $reader.GetGuid(8).ToString('D')
+            $hasDeletePermission = $reader.GetBoolean(9)
+            $hasGlobalSessionVisibility = $reader.GetBoolean(10)
+            $executionLogin = $reader.GetString(11)
 
             if (-not $reader.NextResult()) {
                 throw 'CUTOVER_DATABASE_FILES_MISSING: the database file result is absent.'
@@ -371,6 +856,7 @@ WHERE sessionRow.database_id = DB_ID()
         ServerIdentity = $serverIdentity
         DatabaseName = $databaseName
         DatabaseId = $databaseId
+        CreateDateUtc = $createDateUtc
         IsSystemDatabase = $isSystemDatabase
         SchemaVersion = $schemaVersion
         ContractVersion = $contractVersion
@@ -471,14 +957,29 @@ function Write-CutoverWindowsEvent {
         [Parameter(Mandatory = $true)] [string] $Status,
         [Parameter(Mandatory = $true)] [string] $HistoryEpoch,
         [Parameter(Mandatory = $true)] [string] $TombstoneSha256,
-        [Parameter(Mandatory = $true)] [string] $KeyTokenAlgorithmVersion
+        [Parameter(Mandatory = $true)] [string] $KeyTokenAlgorithmVersion,
+        [string] $DatabaseDeletion = 'NOT_AUTHORIZED_TICKET_23',
+        [string] $PermissionStatus = 'NOT_GRANTED',
+        [string] $ServerIdentity = 'NOT_RESOLVED',
+        [string] $OldDatabaseIdentity = 'NOT_RESOLVED',
+        [string] $NewDatabaseIdentity = 'NOT_RESOLVED',
+        [string] $ContractSchemaIdentity = 'NOT_RESOLVED',
+        [string] $ProjectionIdentity = 'NOT_PROVEN',
+        [string] $InterfaceGateSummary = 'NOT_PROVEN',
+        [string] $ExecutionIdentity = 'NOT_RESOLVED',
+        [string] $StartedAtUtc = 'NOT_RECORDED',
+        [string] $CompletedAtUtc = 'NOT_RECORDED'
     )
 
     Add-Type -AssemblyName System.Diagnostics.EventLog | Out-Null
     $message = "MesIngest CutoverRunId=$CutoverRunId Status=$Status " +
         "HistoryEpoch=$HistoryEpoch TombstoneSha256=$TombstoneSha256 " +
         "KeyTokenAlgorithmVersion=$KeyTokenAlgorithmVersion " +
-        'DatabaseDeletion=NOT_AUTHORIZED_TICKET_23'
+        "DatabaseDeletion=$DatabaseDeletion PermissionStatus=$PermissionStatus " +
+        "ServerIdentity=$ServerIdentity OldDatabase=$OldDatabaseIdentity " +
+        "NewDatabase=$NewDatabaseIdentity ContractSchema=$ContractSchemaIdentity " +
+        "Projection=$ProjectionIdentity Interfaces=$InterfaceGateSummary " +
+        "ExecutionIdentity=$ExecutionIdentity StartedAtUtc=$StartedAtUtc CompletedAtUtc=$CompletedAtUtc"
     [Diagnostics.EventLog]::WriteEntry(
         'Application',
         $message,
@@ -1026,6 +1527,28 @@ function Invoke-CutoverDropDatabase {
     $sql = "ALTER DATABASE [$DatabaseName] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; " +
         "DROP DATABASE [$DatabaseName];"
     Invoke-CutoverNonQuery -Connection $Connection -Sql $sql
+}
+
+function Invoke-CutoverDropDatabaseIfUnused {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] $Connection,
+        [Parameter(Mandatory = $true)] [string] $DatabaseName
+    )
+
+    Invoke-CutoverNonQuery -Connection $Connection -Sql @'
+IF DB_ID(@database) IS NULL
+    THROW 51025, 'CUTOVER_DELETE_TARGET_DISAPPEARED', 1;
+IF EXISTS (
+    SELECT 1
+    FROM sys.dm_exec_sessions
+    WHERE database_id = DB_ID(@database)
+      AND session_id <> @@SPID
+      AND is_user_process = 1)
+    THROW 51025, 'CUTOVER_DELETE_OLD_DATABASE_STILL_IN_USE', 1;
+DECLARE @dropSql nvarchar(max) = N'DROP DATABASE ' + QUOTENAME(CONVERT(sysname, @database)) + N';';
+EXEC sys.sp_executesql @dropSql;
+'@ -Parameters @{ '@database' = $DatabaseName }
 }
 
 function Invoke-CutoverCreateEmptyDatabase {

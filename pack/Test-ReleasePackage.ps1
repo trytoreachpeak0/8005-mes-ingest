@@ -264,13 +264,13 @@ foreach ($relativeScanPath in $legacyScanRelativePaths) {
     }
 }
 
-# Ticket 25: database deletion may exist only in the attended cutover drill. Any other
-# packaged script that can DROP a database, and any bypass of the typed target
-# confirmation, would be an unattended path against an unconfirmed instance.
+# Ticket 25: database deletion may exist only in the attended, same-run-gated cutover.
+# The legacy backup/rollback drills retain typed confirmation; the Ticket 25 entry point
+# is deliberately automatic only after its immutable evidence and mechanical gates pass.
 $packagedScripts = @(
     Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File -Recurse -ErrorAction SilentlyContinue)
 $cutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-EmptyDatabaseCutover.ps1'
-$noDeleteCutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-MesIngestCutoverRun.ps1'
+$oneTimeDeleteCutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-MesIngestCutoverRun.ps1'
 $cutoverToolsPath = Join-Path $root 'scripts\cutover\CutoverSqlTools.ps1'
 $rollbackEntryPoint = Join-Path $root 'scripts\cutover\Invoke-CutoverRollback.ps1'
 $ownedScaleValidation = Join-Path $root 'validation\Invoke-ScaleAndQueryEvidence.ps1'
@@ -288,11 +288,15 @@ if ($unexpectedDropPaths.Count -gt 0) {
     throw ('Release package ships a database-deleting path outside the attended cutover drill: ' +
         ($unexpectedDropPaths -join '; '))
 }
-$noDeleteCutoverText = [IO.File]::ReadAllText($noDeleteCutoverEntryPoint)
-if ($noDeleteCutoverText -imatch '(DROP|BACKUP|RESTORE)\s+DATABASE' -or
-    $noDeleteCutoverText -match 'Invoke-CutoverDropDatabase' -or
-    $noDeleteCutoverText -notmatch 'NOT_AUTHORIZED_TICKET_23') {
-    throw 'Ticket 23 cutover entry point must remain no-delete and emit no deletion authorization.'
+$oneTimeDeleteCutoverText = [IO.File]::ReadAllText($oneTimeDeleteCutoverEntryPoint)
+if ($oneTimeDeleteCutoverText -imatch '(DROP|BACKUP|RESTORE)\s+DATABASE' -or
+    $oneTimeDeleteCutoverText -match 'Invoke-CutoverDropDatabase' -or
+    $oneTimeDeleteCutoverText -notmatch 'Assert-CutoverDeleteAuthorization' -or
+    $oneTimeDeleteCutoverText -notmatch 'Invoke-CutoverProvenOldDatabaseDeletion' -or
+    $oneTimeDeleteCutoverText -notmatch 'DELETED_EXACT_PROVEN_OLD_DATABASE' -or
+    $oneTimeDeleteCutoverText -notmatch "-Stage 'pre-delete'") {
+    throw ('Ticket 25 cutover entry point must delegate one exact deletion only after ' +
+        'same-run authorization and immutable pre-delete evidence.')
 }
 foreach ($drillPath in @($cutoverEntryPoint, $rollbackEntryPoint)) {
     $drillText = [IO.File]::ReadAllText($drillPath)

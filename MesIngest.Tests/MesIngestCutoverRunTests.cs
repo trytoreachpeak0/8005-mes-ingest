@@ -252,6 +252,111 @@ public sealed class MesIngestCutoverRunTests
     }
 
     [Fact]
+    public void Delete_authorization_revalidates_the_same_run_exact_identities_and_tombstone_proof()
+    {
+        var tools = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "cutover",
+            "CutoverSqlTools.ps1");
+        var script = $$"""
+            . '{{tools}}'
+            $runId = '12121212-1212-4212-8212-121212121212'
+            $epoch = '34343434-3434-4434-8434-343434343434'
+            $old = [pscustomobject]@{
+                ServerIdentity = 'plant\MSSQLSERVER'; DatabaseName = 'MesIngestOld';
+                DatabaseId = 7; CreateDateUtc = '2026-08-25T00:00:00.0000000Z';
+                IsSystemDatabase = $false; SchemaVersion = 27; ContractVersion = 'old-contract';
+                HistoryEpoch = '56565656-5656-4656-8656-565656565656';
+                DataDirectories = @('D:\SqlData'); ForeignSessionCount = 0;
+                HasDeletePermission = $false; HasGlobalSessionVisibility = $true;
+                ExecutionLogin = 'MESINGEST_CUTOVER_BASE'
+            }
+            $new = [pscustomobject]@{
+                ServerIdentity = 'plant\MSSQLSERVER'; DatabaseName = 'MesIngestNew';
+                DatabaseId = 8; CreateDateUtc = '2026-08-25T00:01:00.0000000Z';
+                IsSystemDatabase = $false; SchemaVersion = 28; ContractVersion = 'new-contract';
+                HistoryEpoch = $epoch; DataDirectories = @('D:\SqlData'); ForeignSessionCount = 1;
+                HasDeletePermission = $false; HasGlobalSessionVisibility = $true;
+                ExecutionLogin = 'MESINGEST_CUTOVER_BASE'
+            }
+            $proof = [pscustomobject]@{
+                AlgorithmVersion = 'ARCHIVED_DEMAND_KEY_TOMBSTONE_SHA256_V1'
+                KeyTokenAlgorithmVersion = 'TRANSPORT_DEMAND_KEY_SHA256_LENGTH_PREFIXED_V1'
+                Count = 3; Sha256 = ('a' * 64)
+            }
+            $gates = @(Get-CutoverRequiredGateNames | ForEach-Object {
+                [pscustomobject]@{ Name = $_; CutoverRunId = $runId; Passed = $true; Detail = 'ok' }
+            })
+            $parameters = @{
+                CutoverRunId = $runId; GateResults = $gates;
+                ProvenOldIdentity = $old; CurrentOldIdentity = ($old | Select-Object *);
+                ProvenNewIdentity = $new; CurrentNewIdentity = ($new | Select-Object *);
+                ProvenTombstoneProof = $proof; CurrentOldTombstoneProof = ($proof | Select-Object *);
+                CurrentNewTombstoneProof = ($proof | Select-Object *);
+                ExpectedOldDatabaseName = 'MesIngestOld'; ExpectedNewDatabaseName = 'MesIngestNew';
+                ExpectedSqlDataDirectory = 'D:\SqlData'
+            }
+            $authorization = Assert-CutoverDeleteAuthorization @parameters
+            $failures = [ordered]@{}
+            foreach ($mutation in @(
+                'wrong-run', 'recreated-old', 'new-target', 'changed-proof',
+                'active-connection', 'wildcard-name', 'already-privileged',
+                'system-database', 'schema-changed', 'directory-changed',
+                'new-recreated', 'server-changed', 'login-changed',
+                'blind-session-query', 'proof-algorithm-changed', 'proof-count-changed')) {
+                $candidate = @{} + $parameters
+                $candidate.GateResults = @($gates | ForEach-Object { $_ | Select-Object * })
+                $candidate.CurrentOldIdentity = $old | Select-Object *
+                $candidate.CurrentNewIdentity = $new | Select-Object *
+                $candidate.CurrentOldTombstoneProof = $proof | Select-Object *
+                switch ($mutation) {
+                    'wrong-run' { $candidate.GateResults[0].CutoverRunId = '78787878-7878-4878-8878-787878787878' }
+                    'recreated-old' { $candidate.CurrentOldIdentity.CreateDateUtc = '2026-08-25T00:02:00.0000000Z' }
+                    'new-target' { $candidate.CurrentOldIdentity.DatabaseName = 'MesIngestNew'; $candidate.CurrentOldIdentity.DatabaseId = 8 }
+                    'changed-proof' { $candidate.CurrentOldTombstoneProof.Sha256 = ('b' * 64) }
+                    'active-connection' { $candidate.CurrentOldIdentity.ForeignSessionCount = 1 }
+                    'wildcard-name' { $candidate.ExpectedOldDatabaseName = 'MesIngest*' }
+                    'already-privileged' { $candidate.CurrentOldIdentity.HasDeletePermission = $true }
+                    'system-database' { $candidate.CurrentOldIdentity.IsSystemDatabase = $true }
+                    'schema-changed' { $candidate.CurrentOldIdentity.SchemaVersion = 99 }
+                    'directory-changed' { $candidate.CurrentOldIdentity.DataDirectories = @('E:\Other') }
+                    'new-recreated' { $candidate.CurrentNewIdentity.CreateDateUtc = '2026-08-25T00:03:00.0000000Z' }
+                    'server-changed' { $candidate.CurrentOldIdentity.ServerIdentity = 'other\MSSQLSERVER' }
+                    'login-changed' { $candidate.CurrentNewIdentity.ExecutionLogin = 'OTHER_LOGIN' }
+                    'blind-session-query' { $candidate.CurrentOldIdentity.HasGlobalSessionVisibility = $false }
+                    'proof-algorithm-changed' { $candidate.CurrentOldTombstoneProof.AlgorithmVersion = 'OTHER' }
+                    'proof-count-changed' { $candidate.CurrentOldTombstoneProof.Count = 4 }
+                }
+                try {
+                    Assert-CutoverDeleteAuthorization @candidate | Out-Null
+                    $failures[$mutation] = 'UNEXPECTED_PASS'
+                } catch {
+                    $failures[$mutation] = $_.Exception.Message
+                }
+            }
+            [pscustomobject]@{ Authorization = $authorization; Failures = $failures } |
+                ConvertTo-Json -Depth 6 -Compress
+            """;
+
+        var result = RunPowerShell(script);
+
+        Assert.Equal(0, result.ExitCode);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            "12121212-1212-4212-8212-121212121212",
+            json.RootElement.GetProperty("Authorization").GetProperty("CutoverRunId").GetString());
+        Assert.Equal(
+            "MesIngestOld",
+            json.RootElement.GetProperty("Authorization").GetProperty("OldDatabaseName").GetString());
+        foreach (var failure in json.RootElement.GetProperty("Failures").EnumerateObject())
+        {
+            Assert.StartsWith("CUTOVER_DELETE_", failure.Value.GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("UNEXPECTED_PASS", failure.Value.GetString(), StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task Reference_consumer_probe_requires_the_history_epoch_and_excludes_tombstone_keys()
     {
         var epoch = HistoryEpoch.FromGuid(Guid.Parse("66666666-6666-4666-8666-666666666666"));
@@ -325,7 +430,11 @@ public sealed class MesIngestCutoverRunTests
                 }
                 GateCount = 11
                 DatabaseDeletion = 'NOT_AUTHORIZED_TICKET_23'
+                PermissionLifecycle = [pscustomobject]@{
+                    FinalStatus = 'NOT_GRANTED_BY_THIS_RUN'; VerifiedAbsent = $false
+                }
             }
+            $pre = Write-CutoverEvidence -EvidenceDirectory '{{directory}}' -Evidence $evidence -Stage 'pre-delete'
             $first = Write-CutoverEvidence -EvidenceDirectory '{{directory}}' -Evidence $evidence
             try {
                 Write-CutoverEvidence -EvidenceDirectory '{{directory}}' -Evidence $evidence | Out-Null
@@ -333,7 +442,14 @@ public sealed class MesIngestCutoverRunTests
             } catch {
                 $second = $_.Exception.Message
             }
-            [pscustomobject]@{ First = $first; Second = $second } | ConvertTo-Json -Compress
+            try {
+                Write-CutoverEvidence -EvidenceDirectory '{{directory}}' -Evidence $evidence -Stage 'pre-delete' | Out-Null
+                $preOverwrite = 'UNEXPECTED_OVERWRITE'
+            } catch {
+                $preOverwrite = $_.Exception.Message
+            }
+            [pscustomobject]@{ Pre = $pre; First = $first; Second = $second; PreOverwrite = $preOverwrite } |
+                ConvertTo-Json -Compress
             """;
 
         try
@@ -343,11 +459,17 @@ public sealed class MesIngestCutoverRunTests
             Assert.Equal(0, result.ExitCode);
             using var output = JsonDocument.Parse(result.Output);
             Assert.Contains("CUTOVER_EVIDENCE_EXISTS", output.RootElement.GetProperty("Second").GetString());
+            Assert.Contains("CUTOVER_EVIDENCE_EXISTS", output.RootElement.GetProperty("PreOverwrite").GetString());
             var jsonPath = output.RootElement.GetProperty("First").GetProperty("JsonPath").GetString()!;
             var markdownPath = output.RootElement.GetProperty("First").GetProperty("MarkdownPath").GetString()!;
+            var preJsonPath = output.RootElement.GetProperty("Pre").GetProperty("JsonPath").GetString()!;
+            var preMarkdownPath = output.RootElement.GetProperty("Pre").GetProperty("MarkdownPath").GetString()!;
             Assert.True(File.Exists(jsonPath));
             Assert.True(File.Exists(markdownPath));
-            var combined = File.ReadAllText(jsonPath) + File.ReadAllText(markdownPath);
+            Assert.True(File.Exists(preJsonPath));
+            Assert.True(File.Exists(preMarkdownPath));
+            var combined = File.ReadAllText(jsonPath) + File.ReadAllText(markdownPath)
+                + File.ReadAllText(preJsonPath) + File.ReadAllText(preMarkdownPath);
             Assert.Contains("88888888-8888-4888-8888-888888888888", combined, StringComparison.Ordinal);
             Assert.Contains("NOT_AUTHORIZED_TICKET_23", combined, StringComparison.Ordinal);
             Assert.Contains("TRANSPORT_DEMAND_KEY_SHA256_LENGTH_PREFIXED_V1", combined, StringComparison.Ordinal);
@@ -364,18 +486,21 @@ public sealed class MesIngestCutoverRunTests
     }
 
     [Fact]
-    public void No_delete_cutover_entrypoint_and_reference_consumer_probe_ship_in_the_release_package()
+    public void One_time_delete_cutover_entrypoint_and_reference_consumer_probe_ship_in_the_release_package()
     {
         var cutover = File.ReadAllText(Path.Combine(
             RepositoryPaths.CSharpRoot,
             "pack",
             "cutover",
             "Invoke-MesIngestCutoverRun.ps1"));
-        Assert.DoesNotContain("DROP DATABASE", cutover, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("BACKUP DATABASE", cutover, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("RESTORE DATABASE", cutover, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("Invoke-CutoverDropDatabase", cutover, StringComparison.Ordinal);
-        Assert.Contains("NOT_AUTHORIZED_TICKET_23", cutover, StringComparison.Ordinal);
+        Assert.Contains("$PrivilegeConnectionString", cutover, StringComparison.Ordinal);
+        Assert.Contains("Assert-CutoverDeleteAuthorization", cutover, StringComparison.Ordinal);
+        Assert.Contains("Invoke-CutoverProvenOldDatabaseDeletion", cutover, StringComparison.Ordinal);
+        Assert.Contains("-Stage 'pre-delete'", cutover, StringComparison.Ordinal);
+        Assert.Contains("PermissionLifecycle", cutover, StringComparison.Ordinal);
+        Assert.Contains("DELETED_EXACT_PROVEN_OLD_DATABASE", cutover, StringComparison.Ordinal);
         Assert.Contains("-KeyTokenAlgorithmVersion $tombstoneProof.KeyTokenAlgorithmVersion", cutover, StringComparison.Ordinal);
         Assert.Contains("post-seed high-water", cutover, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("-AfterPollTraceSequence $postSeedPollTraceHighWater", cutover, StringComparison.Ordinal);
@@ -383,6 +508,42 @@ public sealed class MesIngestCutoverRunTests
         Assert.True(
             cutover.Split("Assert-OldCutoverHostStopped", StringSplitOptions.None).Length - 1 >= 3,
             "The entry point must define and invoke the old-Host gate both initially and immediately before evidence.");
+
+        var toolsText = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "cutover",
+            "CutoverSqlTools.ps1"));
+        var creationAttempt = toolsText.IndexOf(
+            "$principalCreationAttempted = $true",
+            StringComparison.Ordinal);
+        var createLogin = toolsText.IndexOf("EXEC(N'CREATE LOGIN '", StringComparison.Ordinal);
+        Assert.True(creationAttempt >= 0 && creationAttempt < createLogin,
+            "Ambiguous CREATE LOGIN outcomes must still enter deterministic cleanup.");
+        Assert.Contains("foreach ($cleanupAttempt in 1..3)", toolsText, StringComparison.Ordinal);
+        Assert.Contains("Invoke-CutoverDropDatabaseIfUnused", toolsText, StringComparison.Ordinal);
+        Assert.Contains("ContractSchemaIdentity", toolsText, StringComparison.Ordinal);
+        Assert.Contains("InterfaceGateSummary", toolsText, StringComparison.Ordinal);
+
+        foreach (var dailyProject in new[]
+                 {
+                     "MesIngest.Host",
+                     "MesIngest.Watch",
+                     "MesIngest.ReferenceConsumer",
+                 })
+        {
+            var files = Directory.EnumerateFiles(
+                Path.Combine(RepositoryPaths.CSharpRoot, dailyProject),
+                "*",
+                SearchOption.AllDirectories)
+                .Where(path => Path.GetExtension(path) is ".cs" or ".ps1" or ".sql");
+            foreach (var file in files)
+            {
+                var text = File.ReadAllText(file);
+                Assert.DoesNotContain("Invoke-CutoverProvenOldDatabaseDeletion", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("DROP DATABASE", text, StringComparison.OrdinalIgnoreCase);
+            }
+        }
 
         var publish = File.ReadAllText(Path.Combine(
             RepositoryPaths.CSharpRoot,
@@ -399,6 +560,10 @@ public sealed class MesIngestCutoverRunTests
         Assert.Contains("Invoke-MesIngestCutoverRun.ps1", validator, StringComparison.Ordinal);
         Assert.Contains("reference-consumer\\MesIngest.ReferenceConsumer.exe", validator, StringComparison.Ordinal);
         Assert.Contains("validation\\Invoke-ScaleAndQueryEvidence.ps1", validator, StringComparison.Ordinal);
+        Assert.Contains("Assert-CutoverDeleteAuthorization", validator, StringComparison.Ordinal);
+        Assert.Contains("Invoke-CutoverProvenOldDatabaseDeletion", validator, StringComparison.Ordinal);
+        Assert.Contains("DELETED_EXACT_PROVEN_OLD_DATABASE", validator, StringComparison.Ordinal);
+        Assert.DoesNotContain("must remain no-delete", validator, StringComparison.OrdinalIgnoreCase);
     }
 
     [Ticket01SqlServerFact]
@@ -542,6 +707,259 @@ public sealed class MesIngestCutoverRunTests
         Assert.Equal(3, await CountTombstonesAsync(newDatabase.ConnectionString));
     }
 
+    [Ticket01SqlServerFact]
+    public async Task One_time_permission_deletes_only_the_revalidated_isolated_old_database_and_is_revoked()
+    {
+        await using var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync();
+        await using var newDatabase = await Ticket01SqlServerDatabase.CreateAsync();
+        var oldProjection = new SqlServerMesIngestProjection(oldDatabase.ConnectionString);
+        var newProjection = new SqlServerMesIngestProjection(newDatabase.ConnectionString);
+        await oldProjection.BeginHostSessionAsync();
+        await newProjection.BeginHostSessionAsync();
+        var masterConnectionString = new SqlConnectionStringBuilder(oldDatabase.ConnectionString)
+        {
+            InitialCatalog = "master",
+        }.ConnectionString;
+        var tools = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "cutover",
+            "CutoverSqlTools.ps1");
+        var evidenceDirectory = Path.Combine(
+            Path.GetTempPath(), "MesIngestTicket25", Guid.NewGuid().ToString("N"));
+        var environment = new Dictionary<string, string?>
+        {
+            ["CUTOVER_TEST_OLD_SQLSERVER"] = ToSystemDataConnectionString(oldDatabase.ConnectionString),
+            ["CUTOVER_TEST_NEW_SQLSERVER"] = ToSystemDataConnectionString(newDatabase.ConnectionString),
+            ["CUTOVER_TEST_MASTER_SQLSERVER"] = ToSystemDataConnectionString(masterConnectionString),
+            ["CUTOVER_TEST_EVIDENCE_DIRECTORY"] = evidenceDirectory,
+        };
+        SqlConnection.ClearAllPools();
+        var script = $$"""
+            . '{{tools}}'
+            $runId = '90909090-9090-4090-8090-909090909090'
+            $old = [System.Data.SqlClient.SqlConnection]::new($env:CUTOVER_TEST_OLD_SQLSERVER)
+            $new = [System.Data.SqlClient.SqlConnection]::new($env:CUTOVER_TEST_NEW_SQLSERVER)
+            try {
+                $old.Open(); $new.Open()
+                $actualOld = Get-CutoverDatabaseIdentityEvidence -Connection $old
+                $actualNew = Get-CutoverDatabaseIdentityEvidence -Connection $new
+                $provenOld = $actualOld | Select-Object *
+                $provenNew = $actualNew | Select-Object *
+                $provenOld.HasDeletePermission = $false
+                $provenNew.HasDeletePermission = $false
+                $currentOld = $provenOld | Select-Object *
+                $currentNew = $provenNew | Select-Object *
+                $proof = Get-CutoverTombstoneProof -Tombstones @()
+                $gates = @(Get-CutoverRequiredGateNames | ForEach-Object {
+                    [pscustomobject]@{ Name = $_; CutoverRunId = $runId; Passed = $true; Detail = 'ok' }
+                })
+                $authorization = Assert-CutoverDeleteAuthorization `
+                    -CutoverRunId $runId -GateResults $gates `
+                    -ProvenOldIdentity $provenOld -CurrentOldIdentity $currentOld `
+                    -ProvenNewIdentity $provenNew -CurrentNewIdentity $currentNew `
+                    -ProvenTombstoneProof $proof -CurrentOldTombstoneProof $proof `
+                    -CurrentNewTombstoneProof $proof `
+                    -ExpectedOldDatabaseName '{{oldDatabase.DatabaseName}}' `
+                    -ExpectedNewDatabaseName '{{newDatabase.DatabaseName}}' `
+                    -ExpectedSqlDataDirectory $actualOld.DataDirectories[0]
+            } finally {
+                $old.Dispose(); $new.Dispose()
+            }
+            $preEvidence = [ordered]@{
+                SchemaVersion = 2; CutoverRunId = $runId; Status = 'DELETE_AUTHORIZED_BEFORE_ELEVATION'
+                HistoryEpoch = $actualNew.HistoryEpoch; TombstoneProof = $proof; GateCount = $gates.Count
+                OldDatabase = [ordered]@{ DatabaseName = $actualOld.DatabaseName; DatabaseId = $actualOld.DatabaseId }
+                PermissionLifecycle = [ordered]@{ FinalStatus = 'NOT_GRANTED_BY_THIS_RUN' }
+                DatabaseDeletion = 'PENDING_EXACT_PROVEN_OLD_DATABASE'; IsDatabaseBackup = $false
+            }
+            Write-CutoverEvidence -EvidenceDirectory $env:CUTOVER_TEST_EVIDENCE_DIRECTORY `
+                -Evidence $preEvidence -Stage 'pre-delete' | Out-Null
+            [System.Data.SqlClient.SqlConnection]::ClearAllPools()
+            $stoppedService = @(Get-Service | Where-Object Status -eq Stopped | Select-Object -First 1).Name
+            if ([string]::IsNullOrWhiteSpace($stoppedService)) { throw 'CUTOVER_TEST_STOPPED_SERVICE_NOT_FOUND' }
+            Invoke-CutoverProvenOldDatabaseDeletion `
+                -CutoverRunId $runId `
+                -PrivilegeConnectionString $env:CUTOVER_TEST_MASTER_SQLSERVER `
+                -EvidenceDirectory $env:CUTOVER_TEST_EVIDENCE_DIRECTORY `
+                -OldHostServiceName $stoppedService -GateResults $gates `
+                -ProvenOldIdentity $provenOld -CurrentOldIdentity $currentOld `
+                -ProvenNewIdentity $provenNew -CurrentNewIdentity $currentNew `
+                -ProvenTombstoneProof $proof -CurrentOldTombstoneProof $proof `
+                -CurrentNewTombstoneProof $proof `
+                -ExpectedOldDatabaseName '{{oldDatabase.DatabaseName}}' `
+                -ExpectedNewDatabaseName '{{newDatabase.DatabaseName}}' `
+                -ExpectedSqlDataDirectory $actualOld.DataDirectories[0] |
+                ConvertTo-Json -Depth 8 -Compress
+            """;
+
+        var result = RunPowerShell(script, environment);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        using var json = JsonDocument.Parse(result.Output);
+        Assert.True(json.RootElement.GetProperty("DatabaseDeleted").GetBoolean());
+        Assert.Equal(oldDatabase.DatabaseName, json.RootElement.GetProperty("OldDatabaseName").GetString());
+        Assert.Equal("REVOKED_AND_PRINCIPAL_DROPPED", json.RootElement
+            .GetProperty("PermissionLifecycle").GetProperty("FinalStatus").GetString());
+        Assert.True(json.RootElement.GetProperty("PermissionLifecycle")
+            .GetProperty("VerifiedAbsent").GetBoolean());
+        await AssertDatabaseExistsAsync(masterConnectionString, oldDatabase.DatabaseName, expected: false);
+        await AssertDatabaseExistsAsync(masterConnectionString, newDatabase.DatabaseName, expected: true);
+        await AssertLoginExistsAsync(
+            masterConnectionString,
+            json.RootElement.GetProperty("PermissionLifecycle").GetProperty("PrincipalName").GetString()!,
+            expected: false);
+        Console.WriteLine(
+            $"TICKET25_REAL_DELETE old={oldDatabase.DatabaseName};new={newDatabase.DatabaseName};"
+            + "oldDeleted=True;newPreserved=True;permission=REVOKED_AND_PRINCIPAL_DROPPED");
+        Directory.Delete(evidenceDirectory, recursive: true);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Failed_drop_preserves_both_isolated_databases_and_revokes_the_one_time_permission()
+    {
+        await using var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync();
+        await using var newDatabase = await Ticket01SqlServerDatabase.CreateAsync();
+        var oldProjection = new SqlServerMesIngestProjection(oldDatabase.ConnectionString);
+        var newProjection = new SqlServerMesIngestProjection(newDatabase.ConnectionString);
+        await oldProjection.BeginHostSessionAsync();
+        await newProjection.BeginHostSessionAsync();
+        var masterConnectionString = new SqlConnectionStringBuilder(oldDatabase.ConnectionString)
+        {
+            InitialCatalog = "master",
+        }.ConnectionString;
+        var triggerName = "MesIngestTicket25Block_" + Guid.NewGuid().ToString("N");
+        await using var admin = new SqlConnection(masterConnectionString);
+        await admin.OpenAsync();
+        await using (var createTrigger = admin.CreateCommand())
+        {
+            createTrigger.CommandText = $"""
+                CREATE TRIGGER [{triggerName}]
+                ON ALL SERVER
+                AFTER DROP_DATABASE
+                AS
+                BEGIN
+                    SET NOCOUNT ON;
+                    IF EVENTDATA().value('(/EVENT_INSTANCE/DatabaseName)[1]', 'sysname')
+                        = N'{oldDatabase.DatabaseName}'
+                        THROW 51025, 'MESINGEST_TICKET25_EXPECTED_DROP_FAILURE', 1;
+                END;
+                """;
+            await createTrigger.ExecuteNonQueryAsync();
+        }
+
+        try
+        {
+            var tools = Path.Combine(
+                RepositoryPaths.CSharpRoot,
+                "pack",
+                "cutover",
+                "CutoverSqlTools.ps1");
+            var evidenceDirectory = Path.Combine(
+                Path.GetTempPath(), "MesIngestTicket25", Guid.NewGuid().ToString("N"));
+            var environment = new Dictionary<string, string?>
+            {
+                ["CUTOVER_TEST_OLD_SQLSERVER"] = ToSystemDataConnectionString(oldDatabase.ConnectionString),
+                ["CUTOVER_TEST_NEW_SQLSERVER"] = ToSystemDataConnectionString(newDatabase.ConnectionString),
+                ["CUTOVER_TEST_MASTER_SQLSERVER"] = ToSystemDataConnectionString(masterConnectionString),
+                ["CUTOVER_TEST_EVIDENCE_DIRECTORY"] = evidenceDirectory,
+            };
+            SqlConnection.ClearAllPools();
+            var script = $$"""
+                . '{{tools}}'
+                $runId = '91919191-9191-4191-8191-919191919191'
+                $old = [System.Data.SqlClient.SqlConnection]::new($env:CUTOVER_TEST_OLD_SQLSERVER)
+                $new = [System.Data.SqlClient.SqlConnection]::new($env:CUTOVER_TEST_NEW_SQLSERVER)
+                try {
+                    $old.Open(); $new.Open()
+                    $actualOld = Get-CutoverDatabaseIdentityEvidence -Connection $old
+                    $actualNew = Get-CutoverDatabaseIdentityEvidence -Connection $new
+                    $provenOld = $actualOld | Select-Object *
+                    $provenNew = $actualNew | Select-Object *
+                    $provenOld.HasDeletePermission = $false
+                    $provenNew.HasDeletePermission = $false
+                    $proof = Get-CutoverTombstoneProof -Tombstones @()
+                    $gates = @(Get-CutoverRequiredGateNames | ForEach-Object {
+                        [pscustomobject]@{ Name = $_; CutoverRunId = $runId; Passed = $true; Detail = 'ok' }
+                    })
+                    $authorization = Assert-CutoverDeleteAuthorization `
+                        -CutoverRunId $runId -GateResults $gates `
+                        -ProvenOldIdentity $provenOld -CurrentOldIdentity ($provenOld | Select-Object *) `
+                        -ProvenNewIdentity $provenNew -CurrentNewIdentity ($provenNew | Select-Object *) `
+                        -ProvenTombstoneProof $proof -CurrentOldTombstoneProof $proof `
+                        -CurrentNewTombstoneProof $proof `
+                        -ExpectedOldDatabaseName '{{oldDatabase.DatabaseName}}' `
+                        -ExpectedNewDatabaseName '{{newDatabase.DatabaseName}}' `
+                        -ExpectedSqlDataDirectory $actualOld.DataDirectories[0]
+                } finally {
+                    $old.Dispose(); $new.Dispose()
+                }
+                $preEvidence = [ordered]@{
+                    SchemaVersion = 2; CutoverRunId = $runId; Status = 'DELETE_AUTHORIZED_BEFORE_ELEVATION'
+                    HistoryEpoch = $actualNew.HistoryEpoch; TombstoneProof = $proof; GateCount = $gates.Count
+                    OldDatabase = [ordered]@{ DatabaseName = $actualOld.DatabaseName; DatabaseId = $actualOld.DatabaseId }
+                    PermissionLifecycle = [ordered]@{ FinalStatus = 'NOT_GRANTED_BY_THIS_RUN' }
+                    DatabaseDeletion = 'PENDING_EXACT_PROVEN_OLD_DATABASE'; IsDatabaseBackup = $false
+                }
+                Write-CutoverEvidence -EvidenceDirectory $env:CUTOVER_TEST_EVIDENCE_DIRECTORY `
+                    -Evidence $preEvidence -Stage 'pre-delete' | Out-Null
+                [System.Data.SqlClient.SqlConnection]::ClearAllPools()
+                $stoppedService = @(Get-Service | Where-Object Status -eq Stopped | Select-Object -First 1).Name
+                if ([string]::IsNullOrWhiteSpace($stoppedService)) { throw 'CUTOVER_TEST_STOPPED_SERVICE_NOT_FOUND' }
+                $outcome = try {
+                    Invoke-CutoverProvenOldDatabaseDeletion `
+                        -CutoverRunId $runId `
+                        -PrivilegeConnectionString $env:CUTOVER_TEST_MASTER_SQLSERVER `
+                        -EvidenceDirectory $env:CUTOVER_TEST_EVIDENCE_DIRECTORY `
+                        -OldHostServiceName $stoppedService -GateResults $gates `
+                        -ProvenOldIdentity $provenOld -CurrentOldIdentity ($provenOld | Select-Object *) `
+                        -ProvenNewIdentity $provenNew -CurrentNewIdentity ($provenNew | Select-Object *) `
+                        -ProvenTombstoneProof $proof -CurrentOldTombstoneProof $proof `
+                        -CurrentNewTombstoneProof $proof `
+                        -ExpectedOldDatabaseName '{{oldDatabase.DatabaseName}}' `
+                        -ExpectedNewDatabaseName '{{newDatabase.DatabaseName}}' `
+                        -ExpectedSqlDataDirectory $actualOld.DataDirectories[0] | Out-Null
+                    [pscustomobject]@{ Error = 'UNEXPECTED_PASS'; PermissionLifecycle = $null }
+                } catch {
+                    [pscustomobject]@{
+                        Error = $_.Exception.Message
+                        PermissionLifecycle = $_.Exception.Data['MesIngest.CutoverPermissionLifecycle']
+                        RevocationFailure = $_.Exception.Data['MesIngest.CutoverPermissionRevocationFailure']
+                    }
+                }
+                $outcome | ConvertTo-Json -Depth 8 -Compress
+                """;
+
+            var result = RunPowerShell(script, environment);
+
+            Assert.True(result.ExitCode == 0, result.Output);
+            using var json = JsonDocument.Parse(result.Output);
+            Assert.Contains("MESINGEST_TICKET25_EXPECTED_DROP_FAILURE", json.RootElement
+                .GetProperty("Error").GetString(), StringComparison.Ordinal);
+            Assert.Equal("REVOKED_AND_PRINCIPAL_DROPPED", json.RootElement
+                .GetProperty("PermissionLifecycle").GetProperty("FinalStatus").GetString());
+            Assert.True(json.RootElement.GetProperty("PermissionLifecycle")
+                .GetProperty("VerifiedAbsent").GetBoolean());
+            Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("RevocationFailure").ValueKind);
+            await AssertDatabaseExistsAsync(masterConnectionString, oldDatabase.DatabaseName, expected: true);
+            await AssertDatabaseExistsAsync(masterConnectionString, newDatabase.DatabaseName, expected: true);
+            await AssertLoginExistsAsync(
+                masterConnectionString,
+                json.RootElement.GetProperty("PermissionLifecycle").GetProperty("PrincipalName").GetString()!,
+                expected: false);
+            Console.WriteLine(
+                $"TICKET25_REAL_DELETE_FAILURE old={oldDatabase.DatabaseName};new={newDatabase.DatabaseName};"
+                + "oldPreserved=True;newPreserved=True;permission=REVOKED_AND_PRINCIPAL_DROPPED");
+            Directory.Delete(evidenceDirectory, recursive: true);
+        }
+        finally
+        {
+            await using var dropTrigger = admin.CreateCommand();
+            dropTrigger.CommandText = $"DROP TRIGGER IF EXISTS [{triggerName}] ON ALL SERVER;";
+            await dropTrigger.ExecuteNonQueryAsync();
+        }
+    }
+
     private static PowerShellResult RunPowerShell(
         string script,
         IReadOnlyDictionary<string, string?>? environment = null)
@@ -620,6 +1038,32 @@ public sealed class MesIngestCutoverRunTests
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT COALESCE(MAX(PollTraceSequence), 0) FROM mesingest.PollTraces;";
         return Convert.ToInt64(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task AssertDatabaseExistsAsync(
+        string masterConnectionString,
+        string databaseName,
+        bool expected)
+    {
+        await using var connection = new SqlConnection(masterConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sys.databases WHERE name = @name;";
+        command.Parameters.AddWithValue("@name", databaseName);
+        Assert.Equal(expected ? 1 : 0, Convert.ToInt32(await command.ExecuteScalarAsync()));
+    }
+
+    private static async Task AssertLoginExistsAsync(
+        string masterConnectionString,
+        string loginName,
+        bool expected)
+    {
+        await using var connection = new SqlConnection(masterConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sys.server_principals WHERE name = @name;";
+        command.Parameters.AddWithValue("@name", loginName);
+        Assert.Equal(expected ? 1 : 0, Convert.ToInt32(await command.ExecuteScalarAsync()));
     }
 
     private static string ToSystemDataConnectionString(string connectionString)
