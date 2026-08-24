@@ -118,7 +118,7 @@ public interface IMesIngestProjection
         ExternallyReadableDemandCatalogIdentity? knownIdentity = null,
         CancellationToken cancellationToken = default);
 
-    Task<PollTraceSnapshot?> GetPollTraceAsync(
+    Task<HistoricalObjectReadResult<PollTraceSnapshot>> GetPollTraceAsync(
         string pollTraceId,
         CancellationToken cancellationToken = default);
 

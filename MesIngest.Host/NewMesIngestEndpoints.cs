@@ -1195,10 +1195,7 @@ internal static class NewMesIngestEndpoints
             : Results.BadRequest(error);
     }
 
-    private static async Task<Results<
-        Ok<PollTraceDto>,
-        BadRequest<NewMesIngestErrorDto>,
-        NotFound<NewMesIngestErrorDto>>> GetPollTraceAsync(
+    private static async Task<IResult> GetPollTraceAsync(
         string pollTraceId,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
@@ -1213,14 +1210,28 @@ internal static class NewMesIngestEndpoints
             return TypedResults.BadRequest(error);
         }
 
-        var snapshot = await projection.GetPollTraceAsync(
+        var read = await projection.GetPollTraceAsync(
             pollTraceId,
             cancellationToken);
-        return snapshot is null
-            ? TypedResults.NotFound(new NewMesIngestErrorDto(
-                PollEvidenceErrorCodes.PollTraceNotFound,
-                "The requested PollTrace was not found."))
-            : TypedResults.Ok(PollTraceDto.From(snapshot));
+        return read.Availability switch
+        {
+            HistoricalObjectAvailability.Available when read.Value is not null =>
+                TypedResults.Ok(PollTraceDto.From(read.Value, read.Boundary)),
+            HistoricalObjectAvailability.Expired => Results.Json(
+                HistoricalReadErrorDto.From(
+                    PollEvidenceErrorCodes.MesIngestHistoryExpired,
+                    "The requested PollTrace history is no longer available.",
+                    read.Boundary),
+                statusCode: StatusCodes.Status410Gone),
+            HistoricalObjectAvailability.NotFound => Results.Json(
+                HistoricalReadErrorDto.From(
+                    PollEvidenceErrorCodes.PollTraceNotFound,
+                    "The requested PollTrace was not found.",
+                    read.Boundary),
+                statusCode: StatusCodes.Status404NotFound),
+            _ => throw new InvalidOperationException(
+                "The PollTrace historical read returned an invalid availability result."),
+        };
     }
 
     private static async Task<Ok<AbsenceAuthorityDto>> GetAbsenceAuthorityAsync(
@@ -1331,6 +1342,23 @@ internal sealed record ParsedErrorSearchRawEvidenceRequest(
     ErrorSearchRawEvidenceQuery Query);
 
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
+
+internal sealed record HistoricalReadErrorDto(
+    string Code,
+    string Error,
+    string HistoryEpoch,
+    DateTimeOffset? EarliestAvailableHostUtc)
+{
+    public static HistoricalReadErrorDto From(
+        string code,
+        string error,
+        HistoricalReadBoundary boundary) =>
+        new(
+            code,
+            error,
+            boundary.HistoryEpoch.Value.ToString("D"),
+            boundary.EarliestAvailableHostUtc);
+}
 
 internal sealed record OperationalSnapshotIdentityDto(
     string HistoryEpoch,
@@ -2836,6 +2864,8 @@ internal sealed record FrozenDemandSeriesDto(
 }
 
 internal sealed record PollTraceDto(
+    string HistoryEpoch,
+    DateTimeOffset EarliestAvailableHostUtc,
     string PollTraceId,
     string QueryVersion,
     string Outcome,
@@ -2847,8 +2877,14 @@ internal sealed record PollTraceDto(
     IReadOnlyList<DemandRawObservationDto> Observations,
     MesTaskUnionRoundDiagnosticDto? Diagnostic)
 {
-    public static PollTraceDto From(PollTraceSnapshot snapshot) =>
+    public static PollTraceDto From(
+        PollTraceSnapshot snapshot,
+        HistoricalReadBoundary boundary) =>
         new(
+            boundary.HistoryEpoch.Value.ToString("D"),
+            boundary.EarliestAvailableHostUtc
+                ?? throw new InvalidOperationException(
+                    "An available PollTrace must establish the earliest historical boundary."),
             snapshot.PollTraceId,
             snapshot.QueryVersion,
             snapshot.Outcome,

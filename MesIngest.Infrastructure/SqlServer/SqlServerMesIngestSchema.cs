@@ -188,6 +188,9 @@ internal static class SqlServerMesIngestSchema
                     AND DiagnosticCode IS NOT NULL AND DiagnosticSafeDetail IS NOT NULL)
             )
         );
+        CREATE INDEX IX_MesIngest_PollTraces_CompletedAt
+            ON mesingest.PollTraces (CompletedAt, PollTraceId)
+            INCLUDE ([RowCount]);
 
         CREATE TABLE mesingest.ProjectionCommits
         (
@@ -1450,6 +1453,34 @@ internal static class SqlServerMesIngestSchema
             INNER JOIN sys.tables AS t ON t.object_id = i.object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
             WHERE s.name = N'mesingest'
+              AND t.name = N'PollTraces'
+              AND i.name = N'IX_MesIngest_PollTraces_CompletedAt'
+              AND i.[type] = 2
+              AND i.is_unique = 0 AND i.is_disabled = 0 AND i.has_filter = 0
+              AND N'CompletedAt,PollTraceId' =
+                  (SELECT STRING_AGG(c.name, N',') WITHIN GROUP (ORDER BY ic.key_ordinal)
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.key_ordinal > 0)
+              AND N'RowCount' =
+                  (SELECT STRING_AGG(c.name, N',')
+                   FROM sys.index_columns AS ic
+                   INNER JOIN sys.columns AS c
+                       ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                   WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
+                     AND ic.is_included_column = 1)
+        )
+            THROW 51006, 'The configured database is missing the PollTrace historical-boundary index contract.', 1;
+
+        IF NOT EXISTS
+        (
+            SELECT 1
+            FROM sys.indexes AS i
+            INNER JOIN sys.tables AS t ON t.object_id = i.object_id
+            INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
+            WHERE s.name = N'mesingest'
               AND t.name = N'DemandRawObservations'
               AND i.name = N'IX_MesIngest_DemandRawObservations_Series'
               AND i.[type] IN (1, 2)
@@ -1696,6 +1727,7 @@ internal static class SqlServerMesIngestSchema
         SELECT DISTINCT TableName, ConstraintName
         FROM @ExpectedKeys;
         INSERT INTO @ExpectedIndexes (TableName, IndexName) VALUES
+            (N'PollTraces', N'IX_MesIngest_PollTraces_CompletedAt'),
             (N'UnassignedMesObservationEvents', N'IX_MesIngest_UnassignedMesObservationEvents_Overview'),
             (N'TaskTypeProtectionEvents', N'IX_MesIngest_TaskTypeProtectionEvents_Commit'),
             (N'DemandRawObservations', N'IX_MesIngest_DemandRawObservations_Series'),

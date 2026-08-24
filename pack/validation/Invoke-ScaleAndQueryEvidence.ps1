@@ -42,6 +42,7 @@ param(
         'Overview',
         'ReadabilityAudit',
         'ErrorSearch',
+        'PollTrace',
         'RawEvidence')]
     [string] $QuerySurface = 'All',
     [string] $ConfirmFullScaleEscalation = '',
@@ -145,6 +146,34 @@ function Get-NearestRankPercentile {
     $rank = [Math]::Ceiling($Percentile * $sorted.Count)
     $index = [Math]::Max(0, [int]$rank - 1)
     return [double]$sorted[$index]
+}
+
+function Get-LongPropertySum {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]] $Items,
+        [Parameter(Mandatory = $true)][string] $Property
+    )
+    $total = 0L
+    foreach ($item in @($Items)) {
+        if ($null -ne $item -and $null -ne $item.$Property) {
+            $total += [long]$item.$Property
+        }
+    }
+    return $total
+}
+
+function Get-LongPropertyMaximum {
+    param(
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][object[]] $Items,
+        [Parameter(Mandatory = $true)][string] $Property
+    )
+    $maximum = 0L
+    foreach ($item in @($Items)) {
+        if ($null -ne $item -and $null -ne $item.$Property) {
+            $maximum = [Math]::Max($maximum, [long]$item.$Property)
+        }
+    }
+    return $maximum
 }
 
 function Read-XEventEnvelope {
@@ -411,11 +440,22 @@ $boundedCurrentSurfaceFailurePrefixes = @{
     Overview = 'OVERVIEW'
     ReadabilityAudit = 'READABILITY_AUDIT'
 }
+$historicalObjectSurfaceFailurePrefixes = @{
+    PollTrace = 'POLL_TRACE'
+    RawEvidence = 'RAW_EVIDENCE'
+}
+$historicalObjectMaxResponseBytes = @{
+    PollTrace = 2097152L
+    RawEvidence = 131072L
+}
 
 function Get-BoundedCurrentSurfaceFailurePrefix {
     param([Parameter(Mandatory = $true)][string] $Surface)
     if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($Surface)) {
         return [string]$boundedCurrentSurfaceFailurePrefixes[$Surface]
+    }
+    if ($historicalObjectSurfaceFailurePrefixes.ContainsKey($Surface)) {
+        return [string]$historicalObjectSurfaceFailurePrefixes[$Surface]
     }
     return $Surface.ToUpperInvariant()
 }
@@ -434,7 +474,15 @@ function Get-EvidenceGateFailures {
     $failures = New-Object System.Collections.ArrayList
     if ($ActualPlanCount -eq 0) { [void]$failures.Add('MISSING_ACTUAL_PLAN') }
     if ($StatementMetricCount -eq 0) { [void]$failures.Add('MISSING_STATEMENT_METRICS') }
-    $incompleteSurfaces = @($QueryEvidence | Where-Object { $_.statementCount -eq 0 -or $_.actualPlanCount -eq 0 })
+    $incompleteSurfaces = @($QueryEvidence | Where-Object {
+        $runtimeIoProperty = $_.PSObject.Properties['runtimeIoComplete']
+        $runtimeIoIncomplete = if ($null -eq $runtimeIoProperty) {
+            $_.statementCount -eq 0
+        } else {
+            -not [bool]$runtimeIoProperty.Value
+        }
+        $_.actualPlanCount -eq 0 -or $runtimeIoIncomplete
+    })
     if ($incompleteSurfaces.Count -gt 0) {
         [void]$failures.Add('MISSING_QUERY_SURFACE_EVIDENCE:' + (($incompleteSurfaces | Select-Object -ExpandProperty name) -join ','))
     }
@@ -472,6 +520,32 @@ function Get-EvidenceGateFailures {
             }
             if ([long](($currentSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
                 [void]$failures.Add("$($failurePrefix)_ABNORMAL_MEMORY_GRANT")
+            }
+        }
+    }
+    if ($historicalObjectSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
+        $failurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+        $historicalSurfaces = @($QueryEvidence | Where-Object { $_.name -eq $QuerySurface })
+        if ($historicalSurfaces.Count -eq 0) {
+            [void]$failures.Add("MISSING_$($failurePrefix)_EVIDENCE")
+        } else {
+            if (@($historicalSurfaces | Where-Object { -not [bool]$_.runtimeIoComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_RUNTIME_IO_INCOMPLETE")
+            }
+            if (@($historicalSurfaces | Where-Object { -not [bool]$_.memoryGrantEvidenceComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_MEMORY_GRANT_EVIDENCE_INCOMPLETE")
+            }
+            if ([long](($historicalSurfaces | Measure-Object -Property spillCount -Sum).Sum) -ne 0) {
+                [void]$failures.Add("$($failurePrefix)_SPILL")
+            }
+            if ([long](($historicalSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
+                [void]$failures.Add("$($failurePrefix)_ABNORMAL_MEMORY_GRANT")
+            }
+            $maxResponseBytes = [long]$historicalObjectMaxResponseBytes[$QuerySurface]
+            if (@($historicalSurfaces | Where-Object {
+                    [long]$_.responseBytes -gt $maxResponseBytes -or
+                    [long]$_.maxResponseBytes -ne $maxResponseBytes }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_RESPONSE_SIZE")
             }
         }
     }
@@ -946,6 +1020,11 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
     $xeventStarted = $true
 
     $hostRun = Start-EvidenceHost $databaseConnectionString $secret $appName
+    $pollTracePath = if ($historyRoundCount -gt 0) {
+        '/api/v2/poll-traces/scale-poll-' + (1L).ToString('0000000000')
+    } else {
+        '/api/v2/poll-traces/scale-baseline-poll'
+    }
     $surfaceCatalog = @(
         [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesDefault'; path = '/api/v2/demand-series?pageSize=100' },
         [ordered]@{ scope = 'DemandSeries'; kind = 'http'; name = 'DemandSeriesVisible'; path = '/api/v2/demand-series?pageSize=100&presence=VISIBLE' },
@@ -961,7 +1040,8 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
         [ordered]@{ scope = 'Overview'; kind = 'http'; name = 'Overview'; path = '/api/v2/watch-overview' },
         [ordered]@{ scope = 'ReadabilityAudit'; kind = 'http'; name = 'ReadabilityAudit'; path = '/api/v2/readability-audit?pageSize=100' },
         [ordered]@{ scope = 'ErrorSearch'; kind = 'http'; name = 'ErrorSearch'; path = '/api/v2/error-search?window=ALL_HISTORY&pageSize=100' },
-        [ordered]@{ scope = 'RawEvidence'; kind = 'raw-evidence'; name = 'RawEvidence'; path = '/raw-observations' }
+        [ordered]@{ scope = 'PollTrace'; kind = 'http'; name = 'PollTrace'; path = $pollTracePath; maxResponseBytes = $historicalObjectMaxResponseBytes.PollTrace },
+        [ordered]@{ scope = 'RawEvidence'; kind = 'raw-evidence'; name = 'RawEvidence'; path = '/raw-observations'; maxResponseBytes = $historicalObjectMaxResponseBytes.RawEvidence }
     )
     $selectedCatalog = if ($QuerySurface -eq 'All') {
         @($surfaceCatalog)
@@ -1074,6 +1154,10 @@ ORDER BY file_name, file_offset;
         [void]$queryEvidence.Add([pscustomobject][ordered]@{
             name = $surfaceName
             samples = $surfaceSamples.Count
+            responseBytes = [long](($surfaceSamples | Measure-Object -Property responseBytes -Maximum).Maximum)
+            maxResponseBytes = if ($historicalObjectMaxResponseBytes.ContainsKey($surfaceName)) {
+                [long]$historicalObjectMaxResponseBytes[$surfaceName]
+            } else { 0L }
             p50LatencyMs = Get-NearestRankPercentile $sortedLatency 0.50
             p95LatencyMs = Get-NearestRankPercentile $sortedLatency 0.95
             p99LatencyMs = Get-NearestRankPercentile $sortedLatency 0.99
@@ -1085,11 +1169,15 @@ ORDER BY file_name, file_offset;
                 @($runtimeIoCarriers | Where-Object { -not [bool]$_.actualLogicalReadsPresent }).Count -eq 0
             memoryGrantEvidenceComplete = $surfacePlans.Count -gt 0 -and
                 @($surfacePlans | Where-Object { -not [bool]$_.memoryGrantCaptured }).Count -eq 0
-            logicalReads = [long](($surfaceStatements | Measure-Object -Property logical_reads -Sum).Sum)
-            durationMicroseconds = [long](($surfaceStatements | Measure-Object -Property duration -Sum).Sum)
-            cpuMicroseconds = [long](($surfaceStatements | Measure-Object -Property cpu_time -Sum).Sum)
-            maxGrantedMemoryKb = [long](($surfacePlans | Measure-Object -Property granted_memory_kb -Maximum).Maximum)
-            spillCount = [long](($surfaceStatements | Measure-Object -Property spills -Sum).Sum) +
+            logicalReads = if ($surfaceStatements.Count -gt 0) {
+                Get-LongPropertySum @($surfaceStatements) 'logical_reads'
+            } else {
+                Get-TotalActualLogicalReads $surfaceRuntimeIo
+            }
+            durationMicroseconds = Get-LongPropertySum @($surfaceStatements) 'duration'
+            cpuMicroseconds = Get-LongPropertySum @($surfaceStatements) 'cpu_time'
+            maxGrantedMemoryKb = Get-LongPropertyMaximum @($surfacePlans) 'granted_memory_kb'
+            spillCount = (Get-LongPropertySum @($surfaceStatements) 'spills') +
                 @($surfacePlans | Where-Object { $_.spillToTempDb }).Count
             rawObservationPlanOperators = $rawObservationRuntimeIo.Count
             rawObservationLogicalReads = $rawObservationLogicalReads

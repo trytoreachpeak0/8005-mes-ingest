@@ -215,3 +215,20 @@ public sealed record PollTraceSnapshot(
     ProjectionCommitSnapshot? ProjectionCommit,
     IReadOnlyList<DemandRawObservationSnapshot> Observations,
     MesTaskUnionRoundDiagnostic? Diagnostic = null);
+
+public enum HistoricalObjectAvailability
+{
+    Available,
+    Expired,
+    NotFound,
+}
+
+public sealed record HistoricalReadBoundary(
+    HistoryEpoch HistoryEpoch,
+    DateTimeOffset? EarliestAvailableHostUtc);
+
+public sealed record HistoricalObjectReadResult<T>(
+    HistoricalObjectAvailability Availability,
+    HistoricalReadBoundary Boundary,
+    T? Value)
+    where T : class;

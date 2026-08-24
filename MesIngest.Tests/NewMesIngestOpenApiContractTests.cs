@@ -195,6 +195,19 @@ public sealed class NewMesIngestOpenApiContractTests
 
         var error = Schema(root, "NewMesIngestErrorDto");
         AssertRequired(error, "code", "error");
+        var historicalReadError = Schema(root, "HistoricalReadErrorDto");
+        AssertRequired(
+            historicalReadError,
+            "code",
+            "error",
+            "historyEpoch");
+        Assert.True(
+            historicalReadError.GetProperty("properties")
+                .GetProperty("earliestAvailableHostUtc").GetProperty("nullable").GetBoolean());
+        Assert.Equal(
+            "date-time",
+            historicalReadError.GetProperty("properties")
+                .GetProperty("earliestAvailableHostUtc").GetProperty("format").GetString());
         var contract = Schema(root, "NewMesIngestContractDto").GetProperty("properties");
         Assert.Equal(
             [NewMesIngestContract.Version],
@@ -299,6 +312,22 @@ public sealed class NewMesIngestOpenApiContractTests
             "package");
         Assert.True(rawOperation.GetProperty("responses").TryGetProperty("403", out _));
         Assert.True(rawOperation.GetProperty("responses").TryGetProperty("413", out _));
+
+        var pollTrace = Schema(root, "PollTraceDto");
+        AssertRequired(
+            pollTrace,
+            "historyEpoch",
+            "earliestAvailableHostUtc",
+            "pollTraceId",
+            "observations");
+        var pollTraceOperation = root.GetProperty("paths")
+            .GetProperty("/api/v2/poll-traces/{pollTraceId}")
+            .GetProperty("get");
+        Assert.True(pollTraceOperation.GetProperty("responses").TryGetProperty("410", out var expired));
+        Assert.Contains(
+            "MES_INGEST_HISTORY_EXPIRED",
+            expired.GetProperty("description").GetString(),
+            StringComparison.Ordinal);
 
         var catalogOperation = root.GetProperty("paths")
             .GetProperty("/api/v2/externally-readable-demand-catalog")

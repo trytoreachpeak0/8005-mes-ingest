@@ -91,7 +91,10 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
 
         foreach (var (status, description) in operation.Errors)
         {
-            responses[status] = ErrorResponse(description, context);
+            responses[status] = operation.Path == "/api/v2/poll-traces/{pollTraceId}"
+                && status is "404" or "410"
+                    ? JsonResponse(description, typeof(HistoricalReadErrorDto), context)
+                    : ErrorResponse(description, context);
         }
 
         if (!responses.ContainsKey("400"))
@@ -370,10 +373,13 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "GetPollTrace",
             "PollEvidence",
             "Get one PollTrace and ProjectionCommit evidence",
-            "Reads the immutable poll outcome, observation assignment counts, diagnostics, and optional ProjectionCommit. FAILURE and INCOMPLETE have no business ProjectionCommit.",
+            "Reads the exact immutable poll outcome and its complete raw multiset by PollTraceId plus ProjectionCommit. The response carries HistoryEpoch and the shared earliest available Host UTC boundary. FAILURE and INCOMPLETE have no business ProjectionCommit.",
             typeof(PollTraceDto),
             [Path("pollTraceId", "Exact PollTraceId.")],
-            Errors(("400", "INVALID_POLL_TRACE_ID."), ("404", "POLL_TRACE_NOT_FOUND.")));
+            Errors(
+                ("400", "INVALID_POLL_TRACE_ID."),
+                ("404", "POLL_TRACE_NOT_FOUND; response includes HistoryEpoch and earliestAvailableHostUtc."),
+                ("410", "MES_INGEST_HISTORY_EXPIRED; response includes HistoryEpoch and earliestAvailableHostUtc.")));
         yield return Operation(
             "/api/v2/absence-authority",
             "GetCurrentAbsenceAuthority",

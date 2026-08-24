@@ -9,7 +9,7 @@ public static class NewMesIngestContract
 {
     public const string Version = "2026.08.new-mes-ingest.v2.0";
 
-    public const int SchemaVersion = 19;
+    public const int SchemaVersion = 20;
 
     public const string CompatibilityPolicy = "EXACT_VERSION_SCHEMA_AND_CAPABILITIES";
 
@@ -127,6 +127,7 @@ public static class PollEvidenceErrorCodes
     public const string InvalidPollTraceId = "INVALID_POLL_TRACE_ID";
     public const string InvalidHostSessionId = "INVALID_HOST_SESSION_ID";
     public const string InvalidWorkType = "INVALID_WORK_TYPE";
+    public const string MesIngestHistoryExpired = "MES_INGEST_HISTORY_EXPIRED";
     public const string PollTraceNotFound = "POLL_TRACE_NOT_FOUND";
     public const string AbsenceAuthorityNotFound = "ABSENCE_AUTHORITY_NOT_FOUND";
     public const string TaskTypeProtectionNotFound = "TASK_TYPE_PROTECTION_NOT_FOUND";
