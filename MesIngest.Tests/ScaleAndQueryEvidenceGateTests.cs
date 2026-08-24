@@ -1,10 +1,168 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace MesIngest.Tests;
 
 public sealed class ScaleAndQueryEvidenceGateTests
 {
+    [Fact]
+    public void Fast_capacity_fixture_projects_thirty_days_with_margin_below_escalation_thresholds()
+    {
+        var fixture = CreatePassingCapacityFixture();
+
+        var result = RunCapacityFixture(fixture);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Contains("MESINGEST_FAST_CAPACITY_FIXTURE: passed=True", result.Output, StringComparison.Ordinal);
+        Assert.Contains("projectedLogicalUsedMb=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("projectedPhysicalDataMb=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("projectedLdfMb=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("escalationRequired=False", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Fast_capacity_fixture_fails_closed_for_threshold_nonlinearity_sample_compression_or_cleanup_risk()
+    {
+        var cases = new (string ExpectedCode, Action<JsonObject> Mutate)[]
+        {
+            ("CAPACITY_LOGICAL_70_PERCENT_ESCALATION", fixture =>
+                fixture["sample"]!["storage"]!["logicalUsedMb"] = 40.0),
+            ("CAPACITY_PHYSICAL_70_PERCENT_ESCALATION", fixture =>
+                fixture["sample"]!["dataFileGrowthMb"] = 12_000.0),
+            ("CAPACITY_LDF_70_PERCENT_ESCALATION", fixture =>
+                fixture["sample"]!["storage"]!["ldfMb"] = 1_200.0),
+            ("CAPACITY_GROWTH_NONLINEAR", fixture =>
+                fixture["sample"]!["checkpoints"]![4]!["logicalUsedMb"] = 40.0),
+            ("CAPACITY_SAMPLE_INSUFFICIENT", fixture =>
+            {
+                fixture["sample"]!["rawObservationCount"] = 120_600;
+                fixture["sample"]!["historyObservationCount"] = 120_000;
+                fixture["sample"]!["historyRoundCount"] = 200;
+            }),
+            ("CAPACITY_PAGE_COMPRESSION_UNCERTAIN", fixture =>
+                fixture["environment"]!["pageCompressionVerified"] = false),
+            ("CAPACITY_RAW_CLEANUP_UNCERTAIN", fixture =>
+                fixture["cleanup"]!["deletedRawObservationRows"] = 248_999),
+            ("CAPACITY_RAW_CLEANUP_UNCERTAIN", fixture =>
+            {
+                fixture["cleanup"]!["expectedRawObservationRows"] = 249_000;
+                fixture["cleanup"]!["deletedRawObservationRows"] = 249_000;
+            }),
+            ("CAPACITY_SERIES_CLEANUP_UNCERTAIN", fixture =>
+                fixture["cleanup"]!["deletedEligibleSeries"] = 24),
+            ("CAPACITY_ACTIVE_SERIES_SPLIT", fixture =>
+                fixture["cleanup"]!["activeGraphUnchanged"] = false),
+            ("CAPACITY_CLEANUP_EVIDENCE_INCOMPLETE", fixture =>
+                fixture["cleanup"]!.AsObject().Remove("remainingRawObservationRows")),
+            ("CAPACITY_VERSION_STORE_UNCERTAIN", fixture =>
+                fixture["environment"]!["versionStoreMeasured"] = false),
+            ("CAPACITY_TEMPDB_UNCERTAIN", fixture =>
+                fixture["environment"]!["tempdbMeasured"] = false),
+            ("CAPACITY_AUTOGROWTH_UNCERTAIN", fixture =>
+                fixture["environment"]!["autoGrowthVerified"] = false),
+            ("CAPACITY_TRANSIENT_STORAGE_EVIDENCE_INCOMPLETE", fixture =>
+                fixture["sample"]!.AsObject().Remove("tombstoneLogicalUsedMb")),
+        };
+
+        foreach (var (expectedCode, mutate) in cases)
+        {
+            var fixture = JsonSerializer.SerializeToNode(CreatePassingCapacityFixture())!.AsObject();
+            mutate(fixture);
+
+            var result = RunCapacityFixture(fixture);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains(expectedCode, result.Output, StringComparison.Ordinal);
+            Assert.Contains("escalationRequired=True", result.Output, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public void Fast_capacity_gate_rejects_more_than_250000_raw_observations_before_opening_sql()
+    {
+        var script = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1");
+        var start = new ProcessStartInfo("powershell.exe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = RepositoryPaths.CSharpRoot,
+        };
+        foreach (var argument in new[]
+                 {
+                     "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                     "-ProfileDays", "0",
+                     "-DatabaseName", "MesIngest_Scale_CapacityTooLarge",
+                     "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                     "-FastCapacityProjection",
+                     "-RepresentativeHistoryRounds", "416",
+                     "-BaselineEvidencePath", "not-opened.json",
+                 })
+        {
+            start.ArgumentList.Add(argument);
+        }
+        start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+        using var process = Process.Start(start)
+                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "Capacity size guard did not finish.");
+        Assert.NotEqual(0, process.ExitCode);
+        Assert.Contains("refuses to materialize more than 250,000", stdout + stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", stdout + stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Packaged_fast_capacity_gate_records_ticket_27_model_and_cleanup_evidence()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1"));
+
+        foreach (var evidence in new[]
+                 {
+                     "FastCapacityProjection",
+                     "targetRawObservationRows",
+                     "safetyMarginFraction",
+                     "escalationFraction",
+                     "logicalMbPerRound",
+                     "logicalMbPerRow",
+                     "allocationProjection",
+                     "data_compression_desc",
+                     "tombstoneAllocations",
+                     "databaseVersionStorePeakMb",
+                     "versionStoreFormula",
+                     "tempdbVersionStorePeakMb",
+                     "tempdbFormula",
+                     "ldfIncrementMb",
+                     "logReuseWait",
+                     "is_percent_growth",
+                     "HistoryCleanupMaximumRawObservationRowsPerBatch",
+                     "HistoryCleanupMaximumSeriesPerBatch",
+                     "HistoryCleanupTimeBudgetSeconds",
+                     "activeGraphUnchanged",
+                     "graphIdentitySha256",
+                     "errorPeriodCount",
+                     "errorEvidenceCount",
+                     "CAPACITY_GROWTH_NONLINEAR",
+                     "CAPACITY_LOGICAL_70_PERCENT_ESCALATION",
+                     "CAPACITY_PHYSICAL_70_PERCENT_ESCALATION",
+                     "CAPACITY_LDF_70_PERCENT_ESCALATION",
+                     "ConfirmFullScaleEscalation",
+                 })
+        {
+            Assert.Contains(evidence, script, StringComparison.Ordinal);
+        }
+    }
+
     [Fact]
     public void Packaged_scale_gate_declares_every_ticket_02_evidence_surface()
     {
@@ -86,6 +244,115 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("trxVerified", gate, StringComparison.Ordinal);
         Assert.Contains("SQL_TIER1_BUILD_MISMATCH", gate, StringComparison.Ordinal);
     }
+
+    private static (int ExitCode, string Output) RunCapacityFixture(object fixture)
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"mesingest-capacity-fixture-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var fixturePath = Path.Combine(root, "fixture.json");
+        File.WriteAllText(fixturePath, JsonSerializer.Serialize(fixture));
+
+        try
+        {
+            var script = Path.Combine(
+                RepositoryPaths.CSharpRoot,
+                "pack",
+                "validation",
+                "Invoke-ScaleAndQueryEvidence.ps1");
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = RepositoryPaths.CSharpRoot,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                         "-ProfileDays", "0",
+                         "-DatabaseName", "MesIngest_Scale_CapacityFixture",
+                         "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                         "-ValidateCapacityFixturePath", fixturePath,
+                     })
+            {
+                start.ArgumentList.Add(argument);
+            }
+            start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+            using var process = Process.Start(start)
+                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            Assert.True(process.WaitForExit(30_000), "Capacity fixture validation did not finish.");
+            return (process.ExitCode, stdout + Environment.NewLine + stderr);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static object CreatePassingCapacityFixture() => new
+    {
+        baseline = new
+        {
+            storage = new { logicalUsedMb = 16.0, physicalDataMb = 64.0, ldfMb = 64.0 },
+        },
+        sample = new
+        {
+            rawObservationCount = 249_600,
+            historyObservationCount = 249_000,
+            historyRoundCount = 415,
+            roundIntervalSeconds = 14,
+            observationsPerRound = 600,
+            storage = new { logicalUsedMb = 26.0, physicalDataMb = 64.0, ldfMb = 64.0 },
+            checkpoints = new[]
+            {
+                new { historyRoundCount = 0, logicalUsedMb = 16.0 },
+                new { historyRoundCount = 100, logicalUsedMb = 18.4 },
+                new { historyRoundCount = 200, logicalUsedMb = 20.8 },
+                new { historyRoundCount = 300, logicalUsedMb = 23.2 },
+                new { historyRoundCount = 415, logicalUsedMb = 26.0 },
+            },
+            dataFileGrowthMb = 64.0,
+            peakLogUsedMb = 8.0,
+            tombstoneObservedCount = 25,
+            tombstoneLogicalUsedMb = 0.03125,
+            projectedTombstoneCount = 180,
+            databaseVersionStorePeakMb = 2.0,
+            tempdbVersionStorePeakMb = 3.0,
+            tempdbUserObjectsImpactMb = 0.0,
+            tempdbInternalObjectsImpactMb = 0.125,
+        },
+        environment = new
+        {
+            recoveryModel = "SIMPLE",
+            logReuseWait = "NOTHING",
+            compatibilityLevel = 160,
+            maxServerMemoryMb = 1536,
+            pageCompressionVerified = true,
+            autoGrowthVerified = true,
+            versionStoreMeasured = true,
+            tempdbMeasured = true,
+        },
+        cleanup = new
+        {
+            expectedRawObservationRows = 249_600,
+            deletedRawObservationRows = 249_600,
+            expectedEligibleSeries = 25,
+            deletedEligibleSeries = 25,
+            tombstonesWritten = 25,
+            activeSeriesWholeBefore = 420,
+            activeSeriesWholeAfter = 420,
+            activeGraphUnchanged = true,
+            remainingRawObservationRows = 0,
+            remainingRetentionEligibleSeries = 0,
+            defaultCheckIntervalSeconds = 3_600,
+            defaultRawObservationBatch = 210_000,
+            defaultSeriesBatch = 25,
+            defaultTimeBudgetSeconds = 15,
+        },
+    };
 
     [Fact]
     public void Packaged_scale_gate_can_scope_evidence_to_one_query_surface()

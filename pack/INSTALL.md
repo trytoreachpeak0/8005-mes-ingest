@@ -238,7 +238,7 @@ attestation，再执行例如 7 天 profile：
 
 ```powershell
 $env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master connection>'
-.alidation\Invoke-ScaleAndQueryEvidence.ps1 `
+.\validation\Invoke-ScaleAndQueryEvidence.ps1 `
   -ProfileDays 7 `
   -DatabaseName MesIngest_Scale_Ticket02_7Day `
   -ConfirmIsolatedDatabase MESINGEST_SCALE_EVIDENCE_ONLY `
@@ -261,6 +261,35 @@ SQL 实例/版本，并要求 `sourceCommit` 与 Host DLL SHA-256 精确匹配�
 人工故障调查。缺少任一查询面的实际计划/statement 指标、空数据、未知构建身份，或 Tier 1
 `Skipped` 非 0 时，仍会保存证据但门禁失败。7/30 天 profile 会写入约 2592 万/1.11 亿条原始观测，
 应预留足够时间与隔离磁盘；日常实现或 Tier 1 不会自动运行它们。
+
+Ticket 27 的快速容量路径复用同一入口和固定分布，不创建第二套容量工具。先以
+`-FastCapacityProjection` 生成 0-history baseline，再以相同包、SQL 实例、查询参数和 Host SHA
+运行最多 415 个代表性历史轮次；415 轮加当前轮共 249,600 条 RawObservation，入口会在连接 SQL
+前拒绝更大的样本：
+
+```powershell
+$baseline = 'C:\MesIngestEvidence\capacity\<baseline-run>\scale-query-evidence.json'
+.\validation\Invoke-ScaleAndQueryEvidence.ps1 `
+  -ProfileDays 0 `
+  -DatabaseName MesIngest_Scale_Ticket27_Sample `
+  -ConfirmIsolatedDatabase MESINGEST_SCALE_EVIDENCE_ONLY `
+  -FastCapacityProjection `
+  -RepresentativeHistoryRounds 415 `
+  -BaselineEvidencePath $baseline `
+  -QuerySurface DemandSeries `
+  -RoundBatchSize 100 `
+  -OutputRoot C:\MesIngestEvidence\capacity
+```
+
+容量报告按表/聚集索引/非聚集索引列出 PAGE 压缩实测，记录每轮、每行、墓碑、版本存储、tempdb、
+LDF、固定 MB 自动增长、SIMPLE recovery、`log_reuse_wait_desc`、1536 MB max server memory 和发布包
+清理默认值。30 天模型使用 `floor(30*86400/14)=185142` 轮、111,085,200 行，并对预测增加 30%
+余量；墓碑按固定归档 Series 数量计入逻辑总量，version-store/tempdb 按实测峰值加 30% 报告。
+物理文件预测保留实测起始大小，再按固定增长量向上取整。逻辑已用、物理数据文件和 LDF 分别以
+12/16/2 GiB 为最终上限；任何预测达到各自上限 70%、
+增长段速率比超过 1.20、样本不足或压缩/清理证据不完整都会保存报告、阻断发布并给出显式
+`ProfileDays 30` 升级命令。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在
+同一真实 SQL Server 上完成一次 `Failed=0 / Skipped=0` Tier 1。
 
 ## 基本故障排查
 

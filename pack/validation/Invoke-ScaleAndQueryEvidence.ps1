@@ -32,6 +32,7 @@ param(
     [string] $SqlTier1AttestationPath = '',
     [string] $BaselineEvidencePath = '',
     [string] $ValidateEvidenceFixturePath = '',
+    [string] $ValidateCapacityFixturePath = '',
     [string] $ValidatePercentileFixture = '',
     [string] $ValidateShowPlanFixturePath = '',
     [ValidateSet(
@@ -52,6 +53,7 @@ param(
     [ValidateRange(1, 3600)] [int] $RoundIntervalSeconds = 14,
     [ValidateRange(1, 10000)] [int] $RoundBatchSize = 250,
     [ValidateRange(0, 100000)] [long] $RepresentativeHistoryRounds = 0,
+    [switch] $FastCapacityProjection,
     [ValidateRange(1, 100)] [int] $WarmupCount = 2,
     [ValidateRange(1, 1000)] [int] $MeasurementCount = 5,
     [ValidateRange(1, 600)] [int] $RequestTimeoutSeconds = 120,
@@ -86,6 +88,13 @@ if ($RepresentativeHistoryRounds -eq 0 -and -not [string]::IsNullOrWhiteSpace($B
 if ($ProfileDays -in @(7, 30) -and
     $ConfirmFullScaleEscalation -cne 'MESINGEST_FULL_SCALE_ESCALATION') {
     throw 'ProfileDays 7/30 requires ConfirmFullScaleEscalation=MESINGEST_FULL_SCALE_ESCALATION.'
+}
+if ($FastCapacityProjection -and $ProfileDays -ne 0) {
+    throw 'FastCapacityProjection is available only with ProfileDays 0.'
+}
+if ($FastCapacityProjection -and
+    (($RepresentativeHistoryRounds * [long]$ObservationsPerRound) + [long]$SeriesCount) -gt 250000) {
+    throw 'FastCapacityProjection refuses to materialize more than 250,000 RawObservation rows.'
 }
 
 $profiles = @{
@@ -174,6 +183,219 @@ function Get-LongPropertyMaximum {
         }
     }
     return $maximum
+}
+
+function Get-FastCapacityProjection {
+    param([Parameter(Mandatory = $true)][object] $Evidence)
+
+    $failures = New-Object System.Collections.ArrayList
+    $sample = $Evidence.sample
+    $baseline = $Evidence.baseline
+    $environment = $Evidence.environment
+    $cleanup = $Evidence.cleanup
+    $historyRows = [long]$sample.historyObservationCount
+    $historyRounds = [long]$sample.historyRoundCount
+    $totalRows = [long]$sample.rawObservationCount
+    $roundIntervalSeconds = [int]$sample.roundIntervalSeconds
+    $observationsPerRound = [int]$sample.observationsPerRound
+    $targetRounds = [long][Math]::Floor((30.0 * 86400.0) / $roundIntervalSeconds)
+    $targetRows = $targetRounds * [long]$observationsPerRound
+    $safetyMargin = 0.30
+
+    if ($totalRows -gt 250000) { [void]$failures.Add('CAPACITY_SAMPLE_EXCEEDS_250000') }
+    if ($historyRows -lt 180000 -or $historyRounds -lt 300) {
+        [void]$failures.Add('CAPACITY_SAMPLE_INSUFFICIENT')
+    }
+    if ($historyRows -ne ($historyRounds * [long]$observationsPerRound)) {
+        [void]$failures.Add('CAPACITY_SAMPLE_DISTRIBUTION_UNCERTAIN')
+    }
+    if ($totalRows -ne ($historyRows + 600L)) {
+        [void]$failures.Add('CAPACITY_SAMPLE_DISTRIBUTION_UNCERTAIN')
+    }
+
+    $checkpoints = @($sample.checkpoints | Sort-Object { [long]$_.historyRoundCount })
+    $segmentRates = New-Object System.Collections.ArrayList
+    for ($index = 1; $index -lt $checkpoints.Count; $index++) {
+        $roundDelta = [long]$checkpoints[$index].historyRoundCount - [long]$checkpoints[$index - 1].historyRoundCount
+        $usedDelta = [double]$checkpoints[$index].logicalUsedMb - [double]$checkpoints[$index - 1].logicalUsedMb
+        if ($roundDelta -le 0 -or $usedDelta -le 0) {
+            [void]$failures.Add('CAPACITY_GROWTH_NONLINEAR')
+            continue
+        }
+        [void]$segmentRates.Add($usedDelta / $roundDelta)
+    }
+    $linearityRatio = $null
+    if ($checkpoints.Count -lt 4 -or $segmentRates.Count -lt 3) {
+        [void]$failures.Add('CAPACITY_GROWTH_EVIDENCE_INSUFFICIENT')
+    } else {
+        $minimumRate = [double](($segmentRates | Measure-Object -Minimum).Minimum)
+        $maximumRate = [double](($segmentRates | Measure-Object -Maximum).Maximum)
+        $linearityRatio = if ($minimumRate -gt 0) { $maximumRate / $minimumRate } else { [double]::PositiveInfinity }
+        if ($linearityRatio -gt 1.20) { [void]$failures.Add('CAPACITY_GROWTH_NONLINEAR') }
+    }
+
+    $baselineLogicalMb = [double]$baseline.storage.logicalUsedMb
+    $sampleLogicalMb = [double]$sample.storage.logicalUsedMb
+    $logicalGrowthMb = $sampleLogicalMb - $baselineLogicalMb
+    if ($logicalGrowthMb -le 0 -or $historyRounds -le 0) {
+        [void]$failures.Add('CAPACITY_LOGICAL_GROWTH_UNCERTAIN')
+        $logicalPerRoundMb = 0.0
+    } else {
+        $logicalPerRoundMb = $logicalGrowthMb / $historyRounds
+    }
+    $logicalPerRowMb = if ($historyRows -gt 0) { $logicalGrowthMb / $historyRows } else { 0.0 }
+    $coreProjectedLogicalUsedMb = ($baselineLogicalMb + ($logicalPerRoundMb * $targetRounds)) * (1.0 + $safetyMargin)
+
+    $requiredTransientProperties = @(
+        'tombstoneObservedCount', 'tombstoneLogicalUsedMb', 'projectedTombstoneCount',
+        'databaseVersionStorePeakMb', 'tempdbVersionStorePeakMb',
+        'tempdbUserObjectsImpactMb', 'tempdbInternalObjectsImpactMb')
+    $transientEvidenceComplete = @($requiredTransientProperties | Where-Object {
+        $null -eq $sample.PSObject.Properties[$_]
+    }).Count -eq 0
+    if (-not $transientEvidenceComplete) {
+        [void]$failures.Add('CAPACITY_TRANSIENT_STORAGE_EVIDENCE_INCOMPLETE')
+        $projectedTombstoneMb = 0.0
+        $projectedVersionStorePeakMb = 0.0
+        $projectedTempdbImpactMb = 0.0
+    } else {
+        $tombstoneObservedCount = [long]$sample.tombstoneObservedCount
+        if ($tombstoneObservedCount -le 0 -or [double]$sample.tombstoneLogicalUsedMb -le 0 -or
+            [long]$sample.projectedTombstoneCount -lt $tombstoneObservedCount) {
+            [void]$failures.Add('CAPACITY_TOMBSTONE_PROJECTION_UNCERTAIN')
+            $projectedTombstoneMb = 0.0
+        } else {
+            $projectedTombstoneMb = (([double]$sample.tombstoneLogicalUsedMb / $tombstoneObservedCount) *
+                [long]$sample.projectedTombstoneCount) * (1.0 + $safetyMargin)
+        }
+        $projectedVersionStorePeakMb = [double]$sample.databaseVersionStorePeakMb * (1.0 + $safetyMargin)
+        $tempdbMeasuredImpactMb = [Math]::Max(
+            [double]$sample.tempdbVersionStorePeakMb,
+            [Math]::Max(0.0, [double]$sample.tempdbUserObjectsImpactMb) +
+                [Math]::Max(0.0, [double]$sample.tempdbInternalObjectsImpactMb))
+        $projectedTempdbImpactMb = $tempdbMeasuredImpactMb * (1.0 + $safetyMargin)
+    }
+    $projectedLogicalUsedMb = $coreProjectedLogicalUsedMb + $projectedTombstoneMb
+
+    $dataFileGrowthMb = [double]$sample.dataFileGrowthMb
+    if ($dataFileGrowthMb -le 0) {
+        [void]$failures.Add('CAPACITY_AUTOGROWTH_UNCERTAIN')
+        $dataFileGrowthMb = 1.0
+    }
+    $startingPhysicalDataMb = [double]$sample.storage.physicalDataMb
+    $projectedPhysicalDataMb = if ($projectedLogicalUsedMb -le $startingPhysicalDataMb) {
+        $startingPhysicalDataMb
+    } else {
+        $startingPhysicalDataMb +
+            ([Math]::Ceiling(($projectedLogicalUsedMb - $startingPhysicalDataMb) / $dataFileGrowthMb) * $dataFileGrowthMb)
+    }
+    $peakPhysicalLogMb = if ($null -eq $sample.PSObject.Properties['peakPhysicalLogMb']) {
+        [double]$sample.storage.ldfMb
+    } else {
+        [double]$sample.peakPhysicalLogMb
+    }
+    $peakLogMb = [Math]::Max(
+        [Math]::Max([double]$sample.storage.ldfMb, $peakPhysicalLogMb),
+        [double]$sample.peakLogUsedMb)
+    $projectedLdfMb = $peakLogMb * (1.0 + $safetyMargin)
+
+    $logicalLimitMb = 12.0 * 1024.0
+    $physicalLimitMb = 16.0 * 1024.0
+    $ldfLimitMb = 2.0 * 1024.0
+    $escalationFraction = 0.70
+    if ($projectedLogicalUsedMb -ge ($logicalLimitMb * $escalationFraction)) {
+        [void]$failures.Add('CAPACITY_LOGICAL_70_PERCENT_ESCALATION')
+    }
+    if ($projectedPhysicalDataMb -ge ($physicalLimitMb * $escalationFraction)) {
+        [void]$failures.Add('CAPACITY_PHYSICAL_70_PERCENT_ESCALATION')
+    }
+    if ($projectedLdfMb -ge ($ldfLimitMb * $escalationFraction)) {
+        [void]$failures.Add('CAPACITY_LDF_70_PERCENT_ESCALATION')
+    }
+
+    if ([string]$environment.recoveryModel -cne 'SIMPLE') { [void]$failures.Add('CAPACITY_RECOVERY_NOT_SIMPLE') }
+    if ([int]$environment.compatibilityLevel -ne 160) { [void]$failures.Add('CAPACITY_COMPATIBILITY_NOT_160') }
+    if ([int]$environment.maxServerMemoryMb -ne 1536) { [void]$failures.Add('CAPACITY_MAX_SERVER_MEMORY_NOT_1536') }
+    if (-not [bool]$environment.pageCompressionVerified) { [void]$failures.Add('CAPACITY_PAGE_COMPRESSION_UNCERTAIN') }
+    if (-not [bool]$environment.autoGrowthVerified) { [void]$failures.Add('CAPACITY_AUTOGROWTH_UNCERTAIN') }
+    if (-not [bool]$environment.versionStoreMeasured) { [void]$failures.Add('CAPACITY_VERSION_STORE_UNCERTAIN') }
+    if (-not [bool]$environment.tempdbMeasured) { [void]$failures.Add('CAPACITY_TEMPDB_UNCERTAIN') }
+    if ([string]::IsNullOrWhiteSpace([string]$environment.logReuseWait)) {
+        [void]$failures.Add('CAPACITY_LOG_REUSE_WAIT_UNCERTAIN')
+    }
+
+    $requiredCleanupProperties = @(
+        'expectedRawObservationRows', 'deletedRawObservationRows', 'remainingRawObservationRows',
+        'expectedEligibleSeries', 'deletedEligibleSeries', 'remainingRetentionEligibleSeries',
+        'tombstonesWritten', 'activeSeriesWholeBefore', 'activeSeriesWholeAfter',
+        'activeGraphUnchanged', 'defaultCheckIntervalSeconds', 'defaultRawObservationBatch',
+        'defaultSeriesBatch', 'defaultTimeBudgetSeconds')
+    $cleanupEvidenceComplete = $null -ne $cleanup -and
+        @($requiredCleanupProperties | Where-Object {
+            $null -eq $cleanup.PSObject.Properties[$_]
+        }).Count -eq 0
+    if (-not $cleanupEvidenceComplete) {
+        [void]$failures.Add('CAPACITY_CLEANUP_EVIDENCE_INCOMPLETE')
+    } else {
+        if ([long]$cleanup.expectedRawObservationRows -ne $totalRows -or
+            ([long]$cleanup.deletedRawObservationRows + [long]$cleanup.remainingRawObservationRows) -ne
+                [long]$cleanup.expectedRawObservationRows -or
+            [long]$cleanup.deletedRawObservationRows -ne [long]$cleanup.expectedRawObservationRows -or
+            [long]$cleanup.remainingRawObservationRows -ne 0) {
+            [void]$failures.Add('CAPACITY_RAW_CLEANUP_UNCERTAIN')
+        }
+        if ([long]$cleanup.deletedEligibleSeries -ne [long]$cleanup.expectedEligibleSeries -or
+            [long]$cleanup.tombstonesWritten -ne [long]$cleanup.expectedEligibleSeries -or
+            [long]$cleanup.remainingRetentionEligibleSeries -ne 0) {
+            [void]$failures.Add('CAPACITY_SERIES_CLEANUP_UNCERTAIN')
+        }
+        if ([long]$cleanup.activeSeriesWholeBefore -ne [long]$cleanup.activeSeriesWholeAfter -or
+            -not [bool]$cleanup.activeGraphUnchanged) {
+            [void]$failures.Add('CAPACITY_ACTIVE_SERIES_SPLIT')
+        }
+        if ([int]$cleanup.defaultCheckIntervalSeconds -ne 3600 -or
+            [int]$cleanup.defaultRawObservationBatch -ne 210000 -or
+            [int]$cleanup.defaultSeriesBatch -ne 25 -or
+            [int]$cleanup.defaultTimeBudgetSeconds -ne 15) {
+            [void]$failures.Add('CAPACITY_CLEANUP_DEFAULTS_UNCERTAIN')
+        }
+    }
+
+    $uniqueFailures = @($failures | Sort-Object -Unique)
+    return [pscustomobject][ordered]@{
+        passed = $uniqueFailures.Count -eq 0
+        escalationRequired = $uniqueFailures.Count -gt 0
+        failures = $uniqueFailures
+        model = [ordered]@{
+            targetDays = 30; targetRounds = $targetRounds; targetRawObservationRows = $targetRows
+            safetyMarginFraction = $safetyMargin; escalationFraction = $escalationFraction
+            historySampleRounds = $historyRounds; historySampleRows = $historyRows; totalSampleRows = $totalRows
+            observedLogicalGrowthMb = $logicalGrowthMb
+            logicalMbPerRound = $logicalPerRoundMb; logicalMbPerRow = $logicalPerRowMb
+            formula = '((baselineLogicalMb + logicalMbPerRound * targetRounds) * 1.30) + projectedTombstoneMb'
+            tombstoneFormula = '(observedTombstoneMb / observedTombstoneCount) * projectedTombstoneCount * 1.30'
+            versionStoreFormula = 'measuredDatabaseVersionStorePeakMb * 1.30'
+            tempdbFormula = 'max(measuredTempdbVersionStorePeakMb, positive user + internal object impact) * 1.30'
+            physicalFormula = 'startingPhysicalDataMb + ceil((projectedLogicalUsedMb - startingPhysicalDataMb) / dataFileGrowthMb) * dataFileGrowthMb'
+            ldfFormula = 'max(sampleLdfMb, peakPhysicalLogMb across load/query/cleanup, peakLogUsedMb) * 1.30 under SIMPLE recovery'
+            linearityMaximumToMinimumSegmentRate = $linearityRatio
+            projectedTombstoneCount = if ($transientEvidenceComplete) { [long]$sample.projectedTombstoneCount } else { $null }
+        }
+        thresholds = [ordered]@{
+            logicalUsedMb = $logicalLimitMb; physicalDataMb = $physicalLimitMb; ldfMb = $ldfLimitMb
+            logicalEscalationMb = $logicalLimitMb * $escalationFraction
+            physicalEscalationMb = $physicalLimitMb * $escalationFraction
+            ldfEscalationMb = $ldfLimitMb * $escalationFraction
+        }
+        prediction = [ordered]@{
+            logicalUsedMb = $projectedLogicalUsedMb
+            physicalDataMb = $projectedPhysicalDataMb
+            ldfMb = $projectedLdfMb
+            tombstoneMb = $projectedTombstoneMb
+            databaseVersionStorePeakMb = $projectedVersionStorePeakMb
+            tempdbImpactMb = $projectedTempdbImpactMb
+        }
+    }
 }
 
 function Read-XEventEnvelope {
@@ -329,6 +551,195 @@ function Invoke-SqlTable {
     } finally { $connection.Dispose() }
 }
 
+function Get-StorageSnapshot {
+    param([Parameter(Mandatory = $true)][string] $ConnectionString)
+    $physicalFiles = @(Invoke-SqlTable $ConnectionString @"
+SELECT DB_NAME() AS database_name, name AS logical_name, type_desc, physical_name,
+       size * 8.0 / 1024 AS physical_size_mb,
+       FILEPROPERTY(name, 'SpaceUsed') * 8.0 / 1024 AS logical_used_mb,
+       is_percent_growth,
+       CASE WHEN is_percent_growth = 1 THEN CONVERT(float, growth)
+            ELSE growth * 8.0 / 1024 END AS growth_value,
+       CASE WHEN is_percent_growth = 1 THEN N'PERCENT' ELSE N'MB' END AS growth_unit,
+       max_size
+FROM sys.database_files
+ORDER BY type, file_id;
+"@ @{} 300)
+    $allocations = @(Invoke-SqlTable $ConnectionString @"
+SELECT s.name AS schema_name, t.name AS table_name, i.name AS index_name,
+       CASE WHEN i.index_id = 0 THEN N'HEAP' WHEN i.index_id = 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END AS allocation_kind,
+       p.data_compression_desc,
+       SUM(ps.row_count) AS row_count,
+       SUM(ps.reserved_page_count) * 8.0 / 1024 AS reserved_mb,
+       SUM(ps.used_page_count) * 8.0 / 1024 AS logical_used_mb
+FROM sys.dm_db_partition_stats ps
+JOIN sys.partitions p ON p.partition_id = ps.partition_id
+JOIN sys.tables t ON t.object_id = ps.object_id
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+LEFT JOIN sys.indexes i ON i.object_id = ps.object_id AND i.index_id = ps.index_id
+WHERE s.name = N'mesingest'
+GROUP BY s.name, t.name, i.name, i.index_id, p.data_compression_desc
+ORDER BY t.name, i.index_id;
+"@ @{} 300)
+    return [pscustomobject][ordered]@{
+        physicalFiles = @($physicalFiles)
+        allocations = @($allocations)
+        physicalDataMb = [double](($physicalFiles | Where-Object { $_.type_desc -eq 'ROWS' } | Measure-Object -Property physical_size_mb -Sum).Sum)
+        ldfMb = [double](($physicalFiles | Where-Object { $_.type_desc -eq 'LOG' } | Measure-Object -Property physical_size_mb -Sum).Sum)
+        logicalUsedMb = [double](($allocations | Measure-Object -Property logical_used_mb -Sum).Sum)
+    }
+}
+
+function Get-CapacityResourceSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string] $MasterConnectionString,
+        [Parameter(Mandatory = $true)][string] $DatabaseConnectionString,
+        [Parameter(Mandatory = $true)][string] $DatabaseName,
+        [Parameter(Mandatory = $true)][string] $Stage
+    )
+    [void](Invoke-SqlNonQuery $DatabaseConnectionString 'CHECKPOINT;' @{} 300)
+    $database = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT recovery_model_desc AS recoveryModel,
+       log_reuse_wait_desc AS logReuseWait,
+       compatibility_level AS compatibilityLevel
+FROM sys.databases WHERE name = @databaseName;
+"@ @{ '@databaseName' = $DatabaseName }) | Select-Object -First 1
+    $log = @(Invoke-SqlTable $DatabaseConnectionString @"
+SELECT total_log_size_in_bytes / 1048576.0 AS totalLogMb,
+       used_log_space_in_bytes / 1048576.0 AS usedLogMb,
+       used_log_space_in_percent AS usedLogPercent
+FROM sys.dm_db_log_space_usage;
+"@ @{}) | Select-Object -First 1
+    $versionStore = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT reserved_page_count * 8.0 / 1024 AS versionStoreMb
+FROM sys.dm_tran_version_store_space_usage
+WHERE database_id = DB_ID(@databaseName);
+"@ @{ '@databaseName' = $DatabaseName }) | Select-Object -First 1
+    $tempdb = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT SUM(version_store_reserved_page_count) * 8.0 / 1024 AS versionStoreMb,
+       SUM(user_object_reserved_page_count) * 8.0 / 1024 AS userObjectsMb,
+       SUM(internal_object_reserved_page_count) * 8.0 / 1024 AS internalObjectsMb,
+       SUM(unallocated_extent_page_count) * 8.0 / 1024 AS unallocatedMb
+FROM tempdb.sys.dm_db_file_space_usage;
+"@ @{}) | Select-Object -First 1
+    return [pscustomobject][ordered]@{
+        stage = $Stage; capturedAt = [DateTimeOffset]::UtcNow.ToString('o')
+        recoveryModel = [string]$database.recoveryModel
+        logReuseWait = [string]$database.logReuseWait
+        compatibilityLevel = [int]$database.compatibilityLevel
+        totalLogMb = [double]$log.totalLogMb; usedLogMb = [double]$log.usedLogMb
+        usedLogPercent = [double]$log.usedLogPercent
+        databaseVersionStoreMb = if ($null -eq $versionStore) { 0.0 } else { [double]$versionStore.versionStoreMb }
+        tempdbVersionStoreMb = [double]$tempdb.versionStoreMb
+        tempdbUserObjectsMb = [double]$tempdb.userObjectsMb
+        tempdbInternalObjectsMb = [double]$tempdb.internalObjectsMb
+        tempdbUnallocatedMb = [double]$tempdb.unallocatedMb
+    }
+}
+
+function Get-ActiveSeriesGraphSnapshot {
+    param([Parameter(Mandatory = $true)][string] $ConnectionString)
+    $summary = @(Invoke-SqlTable $ConnectionString @"
+SELECT
+    (SELECT COUNT_BIG(*) FROM mesingest.DemandSeries WHERE Lifecycle = N'TRACKING') AS seriesCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.TransportDemands AS demand
+     INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = demand.SeriesId
+     WHERE series.Lifecycle = N'TRACKING') AS demandCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.DemandSeriesEvents AS eventRow
+     INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = eventRow.SeriesId
+     WHERE series.Lifecycle = N'TRACKING') AS eventCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.DemandSeriesCurrentConditions AS condition
+     INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = condition.SeriesId
+     WHERE series.Lifecycle = N'TRACKING') AS conditionCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.DemandSeriesErrorPeriods AS period
+     INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = period.SeriesId
+     WHERE series.Lifecycle = N'TRACKING') AS errorPeriodCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+     INNER JOIN mesingest.DemandSeriesErrorPeriods AS period ON period.PeriodId = evidence.PeriodId
+     INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = period.SeriesId
+     WHERE series.Lifecycle = N'TRACKING') AS errorEvidenceCount,
+    (SELECT COUNT_BIG(*) FROM mesingest.DemandSeries AS series
+     WHERE series.Lifecycle = N'TRACKING'
+       AND (series.CurrentDemandId IS NULL
+            OR NOT EXISTS (SELECT 1 FROM mesingest.TransportDemands AS demand WHERE demand.DemandId = series.CurrentDemandId)
+            OR NOT EXISTS (SELECT 1 FROM mesingest.DemandSeriesEvents AS eventRow WHERE eventRow.SeriesId = series.SeriesId)
+            OR EXISTS
+            (
+                SELECT 1 FROM mesingest.DemandSeriesCurrentConditions AS condition
+                WHERE condition.SeriesId = series.SeriesId
+                  AND (NOT EXISTS
+                       (SELECT 1 FROM mesingest.DemandSeriesErrorPeriods AS period
+                        WHERE period.PeriodId = condition.PeriodId AND period.SeriesId = series.SeriesId)
+                       OR NOT EXISTS
+                       (SELECT 1 FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+                        WHERE evidence.EvidenceId = condition.LatestEvidenceId
+                          AND evidence.PeriodId = condition.PeriodId))
+            ))) AS splitSeriesCount;
+"@ @{}) | Select-Object -First 1
+    $facts = @(Invoke-SqlTable $ConnectionString @"
+SELECT fact
+FROM
+(
+    SELECT series.SeriesId, N'SERIES' AS factKind,
+        CONCAT(series.SeriesId, N'|', series.KeyToken, N'|', series.WorkType, N'|', series.Sublot,
+            N'|', series.Lifecycle, N'|', series.CurrentPresence, N'|', series.CurrentDemandId,
+            N'|', series.LastSeriesSequence) AS fact
+    FROM mesingest.DemandSeries AS series
+    WHERE series.Lifecycle = N'TRACKING'
+    UNION ALL
+    SELECT series.SeriesId, N'DEMAND',
+        CONCAT(demand.DemandId, N'|', demand.SeriesId, N'|', demand.Generation, N'|',
+            COALESCE(demand.PredecessorDemandId, N''), N'|', demand.Status, N'|', demand.DemandRevision)
+    FROM mesingest.TransportDemands AS demand
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = demand.SeriesId
+    WHERE series.Lifecycle = N'TRACKING'
+    UNION ALL
+    SELECT series.SeriesId, N'EVENT',
+        CONCAT(eventRow.EventId, N'|', eventRow.SeriesId, N'|', eventRow.SeriesSequence, N'|',
+            eventRow.EventType, N'|', eventRow.SubjectKind, N'|', eventRow.SubjectId)
+    FROM mesingest.DemandSeriesEvents AS eventRow
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = eventRow.SeriesId
+    WHERE series.Lifecycle = N'TRACKING'
+    UNION ALL
+    SELECT series.SeriesId, N'CONDITION',
+        CONCAT(condition.SeriesId, N'|', condition.ErrorCode, N'|', condition.Target, N'|',
+            condition.SubjectKind, N'|', condition.PeriodId, N'|', condition.LatestEvidenceId)
+    FROM mesingest.DemandSeriesCurrentConditions AS condition
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = condition.SeriesId
+    WHERE series.Lifecycle = N'TRACKING'
+    UNION ALL
+    SELECT series.SeriesId, N'ERROR_PERIOD',
+        CONCAT(period.PeriodId, N'|', period.SeriesId, N'|', period.ErrorCode, N'|', period.Category,
+            N'|', period.Severity, N'|', period.Target, N'|', period.SubjectKind, N'|',
+            CONVERT(nvarchar(40), period.StartedAt, 127), N'|', COALESCE(CONVERT(nvarchar(40), period.EndedAt, 127), N''))
+    FROM mesingest.DemandSeriesErrorPeriods AS period
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = period.SeriesId
+    WHERE series.Lifecycle = N'TRACKING'
+    UNION ALL
+    SELECT series.SeriesId, N'ERROR_EVIDENCE',
+        CONCAT(evidence.EvidenceId, N'|', evidence.PeriodId, N'|', evidence.EventId, N'|',
+            evidence.EvidenceKind, N'|', evidence.DemandId, N'|', evidence.ProjectionCommitId)
+    FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+    INNER JOIN mesingest.DemandSeriesErrorPeriods AS period ON period.PeriodId = evidence.PeriodId
+    INNER JOIN mesingest.DemandSeries AS series ON series.SeriesId = period.SeriesId
+    WHERE series.Lifecycle = N'TRACKING'
+) AS graphFacts
+ORDER BY SeriesId, factKind, fact;
+"@ @{} 300)
+    $graphIdentity = Get-Sha256String (($facts | ForEach-Object { [string]$_.fact }) -join "`n")
+    return [pscustomobject][ordered]@{
+        seriesCount = [long]$summary.seriesCount
+        demandCount = [long]$summary.demandCount
+        eventCount = [long]$summary.eventCount
+        conditionCount = [long]$summary.conditionCount
+        errorPeriodCount = [long]$summary.errorPeriodCount
+        errorEvidenceCount = [long]$summary.errorEvidenceCount
+        splitSeriesCount = [long]$summary.splitSeriesCount
+        graphFactCount = $facts.Count
+        graphIdentitySha256 = $graphIdentity
+    }
+}
+
 function Get-FreeTcpPort {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     try { $listener.Start(); return ([Net.IPEndPoint]$listener.LocalEndpoint).Port }
@@ -339,7 +750,8 @@ function Start-EvidenceHost {
     param(
         [Parameter(Mandatory = $true)][string] $DatabaseConnectionString,
         [Parameter(Mandatory = $true)][string] $Secret,
-        [Parameter(Mandatory = $true)][string] $ApplicationName
+        [Parameter(Mandatory = $true)][string] $ApplicationName,
+        [int] $CleanupCheckIntervalSeconds = 0
     )
     $hostExe = Join-Path $ServiceRoot 'MesIngest.Host.exe'
     $hostDll = Join-Path $ServiceRoot 'MesIngest.Host.dll'
@@ -368,6 +780,9 @@ function Start-EvidenceHost {
     $start.EnvironmentVariables['MesIngest__SharedSecret'] = $Secret
     $start.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] = 'false'
     $start.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'false'
+    if ($CleanupCheckIntervalSeconds -gt 0) {
+        $start.EnvironmentVariables['MesIngest__HistoryCleanupCheckIntervalSeconds'] = [string]$CleanupCheckIntervalSeconds
+    }
     $process = [Diagnostics.Process]::Start($start)
     if ($null -eq $process) { throw 'Packaged Host did not start.' }
 
@@ -611,6 +1026,23 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateEvidenceFixturePath)) {
     exit 0
 }
 
+if (-not [string]::IsNullOrWhiteSpace($ValidateCapacityFixturePath)) {
+    if (-not (Test-Path -LiteralPath $ValidateCapacityFixturePath -PathType Leaf)) {
+        throw "Capacity fixture not found: $ValidateCapacityFixturePath"
+    }
+    $capacityFixture = Get-Content -Raw -LiteralPath $ValidateCapacityFixturePath | ConvertFrom-Json
+    $capacityResult = Get-FastCapacityProjection $capacityFixture
+    Write-Output "MESINGEST_FAST_CAPACITY_FIXTURE: passed=$($capacityResult.passed) escalationRequired=$($capacityResult.escalationRequired)"
+    Write-Output ("projectedLogicalUsedMb={0:F3} projectedPhysicalDataMb={1:F3} projectedLdfMb={2:F3}" -f `
+        [double]$capacityResult.prediction.logicalUsedMb, `
+        [double]$capacityResult.prediction.physicalDataMb, `
+        [double]$capacityResult.prediction.ldfMb)
+    if (-not $capacityResult.passed) {
+        throw "Fast capacity fixture failed: $(@($capacityResult.failures) -join ', ')"
+    }
+    exit 0
+}
+
 $masterConnectionString = [Environment]::GetEnvironmentVariable($SqlConnectionStringEnvironmentVariable)
 if ([string]::IsNullOrWhiteSpace($masterConnectionString)) {
     throw "Set $SqlConnectionStringEnvironmentVariable to an approved real SQL Server master connection."
@@ -663,6 +1095,10 @@ $secret = [Convert]::ToBase64String($secretBytes)
 $databaseBuilder = [Data.SqlClient.SqlConnectionStringBuilder]::new($masterConnectionString)
 $databaseBuilder['Initial Catalog'] = $DatabaseName
 $databaseConnectionString = $databaseBuilder.ConnectionString
+$capacityCheckpoints = New-Object System.Collections.ArrayList
+$capacityResourceSnapshots = New-Object System.Collections.ArrayList
+$cleanupEvidence = $null
+$capacityProjection = $null
 
 try {
     [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
@@ -691,6 +1127,10 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
 SELECT compatibility_level AS compatibilityLevel, recovery_model_desc AS recoveryModel
 FROM sys.databases WHERE name = @databaseName;
 "@ @{ '@databaseName' = $DatabaseName }) | Select-Object -First 1
+    if ($FastCapacityProjection) {
+        [void]$capacityResourceSnapshots.Add((Get-CapacityResourceSnapshot `
+            $masterConnectionString $databaseConnectionString $DatabaseName 'after-bootstrap'))
+    }
 
     $hostSessionId = [string](@(Invoke-SqlTable $databaseConnectionString @"
 SELECT TOP (1) HostSessionId FROM mesingest.HostSessions ORDER BY StartedAt DESC, HostSessionId DESC;
@@ -957,6 +1397,16 @@ FROM RecentSeries;
         })
 
     # Inflate history after the coherent current graph exists; every batch is independently committed.
+    if ($FastCapacityProjection -and $historyRoundCount -gt 0) {
+        $checkpointStorage = Get-StorageSnapshot $databaseConnectionString
+        [void]$capacityCheckpoints.Add([pscustomobject][ordered]@{
+            historyRoundCount = 0L
+            historyObservationCount = 0L
+            logicalUsedMb = [double]$checkpointStorage.logicalUsedMb
+            physicalDataMb = [double]$checkpointStorage.physicalDataMb
+            ldfMb = [double]$checkpointStorage.ldfMb
+        })
+    }
     for ($roundStart = 1L; $roundStart -le $historyRoundCount; $roundStart += $RoundBatchSize) {
         $roundCount = [Math]::Min([long]$RoundBatchSize, $historyRoundCount - $roundStart + 1)
         [void](Invoke-SqlNonQuery $databaseConnectionString @"
@@ -993,6 +1443,17 @@ FROM rounds r CROSS JOIN observations o;
                 '@errorCount' = [Math]::Max(1, [int][Math]::Round($SeriesCount * 0.10))
                 '@historyRoundCount' = $historyRoundCount; '@roundSeconds' = $RoundIntervalSeconds; '@anchorUtc' = $AnchorUtc
             })
+        if ($FastCapacityProjection) {
+            $completedRounds = $roundStart + $roundCount - 1
+            $checkpointStorage = Get-StorageSnapshot $databaseConnectionString
+            [void]$capacityCheckpoints.Add([pscustomobject][ordered]@{
+                historyRoundCount = [long]$completedRounds
+                historyObservationCount = [long]$completedRounds * [long]$ObservationsPerRound
+                logicalUsedMb = [double]$checkpointStorage.logicalUsedMb
+                physicalDataMb = [double]$checkpointStorage.physicalDataMb
+                ldfMb = [double]$checkpointStorage.ldfMb
+            })
+        }
     }
 
     [void](Invoke-SqlNonQuery $databaseConnectionString @"
@@ -1003,6 +1464,10 @@ WHERE Id = 1;
 "@ @{})
 
     [void](Invoke-SqlNonQuery $databaseConnectionString 'EXEC sys.sp_updatestats;' @{} 0)
+    if ($FastCapacityProjection) {
+        [void]$capacityResourceSnapshots.Add((Get-CapacityResourceSnapshot `
+            $masterConnectionString $databaseConnectionString $DatabaseName 'after-load'))
+    }
     $rowCounts = @(Invoke-SqlTable $databaseConnectionString @"
 SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS raw_observations,
        (SELECT COUNT_BIG(*) FROM mesingest.DemandSeries) AS series_count,
@@ -1262,35 +1727,113 @@ WHERE Id = 1;
         })
     }
 
-    $physicalFiles = @(Invoke-SqlTable $databaseConnectionString @"
-SELECT DB_NAME() AS database_name, name AS logical_name, type_desc, physical_name,
-       size * 8.0 / 1024 AS physical_size_mb,
-       FILEPROPERTY(name, 'SpaceUsed') * 8.0 / 1024 AS logical_used_mb
-FROM sys.database_files
-ORDER BY type, file_id;
-"@ @{} 300)
-    $allocations = @(Invoke-SqlTable $databaseConnectionString @"
-SELECT s.name AS schema_name, t.name AS table_name, i.name AS index_name,
-       CASE WHEN i.index_id = 0 THEN N'HEAP' WHEN i.index_id = 1 THEN N'CLUSTERED' ELSE N'NONCLUSTERED' END AS allocation_kind,
-       p.data_compression_desc,
-       SUM(ps.row_count) AS row_count,
-       SUM(ps.reserved_page_count) * 8.0 / 1024 AS reserved_mb,
-       SUM(ps.used_page_count) * 8.0 / 1024 AS logical_used_mb
-FROM sys.dm_db_partition_stats ps
-JOIN sys.partitions p ON p.partition_id = ps.partition_id
-JOIN sys.tables t ON t.object_id = ps.object_id
-JOIN sys.schemas s ON s.schema_id = t.schema_id
-LEFT JOIN sys.indexes i ON i.object_id = ps.object_id AND i.index_id = ps.index_id
-WHERE s.name = N'mesingest'
-GROUP BY s.name, t.name, i.name, i.index_id, p.data_compression_desc
-ORDER BY t.name, i.index_id;
-"@  @{} 300)
-    $storage = [ordered]@{
-        physicalFiles = @($physicalFiles)
-        allocations = @($allocations)
-        physicalDataMb = [double](($physicalFiles | Where-Object { $_.type_desc -eq 'ROWS' } | Measure-Object -Property physical_size_mb -Sum).Sum)
-        ldfMb = [double](($physicalFiles | Where-Object { $_.type_desc -eq 'LOG' } | Measure-Object -Property physical_size_mb -Sum).Sum)
-        logicalUsedMb = [double](($allocations | Measure-Object -Property logical_used_mb -Sum).Sum)
+    $storage = Get-StorageSnapshot $databaseConnectionString
+    if ($FastCapacityProjection) {
+        [void]$capacityResourceSnapshots.Add((Get-CapacityResourceSnapshot `
+            $masterConnectionString $databaseConnectionString $DatabaseName 'after-query-evidence'))
+    }
+
+    if ($FastCapacityProjection -and $historyRoundCount -gt 0) {
+        $cleanupDefaultPath = Join-Path $ServiceRoot 'appsettings.json'
+        if (-not (Test-Path -LiteralPath $cleanupDefaultPath -PathType Leaf)) {
+            throw "Published cleanup defaults are missing: $cleanupDefaultPath"
+        }
+        $publishedDefaults = (Get-Content -Raw -LiteralPath $cleanupDefaultPath | ConvertFrom-Json).MesIngest
+        $activeBefore = Get-ActiveSeriesGraphSnapshot $databaseConnectionString
+        $cleanupAt = [DateTimeOffset]::UtcNow
+        [void](Invoke-SqlNonQuery $databaseConnectionString @"
+UPDATE mesingest.PollTraces
+SET StartedAt = DATEADD(day, -31, @cleanupAt),
+    CompletedAt = DATEADD(day, -31, DATEADD(second, 1, @cleanupAt));
+
+;WITH eligible AS
+(
+    SELECT TOP (25) series.SeriesId
+    FROM mesingest.DemandSeries AS series
+    WHERE series.Lifecycle = N'ARCHIVED'
+      AND NOT EXISTS
+      (
+          SELECT 1 FROM mesingest.DemandSeriesCurrentConditions AS condition
+          WHERE condition.SeriesId = series.SeriesId
+      )
+    ORDER BY series.SeriesId
+)
+UPDATE series
+SET RetentionEligibilityAt = DATEADD(day, -31, @cleanupAt)
+FROM mesingest.DemandSeries AS series
+INNER JOIN eligible ON eligible.SeriesId = series.SeriesId;
+"@ @{ '@cleanupAt' = $cleanupAt } 300)
+
+        $cleanupHost = Start-EvidenceHost `
+            $databaseConnectionString $secret "MesIngest.ScaleEvidence.$runId.cleanup" 1
+        try {
+            $cleanupDeadline = [DateTimeOffset]::UtcNow.AddSeconds(150)
+            do {
+                Start-Sleep -Milliseconds 500
+                $cleanupState = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT HistoryCleanupStatus AS status,
+       HistoryCleanupRunId AS runId,
+       HistoryCleanupTotalExpiredPollTraceCount AS totalExpiredPollTraceCount,
+       HistoryCleanupTotalDeletedRawObservationCount AS totalDeletedRawObservationCount,
+       HistoryCleanupTotalDeletedSeriesCount AS totalDeletedSeriesCount,
+       HistoryCleanupLastFailureCode AS lastFailureCode,
+       HistoryCleanupLastFailureReason AS lastFailureReason
+FROM mesingest.HistoryCleanupState WHERE Id = 1;
+"@ @{}) | Select-Object -First 1
+                if ($null -ne $cleanupState -and
+                    [long]$cleanupState.totalDeletedRawObservationCount -ge $expectedTotalObservationCount -and
+                    [long]$cleanupState.totalDeletedSeriesCount -ge 25) {
+                    break
+                }
+            } while ([DateTimeOffset]::UtcNow -lt $cleanupDeadline)
+        } finally {
+            Stop-EvidenceHost $cleanupHost
+        }
+
+        $activeAfter = Get-ActiveSeriesGraphSnapshot $databaseConnectionString
+        $tombstones = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT COUNT_BIG(*) AS tombstoneCount
+FROM mesingest.ArchivedDemandKeyTombstones;
+"@ @{}) | Select-Object -First 1
+        $remaining = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservationCount,
+       (SELECT COUNT_BIG(*) FROM mesingest.DemandSeries WHERE RetentionEligibilityAt IS NOT NULL) AS retentionEligibleSeriesCount;
+"@ @{}) | Select-Object -First 1
+        $storageAfterCleanup = Get-StorageSnapshot $databaseConnectionString
+        [void]$capacityResourceSnapshots.Add((Get-CapacityResourceSnapshot `
+            $masterConnectionString $databaseConnectionString $DatabaseName 'after-cleanup'))
+
+        $activeGraphUnchanged = [long]$activeBefore.splitSeriesCount -eq 0 -and
+            [long]$activeAfter.splitSeriesCount -eq 0 -and
+            [long]$activeBefore.seriesCount -eq [long]$activeAfter.seriesCount -and
+            [long]$activeBefore.demandCount -eq [long]$activeAfter.demandCount -and
+            [long]$activeBefore.eventCount -eq [long]$activeAfter.eventCount -and
+            [long]$activeBefore.conditionCount -eq [long]$activeAfter.conditionCount -and
+            [long]$activeBefore.errorPeriodCount -eq [long]$activeAfter.errorPeriodCount -and
+            [long]$activeBefore.errorEvidenceCount -eq [long]$activeAfter.errorEvidenceCount -and
+            [long]$activeBefore.graphFactCount -eq [long]$activeAfter.graphFactCount -and
+            [string]$activeBefore.graphIdentitySha256 -ceq [string]$activeAfter.graphIdentitySha256
+        $cleanupEvidence = [pscustomobject][ordered]@{
+            acceleratedCheckIntervalSeconds = 1
+            defaultCheckIntervalSeconds = [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
+            defaultRawObservationBatch = [int]$publishedDefaults.HistoryCleanupMaximumRawObservationRowsPerBatch
+            defaultSeriesBatch = [int]$publishedDefaults.HistoryCleanupMaximumSeriesPerBatch
+            defaultTimeBudgetSeconds = [int]$publishedDefaults.HistoryCleanupTimeBudgetSeconds
+            expectedRawObservationRows = $expectedTotalObservationCount
+            deletedRawObservationRows = if ($null -eq $cleanupState) { -1L } else { [long]$cleanupState.totalDeletedRawObservationCount }
+            remainingRawObservationRows = [long]$remaining.rawObservationCount
+            expectedEligibleSeries = 25
+            deletedEligibleSeries = if ($null -eq $cleanupState) { -1L } else { [long]$cleanupState.totalDeletedSeriesCount }
+            remainingRetentionEligibleSeries = [long]$remaining.retentionEligibleSeriesCount
+            tombstonesWritten = [long]$tombstones.tombstoneCount
+            activeSeriesWholeBefore = [long]$activeBefore.seriesCount
+            activeSeriesWholeAfter = if ($activeGraphUnchanged) { [long]$activeAfter.seriesCount } else { -1L }
+            activeGraphUnchanged = $activeGraphUnchanged
+            activeGraphBefore = $activeBefore
+            activeGraphAfter = $activeAfter
+            finalState = $cleanupState
+            storageAfterCleanup = $storageAfterCleanup
+        }
     }
 
     $attestation = $null
@@ -1390,7 +1933,7 @@ ORDER BY t.name, i.index_id;
         -ActualPlanCount $planEvents.Count `
         -StatementMetricCount $statementEvents.Count `
         -RowCounts $rowCounts `
-        -Tier1Satisfied ([bool]$tier1.satisfied) `
+        -Tier1Satisfied ([bool]($tier1.satisfied -or $FastCapacityProjection)) `
         -SourceCommit $sourceCommit `
         -CanonicalScaleProfile $canonicalScaleProfile `
         -QuerySurface $QuerySurface) | ForEach-Object { [void]$gateFailures.Add($_) }
@@ -1503,6 +2046,152 @@ ORDER BY t.name, i.index_id;
         }
     }
 
+    if ($FastCapacityProjection -and $historyRoundCount -gt 0) {
+        try {
+            $capacityBaseline = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
+            $requiredRawIndexes = @(
+                'PK_MesIngest_DemandRawObservations',
+                'IX_MesIngest_DemandRawObservations_Series',
+                'IX_MesIngest_DemandRawObservations_Demand')
+            $rawIndexAllocations = @($storage.allocations | Where-Object {
+                $_.table_name -eq 'DemandRawObservations' -and
+                $requiredRawIndexes -contains [string]$_.index_name
+            })
+            $pageCompressionVerified = $rawIndexAllocations.Count -eq $requiredRawIndexes.Count -and
+                @($rawIndexAllocations | Where-Object { $_.data_compression_desc -ne 'PAGE' }).Count -eq 0
+            $dataFiles = @($storage.physicalFiles | Where-Object { $_.type_desc -eq 'ROWS' })
+            $autoGrowthVerified = $dataFiles.Count -gt 0 -and
+                @($storage.physicalFiles | Where-Object {
+                    [bool]$_.is_percent_growth -or [double]$_.growth_value -le 0
+                }).Count -eq 0
+            $dataFileGrowthMb = [double](($dataFiles | Measure-Object -Property growth_value -Maximum).Maximum)
+            $peakLogUsedMb = [double](($capacityResourceSnapshots | Measure-Object -Property usedLogMb -Maximum).Maximum)
+            $peakPhysicalLogMb = [double](($capacityResourceSnapshots | Measure-Object -Property totalLogMb -Maximum).Maximum)
+            $lastResource = @($capacityResourceSnapshots)[@($capacityResourceSnapshots).Count - 1]
+            $firstResource = @($capacityResourceSnapshots)[0]
+            $afterQueryResource = @($capacityResourceSnapshots | Where-Object { $_.stage -eq 'after-query-evidence' }) | Select-Object -Last 1
+            $databaseVersionStorePeakMb = [double](($capacityResourceSnapshots | Measure-Object -Property databaseVersionStoreMb -Maximum).Maximum)
+            $tempdbVersionStorePeakMb = [double](($capacityResourceSnapshots | Measure-Object -Property tempdbVersionStoreMb -Maximum).Maximum)
+            $tempdbUserObjectsImpactMb = [double](($capacityResourceSnapshots | Measure-Object -Property tempdbUserObjectsMb -Maximum).Maximum) -
+                [double]$firstResource.tempdbUserObjectsMb
+            $tempdbInternalObjectsImpactMb = [double](($capacityResourceSnapshots | Measure-Object -Property tempdbInternalObjectsMb -Maximum).Maximum) -
+                [double]$firstResource.tempdbInternalObjectsMb
+            $tombstoneAllocation = @($cleanupEvidence.storageAfterCleanup.allocations | Where-Object {
+                $_.table_name -eq 'ArchivedDemandKeyTombstones'
+            })
+            $tombstoneLogicalUsedMb = [double](($tombstoneAllocation | Measure-Object -Property logical_used_mb -Sum).Sum)
+            $capacityInput = [pscustomobject][ordered]@{
+                baseline = $capacityBaseline
+                sample = [pscustomobject][ordered]@{
+                    rawObservationCount = [long]$rowCounts.raw_observations
+                    historyObservationCount = $historyObservationCount
+                    historyRoundCount = $historyRoundCount
+                    roundIntervalSeconds = $RoundIntervalSeconds
+                    observationsPerRound = $ObservationsPerRound
+                    storage = $storage
+                    checkpoints = @($capacityCheckpoints)
+                    dataFileGrowthMb = $dataFileGrowthMb
+                    peakLogUsedMb = $peakLogUsedMb
+                    peakPhysicalLogMb = $peakPhysicalLogMb
+                    tombstoneObservedCount = [long]$cleanupEvidence.tombstonesWritten
+                    tombstoneLogicalUsedMb = $tombstoneLogicalUsedMb
+                    projectedTombstoneCount = [long]$rowCounts.archived_series
+                    databaseVersionStorePeakMb = $databaseVersionStorePeakMb
+                    tempdbVersionStorePeakMb = $tempdbVersionStorePeakMb
+                    tempdbUserObjectsImpactMb = $tempdbUserObjectsImpactMb
+                    tempdbInternalObjectsImpactMb = $tempdbInternalObjectsImpactMb
+                }
+                environment = [pscustomobject][ordered]@{
+                    recoveryModel = [string]$databaseConfiguration.recoveryModel
+                    logReuseWait = [string]$lastResource.logReuseWait
+                    compatibilityLevel = [int]$databaseConfiguration.compatibilityLevel
+                    maxServerMemoryMb = [int]$serverIdentity.max_server_memory_mb
+                    pageCompressionVerified = $pageCompressionVerified
+                    autoGrowthVerified = $autoGrowthVerified
+                    versionStoreMeasured = @($capacityResourceSnapshots).Count -ge 3
+                    tempdbMeasured = @($capacityResourceSnapshots).Count -ge 3
+                }
+                cleanup = $cleanupEvidence
+            }
+            $capacityProjection = Get-FastCapacityProjection $capacityInput
+
+            $allocationProjection = New-Object System.Collections.ArrayList
+            foreach ($sampleAllocation in @($storage.allocations)) {
+                $baselineAllocation = @($capacityBaseline.storage.allocations | Where-Object {
+                    [string]$_.table_name -eq [string]$sampleAllocation.table_name -and
+                    [string]$_.index_name -eq [string]$sampleAllocation.index_name -and
+                    [string]$_.allocation_kind -eq [string]$sampleAllocation.allocation_kind
+                }) | Select-Object -First 1
+                $baselineAllocationMb = if ($null -eq $baselineAllocation) { 0.0 } else { [double]$baselineAllocation.logical_used_mb }
+                $observedGrowthMb = [Math]::Max(0.0, [double]$sampleAllocation.logical_used_mb - $baselineAllocationMb)
+                $projectedMb = ($baselineAllocationMb + (($observedGrowthMb / $historyRoundCount) * [long]$capacityProjection.model.targetRounds)) * 1.30
+                [void]$allocationProjection.Add([pscustomobject][ordered]@{
+                    table = [string]$sampleAllocation.table_name
+                    index = [string]$sampleAllocation.index_name
+                    kind = [string]$sampleAllocation.allocation_kind
+                    compression = [string]$sampleAllocation.data_compression_desc
+                    sampleRows = [long]$sampleAllocation.row_count
+                    baselineLogicalUsedMb = $baselineAllocationMb
+                    sampleLogicalUsedMb = [double]$sampleAllocation.logical_used_mb
+                    observedGrowthMb = $observedGrowthMb
+                    projectedThirtyDayWithMarginMb = $projectedMb
+                })
+            }
+            $capacityProjection | Add-Member -NotePropertyName allocationProjection -NotePropertyValue @($allocationProjection)
+            $capacityProjection | Add-Member -NotePropertyName resourceSnapshots -NotePropertyValue @($capacityResourceSnapshots)
+            $capacityProjection | Add-Member -NotePropertyName sampleCheckpoints -NotePropertyValue @($capacityCheckpoints)
+            $capacityProjection | Add-Member -NotePropertyName resourceImpact -NotePropertyValue ([pscustomobject][ordered]@{
+                databaseVersionStorePeakMb = $databaseVersionStorePeakMb
+                tempdbVersionStorePeakMb = $tempdbVersionStorePeakMb
+                tempdbVersionStoreDeltaThroughQueryMb = [double]$afterQueryResource.tempdbVersionStoreMb - [double]$firstResource.tempdbVersionStoreMb
+                tempdbUserObjectsDeltaThroughQueryMb = [double]$afterQueryResource.tempdbUserObjectsMb - [double]$firstResource.tempdbUserObjectsMb
+                tempdbInternalObjectsDeltaThroughQueryMb = [double]$afterQueryResource.tempdbInternalObjectsMb - [double]$firstResource.tempdbInternalObjectsMb
+                peakLogUsedMb = $peakLogUsedMb
+                finalLogReuseWait = [string]$lastResource.logReuseWait
+            })
+            $capacityProjection | Add-Member -NotePropertyName cleanup -NotePropertyValue $cleanupEvidence
+            $capacityProjection | Add-Member -NotePropertyName environment -NotePropertyValue $capacityInput.environment
+            $capacityProjection | Add-Member -NotePropertyName ldfIncrementMb -NotePropertyValue `
+                ($peakPhysicalLogMb - [double]$capacityBaseline.storage.ldfMb)
+            $capacityProjection | Add-Member -NotePropertyName physicalDataIncrementMb -NotePropertyValue `
+                ([double]$storage.physicalDataMb - [double]$capacityBaseline.storage.physicalDataMb)
+            $capacityProjection | Add-Member -NotePropertyName tombstoneAllocations -NotePropertyValue @($tombstoneAllocation)
+            $capacityProjection | Add-Member -NotePropertyName escalation -NotePropertyValue ([pscustomobject][ordered]@{
+                required = [bool]$capacityProjection.escalationRequired
+                releaseBlocked = [bool]$capacityProjection.escalationRequired
+                reasonCodes = @($capacityProjection.failures)
+                nextValidation = 'Invoke-ScaleAndQueryEvidence.ps1 -ProfileDays 30 -ConfirmFullScaleEscalation MESINGEST_FULL_SCALE_ESCALATION'
+                contentAddressingDecision = 'Re-evaluate only if full-scale validation also fails.'
+            })
+            @($capacityProjection.failures) | ForEach-Object { [void]$gateFailures.Add($_) }
+        } catch {
+            [void]$gateFailures.Add('CAPACITY_MODEL_EVIDENCE_UNCERTAIN')
+            $capacityProjection = [pscustomobject][ordered]@{
+                passed = $false
+                escalationRequired = $true
+                failures = @('CAPACITY_MODEL_EVIDENCE_UNCERTAIN')
+                errorType = $_.Exception.GetType().Name
+                model = [pscustomobject][ordered]@{
+                    targetDays = 30
+                    targetRounds = [long][Math]::Floor((30.0 * 86400.0) / $RoundIntervalSeconds)
+                    targetRawObservationRows = [long][Math]::Floor((30.0 * 86400.0) / $RoundIntervalSeconds) * [long]$ObservationsPerRound
+                    safetyMarginFraction = 0.30
+                    escalationFraction = 0.70
+                }
+                prediction = [pscustomobject][ordered]@{
+                    logicalUsedMb = $null; physicalDataMb = $null; ldfMb = $null
+                    tombstoneMb = $null; databaseVersionStorePeakMb = $null; tempdbImpactMb = $null
+                }
+                escalation = [pscustomobject][ordered]@{
+                    required = $true; releaseBlocked = $true
+                    reasonCodes = @('CAPACITY_MODEL_EVIDENCE_UNCERTAIN')
+                    nextValidation = 'Resolve incomplete fast evidence before any full-scale run.'
+                    contentAddressingDecision = 'Not evaluated from incomplete evidence.'
+                }
+            }
+        }
+    }
+
     $report = [ordered]@{
         schemaVersion = 1
         runId = $runId
@@ -1528,6 +2217,7 @@ ORDER BY t.name, i.index_id;
             historyDays = $profile.historyDays
             distribution = if ($canonicalScaleProfile) { $profile.distribution } else { 'diagnostic-override' }
             canonical = $canonicalScaleProfile; querySurface = $QuerySurface; seed = 8005
+            fastCapacityProjection = [bool]$FastCapacityProjection
             evidenceScale = if ($RepresentativeHistoryRounds -gt 0) { 'representative-history' } elseif ($ProfileDays -eq 0) { 'empty' } else { 'full-profile' }
             anchorUtc = $AnchorUtc.ToUniversalTime().ToString('o'); roundIntervalSeconds = $RoundIntervalSeconds
             observationsPerRound = $ObservationsPerRound; historyRoundCount = $historyRoundCount
@@ -1545,7 +2235,8 @@ ORDER BY t.name, i.index_id;
         statementMetrics = @($statementMetrics)
         actualPlans = @($planSummaries)
         storage = $storage
-        tests = $tier1
+        fastCapacityProjection = $capacityProjection
+        tests = $tier1 + [ordered]@{ deferredByFastCapacityProjection = [bool]($FastCapacityProjection -and -not $tier1.satisfied) }
         gate = [ordered]@{ passed = $gateFailures.Count -eq 0; failures = @($gateFailures) }
         safety = [ordered]@{ isolatedDatabaseOnly = $true; productionDatabaseRead = $false; credentialsWritten = $false; connectionStringWritten = $false }
     }
@@ -1559,7 +2250,7 @@ ORDER BY t.name, i.index_id;
         profile = $report.profile; replay = $report.replay
     } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
     $markdownPath = Join-Path $runDirectory 'scale-query-evidence.md'
-    @(
+    $markdownLines = @(
         '# MesIngest scale and query evidence'
         ''
         "- Run: $runId"
@@ -1571,7 +2262,23 @@ ORDER BY t.name, i.index_id;
         "- SQL Tier 1: Failed=$($tier1.failed), Passed=$($tier1.passed), Skipped=$($tier1.sqlSkippedTests), Total=$($tier1.total)"
         "- Gate passed: $($report.gate.passed)"
         "- Failures: $(@($gateFailures) -join ', ')"
-    ) | Set-Content -LiteralPath $markdownPath -Encoding UTF8
+    )
+    if ($null -ne $capacityProjection) {
+        if ($null -ne $capacityProjection.prediction.logicalUsedMb) {
+            $markdownLines += @(
+                "- Fast capacity projected logical used: $([Math]::Round([double]$capacityProjection.prediction.logicalUsedMb, 3)) MB"
+                "- Fast capacity projected physical data: $([Math]::Round([double]$capacityProjection.prediction.physicalDataMb, 3)) MB"
+                "- Fast capacity projected LDF: $([Math]::Round([double]$capacityProjection.prediction.ldfMb, 3)) MB"
+            )
+        } else {
+            $markdownLines += '- Fast capacity projections unavailable because model evidence was incomplete.'
+        }
+        $markdownLines += @(
+            "- Fast capacity 30-day rows: $($capacityProjection.model.targetRawObservationRows); safety margin: 30%; escalation threshold: 70%"
+            "- Fast capacity escalation required: $($capacityProjection.escalationRequired)"
+        )
+    }
+    $markdownLines | Set-Content -LiteralPath $markdownPath -Encoding UTF8
     $inventoryPath = Join-Path $runDirectory 'sha256-inventory.json'
     @($jsonPath, $manifestPath, $markdownPath) | ForEach-Object {
         $item = Get-Item -LiteralPath $_
