@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
@@ -20,6 +21,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
     : IClassFixture<WebApplicationFactory<Program>>
 {
     private const string QueryVersion = "mes-task-union-ticket16-v1";
+    private const string Ticket12RawSecret = "ticket12-frozen-read-secret";
     private const string SeriesListPath = "/api/v2/demand-series?pageSize=100";
     private const string CatalogPath = "/api/v2/externally-readable-demand-catalog";
     private const string AttentionPath =
@@ -545,20 +547,23 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         });
     }
 
-    [Ticket01SqlServerFact]
-    public async Task Frozen_read_matrix_is_commit_consistent_nonblocking_and_cancellation_releases_resources()
+    internal async Task RunFrozenReadCommitConsistencyMatrixAsync()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
-        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        using var environment = ConfigureProductionV2Environment(
+            database.ConnectionString,
+            Ticket12RawSecret);
         var at = new DateTimeOffset(2026, 8, 24, 2, 0, 0, TimeSpan.Zero);
         var clock = new AdjustableTimeProvider(at.AddHours(1));
-        var frozenObserver = new ConcurrentProjectionReadBoundaryObserver();
+        var frozenObserver = new GatedProjectionReadBoundaryObserver();
         var overviewObserver = new MatrixOverviewReadBoundaryObserver();
         await using var factory = CreateFactory(
             clock,
             readBoundaryObserver: frozenObserver,
             overviewReadBoundaryObserver: overviewObserver);
         using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", Ticket12RawSecret);
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
 
         var rowA = Observation(
@@ -572,6 +577,8 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             [rowA]));
 
         var demandA = await ReadJsonAsync(client, SeriesListPath);
+        var historyEpoch = Guid.Parse(
+            demandA.GetProperty("snapshot").GetProperty("historyEpoch").GetString()!);
         var demandSnapshot = demandA.GetProperty("snapshotReference").GetString()!;
         var demandItem = Assert.Single(demandA.GetProperty("items").EnumerateArray());
         var seriesId = demandItem.GetProperty("seriesId").GetString()!;
@@ -602,19 +609,38 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         var frozenErrorDetailPath = "/api/v2/error-search/"
             + Uri.EscapeDataString(seriesId)
             + "?snapshot=" + Uri.EscapeDataString(errorSnapshot);
+        var errorDetailA = await ReadJsonAsync(client, frozenErrorDetailPath);
+        var evidenceId = errorDetailA.GetProperty("periods").EnumerateArray()
+            .SelectMany(period => period.GetProperty("evidence").EnumerateArray())
+            .First(evidence => evidence.GetProperty("rawEvidenceAvailable").GetBoolean())
+            .GetProperty("evidenceId").GetString()!;
+        var frozenRawEvidencePath = "/api/v2/error-search/"
+            + Uri.EscapeDataString(seriesId)
+            + "/evidence/" + Uri.EscapeDataString(evidenceId)
+            + "/raw-observations?snapshot=" + Uri.EscapeDataString(errorSnapshot)
+            + "&fields=workType,area,eqp&maxItems=20";
         var pollTraceAPath = "/api/v2/poll-traces/"
             + Uri.EscapeDataString(receiptA.PollTraceId);
 
-        var demandGate = frozenObserver.Arm("DemandSeries", expectedInvocationCount: 2);
-        var auditGate = frozenObserver.Arm("ReadabilityAudit", expectedInvocationCount: 2);
-        var errorGate = frozenObserver.Arm("ErrorSearch", expectedInvocationCount: 2);
-        var pollEvidenceGate = frozenObserver.Arm("PollEvidence", expectedInvocationCount: 1);
+        var demandGate = frozenObserver.Arm(
+            ProjectionReadSurface.DemandSeries,
+            expectedInvocationCount: 2);
+        var auditGate = frozenObserver.Arm(
+            ProjectionReadSurface.ReadabilityAudit,
+            expectedInvocationCount: 2);
+        var errorGate = frozenObserver.Arm(
+            ProjectionReadSurface.ErrorSearch,
+            expectedInvocationCount: 3);
+        var pollEvidenceGate = frozenObserver.Arm(
+            ProjectionReadSurface.PollEvidence,
+            expectedInvocationCount: 1);
         var pendingDemandList = ReadRawSuccessAsync(client, frozenDemandListPath);
         var pendingDemandDetail = ReadRawSuccessAsync(client, frozenDemandDetailPath);
         var pendingAuditList = ReadRawSuccessAsync(client, frozenAuditListPath);
         var pendingAuditDetail = ReadRawSuccessAsync(client, frozenAuditDetailPath);
         var pendingErrorList = ReadRawSuccessAsync(client, frozenErrorListPath);
         var pendingErrorDetail = ReadRawSuccessAsync(client, frozenErrorDetailPath);
+        var pendingRawEvidence = ReadRawSuccessAsync(client, frozenRawEvidencePath);
         var pendingPollEvidence = ReadRawSuccessAsync(client, pollTraceAPath);
         var pendingOverview = ReadRawSuccessAsync(client, "/api/v2/watch-overview");
 
@@ -627,9 +653,11 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             demandFences.Concat(auditFences).Concat(errorFences).Concat(pollEvidenceFences),
             fence =>
             {
+                Assert.Equal(historyEpoch, fence.HistoryEpoch.Value);
                 Assert.Equal(receiptA.ProjectionCommitId, fence.ProjectionCommitId);
                 Assert.Equal(receiptA.ProjectionSequence, fence.ProjectionSequence);
             });
+        Assert.Equal(historyEpoch, overviewFence.HistoryEpoch!.Value);
         Assert.Equal(receiptA.ProjectionCommitId, overviewFence.ProjectionCommitId);
         Assert.Equal(receiptA.ProjectionSequence, overviewFence.ProjectionSequence);
 
@@ -648,7 +676,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             Assert.All(
                 new[] { pendingDemandList, pendingDemandDetail, pendingAuditList,
                     pendingAuditDetail, pendingErrorList, pendingErrorDetail,
-                    pendingPollEvidence },
+                    pendingRawEvidence, pendingPollEvidence },
                 pending => Assert.False(pending.IsCompleted));
         }
         finally
@@ -665,6 +693,15 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             oldOverview.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            oldOverview.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
+        Assert.Equal(
+            1L,
+            oldOverview.RootElement.GetProperty("readability").GetProperty("notReadableCount").GetInt64());
+        Assert.Equal(
+            1L,
+            oldOverview.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
 
         using var frozenDemandList = JsonDocument.Parse(
             await pendingDemandList.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -673,6 +710,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenDemandList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenDemandList.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.Equal(1L, frozenDemandList.RootElement.GetProperty("exactTotalCount").GetInt64());
         Assert.Equal(
             1L,
@@ -683,6 +723,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenDemandDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenDemandDetail.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.Equal(
             JsonValueKind.Null,
             frozenDemandDetail.RootElement.GetProperty("currentDemand")
@@ -695,6 +738,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenAuditList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenAuditList.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.Equal(1L, frozenAuditList.RootElement.GetProperty("exactTotalDemandCount").GetInt64());
         var frozenAuditStateFacet = frozenAuditList.RootElement.GetProperty("facets")
             .GetProperty("readabilityStates").EnumerateArray()
@@ -704,6 +750,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenAuditDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenAuditDetail.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.NotEmpty(frozenAuditDetail.RootElement.GetProperty("blockers").EnumerateArray());
 
         using var frozenErrorList = JsonDocument.Parse(
@@ -713,6 +762,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenErrorList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenErrorList.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.Equal(1L, frozenErrorList.RootElement.GetProperty("totalSeriesCount").GetInt64());
         var frozenErrorStateFacet = frozenErrorList.RootElement.GetProperty("facets")
             .GetProperty("activityStates").EnumerateArray()
@@ -724,7 +776,24 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         Assert.Equal(
             receiptA.ProjectionCommitId,
             frozenErrorDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            historyEpoch,
+            frozenErrorDetail.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
         Assert.NotEmpty(frozenErrorDetail.RootElement.GetProperty("periods").EnumerateArray());
+
+        using var frozenRawEvidence = JsonDocument.Parse(
+            await pendingRawEvidence.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            historyEpoch,
+            frozenRawEvidence.RootElement.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenRawEvidence.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(evidenceId, frozenRawEvidence.RootElement.GetProperty("evidenceId").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            Assert.Single(frozenRawEvidence.RootElement.GetProperty("items").EnumerateArray())
+                .GetProperty("fields").GetProperty("eqp").ValueKind);
 
         using var frozenPollEvidence = JsonDocument.Parse(
             await pendingPollEvidence.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -732,6 +801,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             receiptA.ProjectionCommitId,
             frozenPollEvidence.RootElement.GetProperty("projectionCommit")
                 .GetProperty("projectionCommitId").GetString());
+        Assert.Equal(historyEpoch, frozenPollEvidence.RootElement.GetProperty("historyEpoch").GetGuid());
         Assert.Equal(
             JsonValueKind.Null,
             Assert.Single(frozenPollEvidence.RootElement.GetProperty("observations").EnumerateArray())
@@ -748,20 +818,58 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             "/api/v2/poll-traces/" + Uri.EscapeDataString(receiptB.PollTraceId));
         Assert.All(
             new[] { currentDemand, currentAudit, currentError, currentOverview },
-            body => Assert.Equal(
-                receiptB.ProjectionCommitId,
-                body.GetProperty("snapshot").GetProperty("projectionCommitId").GetString()));
+            body =>
+            {
+                Assert.Equal(historyEpoch, body.GetProperty("snapshot").GetProperty("historyEpoch").GetGuid());
+                Assert.Equal(
+                    receiptB.ProjectionCommitId,
+                    body.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+            });
+        Assert.Equal(
+            "EQP-TICKET12-RECOVERED",
+            Assert.Single(currentDemand.GetProperty("items").EnumerateArray())
+                .GetProperty("liveMesFields").GetProperty("eqp").GetString());
+        Assert.Equal(
+            "READABLE",
+            Assert.Single(currentAudit.GetProperty("items").EnumerateArray())
+                .GetProperty("externalReadabilityState").GetString());
+        Assert.Equal(
+            "ENDED",
+            Assert.Single(currentError.GetProperty("items").EnumerateArray())
+                .GetProperty("activityState").GetString());
+        Assert.Equal(
+            1L,
+            currentOverview.GetProperty("readability").GetProperty("readableCount").GetInt64());
+        Assert.Equal(
+            0L,
+            currentOverview.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
         Assert.Equal(
             receiptB.ProjectionCommitId,
             currentPollEvidence.GetProperty("projectionCommit").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(historyEpoch, currentPollEvidence.GetProperty("historyEpoch").GetGuid());
+        Assert.Equal(
+            "EQP-TICKET12-RECOVERED",
+            Assert.Single(currentPollEvidence.GetProperty("observations").EnumerateArray())
+                .GetProperty("eqp").GetString());
 
-        var cancellationGate = frozenObserver.Arm("ErrorSearch", expectedInvocationCount: 1);
-        using var cancellation = new CancellationTokenSource();
-        var cancelledRead = ReadRawSuccessAsync(client, frozenErrorListPath, cancellation.Token);
-        await cancellationGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
-        cancellation.Cancel();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledRead);
-        cancellationGate.Release();
+        var sessionBaseline = await ReadUserSessionCountAsync(database.ConnectionString);
+        const int cancellationCount = 5;
+        for (var index = 0; index < cancellationCount; index++)
+        {
+            var cancellationGate = frozenObserver.Arm(
+                ProjectionReadSurface.ErrorSearch,
+                expectedInvocationCount: 1);
+            using var cancellation = new CancellationTokenSource();
+            var cancelledRead = ReadRawSuccessAsync(
+                client,
+                frozenErrorListPath,
+                cancellation.Token);
+            await cancellationGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledRead);
+            cancellationGate.Release();
+            Assert.Equal(0, await ReadActiveUserTransactionCountAsync(database.ConnectionString));
+        }
 
         var receiptC = await ingestor.IngestAsync(SuccessRound(
                 "poll-ticket12-frozen-c",
@@ -769,6 +877,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
                 [rowB with { Area = "N3-3" }]))
             .WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(0, await ReadActiveUserTransactionCountAsync(database.ConnectionString));
+        Assert.True(
+            await ReadUserSessionCountAsync(database.ConnectionString) <= sessionBaseline,
+            "Cancelled frozen reads must return their SQL connections to the existing pool baseline.");
         var afterCancellation = await ReadJsonAsync(client, SeriesListPath);
         Assert.Equal(
             receiptC.ProjectionCommitId,
@@ -787,8 +898,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
                 "WatchOverview",
                 "PollEvidence",
             },
-            frozenReaders = 7,
+            frozenReaders = 8,
             writerCompletedWhileFrozenReadersWereHeld = true,
+            cancellations = cancellationCount,
             cancellationLeftActiveUserTransactions = 0,
             snapshotIsolationUsed = false,
         });
@@ -1379,6 +1491,20 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
+    private static async Task<int> ReadUserSessionCountAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sys.dm_exec_sessions
+            WHERE is_user_process = 1
+              AND database_id = DB_ID();
+            """;
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
     private static async Task<SnapshotIsolationOptions> ReadSnapshotIsolationOptionsAsync(
         string connectionString)
     {
@@ -1435,13 +1561,16 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             });
         });
 
-    private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
+    private static IDisposable ConfigureProductionV2Environment(
+        string connectionString,
+        string? sharedSecret = null) =>
         new Ticket01ProcessEnvironmentScope(new Dictionary<string, string?>
         {
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "Oracle",
+            [$"{MesIngestHostOptions.SectionName}__SharedSecret"] = sharedSecret,
             [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
             [$"{MesIngestHostOptions.SectionName}__ZeroDropEnterThreshold"] = "2",
@@ -1523,7 +1652,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
     private sealed class GatedProjectionReadBoundaryObserver : IProjectionReadBoundaryObserver
     {
         private readonly object _sync = new();
-        private ReadGate? _gate;
+        private readonly Dictionary<ProjectionReadSurface, ReadGate> _gates = [];
 
         public ReadGate Arm(
             ProjectionReadSurface surface,
@@ -1532,7 +1661,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             var gate = new ReadGate(surface, expectedInvocationCount);
             lock (_sync)
             {
-                _gate = gate;
+                _gates[surface] = gate;
             }
             return gate;
         }
@@ -1545,9 +1674,10 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             ReadGate? claimed;
             lock (_sync)
             {
-                claimed = _gate is not null && _gate.TryClaim(surface, fence)
-                    ? _gate
-                    : null;
+                claimed = _gates.TryGetValue(surface, out var candidate)
+                    && candidate.TryClaim(surface, fence)
+                        ? candidate
+                        : null;
             }
             return claimed is null
                 ? Task.CompletedTask
@@ -1577,81 +1707,6 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         public bool TryClaim(ProjectionReadSurface surface, ProjectionReadFence fence)
         {
             if (surface != Surface || _fences.Count >= _expectedInvocationCount)
-            {
-                return false;
-            }
-            _fences.Add(fence);
-            if (_fences.Count == _expectedInvocationCount)
-            {
-                _selected.TrySetResult(_fences.ToArray());
-            }
-            return true;
-        }
-
-        public Task WaitForReleaseAsync(CancellationToken cancellationToken) =>
-            _release.Task.WaitAsync(cancellationToken);
-
-        public void Release() => _release.TrySetResult(true);
-    }
-
-    private sealed class ConcurrentProjectionReadBoundaryObserver : IProjectionReadBoundaryObserver
-    {
-        private readonly object _sync = new();
-        private readonly Dictionary<string, NamedReadGate> _gates = new(StringComparer.Ordinal);
-
-        public NamedReadGate Arm(string surface, int expectedInvocationCount)
-        {
-            var gate = new NamedReadGate(surface, expectedInvocationCount);
-            lock (_sync)
-            {
-                _gates[surface] = gate;
-            }
-            return gate;
-        }
-
-        public Task OnFenceSelectedAsync(
-            ProjectionReadSurface surface,
-            ProjectionReadFence fence,
-            CancellationToken cancellationToken)
-        {
-            NamedReadGate? claimed = null;
-            lock (_sync)
-            {
-                if (_gates.TryGetValue(surface.ToString(), out var candidate)
-                    && candidate.TryClaim(fence))
-                {
-                    claimed = candidate;
-                }
-            }
-            return claimed is null
-                ? Task.CompletedTask
-                : claimed.WaitForReleaseAsync(cancellationToken);
-        }
-    }
-
-    private sealed class NamedReadGate
-    {
-        private readonly int _expectedInvocationCount;
-        private readonly List<ProjectionReadFence> _fences = [];
-        private readonly TaskCompletionSource<IReadOnlyList<ProjectionReadFence>> _selected =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private readonly TaskCompletionSource<bool> _release =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public NamedReadGate(string surface, int expectedInvocationCount)
-        {
-            Assert.False(string.IsNullOrWhiteSpace(surface));
-            Assert.True(expectedInvocationCount > 0);
-            Surface = surface;
-            _expectedInvocationCount = expectedInvocationCount;
-        }
-
-        public string Surface { get; }
-        public Task<IReadOnlyList<ProjectionReadFence>> Selected => _selected.Task;
-
-        public bool TryClaim(ProjectionReadFence fence)
-        {
-            if (_fences.Count >= _expectedInvocationCount)
             {
                 return false;
             }
