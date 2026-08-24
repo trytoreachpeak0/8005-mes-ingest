@@ -64,12 +64,14 @@ $expectedOpenApiPaths = @(
 $required = @(
     "service\MesIngest.Host.exe",
     "administration\MesIngest.LocalAdministration.exe",
+    "reference-consumer\MesIngest.ReferenceConsumer.exe",
     "templates\appsettings.Local.json.example",
     "templates\watch.appsettings.Local.json.example",
     "scripts\install-service.ps1",
     "scripts\uninstall-service.ps1",
     "scripts\Test-ReleasePackage.ps1",
     "scripts\cutover\CutoverSqlTools.ps1",
+    "scripts\cutover\Invoke-MesIngestCutoverRun.ps1",
     "scripts\cutover\Invoke-EmptyDatabaseCutover.ps1",
     "scripts\cutover\Invoke-CutoverRollback.ps1",
     "scripts\maintenance\Invoke-SqlServerMemoryProfile.ps1",
@@ -268,17 +270,29 @@ foreach ($relativeScanPath in $legacyScanRelativePaths) {
 $packagedScripts = @(
     Get-ChildItem -LiteralPath $root -Filter '*.ps1' -File -Recurse -ErrorAction SilentlyContinue)
 $cutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-EmptyDatabaseCutover.ps1'
+$noDeleteCutoverEntryPoint = Join-Path $root 'scripts\cutover\Invoke-MesIngestCutoverRun.ps1'
 $cutoverToolsPath = Join-Path $root 'scripts\cutover\CutoverSqlTools.ps1'
 $rollbackEntryPoint = Join-Path $root 'scripts\cutover\Invoke-CutoverRollback.ps1'
+$ownedScaleValidation = Join-Path $root 'validation\Invoke-ScaleAndQueryEvidence.ps1'
 $dropCapablePaths = @(
     $packagedScripts |
         Where-Object { [IO.File]::ReadAllText($_.FullName) -imatch 'DROP\s+DATABASE' } |
         ForEach-Object { $_.FullName })
 $unexpectedDropPaths = @(
-    $dropCapablePaths | Where-Object { $_ -ne $cutoverEntryPoint -and $_ -ne $cutoverToolsPath })
+    $dropCapablePaths | Where-Object {
+        $_ -ne $cutoverEntryPoint -and
+        $_ -ne $cutoverToolsPath -and
+        $_ -ne $ownedScaleValidation
+    })
 if ($unexpectedDropPaths.Count -gt 0) {
     throw ('Release package ships a database-deleting path outside the attended cutover drill: ' +
         ($unexpectedDropPaths -join '; '))
+}
+$noDeleteCutoverText = [IO.File]::ReadAllText($noDeleteCutoverEntryPoint)
+if ($noDeleteCutoverText -imatch '(DROP|BACKUP|RESTORE)\s+DATABASE' -or
+    $noDeleteCutoverText -match 'Invoke-CutoverDropDatabase' -or
+    $noDeleteCutoverText -notmatch 'NOT_AUTHORIZED_TICKET_23') {
+    throw 'Ticket 23 cutover entry point must remain no-delete and emit no deletion authorization.'
 }
 foreach ($drillPath in @($cutoverEntryPoint, $rollbackEntryPoint)) {
     $drillText = [IO.File]::ReadAllText($drillPath)

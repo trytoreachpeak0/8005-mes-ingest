@@ -38,6 +38,8 @@ public class InstallPackageLayoutTests
         Assert.True(File.Exists(Path.Combine(pack, "install-service.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "uninstall-service.ps1")));
         Assert.True(File.Exists(Path.Combine(CSharpRoot, "MesIngest.LocalAdministration", "MesIngest.LocalAdministration.csproj")));
+        Assert.True(File.Exists(Path.Combine(CSharpRoot, "MesIngest.ReferenceConsumer", "MesIngest.ReferenceConsumer.csproj")));
+        Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-MesIngestCutoverRun.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-EmptyDatabaseCutover.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-CutoverRollback.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "CutoverSqlTools.ps1")));
@@ -215,6 +217,7 @@ public class InstallPackageLayoutTests
                      "watch.appsettings.Local.json.example",
                      "Test-ReleasePackage.ps1",
                      "Invoke-ReleaseSmoke.ps1",
+                     "Invoke-MesIngestCutoverRun.ps1",
                      "Invoke-EmptyDatabaseCutover.ps1",
                      "Invoke-CutoverRollback.ps1",
                  })

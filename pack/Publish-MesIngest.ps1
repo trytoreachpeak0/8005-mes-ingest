@@ -32,6 +32,7 @@ $ErrorActionPreference = "Stop"
 $csharpRoot = Split-Path -Parent $PSScriptRoot
 $hostProj = Join-Path $csharpRoot "MesIngest.Host\MesIngest.Host.csproj"
 $administrationProj = Join-Path $csharpRoot "MesIngest.LocalAdministration\MesIngest.LocalAdministration.csproj"
+$referenceConsumerProj = Join-Path $csharpRoot "MesIngest.ReferenceConsumer\MesIngest.ReferenceConsumer.csproj"
 $watchProj = Join-Path $csharpRoot "MesIngest.Watch\MesIngest.Watch.csproj"
 $exampleLocal = Join-Path $csharpRoot "MesIngest.Host\appsettings.Local.json.example"
 $exampleWatchLocal = Join-Path $csharpRoot "MesIngest.Watch\appsettings.Local.json.example"
@@ -55,6 +56,7 @@ $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed81
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
+if (-not (Test-Path $referenceConsumerProj)) { throw "Reference consumer project not found: $referenceConsumerProj" }
 if (-not (Test-Path $exampleLocal)) { throw "Missing blank config template: $exampleLocal" }
 if (-not (Test-Path $exampleWatchLocal)) { throw "Missing Watch blank config template: $exampleWatchLocal" }
 if (-not (Test-Path $upgradeDoc)) { throw "Missing upgrade/rollback doc: $upgradeDoc" }
@@ -88,6 +90,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedOutput) `
 $OutputDir = $resolvedOutput
 $serviceDir = Join-Path $OutputDir "service"
 $administrationDir = Join-Path $OutputDir "administration"
+$referenceConsumerDir = Join-Path $OutputDir "reference-consumer"
 $watchDir = Join-Path $OutputDir "watch"
 $openapiDir = Join-Path $OutputDir "openapi"
 $templatesDir = Join-Path $OutputDir "templates"
@@ -121,6 +124,17 @@ dotnet publish $administrationProj `
     /p:PublishSingleFile=false `
     /p:NuGetAudit=false
 if ($LASTEXITCODE -ne 0) { throw "Local Administration publish failed ($LASTEXITCODE)" }
+
+Write-Host "Publishing Reference Consumer cutover probe -> $referenceConsumerDir"
+dotnet publish $referenceConsumerProj `
+    -c $Configuration `
+    -r $Runtime `
+    --self-contained true `
+    --ignore-failed-sources `
+    -o $referenceConsumerDir `
+    /p:PublishSingleFile=false `
+    /p:NuGetAudit=false
+if ($LASTEXITCODE -ne 0) { throw "Reference Consumer publish failed ($LASTEXITCODE)" }
 
 if (-not $SkipWatch) {
     Write-Host "Publishing Watch -> $watchDir"
@@ -184,6 +198,7 @@ Copy-Item $releaseValidator (Join-Path $scriptsDir "Test-ReleasePackage.ps1") -F
 $cutoverDir = Join-Path $scriptsDir "cutover"
 New-Item -ItemType Directory -Force -Path $cutoverDir | Out-Null
 Copy-Item (Join-Path $cutoverSrc "CutoverSqlTools.ps1") (Join-Path $cutoverDir "CutoverSqlTools.ps1") -Force
+Copy-Item (Join-Path $cutoverSrc "Invoke-MesIngestCutoverRun.ps1") (Join-Path $cutoverDir "Invoke-MesIngestCutoverRun.ps1") -Force
 Copy-Item (Join-Path $cutoverSrc "Invoke-EmptyDatabaseCutover.ps1") (Join-Path $cutoverDir "Invoke-EmptyDatabaseCutover.ps1") -Force
 Copy-Item (Join-Path $cutoverSrc "Invoke-CutoverRollback.ps1") (Join-Path $cutoverDir "Invoke-CutoverRollback.ps1") -Force
 $maintenanceDir = Join-Path $scriptsDir "maintenance"

@@ -473,7 +473,7 @@ public sealed class ReleasePackageValidationTests
         var root = Path.Combine(Path.GetTempPath(), $"mes-ingest-release-{Guid.NewGuid():N}");
         foreach (var directory in new[]
                  {
-                     "service", "watch", "administration", "templates", "scripts", "validation", "openapi",
+                     "service", "watch", "administration", "reference-consumer", "templates", "scripts", "validation", "openapi",
                  })
         {
             Directory.CreateDirectory(Path.Combine(root, directory));
@@ -484,6 +484,9 @@ public sealed class ReleasePackageValidationTests
         File.WriteAllText(
             Path.Combine(root, "administration", "MesIngest.LocalAdministration.exe"),
             "administration");
+        File.WriteAllText(
+            Path.Combine(root, "reference-consumer", "MesIngest.ReferenceConsumer.exe"),
+            "reference-consumer");
         // Service and Watch publish the same MesIngest.Core, which carries the frozen
         // contract identity. Identical bytes are what the validator checks.
         File.WriteAllText(Path.Combine(root, "service", "MesIngest.Core.dll"), "shared-contract");
@@ -523,6 +526,7 @@ public sealed class ReleasePackageValidationTests
         foreach (var cutoverScript in new[]
                  {
                      "CutoverSqlTools.ps1",
+                     "Invoke-MesIngestCutoverRun.ps1",
                      "Invoke-EmptyDatabaseCutover.ps1",
                      "Invoke-CutoverRollback.ps1",
                  })
