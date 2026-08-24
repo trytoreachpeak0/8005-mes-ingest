@@ -88,6 +88,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "ValidateStabilityFixturePath",
                      "StabilityDurationMinutes",
                      "DatabaseFileRoot",
+                     "escapedDatabaseDataFilePath",
                      "acceleratedPollStartIntervalSeconds",
                      "acceleratedCleanupCheckIntervalSeconds",
                      "defaultPollStartIntervalSeconds",

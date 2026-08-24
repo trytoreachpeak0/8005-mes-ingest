@@ -2155,19 +2155,21 @@ try {
     if ($null -eq $resolvedDatabaseFileRoot) {
         [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
     } else {
+        $escapedDatabaseDataFilePath = $databaseDataFilePath.Replace("'", "''")
+        $escapedDatabaseLogFilePath = $databaseLogFilePath.Replace("'", "''")
         [void](Invoke-SqlNonQuery $masterConnectionString @"
 CREATE DATABASE [$DatabaseName]
 ON PRIMARY
 (
     NAME = N'${DatabaseName}_data',
-    FILENAME = @dataFilePath
+    FILENAME = N'$escapedDatabaseDataFilePath'
 )
 LOG ON
 (
     NAME = N'${DatabaseName}_log',
-    FILENAME = @logFilePath
+    FILENAME = N'$escapedDatabaseLogFilePath'
 );
-"@ @{ '@dataFilePath' = $databaseDataFilePath; '@logFilePath' = $databaseLogFilePath })
+"@)
     }
     $databaseCreated = $true
     [void](Invoke-SqlNonQuery $masterConnectionString "ALTER DATABASE [$DatabaseName] SET RECOVERY SIMPLE;")
