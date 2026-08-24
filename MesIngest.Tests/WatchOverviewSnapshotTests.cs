@@ -190,6 +190,16 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
                 "WIRE_TO_NITROGEN",
                 "SL-TICKET14-GENERATIONS",
                 "B2-2",
+                archivedAt.AddMinutes(1)),
+            ValidObservation(
+                "WIRE_TO_NITROGEN",
+                "SL-TICKET14-UNTRUSTED-AREA",
+                "A1-1",
+                archivedAt.AddMinutes(1)),
+            ValidObservation(
+                "WIRE_TO_NITROGEN",
+                "SL-TICKET14-UNTRUSTED-AREA",
+                "A1-1",
                 archivedAt.AddMinutes(1))));
 
         using var all = await ReadOverviewAsync(client, "/api/v2/watch-overview");
@@ -203,7 +213,7 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
             client,
             "/api/v2/readability-audit?area=B2-2&pageSize=20");
 
-        AssertSummaryCounts(all.RootElement, 1, 2, 0, 2);
+        AssertSummaryCounts(all.RootElement, 2, 3, 0, 3);
         AssertSummaryCounts(areaA.RootElement, 0, 1, 0, 1);
         AssertSummaryCounts(areaB.RootElement, 1, 1, 0, 1);
         Assert.Equal(
@@ -404,7 +414,7 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
     }
 
     [Ticket01SqlServerFact]
-    public async Task Concurrent_commit_does_not_wait_for_overview_and_the_response_is_wholly_new()
+    public async Task Concurrent_commit_does_not_wait_for_overview_and_the_response_is_wholly_old()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
@@ -456,32 +466,31 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
         using var firstResponse = await pendingRead.WaitAsync(TimeSpan.FromSeconds(10));
         using var concurrentOverview = await ReadOverviewResponseAsync(firstResponse);
         Assert.Equal(
-            receiptB.ProjectionCommitId,
+            receiptA.ProjectionCommitId,
             concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
         Assert.Equal(
-            receiptB.ProjectionSequence,
+            receiptA.ProjectionSequence,
             concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("projectionSequence").GetInt64());
         Assert.Equal(
-            2,
-            concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("pollTraceHighWater").GetInt64());
-        AssertSummaryCounts(concurrentOverview.RootElement, 2, 2, 1, 1);
-        Assert.Equal(
             1,
+            concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("pollTraceHighWater").GetInt64());
+        AssertSummaryCounts(concurrentOverview.RootElement, 1, 1, 1, 0);
+        Assert.Equal(
+            0,
             concurrentOverview.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
         Assert.Equal(
-            1,
+            0,
             concurrentOverview.RootElement.GetProperty("errors")
                 .GetProperty("prior7DaysSeriesCount").GetInt64());
         Assert.Equal(
-            1,
+            0,
             concurrentOverview.RootElement.GetProperty("attention")
                 .GetProperty("exactTotalItemCount").GetInt64());
-        Assert.Contains(
+        Assert.All(
             concurrentOverview.RootElement.GetProperty("recentActivity").EnumerateArray(),
-            item => string.Equals(
-                receiptB.ProjectionCommitId,
-                item.GetProperty("projectionCommitId").GetString(),
-                StringComparison.Ordinal));
+            item => Assert.Equal(
+                receiptA.ProjectionCommitId,
+                item.GetProperty("projectionCommitId").GetString()));
 
         using var newOverview = await ReadOverviewAsync(client, "/api/v2/watch-overview");
         Assert.Equal(

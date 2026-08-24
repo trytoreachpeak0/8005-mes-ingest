@@ -34,6 +34,9 @@ internal static class SqlServerMesIngestSchema
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            command.CommandText = EnsureSnapshotIsolationSql;
+            await command.ExecuteNonQueryAsync(cancellationToken);
+
             await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
                 IsolationLevel.Serializable,
                 cancellationToken);
@@ -141,6 +144,15 @@ internal static class SqlServerMesIngestSchema
         DECLARE @sql NVARCHAR(512) =
             N'ALTER DATABASE ' + QUOTENAME(DB_NAME()) + N' SET RECOVERY SIMPLE;';
         EXEC sys.sp_executesql @sql;
+        """;
+
+    private const string EnsureSnapshotIsolationSql = """
+        IF (SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID()) <> 1
+        BEGIN
+            DECLARE @sql NVARCHAR(512) = N'ALTER DATABASE '
+                + QUOTENAME(DB_NAME()) + N' SET ALLOW_SNAPSHOT_ISOLATION ON;';
+            EXEC sys.sp_executesql @sql;
+        END;
         """;
 
     private const string BootstrapSchemaSql = """
@@ -483,6 +495,24 @@ internal static class SqlServerMesIngestSchema
             ON mesingest.DemandSeries (RetentionEligibilityAt, SeriesId)
             WHERE RetentionEligibilityAt IS NOT NULL;
 
+        CREATE TABLE mesingest.CurrentOverviewErrorSeriesFacts
+        (
+            SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_CurrentOverviewErrorSeriesFacts PRIMARY KEY,
+            EarliestActiveStartedAt DATETIMEOFFSET(7) NULL,
+            LatestEndedPeriodStartedAt DATETIMEOFFSET(7) NULL,
+            LatestEndedAt DATETIMEOFFSET(7) NULL,
+            ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            CONSTRAINT FK_MesIngest_CurrentOverviewErrorSeriesFacts_Series
+                FOREIGN KEY (SeriesId) REFERENCES mesingest.DemandSeries (SeriesId),
+            CONSTRAINT FK_MesIngest_CurrentOverviewErrorSeriesFacts_Commit
+                FOREIGN KEY (ProjectionCommitId)
+                REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
+            CONSTRAINT CK_MesIngest_CurrentOverviewErrorSeriesFacts_EndedPair
+                CHECK ((LatestEndedPeriodStartedAt IS NULL AND LatestEndedAt IS NULL)
+                    OR (LatestEndedPeriodStartedAt IS NOT NULL AND LatestEndedAt IS NOT NULL))
+        );
+
         CREATE TABLE mesingest.TransportDemands
         (
             DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
@@ -740,6 +770,9 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT recovery_model_desc FROM sys.databases WHERE name = DB_NAME()) <> N'SIMPLE'
             THROW 51001, 'The configured new-MesIngest database must use SIMPLE recovery.', 1;
 
+        IF (SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID()) <> 1
+            THROW 51001, 'The configured new-MesIngest database must allow snapshot isolation.', 1;
+
         IF EXISTS
         (
             SELECT 1
@@ -753,7 +786,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 21
+        ) <> 22
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -768,6 +801,7 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommitUnassignedObservationFacts'),
                 (N'UnassignedMesObservationEvents'),
                 (N'CurrentOverviewAreaFacts'),
+                (N'CurrentOverviewErrorSeriesFacts'),
                 (N'CurrentOverviewActivities'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
@@ -795,6 +829,7 @@ internal static class SqlServerMesIngestSchema
                 (N'ProjectionCommitUnassignedObservationFacts'),
                 (N'UnassignedMesObservationEvents'),
                 (N'CurrentOverviewAreaFacts'),
+                (N'CurrentOverviewErrorSeriesFacts'),
                 (N'CurrentOverviewActivities'),
                 (N'HostSessions'),
                 (N'AbsenceAuthorityEvents'),
@@ -889,6 +924,12 @@ internal static class SqlServerMesIngestSchema
             (N'CurrentOverviewAreaFacts', 4, N'ExactTotalDemandCount', N'bigint', 8, 19, 0, 0, NULL),
             (N'CurrentOverviewAreaFacts', 5, N'ReadableCount', N'bigint', 8, 19, 0, 0, NULL),
             (N'CurrentOverviewAreaFacts', 6, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+
+            (N'CurrentOverviewErrorSeriesFacts', 1, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'CurrentOverviewErrorSeriesFacts', 2, N'EarliestActiveStartedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'CurrentOverviewErrorSeriesFacts', 3, N'LatestEndedPeriodStartedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'CurrentOverviewErrorSeriesFacts', 4, N'LatestEndedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'CurrentOverviewErrorSeriesFacts', 5, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
 
             (N'CurrentOverviewActivities', 1, N'ActivityRank', N'tinyint', 1, 3, 0, 0, NULL),
             (N'CurrentOverviewActivities', 2, N'SnapshotProjectionCommitId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
@@ -1176,6 +1217,7 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_UnassignedMesObservationEvents', N'UnassignedMesObservationEvents', 1, 1, 1, N'EventId', 0),
             (N'UQ_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', 0, 1, 1, N'ProjectionCommitId', 0),
             (N'PK_MesIngest_CurrentOverviewAreaFacts', N'CurrentOverviewAreaFacts', 1, 1, 1, N'AreaKey', 0),
+            (N'PK_MesIngest_CurrentOverviewErrorSeriesFacts', N'CurrentOverviewErrorSeriesFacts', 1, 1, 1, N'SeriesId', 0),
             (N'PK_MesIngest_CurrentOverviewActivities', N'CurrentOverviewActivities', 1, 1, 1, N'ActivityRank', 0),
             (N'PK_MesIngest_HostSessions', N'HostSessions', 1, 1, 1, N'HostSessionId', 0),
             (N'PK_MesIngest_AbsenceAuthorityEvents', N'AbsenceAuthorityEvents', 1, 1, 1, N'EventId', 0),
@@ -1282,6 +1324,8 @@ internal static class SqlServerMesIngestSchema
             (N'FK_MesIngest_ProjectionCommits_HostSession', N'ProjectionCommits', N'HostSessionId', N'HostSessions', N'HostSessionId'),
             (N'FK_MesIngest_ProjectionCommitUnassignedObservationFacts_Commit', N'ProjectionCommitUnassignedObservationFacts', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
             (N'FK_MesIngest_UnassignedMesObservationEvents_Commit', N'UnassignedMesObservationEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
+            (N'FK_MesIngest_CurrentOverviewErrorSeriesFacts_Series', N'CurrentOverviewErrorSeriesFacts', N'SeriesId', N'DemandSeries', N'SeriesId'),
+            (N'FK_MesIngest_CurrentOverviewErrorSeriesFacts_Commit', N'CurrentOverviewErrorSeriesFacts', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_HostSession', N'AbsenceAuthorityEvents', N'HostSessionId', N'HostSessions', N'HostSessionId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_PollTrace', N'AbsenceAuthorityEvents', N'PollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_AbsenceAuthorityEvents_Commit', N'AbsenceAuthorityEvents', N'ProjectionCommitId', N'ProjectionCommits', N'ProjectionCommitId'),
@@ -1329,7 +1373,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 48
+            WHERE s.name = N'mesingest') <> 50
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1388,6 +1432,7 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_UnassignedMesObservationEvents_BeforeState', N'UnassignedMesObservationEvents', N'([BeforeObservationCount]=(0) AND [BeforeContentDigest] IS NULL OR [BeforeObservationCount]>(0) AND [BeforeContentDigest] IS NOT NULL)'),
             (N'CK_MesIngest_UnassignedMesObservationEvents_AfterState', N'UnassignedMesObservationEvents', N'([AfterObservationCount]=(0) AND [AfterContentDigest] IS NULL OR [AfterObservationCount]>(0) AND [AfterContentDigest] IS NOT NULL)'),
             (N'CK_MesIngest_UnassignedMesObservationEvents_Transition', N'UnassignedMesObservationEvents', N'([EventType]=N''UNASSIGNED_MES_OBSERVATION_APPEARED'' AND [BeforeObservationCount]=(0) AND [AfterObservationCount]>(0) OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'' AND [BeforeObservationCount]>(0) AND [AfterObservationCount]>(0) AND [BeforeContentDigest]<>[AfterContentDigest] OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CLEARED'' AND [BeforeObservationCount]>(0) AND [AfterObservationCount]=(0))'),
+            (N'CK_MesIngest_CurrentOverviewErrorSeriesFacts_EndedPair', N'CurrentOverviewErrorSeriesFacts', N'([LatestEndedPeriodStartedAt] IS NULL AND [LatestEndedAt] IS NULL OR [LatestEndedPeriodStartedAt] IS NOT NULL AND [LatestEndedAt] IS NOT NULL)'),
             (N'CK_MesIngest_HostSessions_RestartPhase', N'HostSessions', N'([RestartPhase]=N''NORMAL'' OR [RestartPhase]=N''POST_BARRIER'' OR [RestartPhase]=N''BARRIER'')'),
             (N'CK_MesIngest_TaskTypeProtectionStates_Phase', N'TaskTypeProtectionStates', N'([Phase]=N''AUTHORITY_PENDING'' OR [Phase]=N''RECOVERING'' OR [Phase]=N''PAUSED_ZERO_DROP'' OR [Phase]=N''MONITORING'')'),
             (N'CK_MesIngest_TaskTypeProtectionStates_LastHealthyCount', N'TaskTypeProtectionStates', N'([LastHealthyNonZeroCount]>=(0))'),
@@ -1425,7 +1470,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 43
+            WHERE s.name = N'mesingest') <> 44
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e

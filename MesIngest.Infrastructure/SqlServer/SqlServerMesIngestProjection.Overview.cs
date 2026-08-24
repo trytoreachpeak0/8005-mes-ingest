@@ -18,156 +18,131 @@ public sealed partial class SqlServerMesIngestProjection
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-        while (true)
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Snapshot,
+            cancellationToken).ConfigureAwait(false);
+        try
         {
-            await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-                IsolationLevel.ReadCommitted,
+            var snapshot = await SelectOperationalSnapshotAsync(
+                connection,
+                transaction,
                 cancellationToken).ConfigureAwait(false);
-            try
-            {
-                var snapshot = await SelectOperationalSnapshotAsync(
-                    connection,
-                    transaction,
-                    cancellationToken).ConfigureAwait(false);
-                await _overviewReadBoundaryObserver.OnFenceSelectedAsync(snapshot, cancellationToken)
-                    .ConfigureAwait(false);
-                var areas = query.MesAreas ?? Array.Empty<string>();
+            await _overviewReadBoundaryObserver.OnFenceSelectedAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
+            var areas = query.MesAreas ?? Array.Empty<string>();
 
-                var seriesPage = await ReadCurrentDemandSeriesPageAsync(
-                    connection,
-                    transaction,
-                    new DemandSeriesBrowseFilter { MesAreas = areas },
-                    pageNumber: 1,
-                    pageSize: 1,
-                    cancellationToken).ConfigureAwait(false);
+            var seriesPage = await ReadCurrentDemandSeriesPageAsync(
+                connection,
+                transaction,
+                new DemandSeriesBrowseFilter { MesAreas = areas },
+                pageNumber: 1,
+                pageSize: 1,
+                cancellationToken).ConfigureAwait(false);
 
-                var readability = await ReadCurrentOverviewReadabilityAsync(
-                    connection,
-                    transaction,
-                    snapshot,
-                    areas,
-                    cancellationToken).ConfigureAwait(false);
+            var readability = await ReadCurrentOverviewReadabilityAsync(
+                connection,
+                transaction,
+                snapshot,
+                areas,
+                cancellationToken).ConfigureAwait(false);
 
-                var errorSummary = await ReadCurrentOverviewErrorSummaryAsync(
-                    connection,
-                    transaction,
-                    snapshot,
-                    cancellationToken).ConfigureAwait(false);
+            var errorSummary = await ReadCurrentOverviewErrorSummaryAsync(
+                connection,
+                transaction,
+                snapshot,
+                cancellationToken).ConfigureAwait(false);
 
-                var attention = await ReadCurrentAttentionAtFenceAsync(
-                    connection,
-                    transaction,
-                    snapshot,
-                    new CurrentIngestAttentionQuery(PageSize: 1),
-                    cancellationToken).ConfigureAwait(false);
-                var activity = await ReadOverviewActivityAsync(
-                    connection,
-                    transaction,
-                    snapshot,
-                    cancellationToken).ConfigureAwait(false);
+            var attention = await ReadCurrentAttentionAtFenceAsync(
+                connection,
+                transaction,
+                snapshot,
+                new CurrentIngestAttentionQuery(PageSize: 1),
+                cancellationToken).ConfigureAwait(false);
+            var activity = await ReadOverviewActivityAsync(
+                connection,
+                transaction,
+                snapshot,
+                cancellationToken).ConfigureAwait(false);
 
-                var verifiedSnapshot = await SelectOperationalSnapshotAsync(
-                    connection,
-                    transaction,
-                    cancellationToken).ConfigureAwait(false);
-                if (!HasSameOverviewFence(snapshot, verifiedSnapshot))
-                {
-                    await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
+            var seriesNavigation = SeriesIntent(areas);
+            var readabilityNavigation = ReadabilityIntent(areas);
+            var activeErrorIntent = new OverviewNavigationIntent(
+                OverviewNavigationTargets.ErrorSearch,
+                ErrorActivityStates: [ErrorSearchActivityStates.Active],
+                ErrorWindow: ErrorSearchWindowKinds.Last7Days);
+            var recentErrorIntent = new OverviewNavigationIntent(
+                OverviewNavigationTargets.ErrorSearch,
+                ErrorActivityStates: [ErrorSearchActivityStates.Active, ErrorSearchActivityStates.Ended],
+                ErrorWindow: ErrorSearchWindowKinds.Last7Days);
+            var attentionIntent = new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention);
+            var result = new WatchOverviewSnapshot(
+                snapshot,
+                areas,
+                new WatchOverviewSeriesSummary(
+                    seriesPage.ExactTotalCount,
+                    seriesPage.Facets.TrackingCount,
+                    seriesPage.Facets.ArchivedCount,
+                    seriesPage.Facets.GoneCount,
+                    seriesPage.Facets.LongGoneButVisibleCount,
+                    seriesNavigation,
+                    SeriesIntent(areas, lifecycles: [DemandSeriesLifecycleContract.Tracking]),
+                    SeriesIntent(areas, lifecycles: [DemandSeriesLifecycleContract.Archived]),
+                    SeriesIntent(areas, presences: [DemandSeriesLifecycleContract.Gone]),
+                    SeriesIntent(areas, presences: [DemandSeriesLifecycleContract.LongGoneButVisible])),
+                new WatchOverviewReadabilitySummary(
+                    readability.ExactTotalDemandCount,
+                    readability.ReadableCount,
+                    readability.NotReadableCount,
+                    readabilityNavigation,
+                    ReadabilityIntent(areas, [ExternalReadabilityStates.Readable]),
+                    ReadabilityIntent(areas, [ExternalReadabilityStates.NotReadable])),
+                new WatchOverviewErrorSummary(
+                    errorSummary.ActiveSeriesCount,
+                    errorSummary.Prior7DaysSeriesCount,
+                    activeErrorIntent,
+                    activeErrorIntent,
+                    recentErrorIntent),
+                new WatchOverviewAttentionSummary(
+                    attention.ExactTotalItemCount,
+                    attention.Facets.Types.Select(facet => new OverviewFacetSnapshot(
+                        facet.Value,
+                        facet.ItemCount,
+                        attentionIntent with { AttentionKinds = [facet.Value] })).ToArray(),
+                    attention.Facets.Severities.Select(facet => new OverviewFacetSnapshot(
+                        facet.Value,
+                        facet.ItemCount,
+                        attentionIntent with { AttentionSeverities = [facet.Value] })).ToArray(),
+                    attentionIntent),
+                activity,
+                activity.Count == 0
+                    ? WatchOverviewRecentActivityStates.NoRecentHighlights
+                    : WatchOverviewRecentActivityStates.HasRecentHighlights,
+                activity.Count == 0
+                    ? WatchOverviewRecentActivityStates.NoRecentHighlightsMessage
+                    : null);
 
-                var seriesNavigation = SeriesIntent(areas);
-                var readabilityNavigation = ReadabilityIntent(areas);
-                var activeErrorIntent = new OverviewNavigationIntent(
-                    OverviewNavigationTargets.ErrorSearch,
-                    ErrorActivityStates: [ErrorSearchActivityStates.Active],
-                    ErrorWindow: ErrorSearchWindowKinds.Last7Days);
-                var recentErrorIntent = new OverviewNavigationIntent(
-                    OverviewNavigationTargets.ErrorSearch,
-                    ErrorActivityStates: [ErrorSearchActivityStates.Active, ErrorSearchActivityStates.Ended],
-                    ErrorWindow: ErrorSearchWindowKinds.Last7Days);
-                var attentionIntent = new OverviewNavigationIntent(
-                    OverviewNavigationTargets.CurrentIngestAttention);
-                var result = new WatchOverviewSnapshot(
-                    snapshot,
-                    areas,
-                    new WatchOverviewSeriesSummary(
-                        seriesPage.ExactTotalCount,
-                        seriesPage.Facets.TrackingCount,
-                        seriesPage.Facets.ArchivedCount,
-                        seriesPage.Facets.GoneCount,
-                        seriesPage.Facets.LongGoneButVisibleCount,
-                        seriesNavigation,
-                        SeriesIntent(areas, lifecycles: [DemandSeriesLifecycleContract.Tracking]),
-                        SeriesIntent(areas, lifecycles: [DemandSeriesLifecycleContract.Archived]),
-                        SeriesIntent(areas, presences: [DemandSeriesLifecycleContract.Gone]),
-                        SeriesIntent(areas, presences: [DemandSeriesLifecycleContract.LongGoneButVisible])),
-                    new WatchOverviewReadabilitySummary(
-                        readability.ExactTotalDemandCount,
-                        readability.ReadableCount,
-                        readability.NotReadableCount,
-                        readabilityNavigation,
-                        ReadabilityIntent(areas, [ExternalReadabilityStates.Readable]),
-                        ReadabilityIntent(areas, [ExternalReadabilityStates.NotReadable])),
-                    new WatchOverviewErrorSummary(
-                        errorSummary.ActiveSeriesCount,
-                        errorSummary.Prior7DaysSeriesCount,
-                        activeErrorIntent,
-                        activeErrorIntent,
-                        recentErrorIntent),
-                    new WatchOverviewAttentionSummary(
-                        attention.ExactTotalItemCount,
-                        attention.Facets.Types.Select(facet => new OverviewFacetSnapshot(
-                            facet.Value,
-                            facet.ItemCount,
-                            attentionIntent with { AttentionKinds = [facet.Value] })).ToArray(),
-                        attention.Facets.Severities.Select(facet => new OverviewFacetSnapshot(
-                            facet.Value,
-                            facet.ItemCount,
-                            attentionIntent with { AttentionSeverities = [facet.Value] })).ToArray(),
-                        attentionIntent),
-                    activity,
-                    activity.Count == 0
-                        ? WatchOverviewRecentActivityStates.NoRecentHighlights
-                        : WatchOverviewRecentActivityStates.HasRecentHighlights,
-                    activity.Count == 0
-                        ? WatchOverviewRecentActivityStates.NoRecentHighlightsMessage
-                        : null);
-
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return result;
-            }
-            catch (CurrentIngestAttentionException exception)
-                when (string.Equals(
-                    exception.Code,
-                    CurrentIngestAttentionErrorCodes.ProjectionNotAvailable,
-                    StringComparison.Ordinal))
-            {
-                var translated = new WatchOverviewException(
-                    WatchOverviewErrorCodes.ProjectionNotAvailable,
-                    exception.Message);
-                await transaction.RollbackBestEffortAsync(translated).ConfigureAwait(false);
-                throw translated;
-            }
-            catch (Exception exception)
-            {
-                await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
-                throw;
-            }
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        catch (CurrentIngestAttentionException exception)
+            when (string.Equals(
+                exception.Code,
+                CurrentIngestAttentionErrorCodes.ProjectionNotAvailable,
+                StringComparison.Ordinal))
+        {
+            var translated = new WatchOverviewException(
+                WatchOverviewErrorCodes.ProjectionNotAvailable,
+                exception.Message);
+            await transaction.RollbackBestEffortAsync(translated).ConfigureAwait(false);
+            throw translated;
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+            throw;
         }
     }
-
-    private static bool HasSameOverviewFence(
-        OperationalSnapshotIdentity selected,
-        OperationalSnapshotIdentity verified) =>
-        selected.HistoryEpoch == verified.HistoryEpoch
-        && string.Equals(
-            selected.ProjectionCommitId,
-            verified.ProjectionCommitId,
-            StringComparison.Ordinal)
-        && selected.ProjectionSequence == verified.ProjectionSequence
-        && selected.PollTraceHighWater == verified.PollTraceHighWater
-        && selected.CatalogRevision == verified.CatalogRevision;
 
     private static async Task<CurrentOverviewReadability> ReadCurrentOverviewReadabilityAsync(
         SqlConnection connection,
@@ -221,14 +196,18 @@ public sealed partial class SqlServerMesIngestProjection
         command.CommandText = """
             SELECT
                 (SELECT COUNT_BIG(*)
-                 FROM (SELECT DISTINCT SeriesId
-                       FROM mesingest.DemandSeriesCurrentConditions) AS activeSeries),
+                 FROM mesingest.CurrentOverviewErrorSeriesFacts
+                 WHERE ProjectionCommitId = @projectionCommitId
+                   AND EarliestActiveStartedAt IS NOT NULL),
                 (SELECT COUNT_BIG(*)
-                 FROM (SELECT DISTINCT SeriesId
-                       FROM mesingest.DemandSeriesErrorPeriods
-                       WHERE StartedAt < @toUtc
-                         AND (EndedAt IS NULL OR EndedAt > @fromUtc)) AS recentSeries);
+                 FROM mesingest.CurrentOverviewErrorSeriesFacts
+                 WHERE ProjectionCommitId = @projectionCommitId
+                   AND ((EarliestActiveStartedAt IS NOT NULL
+                         AND EarliestActiveStartedAt < @toUtc)
+                        OR (LatestEndedAt > @fromUtc
+                            AND LatestEndedPeriodStartedAt < @toUtc)));
             """;
+        AddNVarChar(command, "@projectionCommitId", 64, snapshot.ProjectionCommitId);
         AddDateTimeOffset(command, "@fromUtc", snapshot.SnapshotAsOf.AddDays(-7));
         AddDateTimeOffset(command, "@toUtc", snapshot.SnapshotAsOf);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)

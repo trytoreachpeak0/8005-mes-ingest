@@ -54,8 +54,17 @@ try {
     $passed = [int] $counters.passed
     $failed = [int] $counters.failed
     $notExecuted = [int] $counters.notExecuted
-    if ($total -le 0 -or $executed -ne $total -or $passed -ne $total -or $failed -ne 0 -or $notExecuted -ne 0) {
-        throw "Ticket 14 gate requires every matching test to pass with 0 skipped; observed total=$total executed=$executed passed=$passed failed=$failed notExecuted=$notExecuted."
+    $definitions = @($trx.TestRun.TestDefinitions.UnitTest)
+    $overviewCount = @($definitions | Where-Object {
+        $_.TestMethod.className -eq 'MesIngest.Tests.WatchOverviewSnapshotTests'
+    }).Count
+    $attentionCount = @($definitions | Where-Object {
+        $_.TestMethod.className -eq 'MesIngest.Tests.CurrentIngestAttentionTests'
+    }).Count
+    if ($overviewCount -le 0 -or $attentionCount -le 0 `
+        -or $total -ne ($overviewCount + $attentionCount) `
+        -or $executed -ne $total -or $passed -ne $total -or $failed -ne 0 -or $notExecuted -ne 0) {
+        throw "Ticket 14 gate requires both API classes and every matching test to pass with 0 skipped; observed overview=$overviewCount attention=$attentionCount total=$total executed=$executed passed=$passed failed=$failed notExecuted=$notExecuted."
     }
 
     Write-Output "MESINGEST_TICKET14_SQLSERVER_API_GATE_PASSED: passed=$passed skipped=$notExecuted expectedProductMajor=$ExpectedProductMajor expectedCompatibilityLevel=$ExpectedCompatibilityLevel trx=$trxPath"

@@ -8,7 +8,7 @@ public sealed class NewMesIngestContractFreezeTests
     public void Contract_discovery_returns_exact_version_and_only_the_frozen_v2_capability_set()
     {
         Assert.Equal("2026.08.new-mes-ingest.v2.0", NewMesIngestContract.Version);
-        Assert.Equal(22, NewMesIngestContract.SchemaVersion);
+        Assert.Equal(23, NewMesIngestContract.SchemaVersion);
         Assert.Equal(
             "EXACT_VERSION_SCHEMA_AND_CAPABILITIES",
             NewMesIngestContract.CompatibilityPolicy);

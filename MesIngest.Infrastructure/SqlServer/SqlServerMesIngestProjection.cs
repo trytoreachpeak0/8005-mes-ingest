@@ -1886,17 +1886,46 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            DELETE FROM mesingest.CurrentOverviewErrorSeriesFacts;
+
+            WITH ErrorSeries AS
+            (
+                SELECT SeriesId,
+                    MIN(CASE WHEN EndedAt IS NULL THEN StartedAt END)
+                        AS EarliestActiveStartedAt,
+                    MAX(EndedAt) AS LatestEndedAt
+                FROM mesingest.DemandSeriesErrorPeriods
+                GROUP BY SeriesId
+            )
+            INSERT INTO mesingest.CurrentOverviewErrorSeriesFacts
+                (SeriesId, EarliestActiveStartedAt, LatestEndedPeriodStartedAt,
+                 LatestEndedAt, ProjectionCommitId)
+            SELECT errorSeries.SeriesId,
+                errorSeries.EarliestActiveStartedAt,
+                latestEnded.LatestEndedPeriodStartedAt,
+                errorSeries.LatestEndedAt,
+                @projectionCommitId
+            FROM ErrorSeries AS errorSeries
+            OUTER APPLY
+            (
+                SELECT MIN(period.StartedAt) AS LatestEndedPeriodStartedAt
+                FROM mesingest.DemandSeriesErrorPeriods AS period
+                WHERE period.SeriesId = errorSeries.SeriesId
+                  AND period.EndedAt = errorSeries.LatestEndedAt
+            ) AS latestEnded;
+
             UPDATE commitRow
             SET OverviewActiveErrorSeriesCount =
                     (SELECT COUNT_BIG(*)
-                     FROM (SELECT DISTINCT SeriesId
-                           FROM mesingest.DemandSeriesCurrentConditions) AS activeSeries),
+                     FROM mesingest.CurrentOverviewErrorSeriesFacts
+                     WHERE EarliestActiveStartedAt IS NOT NULL),
                 OverviewPrior7DaysErrorSeriesCount =
                     (SELECT COUNT_BIG(*)
-                     FROM (SELECT DISTINCT SeriesId
-                           FROM mesingest.DemandSeriesErrorPeriods
-                           WHERE StartedAt < @toUtc
-                             AND (EndedAt IS NULL OR EndedAt > @fromUtc)) AS recentSeries)
+                     FROM mesingest.CurrentOverviewErrorSeriesFacts
+                     WHERE (EarliestActiveStartedAt IS NOT NULL
+                            AND EarliestActiveStartedAt < @toUtc)
+                        OR (LatestEndedAt > @fromUtc
+                            AND LatestEndedPeriodStartedAt < @toUtc))
             FROM mesingest.ProjectionCommits AS commitRow
             WHERE commitRow.ProjectionCommitId = @projectionCommitId;
             """;
