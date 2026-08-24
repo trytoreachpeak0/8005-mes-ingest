@@ -152,6 +152,132 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
     }
 
     [Ticket01SqlServerFact]
+    public async Task Readability_summary_counts_every_retained_demand_generation_in_its_trusted_area()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        var firstSeenAt = new DateTimeOffset(2026, 8, 14, 2, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(firstSeenAt.AddHours(13));
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var areaAObservation = ValidObservation(
+            "WIRE_TO_NITROGEN",
+            "SL-TICKET14-GENERATIONS",
+            "A1-1",
+            firstSeenAt);
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-generations-seed",
+            firstSeenAt,
+            areaAObservation));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-generations-authority",
+            firstSeenAt.AddMinutes(1),
+            areaAObservation));
+        var goneAt = firstSeenAt.AddMinutes(2);
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-generations-gone",
+            goneAt));
+        var archivedAt = goneAt.AddHours(12);
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-generations-archive",
+            archivedAt));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-generations-reappear",
+            archivedAt.AddMinutes(1),
+            ValidObservation(
+                "WIRE_TO_NITROGEN",
+                "SL-TICKET14-GENERATIONS",
+                "B2-2",
+                archivedAt.AddMinutes(1))));
+
+        using var all = await ReadOverviewAsync(client, "/api/v2/watch-overview");
+        using var areaA = await ReadOverviewAsync(client, "/api/v2/watch-overview?area=A1-1");
+        using var areaB = await ReadOverviewAsync(client, "/api/v2/watch-overview?area=B2-2");
+        using var auditAll = await ReadJsonAsync(client, "/api/v2/readability-audit?pageSize=20");
+        using var auditAreaA = await ReadJsonAsync(
+            client,
+            "/api/v2/readability-audit?area=A1-1&pageSize=20");
+        using var auditAreaB = await ReadJsonAsync(
+            client,
+            "/api/v2/readability-audit?area=B2-2&pageSize=20");
+
+        AssertSummaryCounts(all.RootElement, 1, 2, 0, 2);
+        AssertSummaryCounts(areaA.RootElement, 0, 1, 0, 1);
+        AssertSummaryCounts(areaB.RootElement, 1, 1, 0, 1);
+        Assert.Equal(
+            auditAll.RootElement.GetProperty("exactTotalDemandCount").GetInt64(),
+            all.RootElement.GetProperty("readability")
+                .GetProperty("exactTotalDemandGenerationCount").GetInt64());
+        Assert.Equal(
+            auditAreaA.RootElement.GetProperty("exactTotalDemandCount").GetInt64(),
+            areaA.RootElement.GetProperty("readability")
+                .GetProperty("exactTotalDemandGenerationCount").GetInt64());
+        Assert.Equal(
+            auditAreaB.RootElement.GetProperty("exactTotalDemandCount").GetInt64(),
+            areaB.RootElement.GetProperty("readability")
+                .GetProperty("exactTotalDemandGenerationCount").GetInt64());
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Recent_error_summary_uses_read_time_and_a_half_open_seven_day_window()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        var firstErrorAt = new DateTimeOffset(2026, 8, 14, 3, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(firstErrorAt.AddMinutes(2));
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var recovered = ValidObservation(
+            "WIRE_TO_NITROGEN",
+            "SL-TICKET14-OLD-ERROR",
+            "A1-1",
+            firstErrorAt);
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-old-error-open",
+            firstErrorAt,
+            recovered with { Eqp = null }));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-old-error-close",
+            firstErrorAt.AddMinutes(1),
+            recovered));
+
+        clock.SetUtcNow(firstErrorAt.AddDays(7).AddMinutes(1));
+        using (var aged = await ReadOverviewAsync(client, "/api/v2/watch-overview"))
+        {
+            Assert.Equal(
+                0,
+                aged.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
+            Assert.Equal(
+                0,
+                aged.RootElement.GetProperty("errors").GetProperty("prior7DaysSeriesCount").GetInt64());
+        }
+
+        var upperBoundary = clock.GetUtcNow();
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket14-upper-boundary-error",
+            upperBoundary,
+            recovered,
+            ValidObservation(
+                "WIRE_TO_NITROGEN",
+                "SL-TICKET14-UPPER-BOUNDARY-ERROR",
+                "A1-1",
+                upperBoundary) with { Eqp = null }));
+
+        using var atUpperBoundary = await ReadOverviewAsync(client, "/api/v2/watch-overview");
+        Assert.Equal(
+            1,
+            atUpperBoundary.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
+        Assert.Equal(
+            0,
+            atUpperBoundary.RootElement.GetProperty("errors")
+                .GetProperty("prior7DaysSeriesCount").GetInt64());
+    }
+
+    [Ticket01SqlServerFact]
     public async Task Recent_activity_uses_real_transitions_a_strict_24_hour_window_and_stable_top_five()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
@@ -278,7 +404,7 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
     }
 
     [Ticket01SqlServerFact]
-    public async Task Concurrent_commit_waits_at_the_read_fence_and_overview_is_wholly_old_then_wholly_new()
+    public async Task Concurrent_commit_does_not_wait_for_overview_and_the_response_is_wholly_new()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
@@ -319,10 +445,8 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
                     now.AddMinutes(-1),
                     observationA,
                     observationB));
-            await Task.Delay(100);
-            Assert.False(pendingWrite.IsCompleted);
-            observer.Release();
             receiptB = await pendingWrite.WaitAsync(TimeSpan.FromSeconds(10));
+            observer.Release();
         }
         finally
         {
@@ -330,23 +454,34 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
         }
 
         using var firstResponse = await pendingRead.WaitAsync(TimeSpan.FromSeconds(10));
-        using var oldOverview = await ReadOverviewResponseAsync(firstResponse);
+        using var concurrentOverview = await ReadOverviewResponseAsync(firstResponse);
         Assert.Equal(
-            receiptA.ProjectionCommitId,
-            oldOverview.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+            receiptB.ProjectionCommitId,
+            concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
         Assert.Equal(
-            receiptA.ProjectionSequence,
-            oldOverview.RootElement.GetProperty("snapshot").GetProperty("projectionSequence").GetInt64());
-        Assert.Equal(1, oldOverview.RootElement.GetProperty("snapshot").GetProperty("pollTraceHighWater").GetInt64());
-        AssertSummaryCounts(oldOverview.RootElement, 1, 1, 1, 0);
-        Assert.Equal(0, oldOverview.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
-        Assert.Equal(0, oldOverview.RootElement.GetProperty("errors").GetProperty("prior7DaysSeriesCount").GetInt64());
-        Assert.Equal(0, oldOverview.RootElement.GetProperty("attention").GetProperty("exactTotalItemCount").GetInt64());
-        Assert.All(
-            oldOverview.RootElement.GetProperty("recentActivity").EnumerateArray(),
-            item => Assert.Equal(
-                receiptA.ProjectionCommitId,
-                item.GetProperty("projectionCommitId").GetString()));
+            receiptB.ProjectionSequence,
+            concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("projectionSequence").GetInt64());
+        Assert.Equal(
+            2,
+            concurrentOverview.RootElement.GetProperty("snapshot").GetProperty("pollTraceHighWater").GetInt64());
+        AssertSummaryCounts(concurrentOverview.RootElement, 2, 2, 1, 1);
+        Assert.Equal(
+            1,
+            concurrentOverview.RootElement.GetProperty("errors").GetProperty("activeSeriesCount").GetInt64());
+        Assert.Equal(
+            1,
+            concurrentOverview.RootElement.GetProperty("errors")
+                .GetProperty("prior7DaysSeriesCount").GetInt64());
+        Assert.Equal(
+            1,
+            concurrentOverview.RootElement.GetProperty("attention")
+                .GetProperty("exactTotalItemCount").GetInt64());
+        Assert.Contains(
+            concurrentOverview.RootElement.GetProperty("recentActivity").EnumerateArray(),
+            item => string.Equals(
+                receiptB.ProjectionCommitId,
+                item.GetProperty("projectionCommitId").GetString(),
+                StringComparison.Ordinal));
 
         using var newOverview = await ReadOverviewAsync(client, "/api/v2/watch-overview");
         Assert.Equal(
@@ -455,6 +590,16 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
     {
         using var response = await client.GetAsync(path);
         return await ReadOverviewResponseAsync(response);
+    }
+
+    private static async Task<JsonDocument> ReadJsonAsync(HttpClient client, string path)
+    {
+        using var response = await client.GetAsync(path);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.True(
+            response.StatusCode == HttpStatusCode.OK,
+            $"Expected JSON success but received {(int)response.StatusCode}: {body}");
+        return JsonDocument.Parse(body);
     }
 
     private static async Task<JsonDocument> ReadOverviewResponseAsync(HttpResponseMessage response)

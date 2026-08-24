@@ -1895,7 +1895,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                     (SELECT COUNT_BIG(*)
                      FROM (SELECT DISTINCT SeriesId
                            FROM mesingest.DemandSeriesErrorPeriods
-                           WHERE StartedAt <= @toUtc
+                           WHERE StartedAt < @toUtc
                              AND (EndedAt IS NULL OR EndedAt > @fromUtc)) AS recentSeries)
             FROM mesingest.ProjectionCommits AS commitRow
             WHERE commitRow.ProjectionCommitId = @projectionCommitId;
