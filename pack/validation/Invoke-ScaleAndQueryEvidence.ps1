@@ -221,13 +221,16 @@ function Read-ShowPlanRuntimeIo {
     [xml]$plan = $PlanXml
     $items = New-Object System.Collections.ArrayList
     foreach ($relOp in @($plan.SelectNodes("//*[local-name()='RelOp']"))) {
+        $physicalOperation = $relOp.GetAttribute('PhysicalOp')
+        if ($physicalOperation -notmatch '(Scan|Seek|Lookup)') { continue }
         $object = $relOp.SelectSingleNode(".//*[local-name()='Object']")
-        foreach ($counter in @($relOp.SelectNodes(".//*[local-name()='RunTimeCountersPerThread']"))) {
+        foreach ($counter in @($relOp.SelectNodes(
+            "./*[local-name()='RunTimeInformation']/*[local-name()='RunTimeCountersPerThread']"))) {
             if ($null -eq $object) { continue }
             [void]$items.Add([pscustomobject][ordered]@{
                 database = $object.GetAttribute('Database'); schema = $object.GetAttribute('Schema')
                 table = $object.GetAttribute('Table'); index = $object.GetAttribute('Index')
-                physicalOperation = $relOp.GetAttribute('PhysicalOp'); thread = $counter.GetAttribute('Thread')
+                physicalOperation = $physicalOperation; thread = $counter.GetAttribute('Thread')
                 actualRows = Get-XmlInt64Attribute $counter 'ActualRows'
                 actualScans = Get-XmlInt64Attribute $counter 'ActualScans'
                 actualLogicalReadsPresent = $counter.HasAttribute('ActualLogicalReads')
@@ -1236,7 +1239,9 @@ WHERE Id = 1;
                 @($runtimeIoCarriers | Where-Object { -not [bool]$_.actualLogicalReadsPresent }).Count -eq 0
             memoryGrantEvidenceComplete = $surfacePlans.Count -gt 0 -and
                 @($surfacePlans | Where-Object { -not [bool]$_.memoryGrantCaptured }).Count -eq 0
-            logicalReads = if ($surfaceStatements.Count -gt 0) {
+            logicalReads = if ($historicalObjectSurfaceFailurePrefixes.ContainsKey($surfaceName)) {
+                Get-TotalActualLogicalReads $surfaceRuntimeIo
+            } elseif ($surfaceStatements.Count -gt 0) {
                 Get-LongPropertySum @($surfaceStatements) 'logical_reads'
             } else {
                 Get-TotalActualLogicalReads $surfaceRuntimeIo
@@ -1442,15 +1447,28 @@ ORDER BY t.name, i.index_id;
                 $baselineSurface = @($baselineSelectedSurfaces | Where-Object { $_.name -eq $observedSurface.name }) |
                     Select-Object -First 1
                 if ($null -eq $baselineSurface) { throw "Baseline is missing $($observedSurface.name)." }
+                $logicalReadSlack = if ($historicalObjectSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
+                    20L
+                } else { 200L }
                 $surfaceAllowed = [long][Math]::Max(
                     [Math]::Ceiling([long]$baselineSurface.logicalReads * 1.10),
-                    [long]$baselineSurface.logicalReads + 200L)
+                    [long]$baselineSurface.logicalReads + $logicalReadSlack)
+                $rawObservationAllowed = [long][Math]::Max(
+                    [Math]::Ceiling([long]$baselineSurface.rawObservationLogicalReads * 1.10),
+                    [long]$baselineSurface.rawObservationLogicalReads + 20L)
+                $surfaceLogicalReadsPassed = [long]$observedSurface.logicalReads -le $surfaceAllowed
+                $rawObservationLogicalReadsPassed =
+                    -not $historicalObjectSurfaceFailurePrefixes.ContainsKey($QuerySurface) -or
+                    [long]$observedSurface.rawObservationLogicalReads -le $rawObservationAllowed
                 [void]$surfaceComparisons.Add([pscustomobject][ordered]@{
                     name = [string]$observedSurface.name
                     baselineLogicalReads = [long]$baselineSurface.logicalReads
                     observedLogicalReads = [long]$observedSurface.logicalReads
                     allowedLogicalReads = $surfaceAllowed
-                    passed = [long]$observedSurface.logicalReads -le $surfaceAllowed
+                    baselineRawObservationLogicalReads = [long]$baselineSurface.rawObservationLogicalReads
+                    observedRawObservationLogicalReads = [long]$observedSurface.rawObservationLogicalReads
+                    allowedRawObservationLogicalReads = $rawObservationAllowed
+                    passed = $surfaceLogicalReadsPassed -and $rawObservationLogicalReadsPassed
                 })
             }
             $baselineLogicalReads = [long](($baselineSelectedSurfaces | Measure-Object -Property logicalReads -Sum).Sum)

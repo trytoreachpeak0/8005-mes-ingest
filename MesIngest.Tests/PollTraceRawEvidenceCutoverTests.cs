@@ -190,6 +190,7 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
         Assert.Contains("_OBJECT_KEY_SEEK", gate, StringComparison.Ordinal);
         Assert.Contains("_UNRELATED_HISTORY_SCAN", gate, StringComparison.Ordinal);
         Assert.Contains("_EARLIEST_IDENTITY", gate, StringComparison.Ordinal);
+        Assert.Contains("allowedRawObservationLogicalReads", gate, StringComparison.Ordinal);
     }
 
     private static MesTaskUnionObservation InvalidDuplicateObservation() =>

@@ -125,19 +125,14 @@ public sealed partial class SqlServerMesIngestProjection
                 return null;
             }
 
-            var periods = await ReadErrorSearchDetailPeriodsAsync(
+            var matchedEvidence = await ReadExactErrorSearchEvidenceAsync(
                 connection,
                 transaction,
                 snapshot,
                 series.SeriesId,
+                evidenceId.Trim(),
                 cancellationToken).ConfigureAwait(false);
-            var matchedEvidence = periods
-                .SelectMany(period => period.Evidence.Select(evidence => (period.PeriodId, Evidence: evidence)))
-                .SingleOrDefault(candidate => string.Equals(
-                    candidate.Evidence.EvidenceId,
-                    evidenceId.Trim(),
-                    StringComparison.OrdinalIgnoreCase));
-            if (matchedEvidence.Evidence is null)
+            if (matchedEvidence is null)
             {
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return null;
@@ -181,6 +176,101 @@ public sealed partial class SqlServerMesIngestProjection
             await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
             throw;
         }
+    }
+
+    private static async Task<RawEvidenceMatch?> ReadExactErrorSearchEvidenceAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ErrorSearchSnapshotReference snapshot,
+        string seriesId,
+        string evidenceId,
+        CancellationToken cancellationToken)
+    {
+        var filter = snapshot.Filter.Normalize();
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT
+                period.PeriodId,
+                evidence.EvidenceId,
+                evidence.EvidenceKind,
+                period.SubjectKind,
+                evidence.ObservedAt,
+                evidence.PollTraceId,
+                evidence.ProjectionCommitId,
+                evidence.DemandId,
+                demandSeries.WorkType,
+                evidence.ObservedValue,
+                evidence.ExpectedRule
+            FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+            INNER JOIN mesingest.DemandSeriesErrorPeriods AS period
+                ON period.PeriodId = evidence.PeriodId
+            INNER JOIN mesingest.DemandSeriesEvents AS opened
+                ON opened.EventId = period.OpenedEventId
+            INNER JOIN mesingest.ProjectionCommits AS openedCommit
+                ON openedCommit.ProjectionCommitId = opened.ProjectionCommitId
+            LEFT JOIN mesingest.DemandSeriesEvents AS closed
+                ON closed.EventId = period.ClosedEventId
+            LEFT JOIN mesingest.ProjectionCommits AS closedCommit
+                ON closedCommit.ProjectionCommitId = closed.ProjectionCommitId
+            INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
+                ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
+            INNER JOIN mesingest.TransportDemands AS demand
+                ON demand.DemandId = evidence.DemandId
+            INNER JOIN mesingest.DemandSeries AS demandSeries
+                ON demandSeries.SeriesId = demand.SeriesId
+            WHERE evidence.EvidenceId = @evidenceId
+              AND period.SeriesId = @detailSeriesId COLLATE Latin1_General_100_CI_AS
+              AND openedCommit.ProjectionSequence <= @snapshotSequence
+              AND evidenceCommit.ProjectionSequence <= @snapshotSequence
+              AND period.StartedAt <= @asOf
+              AND evidence.ObservedAt <= @asOf
+              AND period.StartedAt < @windowTo
+              AND (@windowFrom IS NULL OR COALESCE(
+                    CASE WHEN closedCommit.ProjectionSequence <= @snapshotSequence
+                           AND period.EndedAt <= @asOf THEN period.EndedAt END,
+                    @asOf) > @windowFrom)
+              AND (NOT EXISTS (SELECT 1 FROM OPENJSON(@categoriesJson))
+                   OR period.Category IN (SELECT [value] COLLATE Latin1_General_100_BIN2
+                                          FROM OPENJSON(@categoriesJson)))
+              AND (NOT EXISTS (SELECT 1 FROM OPENJSON(@errorCodesJson))
+                   OR period.ErrorCode IN (SELECT [value] COLLATE Latin1_General_100_BIN2
+                                           FROM OPENJSON(@errorCodesJson)))
+              AND (@demandId IS NULL
+                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS);
+            """;
+        AddNVarChar(command, "@evidenceId", 64, evidenceId);
+        AddNVarChar(command, "@detailSeriesId", 64, seriesId);
+        command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value =
+            snapshot.Snapshot.ProjectionSequence;
+        AddDateTimeOffset(command, "@asOf", snapshot.Snapshot.ErrorSearchAsOf);
+        AddNullableDateTimeOffset(command, "@windowFrom", snapshot.Window.FromUtc);
+        AddDateTimeOffset(command, "@windowTo", snapshot.Window.ToUtc);
+        AddNVarChar(command, "@categoriesJson", -1, JsonSerializer.Serialize(filter.Categories));
+        AddNVarChar(command, "@errorCodesJson", -1, JsonSerializer.Serialize(filter.ErrorCodes));
+        AddNullableNVarChar(command, "@demandId", 64, filter.DemandId);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return new RawEvidenceMatch(
+            reader.GetString(0),
+            CreateDetailEvidence(
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetFieldValue<DateTimeOffset>(4).ToUniversalTime(),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetString(7),
+                reader.GetString(8),
+                GetNullableString(reader, 9),
+                reader.GetString(10),
+                rawEvidenceAvailable: true));
     }
 
     private async Task<ErrorSearchSnapshotReference> ResolveReferencedErrorSearchSnapshotAsync(
@@ -598,6 +688,10 @@ public sealed partial class SqlServerMesIngestProjection
     private static ErrorSearchException RawLimitExceeded() => new(
         ErrorSearchErrorCodes.RawLimitExceeded,
         "The raw evidence exceeds the bounded response limits.");
+
+    private sealed record RawEvidenceMatch(
+        string PeriodId,
+        ErrorSearchDetailEvidenceSnapshot Evidence);
 
     private sealed class MutableErrorSearchDetailPeriod(
         string periodId,
