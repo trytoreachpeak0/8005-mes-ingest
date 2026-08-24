@@ -175,6 +175,7 @@ public sealed class MesTaskUnionPollRunnerTests
         public Task<WatchOverviewSnapshot> ReadWatchOverviewAsync(WatchOverviewQuery query, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<ExternallyReadableDemandCatalogRead> ReadExternallyReadableDemandCatalogAsync(ExternallyReadableDemandCatalogIdentity? knownIdentity = null, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<HistoricalObjectReadResult<PollTraceSnapshot>> GetPollTraceAsync(string pollTraceId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<HistoryRetentionAdvanceResult> AdvanceHistoryRetentionAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AbsenceAuthoritySnapshot> GetAbsenceAuthorityAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<AbsenceAuthoritySnapshot?> GetAbsenceAuthorityAsync(string hostSessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<TaskTypeProtectionSnapshot>> ListTaskTypeProtectionsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();

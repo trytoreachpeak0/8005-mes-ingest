@@ -34,6 +34,7 @@ public sealed class EmptyDatabaseBootstrapTests
             NewMesIngestContract.SchemaVersion,
             await ReadSchemaVersionAsync(database.ConnectionString));
         Assert.Equal("SIMPLE", await ReadRecoveryModelAsync(database.ConnectionString));
+        Assert.True(await HasRetentionStateSchemaAsync(database.ConnectionString));
         Assert.Equal(
             new[]
             {
@@ -440,6 +441,26 @@ public sealed class EmptyDatabaseBootstrapTests
     private static async Task<int> ReadSchemaVersionAsync(string connectionString) =>
         Convert.ToInt32(
             await ScalarAsync(connectionString, "SELECT SchemaVersion FROM mesingest.SchemaInfo WHERE Id = 1;"),
+            System.Globalization.CultureInfo.InvariantCulture);
+
+    private static async Task<bool> HasRetentionStateSchemaAsync(string connectionString) =>
+        Convert.ToBoolean(
+            await ScalarAsync(
+                connectionString,
+                """
+                SELECT CONVERT(BIT, CASE
+                    WHEN COL_LENGTH(N'mesingest.PollTraces', N'RawObservationsExpiredAt') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.DemandSeries', N'RetentionEligibilityAt') IS NOT NULL
+                     AND EXISTS
+                     (
+                         SELECT 1
+                         FROM sys.indexes
+                         WHERE object_id = OBJECT_ID(N'mesingest.DemandSeries')
+                           AND name = N'IX_MesIngest_DemandSeries_RetentionEligibilityAt'
+                           AND has_filter = 1
+                     )
+                    THEN 1 ELSE 0 END);
+                """),
             System.Globalization.CultureInfo.InvariantCulture);
 
     private static async Task<string> ReadRecoveryModelAsync(string connectionString) =>

@@ -177,6 +177,7 @@ internal static class SqlServerMesIngestSchema
             DiagnosticStage NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
             DiagnosticCode NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
             DiagnosticSafeDetail NVARCHAR(512) NULL,
+            RawObservationsExpiredAt DATETIMEOFFSET(7) NULL,
             CONSTRAINT UQ_MesIngest_PollTraces_Sequence UNIQUE (PollTraceSequence),
             CONSTRAINT CK_MesIngest_PollTraces_Outcome
                 CHECK (Outcome IN (N'SUCCESS', N'FAILURE', N'INCOMPLETE')),
@@ -466,6 +467,7 @@ internal static class SqlServerMesIngestSchema
             LatestProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
             CurrentDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
             LastSeriesSequence BIGINT NOT NULL,
+            RetentionEligibilityAt DATETIMEOFFSET(7) NULL,
             CONSTRAINT UQ_MesIngest_DemandSeries_KeyToken UNIQUE (KeyToken),
             CONSTRAINT FK_MesIngest_DemandSeries_CreatedPollTrace
                 FOREIGN KEY (CreatedPollTraceId) REFERENCES mesingest.PollTraces (PollTraceId),
@@ -477,6 +479,9 @@ internal static class SqlServerMesIngestSchema
                 REFERENCES mesingest.ProjectionCommits (ProjectionCommitId),
             CONSTRAINT CK_MesIngest_DemandSeries_LastSequence CHECK (LastSeriesSequence >= 0)
         );
+        CREATE INDEX IX_MesIngest_DemandSeries_RetentionEligibilityAt
+            ON mesingest.DemandSeries (RetentionEligibilityAt, SeriesId)
+            WHERE RetentionEligibilityAt IS NOT NULL;
 
         CREATE TABLE mesingest.TransportDemands
         (
@@ -848,6 +853,7 @@ internal static class SqlServerMesIngestSchema
             (N'PollTraces', 9, N'DiagnosticStage', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 10, N'DiagnosticCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 11, N'DiagnosticSafeDetail', N'nvarchar', 1024, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'PollTraces', 12, N'RawObservationsExpiredAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
 
             (N'ProjectionCommits', 1, N'ProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'ProjectionCommits', 2, N'ProjectionSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -965,6 +971,7 @@ internal static class SqlServerMesIngestSchema
             (N'DemandSeries', 11, N'LatestProjectionCommitId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'DemandSeries', 12, N'CurrentDemandId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'DemandSeries', 13, N'LastSeriesSequence', N'bigint', 8, 19, 0, 0, NULL),
+            (N'DemandSeries', 14, N'RetentionEligibilityAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
 
             (N'TransportDemands', 1, N'DemandId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'TransportDemands', 2, N'SeriesId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
@@ -1732,6 +1739,7 @@ internal static class SqlServerMesIngestSchema
             (N'PollTraces', N'IX_MesIngest_PollTraces_CompletedAt'),
             (N'UnassignedMesObservationEvents', N'IX_MesIngest_UnassignedMesObservationEvents_Overview'),
             (N'TaskTypeProtectionEvents', N'IX_MesIngest_TaskTypeProtectionEvents_Commit'),
+            (N'DemandSeries', N'IX_MesIngest_DemandSeries_RetentionEligibilityAt'),
             (N'DemandRawObservations', N'IX_MesIngest_DemandRawObservations_Series'),
             (N'DemandRawObservations', N'IX_MesIngest_DemandRawObservations_Demand'),
             (N'SeriesErrorPeriodEvidence', N'IX_MesIngest_SeriesErrorPeriodEvidence_Period'),

@@ -122,6 +122,14 @@ public interface IMesIngestProjection
         string pollTraceId,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Advances the exact history-retention state once. Ticket 16 owns the
+    /// hourly/budgeted scheduler; this seam owns only the transactional policy
+    /// operation that scheduler invokes.
+    /// </summary>
+    Task<HistoryRetentionAdvanceResult> AdvanceHistoryRetentionAsync(
+        CancellationToken cancellationToken = default);
+
     Task<AbsenceAuthoritySnapshot> GetAbsenceAuthorityAsync(
         CancellationToken cancellationToken = default);
 

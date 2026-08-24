@@ -53,8 +53,9 @@ public sealed partial class SqlServerMesIngestProjection
                     trace.ProjectionSequence),
                 cancellationToken).ConfigureAwait(false);
 
-            if (boundary.EarliestAvailableHostUtc is { } earliest
-                && trace.CompletedAt < earliest)
+            if (trace.RawObservationsExpiredAt is not null
+                || (boundary.EarliestAvailableHostUtc is { } earliest
+                    && trace.CompletedAt < earliest))
             {
                 return await CompleteUnavailableAsync(
                     HistoricalObjectAvailability.Expired,
@@ -149,7 +150,8 @@ public sealed partial class SqlServerMesIngestProjection
                 c.HostSessionId,
                 c.RestartPhaseBefore,
                 c.RestartPhaseAfter,
-                c.AbsenceAuthority
+                c.AbsenceAuthority,
+                p.RawObservationsExpiredAt
             FROM mesingest.PollTraces AS p
             LEFT JOIN mesingest.ProjectionCommits AS c
                 ON c.PollTraceId = p.PollTraceId

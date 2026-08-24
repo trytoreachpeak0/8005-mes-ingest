@@ -493,6 +493,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 seriesIds,
                 demandIds,
                 cancellationToken).ConfigureAwait(false);
+            await RefreshSeriesRetentionEligibilityAsync(
+                connection,
+                transaction,
+                round.CompletedAt,
+                cancellationToken).ConfigureAwait(false);
             await UpdateOverviewErrorSummaryAsync(
                 connection,
                 transaction,
@@ -1523,7 +1528,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                 c.HostSessionId,
                 c.RestartPhaseBefore,
                 c.RestartPhaseAfter,
-                c.AbsenceAuthority
+                c.AbsenceAuthority,
+                p.RawObservationsExpiredAt
             FROM mesingest.PollTraces AS p WITH (UPDLOCK, HOLDLOCK)
             LEFT JOIN mesingest.ProjectionCommits AS c WITH (UPDLOCK, HOLDLOCK)
                 ON c.PollTraceId = p.PollTraceId
@@ -4046,7 +4052,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             GetNullableString(reader, 13),
             GetNullableString(reader, 14),
             GetNullableString(reader, 15),
-            reader.IsDBNull(16) ? null : reader.GetBoolean(16));
+            reader.IsDBNull(16) ? null : reader.GetBoolean(16),
+            GetNullableDateTimeOffset(reader, 17));
 
     private static string? GetNullableString(SqlDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
@@ -4263,7 +4270,8 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
         string? HostSessionId,
         string? RestartPhaseBefore,
         string? RestartPhaseAfter,
-        bool? AbsenceAuthority);
+        bool? AbsenceAuthority,
+        DateTimeOffset? RawObservationsExpiredAt);
 
     private sealed record HostSessionRow(
         string HostSessionId,
