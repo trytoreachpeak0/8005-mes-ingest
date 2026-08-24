@@ -52,12 +52,19 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
     ];
 
     /// <summary>
-    /// Directory names that hold build output, test results, recorded evidence, or Git's
-    /// own store rather than source. Recorded evidence is excluded because it is produced
-    /// by the redacting validation scripts, which own that boundary.
+    /// Directory names that hold build output, a staged release payload, test results,
+    /// recorded evidence, or Git's own store rather than source. Every one of them is
+    /// git-ignored, and what they contain is a copy of something this scan already reads
+    /// at its real location: <c>dist/</c> stages <c>pack/</c> under a different prefix, so
+    /// scanning it reports the packaged copy of an allowed file as an offender. Recorded
+    /// evidence is excluded because it is produced by the redacting validation scripts,
+    /// which own that boundary.
     /// </summary>
     private static readonly HashSet<string> ExcludedDirectories =
-        new(StringComparer.OrdinalIgnoreCase) { "bin", "obj", "TestResults", ".artifacts", ".git", ".vs" };
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "bin", "obj", "dist", "TestResults", ".artifacts", ".git", ".vs",
+        };
 
     [Fact]
     public void Production_assemblies_expose_no_retired_contract_type()
@@ -262,11 +269,11 @@ public sealed partial class RetiredContractAndCutoverSafetyTests
         || value.Equals("False", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Every source file under the C# root, minus four kinds of directory that are not
-    /// source: build output, test results, recorded evidence, and Git's own store. It
-    /// also never opens a <c>*.Local.json</c>: that is by contract the operator's local
-    /// secret file, which is git-ignored, is deleted from the release package, and must
-    /// not be read by anything.
+    /// Every source file under the C# root, minus five kinds of directory that are not
+    /// source: build output, a staged release payload, test results, recorded evidence,
+    /// and Git's own store. It also never opens a <c>*.Local.json</c>: that is by contract
+    /// the operator's local secret file, which is git-ignored, is deleted from the release
+    /// package, and must not be read by anything.
     ///
     /// This deliberately does not shell out to Git. The packaged release gate runs these
     /// tests from a copied source payload with no worktree and no git executable, and a

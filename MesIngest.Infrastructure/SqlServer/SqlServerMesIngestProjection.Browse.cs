@@ -18,7 +18,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
         try
         {
@@ -144,7 +144,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.Serializable,
+            IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
         try
         {
@@ -305,19 +305,153 @@ public sealed partial class SqlServerMesIngestProjection
                 ConditionCodes NVARCHAR(2048) NULL
             );
 
-            WITH EligibleDemands AS
+            CREATE TABLE #EligibleDemands
+            (
+                DemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
+                SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                Generation INT NOT NULL,
+                PredecessorDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+                CreatedAt DATETIMEOFFSET(7) NOT NULL,
+                CreatedPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                CurrentRank BIGINT NOT NULL
+            );
+
+            INSERT INTO #EligibleDemands
+            SELECT
+                d.DemandId, d.SeriesId, d.Generation, d.PredecessorDemandId,
+                d.CreatedAt, d.CreatedPollTraceId, d.CreatedProjectionCommitId,
+                ROW_NUMBER() OVER
+                    (PARTITION BY d.SeriesId ORDER BY d.Generation DESC) AS CurrentRank
+            FROM mesingest.TransportDemands AS d
+            INNER JOIN mesingest.ProjectionCommits AS createdCommit
+                ON createdCommit.ProjectionCommitId = d.CreatedProjectionCommitId
+            WHERE createdCommit.ProjectionSequence <= @snapshotSequence;
+
+            CREATE INDEX IX_EligibleDemands_SeriesCurrent
+                ON #EligibleDemands (SeriesId, CurrentRank);
+
+            CREATE TABLE #ActiveConditions
+            (
+                SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
+                ConditionCodes NVARCHAR(2048) NULL
+            );
+
+            WITH CurrentDemands AS
+            (
+                SELECT SeriesId, DemandId
+                FROM #EligibleDemands
+                WHERE CurrentRank = 1
+            ),
+            RankedEvidence AS
             (
                 SELECT
-                    d.DemandId, d.SeriesId, d.Generation, d.PredecessorDemandId,
-                    d.CreatedAt, d.CreatedPollTraceId, d.CreatedProjectionCommitId,
+                    evidence.PeriodId,
+                    evidence.DemandId,
                     ROW_NUMBER() OVER
-                        (PARTITION BY d.SeriesId ORDER BY d.Generation DESC) AS CurrentRank
-                FROM mesingest.TransportDemands AS d
-                INNER JOIN mesingest.ProjectionCommits AS createdCommit
-                    ON createdCommit.ProjectionCommitId = d.CreatedProjectionCommitId
-                WHERE createdCommit.ProjectionSequence <= @snapshotSequence
+                        (PARTITION BY evidence.PeriodId
+                         ORDER BY evidenceCommit.ProjectionSequence DESC, evidence.EvidenceId DESC)
+                            AS EvidenceRank
+                FROM mesingest.SeriesErrorPeriodEvidence AS evidence
+                INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
+                    ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
+                WHERE evidenceCommit.ProjectionSequence <= @snapshotSequence
             ),
-            LatestObservations AS
+            ActiveCodes AS
+            (
+                SELECT DISTINCT period.SeriesId, period.ErrorCode
+                FROM mesingest.DemandSeriesErrorPeriods AS period
+                INNER JOIN mesingest.DemandSeriesEvents AS opened
+                    ON opened.EventId = period.OpenedEventId
+                INNER JOIN mesingest.ProjectionCommits AS openedCommit
+                    ON openedCommit.ProjectionCommitId = opened.ProjectionCommitId
+                LEFT JOIN mesingest.DemandSeriesEvents AS closed
+                    ON closed.EventId = period.ClosedEventId
+                LEFT JOIN mesingest.ProjectionCommits AS closedCommit
+                    ON closedCommit.ProjectionCommitId = closed.ProjectionCommitId
+                INNER JOIN RankedEvidence AS latestEvidence
+                    ON latestEvidence.PeriodId = period.PeriodId
+                   AND latestEvidence.EvidenceRank = 1
+                INNER JOIN CurrentDemands AS currentDemand
+                    ON currentDemand.SeriesId = period.SeriesId
+                   AND currentDemand.DemandId = latestEvidence.DemandId
+                WHERE openedCommit.ProjectionSequence <= @snapshotSequence
+                  AND (closedCommit.ProjectionSequence IS NULL
+                       OR closedCommit.ProjectionSequence > @snapshotSequence)
+            )
+            INSERT INTO #ActiveConditions (SeriesId, ConditionCodes)
+            SELECT
+                SeriesId,
+                STRING_AGG(CONVERT(NVARCHAR(128), ErrorCode), NCHAR(31))
+                    WITHIN GROUP (ORDER BY ErrorCode)
+            FROM ActiveCodes
+            GROUP BY SeriesId;
+
+            CREATE TABLE #LatestSeriesCommit
+            (
+                SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
+                ProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+                PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL
+            );
+
+            WITH LatestCandidates AS
+            (
+                SELECT demand.SeriesId, createdCommit.ProjectionCommitId,
+                       createdCommit.PollTraceId, createdCommit.ProjectionSequence
+                FROM #EligibleDemands AS demand
+                INNER JOIN mesingest.ProjectionCommits AS createdCommit
+                    ON createdCommit.ProjectionCommitId = demand.CreatedProjectionCommitId
+                UNION ALL
+                SELECT event.SeriesId, eventCommit.ProjectionCommitId,
+                       eventCommit.PollTraceId, eventCommit.ProjectionSequence
+                FROM mesingest.DemandSeriesEvents AS event
+                INNER JOIN mesingest.ProjectionCommits AS eventCommit
+                    ON eventCommit.ProjectionCommitId = event.ProjectionCommitId
+                WHERE eventCommit.ProjectionSequence <= @snapshotSequence
+                UNION ALL
+                -- TransportDemands already carries a maintained pointer to each demand's
+                -- newest observation commit, so the latest candidate is reachable without
+                -- ranking every historical observation row.
+                SELECT demand.SeriesId, observationCommit.ProjectionCommitId,
+                       observationCommit.PollTraceId, observationCommit.ProjectionSequence
+                FROM mesingest.TransportDemands AS demand
+                INNER JOIN mesingest.ProjectionCommits AS observationCommit
+                    ON observationCommit.ProjectionCommitId =
+                       demand.LatestObservationProjectionCommitId
+                WHERE observationCommit.ProjectionSequence <= @snapshotSequence
+                UNION ALL
+                -- Demands whose pointer sits after the requested snapshot (or has none)
+                -- still need their pre-snapshot history ranked. For a live snapshot this
+                -- branch matches nothing and the observation table is never touched.
+                SELECT observation.SeriesId, observationCommit.ProjectionCommitId,
+                       observationCommit.PollTraceId, observationCommit.ProjectionSequence
+                FROM mesingest.DemandRawObservations AS observation
+                INNER JOIN mesingest.ProjectionCommits AS observationCommit
+                    ON observationCommit.ProjectionCommitId = observation.ProjectionCommitId
+                WHERE observationCommit.ProjectionSequence <= @snapshotSequence
+                  AND EXISTS
+                      (SELECT 1
+                       FROM mesingest.TransportDemands AS stale
+                       LEFT JOIN mesingest.ProjectionCommits AS staleCommit
+                           ON staleCommit.ProjectionCommitId =
+                              stale.LatestObservationProjectionCommitId
+                       WHERE stale.DemandId = observation.DemandId
+                         AND (staleCommit.ProjectionSequence IS NULL
+                              OR staleCommit.ProjectionSequence > @snapshotSequence))
+            ),
+            RankedLatest AS
+            (
+                SELECT SeriesId, ProjectionCommitId, PollTraceId,
+                       ROW_NUMBER() OVER
+                           (PARTITION BY SeriesId ORDER BY ProjectionSequence DESC) AS LatestRank
+                FROM LatestCandidates
+            )
+            INSERT INTO #LatestSeriesCommit (SeriesId, ProjectionCommitId, PollTraceId)
+            SELECT SeriesId, ProjectionCommitId, PollTraceId
+            FROM RankedLatest
+            WHERE LatestRank = 1;
+
+            WITH LatestObservations AS
             (
                 SELECT
                     d.DemandId,
@@ -327,7 +461,7 @@ public sealed partial class SqlServerMesIngestProjection
                     observationCommit.CommittedAt,
                     ROW_NUMBER() OVER
                         (PARTITION BY d.DemandId ORDER BY observationCommit.ProjectionSequence DESC) AS ObservationRank
-                FROM EligibleDemands AS d
+                FROM #EligibleDemands AS d
                 INNER JOIN mesingest.DemandRawObservations AS o ON o.DemandId = d.DemandId
                 INNER JOIN mesingest.ProjectionCommits AS observationCommit
                     ON observationCommit.ProjectionCommitId = o.ProjectionCommitId
@@ -414,75 +548,14 @@ public sealed partial class SqlServerMesIngestProjection
             FROM mesingest.DemandSeries AS s
             INNER JOIN mesingest.ProjectionCommits AS seriesCreated
                 ON seriesCreated.ProjectionCommitId = s.CreatedProjectionCommitId
-            INNER JOIN EligibleDemands AS currentDemand
+            INNER JOIN #EligibleDemands AS currentDemand
                 ON currentDemand.SeriesId = s.SeriesId AND currentDemand.CurrentRank = 1
             LEFT JOIN LatestObservationFields AS fields ON fields.DemandId = currentDemand.DemandId
             LEFT JOIN EventState AS eventState ON eventState.SeriesId = s.SeriesId
             LEFT JOIN ArchiveState AS archive ON archive.SeriesId = s.SeriesId
             LEFT JOIN GoneState AS gone ON gone.DemandId = currentDemand.DemandId
-            OUTER APPLY
-            (
-                SELECT TOP (1) candidate.ProjectionCommitId, candidate.PollTraceId
-                FROM
-                (
-                    SELECT createdCommit.ProjectionCommitId, createdCommit.PollTraceId,
-                           createdCommit.ProjectionSequence
-                    FROM EligibleDemands AS demand
-                    INNER JOIN mesingest.ProjectionCommits AS createdCommit
-                        ON createdCommit.ProjectionCommitId = demand.CreatedProjectionCommitId
-                    WHERE demand.SeriesId = s.SeriesId
-                    UNION ALL
-                    SELECT eventCommit.ProjectionCommitId, eventCommit.PollTraceId,
-                           eventCommit.ProjectionSequence
-                    FROM mesingest.DemandSeriesEvents AS event
-                    INNER JOIN mesingest.ProjectionCommits AS eventCommit
-                        ON eventCommit.ProjectionCommitId = event.ProjectionCommitId
-                    WHERE event.SeriesId = s.SeriesId
-                      AND eventCommit.ProjectionSequence <= @snapshotSequence
-                    UNION ALL
-                    SELECT observationCommit.ProjectionCommitId, observationCommit.PollTraceId,
-                           observationCommit.ProjectionSequence
-                    FROM mesingest.DemandRawObservations AS observation
-                    INNER JOIN mesingest.ProjectionCommits AS observationCommit
-                        ON observationCommit.ProjectionCommitId = observation.ProjectionCommitId
-                    WHERE observation.SeriesId = s.SeriesId
-                      AND observationCommit.ProjectionSequence <= @snapshotSequence
-                ) AS candidate
-                ORDER BY candidate.ProjectionSequence DESC
-            ) AS latest
-            OUTER APPLY
-            (
-                SELECT STRING_AGG(CONVERT(NVARCHAR(128), active.ErrorCode), NCHAR(31))
-                    WITHIN GROUP (ORDER BY active.ErrorCode) AS ConditionCodes
-                FROM
-                (
-                    SELECT DISTINCT period.ErrorCode
-                    FROM mesingest.DemandSeriesErrorPeriods AS period
-                    INNER JOIN mesingest.DemandSeriesEvents AS opened
-                        ON opened.EventId = period.OpenedEventId
-                    INNER JOIN mesingest.ProjectionCommits AS openedCommit
-                        ON openedCommit.ProjectionCommitId = opened.ProjectionCommitId
-                    LEFT JOIN mesingest.DemandSeriesEvents AS closed
-                        ON closed.EventId = period.ClosedEventId
-                    LEFT JOIN mesingest.ProjectionCommits AS closedCommit
-                        ON closedCommit.ProjectionCommitId = closed.ProjectionCommitId
-                    OUTER APPLY
-                    (
-                        SELECT TOP (1) evidence.DemandId
-                        FROM mesingest.SeriesErrorPeriodEvidence AS evidence
-                        INNER JOIN mesingest.ProjectionCommits AS evidenceCommit
-                            ON evidenceCommit.ProjectionCommitId = evidence.ProjectionCommitId
-                        WHERE evidence.PeriodId = period.PeriodId
-                          AND evidenceCommit.ProjectionSequence <= @snapshotSequence
-                        ORDER BY evidenceCommit.ProjectionSequence DESC, evidence.EvidenceId DESC
-                    ) AS latestEvidence
-                    WHERE period.SeriesId = s.SeriesId
-                      AND openedCommit.ProjectionSequence <= @snapshotSequence
-                      AND (closedCommit.ProjectionSequence IS NULL
-                           OR closedCommit.ProjectionSequence > @snapshotSequence)
-                      AND latestEvidence.DemandId = currentDemand.DemandId
-                ) AS active
-            ) AS conditions
+            LEFT JOIN #LatestSeriesCommit AS latest ON latest.SeriesId = s.SeriesId
+            LEFT JOIN #ActiveConditions AS conditions ON conditions.SeriesId = s.SeriesId
             WHERE seriesCreated.ProjectionSequence <= @snapshotSequence;
 
             CREATE INDEX IX_BrowseStates_Order

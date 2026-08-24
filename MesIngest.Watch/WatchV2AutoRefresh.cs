@@ -377,6 +377,16 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
                 return;
             }
 
+            // An open detail read owns the row the operator is looking at. Starting
+            // the refresh here would cancel that read and re-issue it, so the tick
+            // waits one interval instead.
+            if (IsDetailLoading(dueView.Value))
+            {
+                _schedule.CompleteRefresh(dueView.Value);
+                ArmTimerForScheduleLocked();
+                return;
+            }
+
             if (_activeTarget is not { } activeTarget
                 || activeTarget.View != dueView.Value)
             {
@@ -511,6 +521,18 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
                 target.View,
                 null),
         };
+
+    private bool IsDetailLoading(WatchV2DataView view)
+    {
+        var state = _session.State;
+        return view switch
+        {
+            WatchV2DataView.DemandSeries => state.DemandSeries.IsDetailLoading,
+            WatchV2DataView.ReadabilityAudit => state.ReadabilityAudit.IsDetailLoading,
+            WatchV2DataView.ErrorSearch => state.ErrorSearch.IsDetailLoading,
+            _ => false,
+        };
+    }
 
     private void ArmTimerForScheduleLocked()
     {

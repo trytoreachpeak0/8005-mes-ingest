@@ -6,6 +6,68 @@ namespace MesIngest.Tests;
 public sealed class WatchV2AutoRefreshTests
 {
     [Fact]
+    public async Task Due_tick_waits_for_an_open_detail_read_instead_of_cancelling_it()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var detailStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDetail = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var detailCalls = 0;
+        var client = new RecordingV2Client
+        {
+            ReadabilityAuditHandler = (query, _) => Task.FromResult(
+                RecordingV2Client.ReadabilityAuditSnapshot(
+                    query,
+                    "commit-audit",
+                    "snapshot-audit",
+                    totalPages: 1,
+                    demandId: "D-1")),
+        };
+        client.ReadabilityAuditDetailHandler = async (demandId, snapshotReference, token) =>
+        {
+            Interlocked.Increment(ref detailCalls);
+            detailStarted.TrySetResult();
+            await releaseDetail.Task.WaitAsync(token).ConfigureAwait(false);
+            return RecordingV2Client.ReadabilityAuditDetailSnapshot(
+                demandId,
+                snapshotReference);
+        };
+
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        using var coordinator = new WatchV2AutoRefreshCoordinator(
+            session,
+            WatchV2AutoRefreshSettings.Default,
+            clock);
+
+        var query = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
+        await session.RefreshLatestReadabilityAuditPageAsync(query);
+        coordinator.ActivateReadabilityAudit(query);
+
+        var selection = session.SelectReadabilityDemandAsync("D-1");
+        await detailStarted.Task;
+        var listCallsBeforeTick = client.ReadabilityAuditCallCount;
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        await coordinator.WaitForIdleAsync();
+
+        // The due tick must not have started a refresh over the open detail read.
+        Assert.Equal(listCallsBeforeTick, client.ReadabilityAuditCallCount);
+        Assert.Equal(1, detailCalls);
+
+        releaseDetail.TrySetResult();
+        await selection;
+
+        var view = session.State.ReadabilityAudit;
+        Assert.NotNull(view.Detail);
+        Assert.Null(view.DetailErrorMessage);
+        Assert.Equal(WatchHostFailureKind.None, view.DetailFailureKind);
+        Assert.Equal(1, detailCalls);
+    }
+
+    [Fact]
     public async Task Due_tick_refreshes_the_active_overview_through_the_workspace_session()
     {
         var clock = new ManualTimerTimeProvider(
