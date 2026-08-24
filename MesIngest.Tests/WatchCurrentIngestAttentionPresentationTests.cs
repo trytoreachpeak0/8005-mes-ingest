@@ -18,7 +18,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                 CurrentIngestAttentionKinds.PollRunFailure,
             ],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: SixKinds());
+            items: SevenKinds());
         snapshot = snapshot with
         {
             Facets = new CurrentIngestAttentionFacets(
@@ -29,6 +29,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                     new(CurrentIngestAttentionKinds.UnassignedMesObservation, 1),
                     new(CurrentIngestAttentionKinds.HistoryCleanupFailure, 0),
                     new(CurrentIngestAttentionKinds.StoragePressure, 0),
+                    new(CurrentIngestAttentionKinds.HistoryReset, 0),
                 ],
                 [
                     new(CurrentIngestAttentionSeverities.Warning, 17),
@@ -62,7 +63,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(presentation.CanGoPrevious);
         Assert.True(presentation.CanGoNext);
         Assert.Equal(
-            [17L, 388L, 1L, 1L, 0L, 0L],
+            [17L, 388L, 1L, 1L, 0L, 0L, 0L],
             presentation.TypeFacets.Select(facet => facet.ItemCount).ToArray());
         Assert.Equal(
             [
@@ -71,7 +72,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             ],
             presentation.SeverityFacets.Select(facet => facet.Value).ToArray());
         Assert.Equal(
-            SixKinds().Select(item => item.StableIdentity),
+            SevenKinds().Select(item => item.StableIdentity),
             presentation.Rows.Select(row => row.StableIdentity));
         Assert.Equal(
             "全 Host 当前关注；本机 AREA 配置不会筛选、计数或翻页此页面。",
@@ -79,10 +80,10 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
     }
 
     [Fact]
-    public void All_six_kinds_keep_stable_identity_and_structured_evidence()
+    public void All_seven_kinds_keep_stable_identity_and_structured_evidence()
     {
         var presentation = WatchCurrentIngestAttentionPresentation.Project(
-            Workspace(Snapshot(items: SixKinds())),
+            Workspace(Snapshot(items: SevenKinds())),
             WatchCurrentIngestAttentionQueries.StartLatest());
 
         Assert.Equal(
@@ -218,7 +219,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             exactTotal: 1,
             kinds: [CurrentIngestAttentionKinds.SeriesError],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: [SixKinds()[3]]);
+            items: [SevenKinds()[4]]);
         var successful = Workspace(retained).CurrentAttention;
         var attempted = WatchCurrentIngestAttentionQueries.StartLatest(
             [CurrentIngestAttentionKinds.PollRunFailure],
@@ -407,7 +408,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         };
 
     private static CurrentIngestAttentionSnapshot Snapshot(
-        long exactTotal = 6,
+        long exactTotal = 7,
         int pageNumber = 1,
         int totalPages = 1,
         IReadOnlyList<string>? kinds = null,
@@ -420,7 +421,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                 .Select(kind => new CurrentIngestAttentionFacetSnapshot(kind, 1))
                 .ToArray(),
             [
-                new(CurrentIngestAttentionSeverities.Error, 5),
+                new(CurrentIngestAttentionSeverities.Error, 6),
                 new(CurrentIngestAttentionSeverities.Warning, 1),
             ]),
         CurrentIngestAttentionOrder.Default,
@@ -429,13 +430,31 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         TotalPages: totalPages,
         Kinds: kinds ?? [],
         Severities: severities ?? [],
-        Items: items ?? SixKinds());
+        Items: items ?? SevenKinds());
 
-    private static CurrentIngestAttentionItemSnapshot[] SixKinds()
+    private static CurrentIngestAttentionItemSnapshot[] SevenKinds()
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         return
         [
+            new CurrentIngestAttentionItemSnapshot(
+                CurrentIngestAttentionKinds.HistoryReset,
+                CurrentIngestAttentionSeverities.Error,
+                at.AddMinutes(6),
+                "HISTORY_RESET:33333333-3333-3333-3333-333333333333",
+                SeriesId: null,
+                WorkType: null,
+                ErrorCode: HistoryResetStatuses.AcknowledgementRequired,
+                Target: "MesIngest",
+                SubjectKind: "HISTORY_EPOCH",
+                new CurrentIngestAttentionEvidenceSnapshot(
+                    Phase: HistoryResetStatuses.AcknowledgementRequired,
+                    FailureReason: "prior history and tombstones are unrecoverable",
+                    DatabaseName: "MesIngest"),
+                new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    AttentionKinds: [CurrentIngestAttentionKinds.HistoryReset],
+                    AttentionSeverities: [CurrentIngestAttentionSeverities.Error])),
             new CurrentIngestAttentionItemSnapshot(
                 CurrentIngestAttentionKinds.StoragePressure,
                 CurrentIngestAttentionSeverities.Error,

@@ -115,9 +115,8 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
     }
 
     [Ticket01SqlServerFact]
-    public async Task Conditional_catalog_identity_from_an_old_history_epoch_forces_a_complete_new_epoch_read()
+    public async Task Conditional_catalog_identity_from_an_old_history_epoch_is_rejected()
     {
-        string oldEpoch;
         string oldEtag;
         await using (var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync())
         {
@@ -126,7 +125,6 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
             using var oldClient = oldFactory.CreateClient();
 
             var oldCatalog = await GetCatalogAsync(oldClient);
-            oldEpoch = oldCatalog.Body.GetProperty("historyEpoch").GetString()!;
             oldEtag = oldCatalog.ETag;
             AssertDatabaseEvidence(oldDatabase);
         }
@@ -138,16 +136,8 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         using var request = new HttpRequestMessage(HttpMethod.Get, CatalogUri);
         request.Headers.TryAddWithoutValidation("If-None-Match", oldEtag);
 
-        using var response = await newClient.SendAsync(request);
-        var body = await response.Content.ReadAsStringAsync();
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        using var json = JsonDocument.Parse(body);
-        var newEpoch = json.RootElement.GetProperty("historyEpoch").GetString();
-        Assert.False(string.IsNullOrWhiteSpace(newEpoch));
-        Assert.NotEqual(oldEpoch, newEpoch);
-        Assert.NotEqual(oldEtag, response.Headers.ETag?.ToString());
-        Assert.Equal(0L, json.RootElement.GetProperty("catalogRevision").GetInt64());
+        await Assert.ThrowsAsync<HistoryEpochMismatchException>(
+            () => newClient.SendAsync(request));
         AssertDatabaseEvidence(newDatabase);
     }
 

@@ -99,7 +99,8 @@
                   "TASK_TYPE_PROTECTION",
                   "UNASSIGNED_MES_OBSERVATION",
                   "HISTORY_CLEANUP_FAILURE",
-                  "STORAGE_PRESSURE"
+                  "STORAGE_PRESSURE",
+                  "HISTORY_RESET"
                 ],
                 "type": "string"
               }
@@ -2030,7 +2031,8 @@
                 "TASK_TYPE_PROTECTION",
                 "UNASSIGNED_MES_OBSERVATION",
                 "HISTORY_CLEANUP_FAILURE",
-                "STORAGE_PRESSURE"
+                "STORAGE_PRESSURE",
+                "HISTORY_RESET"
               ],
               "type": "string"
             },
@@ -2226,7 +2228,8 @@
               "TASK_TYPE_PROTECTION",
               "UNASSIGNED_MES_OBSERVATION",
               "HISTORY_CLEANUP_FAILURE",
-              "STORAGE_PRESSURE"
+              "STORAGE_PRESSURE",
+              "HISTORY_RESET"
             ],
             "type": "string",
             "description": "Frozen CurrentIngestAttentionItemDto.kind contract field."
