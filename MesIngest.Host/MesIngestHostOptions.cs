@@ -65,7 +65,7 @@ public sealed class MesIngestHostOptions
     /// Fixed start-to-start poll interval. Slow rounds skip missed slots instead of
     /// overlapping or catching up; failures use the fixed 60/120/300 second policy.
     /// </summary>
-    public int PostPollDelaySeconds { get; set; } = 60;
+    public int PollStartIntervalSeconds { get; set; } = 60;
 
     /// <summary>Per-round snapshot read timeout in seconds.</summary>
     public int QueryTimeoutSeconds { get; set; } = 30;
@@ -162,6 +162,7 @@ public sealed class MesIngestHostOptions
         "GoLiveBaseline",
         "SnapshotCsvPath",
         "SqlServerConnectionString",
+        "PostPollDelaySeconds",
     ];
 
     /// <summary>

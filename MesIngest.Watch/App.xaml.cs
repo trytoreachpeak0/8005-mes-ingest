@@ -8,6 +8,17 @@ internal partial class App : Application
     {
         base.OnStartup(e);
 
+        var probeExitCode = WatchStabilityReadProbe.TryRunAsync(e.Args)
+            .GetAwaiter()
+            .GetResult();
+        if (probeExitCode is not null)
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Environment.ExitCode = probeExitCode.Value;
+            Shutdown(probeExitCode.Value);
+            return;
+        }
+
         var options = WatchOptionsLoader.Load(WatchOptionsLoader.BuildDefault());
         var processFileLocations = WatchProcessFileLocations.Resolve();
         _composition = WatchV2ApplicationComposition.Create(

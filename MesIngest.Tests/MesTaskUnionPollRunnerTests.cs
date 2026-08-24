@@ -53,7 +53,7 @@ public sealed class MesTaskUnionPollRunnerTests
             new MesIngestHostOptions
             {
                 ContinuousPollEnabled = true,
-                PostPollDelaySeconds = 1,
+                PollStartIntervalSeconds = 1,
             },
             NullLogger<MesTaskUnionPollHostedService>.Instance);
         using var watchLifetime = new CancellationTokenSource();

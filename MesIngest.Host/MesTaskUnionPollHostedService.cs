@@ -34,7 +34,7 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
             return;
         }
 
-        var pollStartInterval = TimeSpan.FromSeconds(_options.PostPollDelaySeconds);
+        var pollStartInterval = TimeSpan.FromSeconds(_options.PollStartIntervalSeconds);
         _logger.LogInformation(
             "Starting V2 Oracle single-flight poll loop (start-to-start={Interval}, failure-backoff=60/120/300s, command-timeout={Timeout}s).",
             pollStartInterval,

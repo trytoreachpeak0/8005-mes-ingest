@@ -153,7 +153,7 @@ function Start-PackagedHostProcess {
         $(if ($OneShotOnStartup) { 'true' } else { 'false' })
     $info.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] =
         $(if ($ContinuousPoll) { 'true' } else { 'false' })
-    $info.EnvironmentVariables['MesIngest__PostPollDelaySeconds'] = '1'
+    $info.EnvironmentVariables['MesIngest__PollStartIntervalSeconds'] = '1'
     if (-not [string]::IsNullOrWhiteSpace($RetiredConfigurationKey)) {
         $info.EnvironmentVariables["MesIngest__$RetiredConfigurationKey"] = 'retired-value'
     }

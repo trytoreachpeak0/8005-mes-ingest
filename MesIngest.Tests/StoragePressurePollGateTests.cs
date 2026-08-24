@@ -17,7 +17,7 @@ public sealed class StoragePressurePollGateTests
             new MesIngestHostOptions
             {
                 ContinuousPollEnabled = true,
-                PostPollDelaySeconds = 60,
+                PollStartIntervalSeconds = 60,
             },
             NullLogger<MesTaskUnionPollHostedService>.Instance);
 

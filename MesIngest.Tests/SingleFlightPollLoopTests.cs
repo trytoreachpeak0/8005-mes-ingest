@@ -7,7 +7,7 @@ public class SingleFlightPollLoopTests
     [Fact]
     public void Production_defaults_are_sixty_second_start_slots_with_60_120_300_failure_backoff()
     {
-        Assert.Equal(60, new MesIngest.Host.MesIngestHostOptions().PostPollDelaySeconds);
+        Assert.Equal(60, new MesIngest.Host.MesIngestHostOptions().PollStartIntervalSeconds);
         Assert.Equal(
             [60, 120, 300],
             SingleFlightPollLoop.FailureBackoffDelays.Select(value => (int)value.TotalSeconds));

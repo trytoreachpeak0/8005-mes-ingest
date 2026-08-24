@@ -51,7 +51,7 @@ param(
     [int] $StartupTimeoutSeconds = 120,
 
     [ValidateRange(1, 60)]
-    [int] $PostPollDelaySeconds = 5,
+    [int] $PollStartIntervalSeconds = 5,
 
     [ValidateSet('Thin', 'Thick')]
     [string] $OracleMode = 'Thin',
@@ -316,7 +316,7 @@ function Start-LiveHostProcess {
     $info.EnvironmentVariables['MesIngest__RunOneShotOnStartup'] = 'false'
     $info.EnvironmentVariables['MesIngest__ContinuousPollEnabled'] =
         $(if ($ContinuousPoll) { 'true' } else { 'false' })
-    $info.EnvironmentVariables['MesIngest__PostPollDelaySeconds'] = "$PostPollDelaySeconds"
+    $info.EnvironmentVariables['MesIngest__PollStartIntervalSeconds'] = "$PollStartIntervalSeconds"
 
     $process = [Diagnostics.Process]::Start($info)
     if ($null -eq $process) { throw 'The packaged Host did not start.' }

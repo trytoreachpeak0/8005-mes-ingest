@@ -302,6 +302,22 @@ dotnet test MesIngest.Tests `
   --logger "trx;LogFileName=ticket28-deterministic.trx" `
   --results-directory C:\MesIngestEvidence\ticket28-contract
 
+$trx = 'C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic.trx'
+$package = 'C:\MesIngestCandidate'
+[xml]$trxXml = Get-Content -Raw $trx
+$counters = $trxXml.TestRun.ResultSummary.Counters
+[ordered]@{
+  schemaVersion = 1
+  sourceCommit = (git rev-parse HEAD)
+  hostSha256 = (Get-FileHash "$package\service\MesIngest.Host.dll" -Algorithm SHA256).Hash.ToLowerInvariant()
+  trxFile = [IO.Path]::GetFileName($trx)
+  trxSha256 = (Get-FileHash $trx -Algorithm SHA256).Hash.ToLowerInvariant()
+  passed = [int]$counters.passed
+  failed = [int]$counters.failed
+  skipped = [int]$counters.total - [int]$counters.executed
+  total = [int]$counters.total
+} | ConvertTo-Json | Set-Content C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic-attestation.json
+
 $env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master connection>'
 .\validation\Invoke-ScaleAndQueryEvidence.ps1 `
   -ProfileDays 0 `
@@ -319,7 +335,8 @@ $baseline = 'C:\MesIngestEvidence\ticket28\<baseline-run>\scale-query-evidence.j
   -StabilityDurationMinutes 30 `
   -RepresentativeHistoryRounds 100 `
   -BaselineEvidencePath $baseline `
-  -DeterministicContractEvidencePath C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic.trx `
+  -DeterministicContractEvidencePath C:\MesIngestEvidence\ticket28-contract\ticket28-deterministic-attestation.json `
+  -CapacityBlockerEvidencePath C:\MesIngestEvidence\ticket27\capacity-summary.json `
   -OutputRoot C:\MesIngestEvidence\ticket28
 ```
 

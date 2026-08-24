@@ -45,6 +45,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ("STABILITY_CURRENT_LOGICAL_READ_GROWTH", fixture => fixture["behavior"]!["currentLogicalReadGrowthPassed"] = false),
             ("STABILITY_FROZEN_COMMIT_MISMATCH", fixture => fixture["behavior"]!["frozenCommitMismatchCount"] = 1),
             ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["projectionCommitsDuringFrozenReads"] = 0),
+            ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["frozenWindowsWithoutProjection"] = 1),
             ("STABILITY_CLEANUP_BACKLOG", fixture => fixture["behavior"]!["cleanupBacklogCount"] = 1),
             ("STABILITY_EARLIEST_AVAILABLE_NOT_ADVANCED", fixture => fixture["behavior"]!["earliestAvailableAdvanced"] = false),
             ("STABILITY_STORAGE_PRESSURE_UNEXPECTED", fixture => fixture["behavior"]!["storagePressurePauseCount"] = 1),
@@ -52,6 +53,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ("STABILITY_LOGICAL_DAY_BOUNDARY", fixture => fixture["behavior"]!["logicalDayBoundaryPassed"] = false),
             ("STABILITY_RESTART_STATE", fixture => fixture["behavior"]!["historyEpochPreservedAcrossRestart"] = false),
             ("STABILITY_EVIDENCE_INCOMPLETE", fixture => fixture["evidence"]!.AsObject().Remove("resourceSnapshotsComplete")),
+            ("STABILITY_RUNTIME_EXCEPTION", fixture => fixture["evidence"]!["runtimeFailureType"] = "InvalidOperationException"),
         };
 
         foreach (var (expectedCode, mutate) in cases)
@@ -90,6 +92,10 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "frozenDetailReads",
                      "logicalDayBoundaryPassed",
                      "historyEpochPreservedAcrossRestart",
+                     "packagedWatchClientReads",
+                     "packagedReferenceConsumerReads",
+                     "CapacityBlockerEvidencePath",
+                     "ticket27CapacityBlocked",
                      "currentLogicalReadGrowthPassed",
                      "frozenCommitMismatchCount",
                      "projectionCommitsDuringFrozenReads",
@@ -350,52 +356,12 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("SQL_TIER1_BUILD_MISMATCH", gate, StringComparison.Ordinal);
     }
 
-    private static (int ExitCode, string Output) RunStabilityFixture(object fixture)
-    {
-        var root = Path.Combine(Path.GetTempPath(), $"mesingest-stability-fixture-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(root);
-        var fixturePath = Path.Combine(root, "fixture.json");
-        File.WriteAllText(fixturePath, JsonSerializer.Serialize(fixture));
-
-        try
-        {
-            var script = Path.Combine(
-                RepositoryPaths.CSharpRoot,
-                "pack",
-                "validation",
-                "Invoke-ScaleAndQueryEvidence.ps1");
-            var start = new ProcessStartInfo("powershell.exe")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                WorkingDirectory = RepositoryPaths.CSharpRoot,
-            };
-            foreach (var argument in new[]
-                     {
-                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
-                         "-ProfileDays", "0",
-                         "-DatabaseName", "MesIngest_Scale_StabilityFixture",
-                         "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
-                         "-ValidateStabilityFixturePath", fixturePath,
-                     })
-            {
-                start.ArgumentList.Add(argument);
-            }
-            start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
-
-            using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
-            var stdout = process.StandardOutput.ReadToEnd();
-            var stderr = process.StandardError.ReadToEnd();
-            Assert.True(process.WaitForExit(30_000), "Stability fixture validation did not finish.");
-            return (process.ExitCode, stdout + Environment.NewLine + stderr);
-        }
-        finally
-        {
-            Directory.Delete(root, recursive: true);
-        }
-    }
+    private static (int ExitCode, string Output) RunStabilityFixture(object fixture) =>
+        RunJsonFixture(
+            fixture,
+            "stability",
+            "MesIngest_Scale_StabilityFixture",
+            "-ValidateStabilityFixturePath");
 
     private static object CreatePassingStabilityFixture() => new
     {
@@ -434,6 +400,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 watchApiReads = 20_000,
                 frozenDetailReads = 2_000,
                 referenceCatalogReads = 2_000,
+                packagedWatchClientReads = 10,
+                packagedReferenceConsumerReads = 2,
                 cleanupChecks = 30,
                 hostRestarts = 1,
             },
@@ -475,6 +443,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             currentLogicalReadGrowthPassed = true,
             frozenCommitMismatchCount = 0,
             projectionCommitsDuringFrozenReads = 1_600,
+            frozenWindowsWithoutProjection = 0,
             cleanupBacklogCount = 0,
             earliestAvailableAdvanced = true,
             storagePressurePauseCount = 0,
@@ -485,6 +454,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         },
         evidence = new
         {
+            runtimeFailureType = (string?)null,
             resourceSnapshotsComplete = true,
             latencySamplesComplete = true,
             xeventSignalsComplete = true,
@@ -493,9 +463,22 @@ public sealed class ScaleAndQueryEvidenceGateTests
         },
     };
 
-    private static (int ExitCode, string Output) RunCapacityFixture(object fixture)
+    private static (int ExitCode, string Output) RunCapacityFixture(object fixture) =>
+        RunJsonFixture(
+            fixture,
+            "capacity",
+            "MesIngest_Scale_CapacityFixture",
+            "-ValidateCapacityFixturePath");
+
+    private static (int ExitCode, string Output) RunJsonFixture(
+        object fixture,
+        string fixtureKind,
+        string databaseName,
+        string fixtureArgument)
     {
-        var root = Path.Combine(Path.GetTempPath(), $"mesingest-capacity-fixture-{Guid.NewGuid():N}");
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"mesingest-{fixtureKind}-fixture-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         var fixturePath = Path.Combine(root, "fixture.json");
         File.WriteAllText(fixturePath, JsonSerializer.Serialize(fixture));
@@ -518,9 +501,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      {
                          "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
                          "-ProfileDays", "0",
-                         "-DatabaseName", "MesIngest_Scale_CapacityFixture",
+                         "-DatabaseName", databaseName,
                          "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
-                         "-ValidateCapacityFixturePath", fixturePath,
+                         fixtureArgument, fixturePath,
                      })
             {
                 start.ArgumentList.Add(argument);
@@ -531,7 +514,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
                                 ?? throw new InvalidOperationException("Windows PowerShell did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
-            Assert.True(process.WaitForExit(30_000), "Capacity fixture validation did not finish.");
+            Assert.True(
+                process.WaitForExit(30_000),
+                $"{fixtureKind} fixture validation did not finish.");
             return (process.ExitCode, stdout + Environment.NewLine + stderr);
         }
         finally
