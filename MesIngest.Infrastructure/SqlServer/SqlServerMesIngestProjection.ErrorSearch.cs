@@ -52,11 +52,24 @@ public sealed partial class SqlServerMesIngestProjection
                 query,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
-            await EnsureHistoricalPollTraceAvailableAsync(
-                connection,
-                transaction,
-                snapshot.Snapshot.PollTraceId,
-                cancellationToken).ConfigureAwait(false);
+            if (query.SnapshotReference is not null)
+            {
+                await EnsureHistoricalPollTraceAvailableAsync(
+                    connection,
+                    transaction,
+                    snapshot.Snapshot.PollTraceId,
+                    cancellationToken,
+                    snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                        HistoryRetentionPolicy.RawObservationAvailabilityWindow))
+                    .ConfigureAwait(false);
+                await EnsureHistoricalSnapshotRetentionLeaseAvailableAsync(
+                    connection,
+                    transaction,
+                    snapshot.Snapshot.ProjectionSequence,
+                    snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                        HistoryRetentionPolicy.RawObservationAvailabilityWindow),
+                    cancellationToken).ConfigureAwait(false);
+            }
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
 
@@ -568,9 +581,12 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.DemandRawObservations AS observation
                 INNER JOIN mesingest.ProjectionCommits AS observationCommit
                     ON observationCommit.ProjectionCommitId = observation.ProjectionCommitId
+                INNER JOIN mesingest.PollTraces AS observationTrace
+                    ON observationTrace.PollTraceId = observation.PollTraceId
                 WHERE observation.DemandId = currentDemand.DemandId
                   AND observationCommit.ProjectionSequence <= @snapshotSequence
                   AND observationCommit.CommittedAt <= @asOf
+                  AND observationTrace.CompletedAt > @rawAvailabilityCutoff
                 GROUP BY observationCommit.ProjectionCommitId,
                     observationCommit.ProjectionSequence
                 ORDER BY observationCommit.ProjectionSequence DESC
@@ -610,9 +626,12 @@ public sealed partial class SqlServerMesIngestProjection
                     FROM mesingest.DemandRawObservations AS observation
                     INNER JOIN mesingest.ProjectionCommits AS observationCommit
                         ON observationCommit.ProjectionCommitId = observation.ProjectionCommitId
+                    INNER JOIN mesingest.PollTraces AS observationTrace
+                        ON observationTrace.PollTraceId = observation.PollTraceId
                     WHERE observation.SeriesId = page.SeriesId
                       AND observationCommit.ProjectionSequence <= @snapshotSequence
                       AND observationCommit.CommittedAt <= @asOf
+                      AND observationTrace.CompletedAt > @rawAvailabilityCutoff
                     GROUP BY observationCommit.ProjectionCommitId,
                         observationCommit.ProjectionSequence
                     HAVING COUNT_BIG(*) = 1 AND
@@ -642,6 +661,11 @@ public sealed partial class SqlServerMesIngestProjection
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value =
             snapshot.Snapshot.ProjectionSequence;
         AddDateTimeOffset(command, "@asOf", snapshot.Snapshot.ErrorSearchAsOf);
+        AddDateTimeOffset(
+            command,
+            "@rawAvailabilityCutoff",
+            snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                HistoryRetentionPolicy.RawObservationAvailabilityWindow));
         AddNullableDateTimeOffset(command, "@windowFrom", snapshot.Window.FromUtc);
         AddDateTimeOffset(command, "@windowTo", snapshot.Window.ToUtc);
         AddNVarChar(command, "@categoryCatalogJson", -1, ErrorSearchCategoryCatalogJson);

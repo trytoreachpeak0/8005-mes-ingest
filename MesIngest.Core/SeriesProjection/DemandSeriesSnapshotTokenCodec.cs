@@ -10,7 +10,7 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class DemandSeriesSnapshotTokenCodec
 {
-    private const string SnapshotPurpose = "demand-series-snapshot-v2";
+    private const string SnapshotPurpose = "demand-series-snapshot-v3";
     private const string CursorPurpose = "demand-series-cursor-v2";
     private const int MinimumKeyLength = 32;
 
@@ -18,23 +18,55 @@ public static class DemandSeriesSnapshotTokenCodec
 
     public static string CreateSnapshotReference(
         DemandSeriesSnapshotIdentity identity,
+        ReadOnlySpan<byte> persistentKey) =>
+        CreateSnapshotReference(identity, DateTimeOffset.MinValue, persistentKey);
+
+    public static string CreateSnapshotReference(
+        DemandSeriesSnapshotIdentity identity,
+        DateTimeOffset rawAvailabilityCutoff,
         ReadOnlySpan<byte> persistentKey)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ValidateIdentity(identity);
-        return CreateToken(SnapshotPurpose, identity, persistentKey);
+        return CreateToken(
+            SnapshotPurpose,
+            new SnapshotEnvelope(identity, rawAvailabilityCutoff.ToUniversalTime()),
+            persistentKey);
     }
 
     public static bool TryReadSnapshotReference(
         string token,
         ReadOnlySpan<byte> persistentKey,
         out DemandSeriesSnapshotIdentity? identity,
+        out DemandSeriesBrowseTokenError? error) =>
+        TryReadSnapshotReference(
+            token,
+            persistentKey,
+            out identity,
+            out _,
+            out error);
+
+    public static bool TryReadSnapshotReference(
+        string token,
+        ReadOnlySpan<byte> persistentKey,
+        out DemandSeriesSnapshotIdentity? identity,
+        out DateTimeOffset rawAvailabilityCutoff,
         out DemandSeriesBrowseTokenError? error)
     {
-        if (!TryReadToken(token, SnapshotPurpose, persistentKey, out identity, out error))
+        identity = null;
+        rawAvailabilityCutoff = default;
+        if (!TryReadToken<SnapshotEnvelope>(
+                token,
+                SnapshotPurpose,
+                persistentKey,
+                out var envelope,
+                out error))
         {
             return false;
         }
+
+        identity = envelope!.Identity;
+        rawAvailabilityCutoff = envelope.RawAvailabilityCutoff;
 
         try
         {
@@ -359,4 +391,8 @@ public static class DemandSeriesSnapshotTokenCodec
         string? SeriesId,
         string? DemandId,
         IReadOnlyList<string> MesAreas);
+
+    private sealed record SnapshotEnvelope(
+        DemandSeriesSnapshotIdentity Identity,
+        DateTimeOffset RawAvailabilityCutoff);
 }

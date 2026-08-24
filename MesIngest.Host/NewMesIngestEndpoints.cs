@@ -310,10 +310,6 @@ internal static class NewMesIngestEndpoints
                     "The requested DemandSeries is not available in the selected snapshot."))
                 : Results.Ok(FrozenDemandSeriesDto.From(detail));
         }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
-        }
         catch (DemandSeriesBrowseException exception)
         {
             return ToBrowseError(exception);
@@ -366,10 +362,6 @@ internal static class NewMesIngestEndpoints
                     "The requested DemandSeries is not available in the selected snapshot."))
                 : Results.Ok(FrozenDemandSeriesDto.From(detail));
         }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
-        }
         catch (DemandSeriesBrowseException exception)
         {
             return ToBrowseError(exception);
@@ -386,10 +378,6 @@ internal static class NewMesIngestEndpoints
             var query = ParseBrowseQuery(request.Query);
             var snapshot = await projection.ListDemandSeriesAsync(query, cancellationToken);
             return Results.Ok(DemandSeriesListDto.From(snapshot));
-        }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
         }
         catch (DemandSeriesBrowseException exception)
         {
@@ -512,15 +500,6 @@ internal static class NewMesIngestEndpoints
         };
     }
 
-    private static IResult ToHistoryExpiredError(
-        MesIngestHistoryExpiredException exception) =>
-        Results.Json(
-            HistoricalReadErrorDto.From(
-                PollEvidenceErrorCodes.MesIngestHistoryExpired,
-                exception.Message,
-                exception.Boundary),
-            statusCode: StatusCodes.Status410Gone);
-
     private static async Task<IResult> ListReadabilityAuditAsync(
         HttpRequest request,
         IMesIngestProjection projection,
@@ -531,10 +510,6 @@ internal static class NewMesIngestEndpoints
             var query = ParseReadabilityAuditQuery(request.Query);
             var snapshot = await projection.ListReadabilityAuditAsync(query, cancellationToken);
             return Results.Ok(ReadabilityAuditListDto.From(snapshot));
-        }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
         }
         catch (ReadabilityAuditException exception)
         {
@@ -587,10 +562,6 @@ internal static class NewMesIngestEndpoints
                     ReadabilityAuditErrorCodes.ObjectNotInSnapshot,
                     "The requested Demand is not available in the selected readability snapshot."))
                 : Results.Ok(ReadabilityAuditDetailDto.From(detail));
-        }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
         }
         catch (ReadabilityAuditException exception)
         {
@@ -738,10 +709,6 @@ internal static class NewMesIngestEndpoints
             var query = ParseErrorSearchQuery(request.Query);
             var snapshot = await projection.ListErrorSearchAsync(query, cancellationToken);
             return Results.Ok(ErrorSearchListDto.From(snapshot));
-        }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
         }
         catch (ErrorSearchException exception)
         {
@@ -944,10 +911,6 @@ internal static class NewMesIngestEndpoints
                     "The requested object is not available in this error-search snapshot."))
                 : Results.Ok(ErrorSearchDetailDto.From(detail));
         }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
-        }
         catch (ErrorSearchException exception)
         {
             return ToErrorSearchError(exception);
@@ -1016,10 +979,6 @@ internal static class NewMesIngestEndpoints
                     ErrorSearchErrorCodes.ObjectNotInSnapshot,
                     "The requested object is not available in this error-search snapshot."))
                 : Results.Ok(ErrorSearchRawEvidenceDto.From(result));
-        }
-        catch (MesIngestHistoryExpiredException exception)
-        {
-            return ToHistoryExpiredError(exception);
         }
         catch (ErrorSearchException exception)
         {

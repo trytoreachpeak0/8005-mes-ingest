@@ -22,8 +22,7 @@ public sealed partial class SqlServerMesIngestProjection
             cancellationToken).ConfigureAwait(false);
         try
         {
-            var isCurrentRead = query.SnapshotReference is null;
-            if (isCurrentRead)
+            if (query.SnapshotReference is null)
             {
                 await AcquireCommitRoundReadFenceLockAsync(
                     connection,
@@ -35,17 +34,33 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
-            var snapshot = await ResolveSnapshotAsync(
+            var resolvedSnapshot = await ResolveSnapshotAsync(
                 connection,
                 transaction,
                 query.SnapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
-            await EnsureHistoricalPollTraceAvailableAsync(
+            var snapshot = resolvedSnapshot.Identity;
+            var useCurrentReadModel = await IsLatestProjectionSnapshotAsync(
                 connection,
                 transaction,
-                snapshot.PollTraceId,
+                snapshot.ProjectionSequence,
                 cancellationToken).ConfigureAwait(false);
+            if (query.SnapshotReference is not null)
+            {
+                await EnsureHistoricalPollTraceAvailableAsync(
+                    connection,
+                    transaction,
+                    snapshot.PollTraceId,
+                    cancellationToken,
+                    resolvedSnapshot.RawAvailabilityCutoff).ConfigureAwait(false);
+                await EnsureHistoricalSnapshotRetentionLeaseAvailableAsync(
+                    connection,
+                    transaction,
+                    snapshot.ProjectionSequence,
+                    resolvedSnapshot.RawAvailabilityCutoff,
+                    cancellationToken).ConfigureAwait(false);
+            }
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.DemandSeries,
                 new ProjectionReadFence(
@@ -77,8 +92,11 @@ public sealed partial class SqlServerMesIngestProjection
             }
 
             var snapshotReference = query.SnapshotReference
-                ?? DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(snapshot, signingKey);
-            var page = isCurrentRead
+                ?? DemandSeriesSnapshotTokenCodec.CreateSnapshotReference(
+                    snapshot,
+                    resolvedSnapshot.RawAvailabilityCutoff,
+                    signingKey);
+            var page = useCurrentReadModel
                 ? await ReadCurrentDemandSeriesPageAsync(
                     connection,
                     transaction,
@@ -95,7 +113,28 @@ public sealed partial class SqlServerMesIngestProjection
                     query.PageSize,
                     cursor?.AfterStartedAt,
                     cursor?.AfterSeriesId,
+                    resolvedSnapshot.RawAvailabilityCutoff,
                     cancellationToken).ConfigureAwait(false);
+            if (query.SnapshotReference is not null
+                && useCurrentReadModel
+                && !await IsLatestProjectionSnapshotAsync(
+                    connection,
+                    transaction,
+                    snapshot.ProjectionSequence,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                page = await ReadBrowsePageAsync(
+                    connection,
+                    transaction,
+                    snapshot.ProjectionSequence,
+                    query.Filter,
+                    pageNumber,
+                    query.PageSize,
+                    cursor?.AfterStartedAt,
+                    cursor?.AfterSeriesId,
+                    resolvedSnapshot.RawAvailabilityCutoff,
+                    cancellationToken).ConfigureAwait(false);
+            }
             var totalPages = page.ExactTotalCount == 0
                 ? 0
                 : checked((int)((page.ExactTotalCount + query.PageSize - 1) / query.PageSize));
@@ -157,16 +196,29 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 cancellationToken).ConfigureAwait(false);
-            var snapshot = await ResolveSnapshotAsync(
+            var resolvedSnapshot = await ResolveSnapshotAsync(
                 connection,
                 transaction,
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            var snapshot = resolvedSnapshot.Identity;
             await EnsureHistoricalPollTraceAvailableAsync(
                 connection,
                 transaction,
                 snapshot.PollTraceId,
+                cancellationToken,
+                resolvedSnapshot.RawAvailabilityCutoff).ConfigureAwait(false);
+            await EnsureHistoricalSnapshotRetentionLeaseAvailableAsync(
+                connection,
+                transaction,
+                snapshot.ProjectionSequence,
+                resolvedSnapshot.RawAvailabilityCutoff,
+                cancellationToken).ConfigureAwait(false);
+            var useCurrentReadModel = await IsLatestProjectionSnapshotAsync(
+                connection,
+                transaction,
+                snapshot.ProjectionSequence,
                 cancellationToken).ConfigureAwait(false);
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.DemandSeries,
@@ -188,11 +240,30 @@ public sealed partial class SqlServerMesIngestProjection
                 return null;
             }
 
+            var currentMaterialized = useCurrentReadModel
+                ? await ReadCurrentDemandSeriesDetailAsync(
+                    connection,
+                    transaction,
+                    "series.SeriesId = @identity",
+                    seriesId,
+                    expectedWorkType: null,
+                    expectedSublot: null,
+                    cancellationToken).ConfigureAwait(false)
+                : null;
+
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                series.CreatedPollTraceId,
+                cancellationToken,
+                resolvedSnapshot.RawAvailabilityCutoff).ConfigureAwait(false);
+
             var observations = await ReadRawObservationsAsOfAsync(
                 connection,
                 transaction,
                 seriesId,
                 snapshot.ProjectionSequence,
+                resolvedSnapshot.RawAvailabilityCutoff,
                 cancellationToken).ConfigureAwait(false);
             var events = await ReadEventsAsOfAsync(
                 connection,
@@ -215,6 +286,27 @@ public sealed partial class SqlServerMesIngestProjection
                 cancellationToken).ConfigureAwait(false);
             var currentDemand = demands.Single(demand =>
                 string.Equals(demand.DemandId, series.CurrentDemandId, StringComparison.Ordinal));
+            if (currentMaterialized is not null
+                && !await IsLatestProjectionSnapshotAsync(
+                    connection,
+                    transaction,
+                    snapshot.ProjectionSequence,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                currentMaterialized = null;
+            }
+            if (currentMaterialized is not null)
+            {
+                currentDemand = currentMaterialized.CurrentDemand;
+                demands = demands
+                    .Select(demand => string.Equals(
+                        demand.DemandId,
+                        currentDemand.DemandId,
+                        StringComparison.Ordinal)
+                            ? currentDemand
+                            : demand)
+                    .ToArray();
+            }
             var detail = new DemandSeriesSnapshot(
                 series.SeriesId,
                 series.WorkType,
@@ -224,7 +316,8 @@ public sealed partial class SqlServerMesIngestProjection
                 series.StartedAt,
                 series.CreatedPollTraceId,
                 series.CreatedProjectionCommitId,
-                series.LatestProjectionCommitId,
+                currentMaterialized?.LatestProjectionCommitId
+                    ?? series.LatestProjectionCommitId,
                 currentDemand,
                 demands,
                 observations,
@@ -274,6 +367,7 @@ public sealed partial class SqlServerMesIngestProjection
         int pageSize,
         DateTimeOffset? afterStartedAt,
         string? afterSeriesId,
+        DateTimeOffset availabilityAtSnapshot,
         CancellationToken cancellationToken)
     {
         var normalized = filter.Normalize();
@@ -438,7 +532,10 @@ public sealed partial class SqlServerMesIngestProjection
                 FROM mesingest.DemandRawObservations AS observation
                 INNER JOIN mesingest.ProjectionCommits AS observationCommit
                     ON observationCommit.ProjectionCommitId = observation.ProjectionCommitId
+                INNER JOIN mesingest.PollTraces AS observationTrace
+                    ON observationTrace.PollTraceId = observation.PollTraceId
                 WHERE observationCommit.ProjectionSequence <= @snapshotSequence
+                  AND observationTrace.CompletedAt > @availabilityAtSnapshot
                   AND EXISTS
                       (SELECT 1
                        FROM mesingest.TransportDemands AS stale
@@ -475,7 +572,10 @@ public sealed partial class SqlServerMesIngestProjection
                 INNER JOIN mesingest.DemandRawObservations AS o ON o.DemandId = d.DemandId
                 INNER JOIN mesingest.ProjectionCommits AS observationCommit
                     ON observationCommit.ProjectionCommitId = o.ProjectionCommitId
+                INNER JOIN mesingest.PollTraces AS observationTrace
+                    ON observationTrace.PollTraceId = o.PollTraceId
                 WHERE observationCommit.ProjectionSequence <= @snapshotSequence
+                  AND observationTrace.CompletedAt > @availabilityAtSnapshot
                 GROUP BY d.DemandId, observationCommit.ProjectionCommitId,
                     observationCommit.ProjectionSequence, observationCommit.PollTraceId,
                     observationCommit.CommittedAt
@@ -653,6 +753,7 @@ public sealed partial class SqlServerMesIngestProjection
             OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY;
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
+        AddDateTimeOffset(command, "@availabilityAtSnapshot", availabilityAtSnapshot);
         BindDemandSeriesFilterParameters(command, normalized);
         AddNullableDateTimeOffset(command, "@afterStartedAt", afterStartedAt);
         AddNullableNVarChar(command, "@afterSeriesId", 64, afterSeriesId);
@@ -736,7 +837,7 @@ public sealed partial class SqlServerMesIngestProjection
             : throw new InvalidOperationException("The DemandSeries snapshot signing key is unavailable.");
     }
 
-    private async Task<DemandSeriesSnapshotIdentity> ResolveSnapshotAsync(
+    private async Task<ResolvedDemandSeriesSnapshot> ResolveSnapshotAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         string? snapshotReference,
@@ -744,11 +845,13 @@ public sealed partial class SqlServerMesIngestProjection
         CancellationToken cancellationToken)
     {
         DemandSeriesSnapshotIdentity? requested = null;
+        var rawAvailabilityCutoff = DateTimeOffset.MinValue;
         if (snapshotReference is not null
             && !DemandSeriesSnapshotTokenCodec.TryReadSnapshotReference(
                 snapshotReference,
                 signingKey,
                 out requested,
+                out rawAvailabilityCutoff,
                 out var tokenError))
         {
             throw new DemandSeriesBrowseException(tokenError!.Code, tokenError.Message);
@@ -813,8 +916,21 @@ public sealed partial class SqlServerMesIngestProjection
                 "The snapshot reference metadata does not match the retained commit.");
         }
 
-        return resolved;
+        await reader.DisposeAsync().ConfigureAwait(false);
+        if (snapshotReference is null)
+        {
+            rawAvailabilityCutoff = await ReadSnapshotRawAvailabilityCutoffAsync(
+                connection,
+                transaction,
+                resolved.ProjectionSequence,
+                cancellationToken).ConfigureAwait(false);
+        }
+        return new ResolvedDemandSeriesSnapshot(resolved, rawAvailabilityCutoff);
     }
+
+    private sealed record ResolvedDemandSeriesSnapshot(
+        DemandSeriesSnapshotIdentity Identity,
+        DateTimeOffset RawAvailabilityCutoff);
 
     private static async Task<IReadOnlyList<BrowseSeriesState>> ReadSeriesStatesAsync(
         SqlConnection connection,
@@ -1036,6 +1152,7 @@ public sealed partial class SqlServerMesIngestProjection
         SqlTransaction transaction,
         string seriesId,
         long snapshotSequence,
+        DateTimeOffset availabilityAtSnapshot,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -1047,11 +1164,14 @@ public sealed partial class SqlServerMesIngestProjection
             FROM mesingest.DemandRawObservations AS o
             INNER JOIN mesingest.PollTraces AS p ON p.PollTraceId = o.PollTraceId
             INNER JOIN mesingest.ProjectionCommits AS c ON c.ProjectionCommitId = o.ProjectionCommitId
-            WHERE o.SeriesId = @seriesId AND c.ProjectionSequence <= @snapshotSequence
+            WHERE o.SeriesId = @seriesId
+              AND c.ProjectionSequence <= @snapshotSequence
+              AND p.CompletedAt > @availabilityAtSnapshot
             ORDER BY c.ProjectionSequence, o.PollTraceId, o.Ordinal;
             """;
         AddNVarChar(command, "@seriesId", 64, seriesId);
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
+        AddDateTimeOffset(command, "@availabilityAtSnapshot", availabilityAtSnapshot);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         var items = new List<DemandRawObservationSnapshot>();
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

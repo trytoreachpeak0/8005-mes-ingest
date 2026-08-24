@@ -94,10 +94,7 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             responses[status] = operation.Path == "/api/v2/poll-traces/{pollTraceId}"
                 && status is "404" or "410"
                     ? JsonResponse(description, typeof(HistoricalReadErrorDto), context)
-                    : status == "410"
-                      && description.Contains(
-                          PollEvidenceErrorCodes.MesIngestHistoryExpired,
-                          StringComparison.Ordinal)
+                    : status == "410" && operation.SupportsHistoricalExpiration
                         ? HistoricalOrCapabilityErrorResponse(description, context)
                         : ErrorResponse(description, context);
         }
@@ -277,7 +274,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
                 PageSize(), PageNumber("page"), Snapshot(), Cursor(),
                 Query("order", "Frozen stable order.", values: [DemandSeriesBrowseOrder.Default], defaultValue: DemandSeriesBrowseOrder.Default),
             ],
-            BrowseErrors());
+            BrowseErrors(),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/demand-series/by-key",
             "GetDemandSeriesByKey",
@@ -286,7 +284,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "Exact ordinal, case-sensitive, whitespace-preserving WorkType + SUBLOT lookup at one immutable snapshot.",
             typeof(FrozenDemandSeriesDto),
             [RequiredQuery("workType", "Exact WorkType."), RequiredQuery("sublot", "Exact SUBLOT."), Snapshot()],
-            DetailErrors("DEMAND_SERIES"));
+            DetailErrors("DEMAND_SERIES"),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/demand-series/{seriesId}",
             "GetDemandSeries",
@@ -295,7 +294,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "Returns generations, raw-observation summaries, events, current conditions, error periods, and ProjectionCommit evidence at one immutable snapshot.",
             typeof(FrozenDemandSeriesDto),
             [Path("seriesId", "Exact SeriesId."), Snapshot()],
-            DetailErrors("DEMAND_SERIES"));
+            DetailErrors("DEMAND_SERIES"),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/externally-readable-demand-catalog",
             "GetExternallyReadableDemandCatalog",
@@ -321,7 +321,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
                 Snapshot(), Cursor(),
                 Query("order", "Frozen stable order.", values: [ReadabilityAuditOrder.Default], defaultValue: ReadabilityAuditOrder.Default),
             ],
-            AuditErrors());
+            AuditErrors(),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/readability-audit/{demandId}",
             "GetReadabilityAuditDetail",
@@ -330,7 +331,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "Requires the list snapshotReference and returns qualification results, blockers, bounded observation summaries, and PollTrace evidence from that same audit snapshot.",
             typeof(ReadabilityAuditDetailDto),
             [Path("demandId", "Exact DemandId."), Snapshot(required: true)],
-            DetailErrors("READABILITY_AUDIT"));
+            DetailErrors("READABILITY_AUDIT"),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/error-search",
             "ListErrorSearch",
@@ -348,7 +350,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
                 Query("to", "Custom upper boundary with an explicit UTC offset.", format: "date-time"),
                 PageSize(), Snapshot(), Cursor(),
             ],
-            SearchErrors());
+            SearchErrors(),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/error-search/{seriesId}",
             "GetErrorSearchDetail",
@@ -357,7 +360,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "Requires the list snapshotReference. Newly committed evidence cannot enter this detail until an explicit refreshed search creates a new ErrorSearchAsOf.",
             typeof(ErrorSearchDetailDto),
             [Path("seriesId", "Exact SeriesId."), Snapshot(required: true)],
-            DetailErrors("ERROR_SEARCH"));
+            DetailErrors("ERROR_SEARCH"),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
             "GetErrorSearchRawEvidence",
@@ -376,7 +380,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
                 ("403", "RAW_EVIDENCE_ACCESS_DENIED — explicit Bearer authorization is absent or wrong."),
                 ("404", "ERROR_SEARCH_OBJECT_NOT_IN_SNAPSHOT."),
                 ("410", "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc."),
-                ("413", "RAW_EVIDENCE_LIMIT_EXCEEDED.")));
+                ("413", "RAW_EVIDENCE_LIMIT_EXCEEDED.")),
+            supportsHistoricalExpiration: true);
         yield return Operation(
             "/api/v2/current-ingest-attention",
             "ListCurrentIngestAttention",
@@ -453,8 +458,18 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
         string description,
         Type responseType,
         IReadOnlyList<V2Parameter>? parameters = null,
-        IReadOnlyDictionary<string, string>? errors = null) =>
-        new(path, operationId, tag, summary, description, responseType, parameters ?? [], errors ?? Errors());
+        IReadOnlyDictionary<string, string>? errors = null,
+        bool supportsHistoricalExpiration = false) =>
+        new(
+            path,
+            operationId,
+            tag,
+            summary,
+            description,
+            responseType,
+            parameters ?? [],
+            errors ?? Errors(),
+            supportsHistoricalExpiration);
 
     private static IReadOnlyDictionary<string, string> BrowseErrors() => Errors(
         ("400", "INVALID_DEMAND_SERIES_QUERY, INVALID_DEMAND_SERIES_SNAPSHOT_REFERENCE, DEMAND_SERIES_SNAPSHOT_MISMATCH, INVALID_DEMAND_SERIES_CURSOR, or DEMAND_SERIES_CURSOR_MISMATCH."),
@@ -528,7 +543,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
         string Description,
         Type ResponseType,
         IReadOnlyList<V2Parameter> Parameters,
-        IReadOnlyDictionary<string, string> Errors);
+        IReadOnlyDictionary<string, string> Errors,
+        bool SupportsHistoricalExpiration);
 
     private sealed record V2Parameter(
         string Name,

@@ -6,7 +6,7 @@ namespace MesIngest.Core.SeriesProjection;
 
 public static class ReadabilityAuditTokenCodec
 {
-    private const string SnapshotPurpose = "readability-audit-snapshot-v1";
+    private const string SnapshotPurpose = "readability-audit-snapshot-v2";
     private const string CursorPurpose = "readability-audit-cursor-v1";
     private const int MinimumKeyLength = 32;
     private const int MaximumTokenLength = 4096;
@@ -14,23 +14,55 @@ public static class ReadabilityAuditTokenCodec
 
     public static string CreateSnapshotReference(
         ReadabilityAuditSnapshotIdentity identity,
+        ReadOnlySpan<byte> persistentKey) =>
+        CreateSnapshotReference(identity, DateTimeOffset.MinValue, persistentKey);
+
+    public static string CreateSnapshotReference(
+        ReadabilityAuditSnapshotIdentity identity,
+        DateTimeOffset rawAvailabilityCutoff,
         ReadOnlySpan<byte> persistentKey)
     {
         ArgumentNullException.ThrowIfNull(identity);
         ValidateIdentity(identity);
-        return CreateToken(SnapshotPurpose, identity, persistentKey);
+        return CreateToken(
+            SnapshotPurpose,
+            new SnapshotEnvelope(identity, rawAvailabilityCutoff.ToUniversalTime()),
+            persistentKey);
     }
 
     public static bool TryReadSnapshotReference(
         string token,
         ReadOnlySpan<byte> persistentKey,
         out ReadabilityAuditSnapshotIdentity? identity,
+        out ReadabilityAuditTokenError? error) =>
+        TryReadSnapshotReference(
+            token,
+            persistentKey,
+            out identity,
+            out _,
+            out error);
+
+    public static bool TryReadSnapshotReference(
+        string token,
+        ReadOnlySpan<byte> persistentKey,
+        out ReadabilityAuditSnapshotIdentity? identity,
+        out DateTimeOffset rawAvailabilityCutoff,
         out ReadabilityAuditTokenError? error)
     {
-        if (!TryReadToken(token, SnapshotPurpose, persistentKey, out identity, out error))
+        identity = null;
+        rawAvailabilityCutoff = default;
+        if (!TryReadToken<SnapshotEnvelope>(
+                token,
+                SnapshotPurpose,
+                persistentKey,
+                out var envelope,
+                out error))
         {
             return false;
         }
+
+        identity = envelope!.Identity;
+        rawAvailabilityCutoff = envelope.RawAvailabilityCutoff;
 
         try
         {
@@ -351,4 +383,8 @@ public static class ReadabilityAuditTokenCodec
         string? DemandId,
         string? SublotContains,
         IReadOnlyList<string> MesAreas);
+
+    private sealed record SnapshotEnvelope(
+        ReadabilityAuditSnapshotIdentity Identity,
+        DateTimeOffset RawAvailabilityCutoff);
 }

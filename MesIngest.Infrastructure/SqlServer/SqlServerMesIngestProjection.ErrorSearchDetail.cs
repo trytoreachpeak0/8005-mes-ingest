@@ -51,6 +51,16 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 snapshot.Snapshot.PollTraceId,
+                cancellationToken,
+                snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                    HistoryRetentionPolicy.RawObservationAvailabilityWindow))
+                .ConfigureAwait(false);
+            await EnsureHistoricalSnapshotRetentionLeaseAvailableAsync(
+                connection,
+                transaction,
+                snapshot.Snapshot.ProjectionSequence,
+                snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                    HistoryRetentionPolicy.RawObservationAvailabilityWindow),
                 cancellationToken).ConfigureAwait(false);
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
@@ -124,7 +134,10 @@ public sealed partial class SqlServerMesIngestProjection
                 connection,
                 transaction,
                 snapshot.Snapshot.PollTraceId,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                    HistoryRetentionPolicy.RawObservationAvailabilityWindow))
+                .ConfigureAwait(false);
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
             var matchedEvidence = await ReadExactErrorSearchEvidenceAsync(
@@ -512,9 +525,12 @@ public sealed partial class SqlServerMesIngestProjection
                 CONVERT(BIT, CASE WHEN EXISTS
                 (
                     SELECT 1 FROM mesingest.DemandRawObservations AS raw
+                    INNER JOIN mesingest.PollTraces AS rawTrace
+                        ON rawTrace.PollTraceId = raw.PollTraceId
                     WHERE raw.PollTraceId = evidence.PollTraceId
                       AND raw.ProjectionCommitId = evidence.ProjectionCommitId
                       AND raw.DemandId = evidence.DemandId
+                      AND rawTrace.CompletedAt > @rawAvailabilityCutoff
                 ) THEN 1 ELSE 0 END) AS RawEvidenceAvailable
             FROM #DetailEvidence AS eligible
             INNER JOIN mesingest.SeriesErrorPeriodEvidence AS evidence
@@ -531,6 +547,11 @@ public sealed partial class SqlServerMesIngestProjection
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value =
             snapshot.Snapshot.ProjectionSequence;
         AddDateTimeOffset(command, "@asOf", snapshot.Snapshot.ErrorSearchAsOf);
+        AddDateTimeOffset(
+            command,
+            "@rawAvailabilityCutoff",
+            snapshot.Snapshot.ErrorSearchAsOf.Subtract(
+                HistoryRetentionPolicy.RawObservationAvailabilityWindow));
         AddNullableDateTimeOffset(command, "@windowFrom", snapshot.Window.FromUtc);
         AddDateTimeOffset(command, "@windowTo", snapshot.Window.ToUtc);
         AddNVarChar(command, "@categoriesJson", -1, JsonSerializer.Serialize(filter.Categories));

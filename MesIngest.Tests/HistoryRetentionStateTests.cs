@@ -44,15 +44,9 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             completedAt,
             boundary.AddTicks(1)));
 
-        Assert.False(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
-            completedAt,
-            boundary.AddTicks(-1)));
-        Assert.True(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
-            completedAt,
-            boundary));
-        Assert.True(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
-            completedAt,
-            boundary.AddTicks(1)));
+        Assert.Equal(
+            boundary,
+            HistoryRetentionPolicy.RetentionEligibleDemandSeriesCleanupDueAt(completedAt));
     }
 
     [Ticket01SqlServerFact]
@@ -73,7 +67,12 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             completedAt,
             InvalidObservation("SL-TICKET13-RETAINED-GRAPH"),
             InvalidObservation("SL-TICKET13-RETAINED-GRAPH"),
+            ValidObservation("SL-TICKET13-OLD-ONLY", completedAt.AddYears(-12)),
             new MesTaskUnionObservation(null, null, null, null, null, null, null, null)));
+        var oldOnlyDemand = await projection.GetDemandSeriesByKeyAsync(
+            WorkType,
+            "SL-TICKET13-OLD-ONLY");
+        Assert.NotNull(oldOnlyDemand);
         var oldSeriesSnapshot = await ReadSeriesAsync(client, "SL-TICKET13-RETAINED-GRAPH");
         var oldSeriesId = oldSeriesSnapshot.GetProperty("seriesId").GetString()!;
         var oldSnapshotReference = oldSeriesSnapshot.GetProperty("snapshotReference").GetString()!;
@@ -86,6 +85,13 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             ValidObservation("SL-TICKET13-RETAINED-GRAPH", completedAt.AddYears(-12))));
 
         var beforeSeries = await ReadSeriesAsync(client, "SL-TICKET13-RETAINED-GRAPH");
+        var retainedSnapshotReference = beforeSeries.GetProperty("snapshotReference").GetString()!;
+        var beforeCurrent = await projection.GetDemandSeriesByKeyAsync(
+            WorkType,
+            "SL-TICKET13-RETAINED-GRAPH");
+        var beforeGraph = await ReadSeriesGraphCountsAsync(
+            database.ConnectionString,
+            oldSeriesId);
         var before = await projection.AdvanceHistoryRetentionAsync();
         Assert.Equal(0, before.ExpiredPollTraceCount);
         Assert.Equal(0, before.DeletedRawObservationCount);
@@ -93,7 +99,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         {
             var body = await ReadJsonAsync(response);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal(3, body.GetProperty("observations").GetArrayLength());
+            Assert.Equal(4, body.GetProperty("observations").GetArrayLength());
         }
 
         clock.SetUtcNow(completedAt.AddDays(30));
@@ -110,12 +116,56 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             HttpStatusCode.Gone,
             PollEvidenceErrorCodes.MesIngestHistoryExpired,
             completedAt);
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/demand-series/{oldSeriesId}?snapshot="
+            + Uri.EscapeDataString(retainedSnapshotReference),
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
+        await AssertHistoricalUnavailableAsync(
+            client,
+            "/api/v2/demand-series?snapshot="
+            + Uri.EscapeDataString(retainedSnapshotReference),
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
+        string freshDemandSnapshotReference;
+        using (var freshListResponse = await client.GetAsync("/api/v2/demand-series"))
+        {
+            Assert.Equal(HttpStatusCode.OK, freshListResponse.StatusCode);
+            var freshList = await ReadJsonAsync(freshListResponse);
+            freshDemandSnapshotReference = freshList.GetProperty("snapshotReference").GetString()!;
+            using var freshSnapshotResponse = await client.GetAsync(
+                "/api/v2/demand-series?snapshot="
+                + Uri.EscapeDataString(freshDemandSnapshotReference));
+            Assert.Equal(HttpStatusCode.OK, freshSnapshotResponse.StatusCode);
+            using var freshDetailResponse = await client.GetAsync(
+                $"/api/v2/demand-series/{oldSeriesId}?snapshot="
+                + Uri.EscapeDataString(freshDemandSnapshotReference));
+            Assert.Equal(HttpStatusCode.OK, freshDetailResponse.StatusCode);
+            var freshDetail = await ReadJsonAsync(freshDetailResponse);
+            Assert.Single(freshDetail.GetProperty("rawObservations").EnumerateArray());
+        }
+        string freshAuditSnapshotReference;
+        using (var freshAuditResponse = await client.GetAsync("/api/v2/readability-audit"))
+        {
+            Assert.Equal(HttpStatusCode.OK, freshAuditResponse.StatusCode);
+            var freshAudit = await ReadJsonAsync(freshAuditResponse);
+            freshAuditSnapshotReference = freshAudit.GetProperty("snapshotReference").GetString()!;
+        }
+        using (var freshAuditDetailResponse = await client.GetAsync(
+            $"/api/v2/readability-audit/{oldOnlyDemand.CurrentDemand.DemandId}?snapshot="
+            + Uri.EscapeDataString(freshAuditSnapshotReference)))
+        {
+            Assert.Equal(HttpStatusCode.OK, freshAuditDetailResponse.StatusCode);
+        }
 
         var expired = await projection.AdvanceHistoryRetentionAsync();
         Assert.Equal(clock.GetUtcNow(), expired.AdvancedAt);
         Assert.Equal(completedAt, expired.RawObservationCutoff);
         Assert.Equal(2, expired.ExpiredPollTraceCount);
-        Assert.Equal(3, expired.DeletedRawObservationCount);
+        Assert.Equal(4, expired.DeletedRawObservationCount);
 
         await AssertHistoricalUnavailableAsync(
             client,
@@ -136,23 +186,49 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             PollEvidenceErrorCodes.PollTraceNotFound,
             retainedAt);
 
-        var afterSeries = await ReadSeriesAsync(client, "SL-TICKET13-RETAINED-GRAPH");
+        var afterCurrent = await projection.GetDemandSeriesByKeyAsync(
+            WorkType,
+            "SL-TICKET13-RETAINED-GRAPH");
+        using var currentListResponse = await client.GetAsync("/api/v2/demand-series");
+        Assert.Equal(HttpStatusCode.OK, currentListResponse.StatusCode);
+        Assert.NotNull(beforeCurrent);
+        Assert.NotNull(afterCurrent);
+        Assert.Equal(beforeCurrent.SeriesId, afterCurrent.SeriesId);
+        Assert.Equal(beforeCurrent.Lifecycle, afterCurrent.Lifecycle);
+        Assert.Equal(beforeCurrent.CurrentPresence, afterCurrent.CurrentPresence);
         Assert.Equal(
-            beforeSeries.GetProperty("currentDemand").GetProperty("demandId").GetString(),
-            afterSeries.GetProperty("currentDemand").GetProperty("demandId").GetString());
+            JsonSerializer.Serialize(beforeCurrent.CurrentDemand),
+            JsonSerializer.Serialize(afterCurrent.CurrentDemand));
         Assert.Equal(
-            beforeSeries.GetProperty("currentPresence").GetString(),
-            afterSeries.GetProperty("currentPresence").GetString());
-        Assert.Equal(
-            beforeSeries.GetProperty("demands").GetArrayLength(),
-            afterSeries.GetProperty("demands").GetArrayLength());
-        Assert.Equal(
-            beforeSeries.GetProperty("events").GetArrayLength(),
-            afterSeries.GetProperty("events").GetArrayLength());
-        Assert.Single(afterSeries.GetProperty("rawObservations").EnumerateArray());
+            beforeGraph,
+            await ReadSeriesGraphCountsAsync(database.ConnectionString, oldSeriesId));
         Assert.Equal(0, await CountRawObservationsAsync(
             database.ConnectionString,
             expiring.PollTraceId));
+        Assert.Equal(1, await CountRawObservationsAsync(
+            database.ConnectionString,
+            "poll-ticket13-retained"));
+        using var retainedDemandDetailResponse = await client.GetAsync(
+            $"/api/v2/demand-series/{oldOnlyDemand.SeriesId}?snapshot="
+            + Uri.EscapeDataString(freshDemandSnapshotReference));
+        Assert.Equal(HttpStatusCode.OK, retainedDemandDetailResponse.StatusCode);
+        var retainedDemandDetail = await ReadJsonAsync(retainedDemandDetailResponse);
+        var retainedOldOnlyCurrent = await projection.GetDemandSeriesAsync(oldOnlyDemand.SeriesId);
+        Assert.NotNull(retainedOldOnlyCurrent);
+        Assert.Equal(
+            retainedOldOnlyCurrent.LatestProjectionCommitId,
+            retainedDemandDetail.GetProperty("latestProjectionCommitId").GetString());
+        Assert.Equal(
+            "N3-3",
+            retainedDemandDetail.GetProperty("currentDemand")
+                .GetProperty("liveMesFields")
+                .GetProperty("area")
+                .GetString());
+        Assert.Empty(retainedDemandDetail.GetProperty("rawObservations").EnumerateArray());
+        using var retainedAuditDetailResponse = await client.GetAsync(
+            $"/api/v2/readability-audit/{oldOnlyDemand.CurrentDemand.DemandId}?snapshot="
+            + Uri.EscapeDataString(freshAuditSnapshotReference));
+        Assert.Equal(HttpStatusCode.OK, retainedAuditDetailResponse.StatusCode);
     }
 
     [Ticket01SqlServerFact]
@@ -421,6 +497,30 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             reader.GetInt32(6));
     }
 
+    private static async Task<SeriesGraphCounts> ReadSeriesGraphCountsAsync(
+        string connectionString,
+        string seriesId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                (SELECT COUNT(*) FROM mesingest.TransportDemands WHERE SeriesId = @seriesId),
+                (SELECT COUNT(*) FROM mesingest.DemandSeriesEvents WHERE SeriesId = @seriesId),
+                (SELECT COUNT(*) FROM mesingest.DemandSeriesErrorPeriods WHERE SeriesId = @seriesId),
+                (SELECT COUNT(*) FROM mesingest.DemandSeriesCurrentConditions WHERE SeriesId = @seriesId);
+            """;
+        command.Parameters.AddWithValue("@seriesId", seriesId);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return new SeriesGraphCounts(
+            reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.GetInt32(2),
+            reader.GetInt32(3));
+    }
+
     private sealed record RetentionState(
         string Lifecycle,
         string CurrentPresence,
@@ -429,6 +529,12 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         int OpenErrorPeriodCount,
         int EventCount,
         int RawObservationCount);
+
+    private sealed record SeriesGraphCounts(
+        int DemandCount,
+        int EventCount,
+        int ErrorPeriodCount,
+        int CurrentConditionCount);
 
     private sealed class SeriesActivityCheckpointObserver
         : IProjectionCommitCheckpointObserver

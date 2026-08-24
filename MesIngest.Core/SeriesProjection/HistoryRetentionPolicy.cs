@@ -23,10 +23,6 @@ public static class HistoryRetentionPolicy
         DateTimeOffset eligibilityAt) =>
         eligibilityAt.ToUniversalTime().Add(RetentionEligibleDemandSeriesWindow);
 
-    public static bool IsRetentionEligibleDemandSeriesCleanupDue(
-        DateTimeOffset eligibilityAt,
-        DateTimeOffset asOf) =>
-        asOf.ToUniversalTime() >= RetentionEligibleDemandSeriesCleanupDueAt(eligibilityAt);
 }
 
 public sealed record HistoryRetentionAdvanceResult(

@@ -164,6 +164,8 @@ app.Use(async (context, next) =>
     await next();
 });
 
+app.UseMiddleware<MesIngestHistoryExpirationMiddleware>();
+
 if (probeOracle)
 {
     var options = app.Services.GetRequiredService<MesIngestHostOptions>();
