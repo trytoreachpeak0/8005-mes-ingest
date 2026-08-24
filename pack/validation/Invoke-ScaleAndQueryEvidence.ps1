@@ -596,7 +596,8 @@ function Get-AcceleratedStabilityResult {
     }
 
     $resourceProperties = @(
-        'snapshotCount', 'error701Count', 'resourceSemaphoreSustainedSamples', 'spillCount',
+        'snapshotCount', 'error701Count', 'xeventDroppedEventCount',
+        'resourceSemaphoreSustainedSamples', 'spillCount',
         'maximumLockWaitMs', 'unboundedLockWaitCount', 'maximumPendingMemoryGrants',
         'hostWorkingSetSlopeMbPerMinute', 'sqlWorkingSetSlopeMbPerMinute',
         'hostWorkingSetPeakMb', 'sqlWorkingSetPeakMb', 'hostHandlePeak',
@@ -607,6 +608,9 @@ function Get-AcceleratedStabilityResult {
         [void]$failures.Add('STABILITY_RESOURCE_EVIDENCE_INCOMPLETE')
     } else {
         if ([long]$resources.error701Count -ne 0) { [void]$failures.Add('STABILITY_ERROR_701') }
+        if ([long]$resources.xeventDroppedEventCount -ne 0) {
+            [void]$failures.Add('STABILITY_XEVENT_DROPPED')
+        }
         if ([long]$resources.resourceSemaphoreSustainedSamples -ne 0 -or
             [long]$resources.maximumPendingMemoryGrants -ne 0) {
             [void]$failures.Add('STABILITY_RESOURCE_SEMAPHORE')
@@ -1486,7 +1490,8 @@ function New-FailedAcceleratedStabilityValues {
         latencySampleCount = 0L; p95LatencyMs = 0.0; p99LatencyMs = 0.0
         firstQuartileP95LatencyMs = 0.0; lastQuartileP95LatencyMs = 0.0
         resourceSnapshotCount = @($ResourceSnapshots).Count
-        error701Count = 0L; resourceSemaphoreSustainedSamples = 0L; spillCount = 0L
+        error701Count = 0L; xeventDroppedEventCount = 0L
+        resourceSemaphoreSustainedSamples = 0L; spillCount = 0L
         maximumLockWaitMs = 0.0; unboundedLockWaitCount = 0L; maximumPendingMemoryGrants = 0L
         hostWorkingSetSlopeMbPerMinute = 0.0; sqlWorkingSetSlopeMbPerMinute = 0.0
         hostWorkingSetPeakMb = 0.0; sqlWorkingSetPeakMb = 0.0; hostHandlePeak = 0L
@@ -1571,6 +1576,7 @@ function New-AcceleratedStabilityEvidence {
         resources = [pscustomobject][ordered]@{
             snapshotCount = $Values.resourceSnapshotCount
             error701Count = $Values.error701Count
+            xeventDroppedEventCount = $Values.xeventDroppedEventCount
             resourceSemaphoreSustainedSamples = $Values.resourceSemaphoreSustainedSamples
             spillCount = $Values.spillCount; maximumLockWaitMs = $Values.maximumLockWaitMs
             unboundedLockWaitCount = $Values.unboundedLockWaitCount
@@ -2963,7 +2969,7 @@ ADD EVENT sqlserver.error_reported
 ADD EVENT sqlserver.sort_warning(ACTION(sqlserver.client_app_name)),
 ADD EVENT sqlserver.hash_warning(ACTION(sqlserver.client_app_name))
 ADD TARGET package0.event_file(SET filename = N'$escapedStabilityXel', max_file_size = 64, max_rollover_files = 4)
-WITH (MAX_MEMORY = 4096 KB, EVENT_RETENTION_MODE = NO_EVENT_LOSS,
+WITH (MAX_MEMORY = 4096 KB, EVENT_RETENTION_MODE = ALLOW_SINGLE_EVENT_LOSS,
       MAX_DISPATCH_LATENCY = 1 SECONDS, TRACK_CAUSALITY = OFF, STARTUP_STATE = OFF);
 ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
 "@)
@@ -3093,6 +3099,16 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
             $hostRun = $null
         }
         $stabilityCompletedAt = [DateTimeOffset]::UtcNow
+        $stabilityXEventHealth = @(Invoke-SqlTable $masterConnectionString @"
+SELECT dropped_event_count AS droppedEventCount
+FROM sys.dm_xe_sessions
+WHERE name = @sessionName;
+"@ @{ '@sessionName' = $stabilityXEventSession }) | Select-Object -First 1
+        $xeventDroppedEventCount = if ($null -eq $stabilityXEventHealth) {
+            -1L
+        } else {
+            [long]$stabilityXEventHealth.droppedEventCount
+        }
         [void](Invoke-SqlNonQuery $masterConnectionString `
             "ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = STOP;")
         $stabilityXEventStarted = $false
@@ -3200,7 +3216,8 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             firstQuartileP95LatencyMs = Get-NearestRankPercentile $firstQuarter 0.95
             lastQuartileP95LatencyMs = Get-NearestRankPercentile $lastQuarter 0.95
             resourceSnapshotCount = $resourceSnapshots.Count
-            error701Count = $error701Count; resourceSemaphoreSustainedSamples = $resourceSemaphoreSustainedSamples
+            error701Count = $error701Count; xeventDroppedEventCount = $xeventDroppedEventCount
+            resourceSemaphoreSustainedSamples = $resourceSemaphoreSustainedSamples
             spillCount = $spillCount; maximumLockWaitMs = $maximumLockWaitMs
             unboundedLockWaitCount = $unboundedLockWaitCount
             maximumPendingMemoryGrants = $maximumPendingMemoryGrants
