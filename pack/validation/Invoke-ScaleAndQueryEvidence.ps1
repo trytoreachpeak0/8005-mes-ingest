@@ -1750,7 +1750,7 @@ WHERE wait_type IN
 "@ @{})
     $active = @(Invoke-SqlTable $MasterConnectionString @"
 SELECT COUNT_BIG(*) AS pendingMemoryGrants,
-       COALESCE(MAX(wait_time_ms), 0) AS maximumLockWaitMs,
+       COALESCE(MAX(wait_time), 0) AS maximumLockWaitMs,
        SUM(CASE WHEN blocking_session_id > 0 THEN 1 ELSE 0 END) AS blockedRequestCount
 FROM sys.dm_exec_requests
 WHERE database_id = DB_ID(@databaseName);

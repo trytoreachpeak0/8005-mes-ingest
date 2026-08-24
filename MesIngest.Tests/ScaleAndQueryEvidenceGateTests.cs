@@ -124,6 +124,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "ALLOW_SINGLE_EVENT_LOSS",
                      "spillCount",
                      "maximumLockWaitMs",
+                     "MAX(wait_time)",
                      "tempdbVersionStoreMb",
                      "StoragePressureStatus",
                      "EarliestAvailableHostUtc",
