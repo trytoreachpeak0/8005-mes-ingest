@@ -18,7 +18,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                 CurrentIngestAttentionKinds.PollRunFailure,
             ],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: FourKinds());
+            items: FiveKinds());
         snapshot = snapshot with
         {
             Facets = new CurrentIngestAttentionFacets(
@@ -27,6 +27,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                     new(CurrentIngestAttentionKinds.SeriesError, 388),
                     new(CurrentIngestAttentionKinds.PollRunFailure, 1),
                     new(CurrentIngestAttentionKinds.UnassignedMesObservation, 1),
+                    new(CurrentIngestAttentionKinds.HistoryCleanupFailure, 0),
                 ],
                 [
                     new(CurrentIngestAttentionSeverities.Warning, 17),
@@ -60,7 +61,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(presentation.CanGoPrevious);
         Assert.True(presentation.CanGoNext);
         Assert.Equal(
-            [17L, 388L, 1L, 1L],
+            [17L, 388L, 1L, 1L, 0L],
             presentation.TypeFacets.Select(facet => facet.ItemCount).ToArray());
         Assert.Equal(
             [
@@ -69,7 +70,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             ],
             presentation.SeverityFacets.Select(facet => facet.Value).ToArray());
         Assert.Equal(
-            FourKinds().Select(item => item.StableIdentity),
+            FiveKinds().Select(item => item.StableIdentity),
             presentation.Rows.Select(row => row.StableIdentity));
         Assert.Equal(
             "全 Host 当前关注；本机 AREA 配置不会筛选、计数或翻页此页面。",
@@ -77,10 +78,10 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
     }
 
     [Fact]
-    public void All_four_kinds_keep_stable_identity_and_structured_polltrace_or_worktype_evidence()
+    public void All_five_kinds_keep_stable_identity_and_structured_evidence()
     {
         var presentation = WatchCurrentIngestAttentionPresentation.Project(
-            Workspace(Snapshot(items: FourKinds())),
+            Workspace(Snapshot(items: FiveKinds())),
             WatchCurrentIngestAttentionQueries.StartLatest());
 
         Assert.Equal(
@@ -148,6 +149,13 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal("未归属 MES 观测", unassigned.KindLabel);
         Assert.Equal(OverviewNavigationTargets.PollTrace, unassigned.Navigation.Target);
 
+        var cleanup = Assert.Single(presentation.Rows.Where(row =>
+            row.Kind == CurrentIngestAttentionKinds.HistoryCleanupFailure));
+        Assert.Equal("HISTORY_CLEANUP_FAILURE", cleanup.StableIdentity);
+        Assert.Equal("HISTORY_CLEANUP_FAILURE", cleanup.KindLabel);
+        Assert.Equal(WatchPresentationSeverity.Error, cleanup.SeverityStyle);
+        Assert.Equal(OverviewNavigationTargets.CurrentIngestAttention, cleanup.Navigation.Target);
+
         Assert.Equal(
             "只读当前关注项；不创建 fingerprint incident，不提供人工确认、人工恢复或关闭操作。",
             presentation.SemanticsNotice);
@@ -200,7 +208,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             exactTotal: 1,
             kinds: [CurrentIngestAttentionKinds.SeriesError],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: [FourKinds()[1]]);
+            items: [FiveKinds()[2]]);
         var successful = Workspace(retained).CurrentAttention;
         var attempted = WatchCurrentIngestAttentionQueries.StartLatest(
             [CurrentIngestAttentionKinds.PollRunFailure],
@@ -389,7 +397,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         };
 
     private static CurrentIngestAttentionSnapshot Snapshot(
-        long exactTotal = 4,
+        long exactTotal = 5,
         int pageNumber = 1,
         int totalPages = 1,
         IReadOnlyList<string>? kinds = null,
@@ -411,13 +419,32 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         TotalPages: totalPages,
         Kinds: kinds ?? [],
         Severities: severities ?? [],
-        Items: items ?? FourKinds());
+        Items: items ?? FiveKinds());
 
-    private static CurrentIngestAttentionItemSnapshot[] FourKinds()
+    private static CurrentIngestAttentionItemSnapshot[] FiveKinds()
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         return
         [
+            new CurrentIngestAttentionItemSnapshot(
+                CurrentIngestAttentionKinds.HistoryCleanupFailure,
+                CurrentIngestAttentionSeverities.Error,
+                at.AddMinutes(4),
+                "HISTORY_CLEANUP_FAILURE",
+                SeriesId: null,
+                WorkType: null,
+                ErrorCode: HistoryCleanupFailureCodes.BatchFailed,
+                Target: null,
+                SubjectKind: "HISTORY_CLEANUP",
+                new CurrentIngestAttentionEvidenceSnapshot(
+                    EvidenceId: "cleanup-run-22",
+                    Phase: HistoryCleanupRunStatuses.Failed,
+                    FailureReason: nameof(InvalidOperationException),
+                    NextCheckAt: at.AddHours(1)),
+                new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    AttentionKinds: [CurrentIngestAttentionKinds.HistoryCleanupFailure],
+                    AttentionSeverities: [CurrentIngestAttentionSeverities.Error])),
             new CurrentIngestAttentionItemSnapshot(
                 CurrentIngestAttentionKinds.PollRunFailure,
                 CurrentIngestAttentionSeverities.Error,
