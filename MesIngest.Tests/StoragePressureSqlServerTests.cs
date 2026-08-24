@@ -143,7 +143,8 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
         command.CommandText = """
             SELECT ExecutionIdentity, Reason, HistoryEpoch, StatusBefore, StatusAfter,
                    COUNT(*) OVER ()
-            FROM mesingest.StoragePressureRecoveryAudits;
+            FROM mesingest.LocalAdministrationAudits
+            WHERE Operation = N'STORAGE_PRESSURE_RECOVERY';
             """;
         await using var reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync());

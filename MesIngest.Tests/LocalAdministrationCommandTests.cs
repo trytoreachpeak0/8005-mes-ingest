@@ -68,6 +68,45 @@ public sealed class LocalAdministrationCommandTests
             body.RootElement.GetProperty("code").GetString());
     }
 
+    [Fact]
+    public async Task History_reset_acknowledgement_uses_the_same_local_boundary_and_exact_risk_acceptance()
+    {
+        var epoch = HistoryEpoch.FromGuid(Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var administration = new RecordingHistoryResetAdministration(new(
+            HistoryResetStatuses.Acknowledged,
+            epoch,
+            "MesIngest",
+            new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero),
+            "history-reset-audit-1"));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        var exitCode = await LocalAdministrationCommand.RunAsync(
+            [
+                "acknowledge-history-reset",
+                "--database", "MesIngest",
+                "--history-epoch", epoch.Value.ToString("D"),
+                "--reason", "operator accepts prior identity loss",
+                "--risk-acceptance",
+                HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance,
+            ],
+            output,
+            error,
+            _ => administration,
+            _ => "Server=secret-not-on-command-line");
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("MesIngest", administration.Request!.DatabaseName);
+        Assert.Equal(epoch, administration.Request.HistoryEpoch);
+        Assert.Equal(
+            HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance,
+            administration.Request.RiskAcceptance);
+        Assert.DoesNotContain("secret-not-on-command-line", output.ToString(), StringComparison.Ordinal);
+        Assert.Equal(string.Empty, error.ToString());
+        using var body = JsonDocument.Parse(output.ToString());
+        Assert.Equal("ACKNOWLEDGED", body.RootElement.GetProperty("result").GetString());
+    }
+
     private static StoragePressureStateSnapshot HealthyState(HistoryEpoch epoch) => new(
         StoragePressureStatuses.Healthy,
         epoch,
@@ -80,7 +119,7 @@ public sealed class LocalAdministrationCommandTests
         "low space",
         "audit-1");
 
-    private sealed class RecordingAdministration : IStoragePressureAdministration
+    private sealed class RecordingAdministration : IMesIngestLocalAdministration
     {
         private readonly StoragePressureStateSnapshot? _result;
         private readonly Exception? _exception;
@@ -99,5 +138,29 @@ public sealed class LocalAdministrationCommandTests
                 ? Task.FromException<StoragePressureStateSnapshot>(_exception)
                 : Task.FromResult(_result!);
         }
+
+        public Task<HistoryResetStateSnapshot> AcknowledgeHistoryResetAsync(
+            HistoryResetAcknowledgementRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class RecordingHistoryResetAdministration(
+        HistoryResetStateSnapshot result) : IMesIngestLocalAdministration
+    {
+        public HistoryResetAcknowledgementRequest? Request { get; private set; }
+
+        public Task<HistoryResetStateSnapshot> AcknowledgeHistoryResetAsync(
+            HistoryResetAcknowledgementRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            return Task.FromResult(result);
+        }
+
+        public Task<StoragePressureStateSnapshot> ResumeStoragePressureAsync(
+            StoragePressureRecoveryRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

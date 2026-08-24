@@ -13,13 +13,13 @@ public static class LocalAdministrationCommand
         string[] args,
         TextWriter output,
         TextWriter error,
-        Func<string, IStoragePressureAdministration>? administrationFactory = null,
+        Func<string, IMesIngestLocalAdministration>? administrationFactory = null,
         Func<string, string?>? environmentReader = null)
     {
         administrationFactory ??= connectionString => new SqlServerMesIngestProjection(connectionString);
         environmentReader ??= Environment.GetEnvironmentVariable;
         if (args.Length == 0
-            || !string.Equals(args[0], "resume-storage-pressure", StringComparison.Ordinal))
+            || args[0] is not ("resume-storage-pressure" or "acknowledge-history-reset"))
         {
             await WriteUsageAsync(error).ConfigureAwait(false);
             return 2;
@@ -27,7 +27,8 @@ public static class LocalAdministrationCommand
 
         try
         {
-            var values = ParseExactOptions(args[1..]);
+            var command = args[0];
+            var values = ParseExactOptions(args[1..], command);
             var databaseName = Required(values, "--database");
             var reason = Required(values, "--reason");
             if (!Guid.TryParse(Required(values, "--history-epoch"), out var epoch)
@@ -53,23 +54,54 @@ public static class LocalAdministrationCommand
                     $"Environment variable '{environmentName}' is missing or empty.");
             }
 
-            var state = await administrationFactory(connectionString)
-                .ResumeStoragePressureAsync(new StoragePressureRecoveryRequest(
-                    databaseName,
-                    HistoryEpoch.FromGuid(epoch),
-                    reason)).ConfigureAwait(false);
-            await output.WriteLineAsync(JsonSerializer.Serialize(new
+            var administration = administrationFactory(connectionString);
+            if (string.Equals(command, "resume-storage-pressure", StringComparison.Ordinal))
             {
-                result = "RECOVERED",
-                databaseName = state.DatabaseName,
-                historyEpoch = state.HistoryEpoch.Value.ToString("D"),
-                status = state.Status,
-                recoveryAuditId = state.RecoveryAuditId,
-                observedAt = state.ObservedAt,
-            })).ConfigureAwait(false);
+                var state = await administration.ResumeStoragePressureAsync(
+                    new StoragePressureRecoveryRequest(
+                        databaseName,
+                        HistoryEpoch.FromGuid(epoch),
+                        reason)).ConfigureAwait(false);
+                await output.WriteLineAsync(JsonSerializer.Serialize(new
+                {
+                    result = "RECOVERED",
+                    databaseName = state.DatabaseName,
+                    historyEpoch = state.HistoryEpoch.Value.ToString("D"),
+                    status = state.Status,
+                    recoveryAuditId = state.RecoveryAuditId,
+                    observedAt = state.ObservedAt,
+                })).ConfigureAwait(false);
+            }
+            else
+            {
+                var state = await administration.AcknowledgeHistoryResetAsync(
+                    new HistoryResetAcknowledgementRequest(
+                        databaseName,
+                        HistoryEpoch.FromGuid(epoch),
+                        reason,
+                        Required(values, "--risk-acceptance"))).ConfigureAwait(false);
+                await output.WriteLineAsync(JsonSerializer.Serialize(new
+                {
+                    result = "ACKNOWLEDGED",
+                    databaseName = state.DatabaseName,
+                    historyEpoch = state.HistoryEpoch.Value.ToString("D"),
+                    status = state.Status,
+                    acknowledgementAuditId = state.AcknowledgementAuditId,
+                    historyEpochEstablishedAt = state.HistoryEpochEstablishedAt,
+                })).ConfigureAwait(false);
+            }
             return 0;
         }
         catch (StoragePressureAdministrationException exception)
+        {
+            await error.WriteLineAsync(JsonSerializer.Serialize(new
+            {
+                code = exception.Code,
+                message = exception.Message,
+            })).ConfigureAwait(false);
+            return 3;
+        }
+        catch (HistoryResetAdministrationException exception)
         {
             await error.WriteLineAsync(JsonSerializer.Serialize(new
             {
@@ -95,12 +127,18 @@ public static class LocalAdministrationCommand
         }
     }
 
-    private static Dictionary<string, string> ParseExactOptions(string[] optionArgs)
+    private static Dictionary<string, string> ParseExactOptions(
+        string[] optionArgs,
+        string command)
     {
         var allowed = new HashSet<string>(StringComparer.Ordinal)
         {
             "--database", "--history-epoch", "--reason", "--connection-string-environment",
         };
+        if (string.Equals(command, "acknowledge-history-reset", StringComparison.Ordinal))
+        {
+            allowed.Add("--risk-acceptance");
+        }
         if (optionArgs.Length % 2 != 0)
         {
             throw new ArgumentException("Every option must have exactly one value.");
@@ -126,5 +164,11 @@ public static class LocalAdministrationCommand
     private static Task WriteUsageAsync(TextWriter error) => error.WriteLineAsync(
         "Usage: MesIngest.LocalAdministration resume-storage-pressure "
         + "--database <exact-name> --history-epoch <guid> --reason <text> "
-        + "[--connection-string-environment <name>]");
+        + "[--connection-string-environment <name>]"
+        + Environment.NewLine
+        + "   or: MesIngest.LocalAdministration acknowledge-history-reset "
+        + "--database <exact-name> --history-epoch <guid> --reason <text> "
+        + "--risk-acceptance "
+        + HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance
+        + " [--connection-string-environment <name>]");
 }

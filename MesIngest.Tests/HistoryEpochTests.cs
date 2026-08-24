@@ -108,22 +108,39 @@ public sealed class HistoryEpochTests
     }
 
     [Ticket01SqlServerFact]
-    public async Task Planned_empty_database_and_unrecoverable_rebuild_requests_create_distinct_epochs()
+    public async Task Ordinary_restart_planned_empty_database_and_unrecoverable_rebuild_have_distinct_persistent_reset_states()
     {
+        await using var ordinaryDatabase = await Ticket01SqlServerDatabase.CreateAsync();
         await using var plannedDatabase = await Ticket01SqlServerDatabase.CreateAsync();
         await using var rebuiltDatabase = await Ticket01SqlServerDatabase.CreateAsync();
 
-        await new SqlServerMesIngestProjection(
-                plannedDatabase.ConnectionString,
-                historyEpochBootstrapIntent: HistoryEpochBootstrapIntent.PlannedEmptyDatabase)
-            .BeginHostSessionAsync();
-        await new SqlServerMesIngestProjection(
-                rebuiltDatabase.ConnectionString,
-                historyEpochBootstrapIntent: HistoryEpochBootstrapIntent.UnrecoverableRebuild)
-            .BeginHostSessionAsync();
+        var ordinary = new SqlServerMesIngestProjection(ordinaryDatabase.ConnectionString);
+        await ordinary.BeginHostSessionAsync();
+        var ordinaryBeforeRestart = await ordinary.ReadHistoryResetStateAsync();
+        var ordinaryRestarted = new SqlServerMesIngestProjection(ordinaryDatabase.ConnectionString);
+        await ordinaryRestarted.BeginHostSessionAsync();
 
+        var plannedProjection = new SqlServerMesIngestProjection(
+                plannedDatabase.ConnectionString,
+                historyEpochBootstrapIntent: HistoryEpochBootstrapIntent.PlannedEmptyDatabase);
+        await plannedProjection.BeginHostSessionAsync();
+        var rebuiltProjection = new SqlServerMesIngestProjection(
+                rebuiltDatabase.ConnectionString,
+                historyEpochBootstrapIntent: HistoryEpochBootstrapIntent.UnrecoverableRebuild);
+        await rebuiltProjection.BeginHostSessionAsync();
+
+        var ordinaryAfterRestart = await ordinaryRestarted.ReadHistoryResetStateAsync();
+        var plannedState = await plannedProjection.ReadHistoryResetStateAsync();
+        var rebuiltState = await rebuiltProjection.ReadHistoryResetStateAsync();
         var planned = await ReadSchemaIdentityAsync(plannedDatabase.ConnectionString);
         var rebuilt = await ReadSchemaIdentityAsync(rebuiltDatabase.ConnectionString);
+
+        Assert.Equal(ordinaryBeforeRestart.HistoryEpoch, ordinaryAfterRestart.HistoryEpoch);
+        Assert.Equal(HistoryResetStatuses.NotRequired, ordinaryAfterRestart.Status);
+        Assert.Equal(HistoryResetStatuses.NotRequired, plannedState.Status);
+        Assert.Equal(HistoryResetStatuses.AcknowledgementRequired, rebuiltState.Status);
+        Assert.True(rebuiltState.RequiresAcknowledgement);
+        Assert.Null(rebuiltState.AcknowledgementAuditId);
         Assert.NotEqual(Guid.Empty, planned.HistoryEpoch);
         Assert.NotEqual(Guid.Empty, rebuilt.HistoryEpoch);
         Assert.NotEqual(planned.HistoryEpoch, rebuilt.HistoryEpoch);
@@ -165,13 +182,13 @@ public sealed class HistoryEpochTests
                 DROP CONSTRAINT FK_MesIngest_ProjectionCommits_HistoryEpoch;
             ALTER TABLE mesingest.StoragePressureState
                 DROP CONSTRAINT FK_MesIngest_StoragePressureState_HistoryEpoch;
-            ALTER TABLE mesingest.StoragePressureRecoveryAudits
-                DROP CONSTRAINT FK_MesIngest_StoragePressureRecoveryAudits_HistoryEpoch;
+            ALTER TABLE mesingest.LocalAdministrationAudits
+                DROP CONSTRAINT FK_MesIngest_LocalAdministrationAudits_HistoryEpoch;
             ALTER TABLE mesingest.SchemaInfo
                 DROP CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch;
             ALTER TABLE mesingest.ProjectionCommits DROP COLUMN HistoryEpoch;
             ALTER TABLE mesingest.StoragePressureState DROP COLUMN HistoryEpoch;
-            ALTER TABLE mesingest.StoragePressureRecoveryAudits DROP COLUMN HistoryEpoch;
+            ALTER TABLE mesingest.LocalAdministrationAudits DROP COLUMN HistoryEpoch;
             ALTER TABLE mesingest.SchemaInfo DROP COLUMN HistoryEpoch;
             """);
 

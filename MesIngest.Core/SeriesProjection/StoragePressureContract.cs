@@ -231,13 +231,6 @@ public interface ILocalAdministrationContextProvider
         CancellationToken cancellationToken = default);
 }
 
-public interface IStoragePressureAdministration
-{
-    Task<StoragePressureStateSnapshot> ResumeStoragePressureAsync(
-        StoragePressureRecoveryRequest request,
-        CancellationToken cancellationToken = default);
-}
-
 public static class StoragePressureAdministrationErrorCodes
 {
     public const string Unauthorized = "STORAGE_PRESSURE_RECOVERY_UNAUTHORIZED";

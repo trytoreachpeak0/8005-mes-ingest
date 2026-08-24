@@ -18,7 +18,21 @@ public sealed partial class SqlServerMesIngestProjection
                 "StoragePressurePause is active; current external Demand reads are unavailable.");
         }
 
+        var historyReset = await ReadHistoryResetStateAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (historyReset.RequiresAcknowledgement)
+        {
+            throw new IngestNotCurrentException(
+                "HistoryResetAcknowledgement is required; current external Demand reads are unavailable.");
+        }
+
         knownIdentity?.Validate();
+        if (knownIdentity is not null && knownIdentity.HistoryEpoch != _historyEpoch)
+        {
+            throw new HistoryEpochMismatchException(
+                _historyEpoch,
+                knownIdentity.HistoryEpoch);
+        }
 
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
         await using var connection = new SqlConnection(_connectionString);

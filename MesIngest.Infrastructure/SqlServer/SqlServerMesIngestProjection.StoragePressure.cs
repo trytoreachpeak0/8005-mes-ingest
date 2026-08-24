@@ -5,8 +5,7 @@ using Microsoft.Data.SqlClient;
 namespace MesIngest.Infrastructure.SqlServer;
 
 public sealed partial class SqlServerMesIngestProjection :
-    IStoragePressureOperations,
-    IStoragePressureAdministration
+    IStoragePressureOperations
 {
     public async Task<ResolvedDatabaseVolume> ResolveDatabaseVolumeAsync(
         CancellationToken cancellationToken = default)
@@ -180,14 +179,16 @@ public sealed partial class SqlServerMesIngestProjection :
             {
                 audit.Transaction = transaction;
                 audit.CommandText = """
-                    INSERT INTO mesingest.StoragePressureRecoveryAudits
-                        (RecoveryAuditId, PauseId, HistoryEpoch, DatabaseName,
-                         ExecutionIdentity, DatabaseHost, Reason, StatusBefore,
-                         StatusAfter, RecoveredAt, VolumeRoot, TotalBytes, AvailableBytes)
+                    INSERT INTO mesingest.LocalAdministrationAudits
+                        (AuditId, Operation, OperationTargetId, HistoryEpoch, DatabaseName,
+                         ExecutionIdentity, DatabaseHost, Reason, RiskAcceptance,
+                         StatusBefore, StatusAfter, OccurredAt,
+                         VolumeRoot, TotalBytes, AvailableBytes)
                     VALUES
-                        (@auditId, @pauseId, @historyEpoch, @databaseName,
-                         @executionIdentity, @databaseHost, @reason, @statusBefore,
-                         @statusAfter, @recoveredAt, @volumeRoot, @totalBytes, @availableBytes);
+                        (@auditId, N'STORAGE_PRESSURE_RECOVERY', @pauseId,
+                         @historyEpoch, @databaseName, @executionIdentity, @databaseHost,
+                         @reason, NULL, @statusBefore, @statusAfter, @recoveredAt,
+                         @volumeRoot, @totalBytes, @availableBytes);
                     """;
                 AddNVarChar(audit, "@auditId", 64, auditId);
                 AddNVarChar(audit, "@pauseId", 64, current.PauseId!);
@@ -279,9 +280,10 @@ public sealed partial class SqlServerMesIngestProjection :
                 s.ObservedAt, s.PausedAt, s.PauseId, s.PauseReason, s.RecoveryAuditId,
                 CASE WHEN s.PauseId IS NOT NULL AND NOT EXISTS
                 (
-                    SELECT 1 FROM mesingest.StoragePressureRecoveryAudits AS audit
-                    WHERE audit.RecoveryAuditId = s.RecoveryAuditId
-                      AND audit.PauseId = s.PauseId
+                    SELECT 1 FROM mesingest.LocalAdministrationAudits AS audit
+                    WHERE audit.AuditId = s.RecoveryAuditId
+                      AND audit.Operation = N'STORAGE_PRESSURE_RECOVERY'
+                      AND audit.OperationTargetId = s.PauseId
                       AND audit.HistoryEpoch = s.HistoryEpoch
                       AND audit.DatabaseName = s.DatabaseName
                       AND audit.StatusBefore = N'STORAGE_PRESSURE_PAUSE'

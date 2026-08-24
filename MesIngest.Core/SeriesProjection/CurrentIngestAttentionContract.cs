@@ -24,6 +24,7 @@ public static class CurrentIngestAttentionKinds
     public const string UnassignedMesObservation = "UNASSIGNED_MES_OBSERVATION";
     public const string HistoryCleanupFailure = "HISTORY_CLEANUP_FAILURE";
     public const string StoragePressure = "STORAGE_PRESSURE";
+    public const string HistoryReset = "HISTORY_RESET";
 
     public static IReadOnlyList<string> All { get; } =
         [
@@ -33,6 +34,7 @@ public static class CurrentIngestAttentionKinds
             UnassignedMesObservation,
             HistoryCleanupFailure,
             StoragePressure,
+            HistoryReset,
         ];
 }
 

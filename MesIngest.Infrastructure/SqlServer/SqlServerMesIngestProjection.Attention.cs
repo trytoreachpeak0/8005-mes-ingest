@@ -146,6 +146,11 @@ public sealed partial class SqlServerMesIngestProjection
             transaction,
             items,
             cancellationToken).ConfigureAwait(false);
+        await ReadHistoryResetAttentionAsync(
+            connection,
+            transaction,
+            items,
+            cancellationToken).ConfigureAwait(false);
 
         var allItems = items.ToArray();
         var ordered = allItems
@@ -474,6 +479,43 @@ public sealed partial class SqlServerMesIngestProjection
                 AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure],
                 AttentionSeverities: [CurrentIngestAttentionSeverities.Error])));
         return state;
+    }
+
+    private static async Task ReadHistoryResetAttentionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ICollection<CurrentIngestAttentionItemSnapshot> items,
+        CancellationToken cancellationToken)
+    {
+        var state = await ReadHistoryResetStateAsync(
+            connection,
+            transaction,
+            forUpdate: false,
+            cancellationToken).ConfigureAwait(false);
+        if (!state.RequiresAcknowledgement)
+        {
+            return;
+        }
+
+        items.Add(new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.HistoryReset,
+            CurrentIngestAttentionSeverities.Error,
+            state.AcknowledgementRequiredAt ?? state.HistoryEpochEstablishedAt,
+            $"HISTORY_RESET:{state.HistoryEpoch}",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: state.Status,
+            Target: state.DatabaseName,
+            SubjectKind: "HISTORY_EPOCH",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                Phase: state.Status,
+                FailureReason:
+                    "Prior history and archived-key tombstones are unrecoverable.",
+                DatabaseName: state.DatabaseName),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.HistoryReset],
+                AttentionSeverities: [CurrentIngestAttentionSeverities.Error])));
     }
 
     private static int SeverityRank(string severity) => severity switch
