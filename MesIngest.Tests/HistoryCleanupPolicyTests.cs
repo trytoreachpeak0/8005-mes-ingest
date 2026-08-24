@@ -129,7 +129,7 @@ public sealed class HistoryCleanupPolicyTests
             operations,
             new MesIngestHostOptions
             {
-                HistoryCleanupCheckIntervalSeconds = 10,
+                HistoryCleanupCheckIntervalSeconds = 15,
                 HistoryCleanupTimeBudgetSeconds = 15,
             },
             clock,
@@ -138,7 +138,7 @@ public sealed class HistoryCleanupPolicyTests
 
         var actualNextCheckAt = await runner.RunBatchAsync(now, CancellationToken.None);
 
-        Assert.Equal(now.AddSeconds(25), operations.State.NextCheckAt);
+        Assert.Equal(now.AddSeconds(30), operations.State.NextCheckAt);
         Assert.Equal(operations.State.NextCheckAt, actualNextCheckAt);
     }
 
@@ -219,6 +219,57 @@ public sealed class HistoryCleanupPolicyTests
         using var pollLease = await gate.EnterPollAsync(CancellationToken.None)
             .AsTask()
             .WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void Interrupted_retry_preserves_the_previous_failure_attention_until_a_success()
+    {
+        var first = new DateTimeOffset(2026, 8, 24, 7, 15, 0, TimeSpan.Zero);
+        var failed = HistoryCleanupStateSnapshot.NotRun
+            .Begin("failed-run", first, first.AddHours(1))
+            .Fail(
+                first.AddSeconds(1),
+                first.AddHours(1),
+                HistoryCleanupFailureCodes.BatchFailed,
+                nameof(InvalidOperationException));
+        var interrupted = failed
+            .Begin("interrupted-run", first.AddHours(1), first.AddHours(2))
+            .Complete(
+                HistoryCleanupRunStatuses.Interrupted,
+                first.AddHours(1).AddSeconds(1),
+                first.AddHours(2));
+
+        Assert.Equal(HistoryCleanupFailureCodes.BatchFailed, interrupted.LastFailureCode);
+        Assert.Equal(nameof(InvalidOperationException), interrupted.LastFailureReason);
+        Assert.Equal(first.AddSeconds(1), interrupted.LastFailureAt);
+        Assert.Equal("failed-run", interrupted.LastFailureRunId);
+        Assert.Null(interrupted.LastSuccessfulAt);
+    }
+
+    [Fact]
+    public async Task Cancellation_does_not_wait_unboundedly_for_interruption_state_persistence()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 7, 20, 0, TimeSpan.Zero);
+        var operations = new GatedCleanupOperations(now) { HangInterruptedCompletion = true };
+        var runner = new HistoryCleanupBatchRunner(
+            operations,
+            new MesIngestHostOptions(),
+            new AdjustableTimeProvider(now),
+            new IngestWorkPriorityGate(),
+            NullLogger<HistoryCleanupBatchRunner>.Instance);
+        using var cancellation = new CancellationTokenSource();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        var cleanup = runner.RunBatchAsync(now, cancellation.Token);
+        await operations.RawTransactionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => cleanup.WaitAsync(TimeSpan.FromSeconds(3)));
+        stopwatch.Stop();
+
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(3),
+            $"Cancellation took {stopwatch.Elapsed} while terminal persistence was hung.");
     }
 
     [Fact]
@@ -436,6 +487,8 @@ public sealed class HistoryCleanupPolicyTests
 
         public int MaximumRawConcurrency { get; private set; }
 
+        public bool HangInterruptedCompletion { get; init; }
+
         public HistoryCleanupStateSnapshot State { get; private set; } =
             HistoryCleanupStateSnapshot.NotRun;
 
@@ -484,15 +537,20 @@ public sealed class HistoryCleanupPolicyTests
             CancellationToken cancellationToken = default) =>
             throw new InvalidOperationException("Poll priority should prevent a Series transaction.");
 
-        public Task<HistoryCleanupStateSnapshot> CompleteHistoryCleanupRunAsync(
+        public async Task<HistoryCleanupStateSnapshot> CompleteHistoryCleanupRunAsync(
             string runId,
             string status,
             DateTimeOffset completedAt,
             DateTimeOffset nextCheckAt,
             CancellationToken cancellationToken = default)
         {
+            if (status == HistoryCleanupRunStatuses.Interrupted && HangInterruptedCompletion)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
             State = State.Complete(status, completedAt, nextCheckAt);
-            return Task.FromResult(State);
+            return State;
         }
 
         public Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(

@@ -24,8 +24,12 @@ public sealed class EmptyDatabaseBootstrapTests
         await projection.CommitRoundAsync(EmptySuccessRound("poll-empty-bootstrap-1"));
         var afterFirst = await ReadUserTableCountAsync(database.ConnectionString);
 
-        // A second commit revalidates the same contract instead of rebuilding it.
+        // The existing projection reuses its validated schema.
         await projection.CommitRoundAsync(EmptySuccessRound("poll-empty-bootstrap-2"));
+        // A fresh projection models a Host process restart and must validate the
+        // exact existing schema rather than relying on the first instance's cache.
+        await new SqlServerMesIngestProjection(database.ConnectionString)
+            .CommitRoundAsync(EmptySuccessRound("poll-empty-bootstrap-restart"));
         var afterSecond = await ReadUserTableCountAsync(database.ConnectionString);
 
         Assert.True(afterFirst > 0, "Bootstrapping an empty database created no tables.");

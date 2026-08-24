@@ -42,7 +42,9 @@ public sealed record HistoryCleanupStateSnapshot(
     long TotalDeletedSeriesCount,
     DateTimeOffset? EarliestAvailableHostUtc,
     string? LastFailureCode,
-    string? LastFailureReason)
+    string? LastFailureReason,
+    DateTimeOffset? LastFailureAt = null,
+    string? LastFailureRunId = null)
 {
     public static HistoryCleanupStateSnapshot NotRun { get; } = new(
         HistoryCleanupRunStatuses.NotRun,
@@ -59,7 +61,9 @@ public sealed record HistoryCleanupStateSnapshot(
         TotalDeletedSeriesCount: 0,
         EarliestAvailableHostUtc: null,
         LastFailureCode: null,
-        LastFailureReason: null);
+        LastFailureReason: null,
+        LastFailureAt: null,
+        LastFailureRunId: null);
 
     internal HistoryCleanupStateSnapshot Begin(
         string runId,
@@ -107,8 +111,18 @@ public sealed record HistoryCleanupStateSnapshot(
             ? LastSuccessfulAt
             : completedAt,
         NextCheckAt = nextCheckAt,
-        LastFailureCode = null,
-        LastFailureReason = null,
+        LastFailureCode = status == HistoryCleanupRunStatuses.Interrupted
+            ? LastFailureCode
+            : null,
+        LastFailureReason = status == HistoryCleanupRunStatuses.Interrupted
+            ? LastFailureReason
+            : null,
+        LastFailureAt = status == HistoryCleanupRunStatuses.Interrupted
+            ? LastFailureAt
+            : null,
+        LastFailureRunId = status == HistoryCleanupRunStatuses.Interrupted
+            ? LastFailureRunId
+            : null,
     };
 
     internal HistoryCleanupStateSnapshot Fail(
@@ -122,6 +136,8 @@ public sealed record HistoryCleanupStateSnapshot(
         NextCheckAt = nextCheckAt,
         LastFailureCode = failureCode,
         LastFailureReason = failureReason,
+        LastFailureAt = failedAt,
+        LastFailureRunId = RunId,
     };
 }
 

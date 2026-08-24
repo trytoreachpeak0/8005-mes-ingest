@@ -62,6 +62,9 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
             HistoryCleanupFailureCodes.BatchFailed,
             failedStatus.GetProperty("lastFailureCode").GetString());
         Assert.Equal("InvalidOperationException", failedStatus.GetProperty("lastFailureReason").GetString());
+        Assert.Equal(now, failedStatus.GetProperty("lastFailureAt").GetDateTimeOffset());
+        var failedRunId = failedStatus.GetProperty("lastFailureRunId").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(failedRunId));
         Assert.Equal(now.AddHours(2), failedStatus.GetProperty("nextCheckAt").GetDateTimeOffset());
         var cleanupAttention = Assert.Single(
             failed.GetProperty("items").EnumerateArray(),
@@ -69,6 +72,8 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
                 == CurrentIngestAttentionKinds.HistoryCleanupFailure);
         Assert.Equal(CurrentIngestAttentionSeverities.Error, cleanupAttention.GetProperty("severity").GetString());
         Assert.Equal("HISTORY_CLEANUP", cleanupAttention.GetProperty("subjectKind").GetString());
+        Assert.Equal(now, cleanupAttention.GetProperty("occurredAt").GetDateTimeOffset());
+        Assert.Equal(failedRunId, cleanupAttention.GetProperty("evidence").GetProperty("evidenceId").GetString());
         Assert.DoesNotContain("secret detail", failed.GetRawText(), StringComparison.Ordinal);
         using (await factory.Services.GetRequiredService<IngestWorkPriorityGate>()
                    .EnterPollAsync(CancellationToken.None))
@@ -81,13 +86,51 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
 
         Assert.NotNull(failOnce);
         clock.SetUtcNow(now.AddHours(2));
-        await runner.RunBatchAsync(now.AddHours(2), CancellationToken.None);
+        failOnce.BlockNextRawTransaction();
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var interruptedRun = runner.RunBatchAsync(now.AddHours(2), cancellation.Token);
+            await failOnce.RawTransactionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => interruptedRun.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+
+        var interrupted = await GetJsonAsync(client, "/api/v2/current-ingest-attention");
+        Assert.Equal(
+            HistoryCleanupRunStatuses.Interrupted,
+            interrupted.GetProperty("historyCleanup").GetProperty("status").GetString());
+        Assert.Equal(
+            now,
+            interrupted.GetProperty("historyCleanup").GetProperty("lastFailureAt").GetDateTimeOffset());
+        Assert.Equal(
+            failedRunId,
+            interrupted.GetProperty("historyCleanup").GetProperty("lastFailureRunId").GetString());
+        Assert.Equal(
+            now,
+            Assert.Single(
+                    interrupted.GetProperty("items").EnumerateArray(),
+                    item => item.GetProperty("kind").GetString()
+                        == CurrentIngestAttentionKinds.HistoryCleanupFailure)
+                .GetProperty("occurredAt").GetDateTimeOffset());
+        Assert.Equal(
+            failedRunId,
+            Assert.Single(
+                    interrupted.GetProperty("items").EnumerateArray(),
+                    item => item.GetProperty("kind").GetString()
+                        == CurrentIngestAttentionKinds.HistoryCleanupFailure)
+                .GetProperty("evidence").GetProperty("evidenceId").GetString());
+
+        clock.SetUtcNow(now.AddHours(3));
+        await runner.RunBatchAsync(now.AddHours(3), CancellationToken.None);
 
         var recovered = await GetJsonAsync(client, "/api/v2/current-ingest-attention");
         var recoveredStatus = recovered.GetProperty("historyCleanup");
         Assert.Equal(HistoryCleanupRunStatuses.Succeeded, recoveredStatus.GetProperty("status").GetString());
-        Assert.Equal(now.AddHours(2), recoveredStatus.GetProperty("lastSuccessfulAt").GetDateTimeOffset());
+        Assert.Equal(now.AddHours(3), recoveredStatus.GetProperty("lastSuccessfulAt").GetDateTimeOffset());
         Assert.Equal(JsonValueKind.Null, recoveredStatus.GetProperty("lastFailureCode").ValueKind);
+        Assert.Equal(JsonValueKind.Null, recoveredStatus.GetProperty("lastFailureAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, recoveredStatus.GetProperty("lastFailureRunId").ValueKind);
         Assert.DoesNotContain(
             recovered.GetProperty("items").EnumerateArray(),
             item => item.GetProperty("kind").GetString()
@@ -347,6 +390,13 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         SqlServerMesIngestProjection inner) : IHistoryCleanupOperations
     {
         private int _failuresRemaining = 1;
+        private int _blockNextRawTransaction;
+
+        public TaskCompletionSource RawTransactionStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BlockNextRawTransaction() =>
+            Interlocked.Exchange(ref _blockNextRawTransaction, 1);
 
         public Task<HistoryCleanupStateSnapshot> BeginHistoryCleanupRunAsync(
             string runId,
@@ -355,7 +405,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
             CancellationToken cancellationToken = default) =>
             inner.BeginHistoryCleanupRunAsync(runId, startedAt, nextCheckAt, cancellationToken);
 
-        public Task<HistoryRawCleanupBatchResult> AdvanceHistoryRetentionBatchAsync(
+        public async Task<HistoryRawCleanupBatchResult> AdvanceHistoryRetentionBatchAsync(
             string runId,
             int maximumRawObservationRows,
             int maximumPollTraces,
@@ -366,7 +416,13 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
                 throw new InvalidOperationException("secret detail must not become attention");
             }
 
-            return inner.AdvanceHistoryRetentionBatchAsync(
+            if (Interlocked.Exchange(ref _blockNextRawTransaction, 0) == 1)
+            {
+                RawTransactionStarted.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+
+            return await inner.AdvanceHistoryRetentionBatchAsync(
                 runId,
                 maximumRawObservationRows,
                 maximumPollTraces,

@@ -18,7 +18,8 @@ public sealed partial class SqlServerMesIngestProjection
             state.HistoryCleanupTotalDeletedRawObservationCount,
             state.HistoryCleanupTotalDeletedSeriesCount,
             schemaInfo.EarliestAvailableHostUtc,
-            state.HistoryCleanupLastFailureCode, state.HistoryCleanupLastFailureReason
+            state.HistoryCleanupLastFailureCode, state.HistoryCleanupLastFailureReason,
+            state.HistoryCleanupLastFailureAt, state.HistoryCleanupLastFailureRunId
         FROM mesingest.HistoryCleanupState AS state
         INNER JOIN mesingest.SchemaInfo AS schemaInfo ON schemaInfo.Id = state.Id
         WHERE state.Id = 1;
@@ -643,8 +644,18 @@ public sealed partial class SqlServerMesIngestProjection
                          THEN HistoryCleanupLastSuccessfulAt
                          ELSE @completedAt END,
                 HistoryCleanupNextCheckAt = @nextCheckAt,
-                HistoryCleanupLastFailureCode = NULL,
-                HistoryCleanupLastFailureReason = NULL
+                HistoryCleanupLastFailureCode =
+                    CASE WHEN @status = N'INTERRUPTED'
+                         THEN HistoryCleanupLastFailureCode ELSE NULL END,
+                HistoryCleanupLastFailureReason =
+                    CASE WHEN @status = N'INTERRUPTED'
+                         THEN HistoryCleanupLastFailureReason ELSE NULL END,
+                HistoryCleanupLastFailureAt =
+                    CASE WHEN @status = N'INTERRUPTED'
+                         THEN HistoryCleanupLastFailureAt ELSE NULL END,
+                HistoryCleanupLastFailureRunId =
+                    CASE WHEN @status = N'INTERRUPTED'
+                         THEN HistoryCleanupLastFailureRunId ELSE NULL END
             WHERE Id = 1 AND HistoryCleanupRunId = @runId;
 
             IF @@ROWCOUNT <> 1
@@ -680,7 +691,9 @@ public sealed partial class SqlServerMesIngestProjection
                 HistoryCleanupLastCompletedAt = @failedAt,
                 HistoryCleanupNextCheckAt = @nextCheckAt,
                 HistoryCleanupLastFailureCode = @failureCode,
-                HistoryCleanupLastFailureReason = @failureReason
+                HistoryCleanupLastFailureReason = @failureReason,
+                HistoryCleanupLastFailureAt = @failedAt,
+                HistoryCleanupLastFailureRunId = @runId
             WHERE Id = 1 AND HistoryCleanupRunId = @runId;
 
             IF @@ROWCOUNT <> 1
@@ -734,7 +747,9 @@ public sealed partial class SqlServerMesIngestProjection
             reader.GetInt64(11),
             ReadNullableDateTimeOffset(reader, 12),
             reader.IsDBNull(13) ? null : reader.GetString(13),
-            reader.IsDBNull(14) ? null : reader.GetString(14));
+            reader.IsDBNull(14) ? null : reader.GetString(14),
+            ReadNullableDateTimeOffset(reader, 15),
+            reader.IsDBNull(16) ? null : reader.GetString(16));
     }
 
     private static DateTimeOffset? ReadNullableDateTimeOffset(SqlDataReader reader, int ordinal) =>

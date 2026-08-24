@@ -192,6 +192,8 @@ internal static class SqlServerMesIngestSchema
             HistoryCleanupTotalDeletedSeriesCount BIGINT NOT NULL,
             HistoryCleanupLastFailureCode NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
             HistoryCleanupLastFailureReason NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NULL,
+            HistoryCleanupLastFailureAt DATETIMEOFFSET(7) NULL,
+            HistoryCleanupLastFailureRunId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
             CONSTRAINT CK_MesIngest_HistoryCleanupState_SingleRow CHECK (Id = 1)
         );
 
@@ -815,10 +817,11 @@ internal static class SqlServerMesIngestSchema
              HistoryCleanupTotalExpiredPollTraceCount,
              HistoryCleanupTotalDeletedRawObservationCount,
              HistoryCleanupTotalDeletedSeriesCount,
-             HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason)
+             HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason,
+             HistoryCleanupLastFailureAt, HistoryCleanupLastFailureRunId)
         VALUES
             (1, N'NOT_RUN', NULL, NULL, NULL, NULL, NULL,
-             0, 0, 0, 0, 0, 0, NULL, NULL);
+             0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL);
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -952,6 +955,8 @@ internal static class SqlServerMesIngestSchema
             (N'HistoryCleanupState', 13, N'HistoryCleanupTotalDeletedSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
             (N'HistoryCleanupState', 14, N'HistoryCleanupLastFailureCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'HistoryCleanupState', 15, N'HistoryCleanupLastFailureReason', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'HistoryCleanupState', 16, N'HistoryCleanupLastFailureAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'HistoryCleanupState', 17, N'HistoryCleanupLastFailureRunId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -1460,7 +1465,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 51
+            WHERE s.name = N'mesingest') <> 50
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e

@@ -47,8 +47,10 @@ public sealed class IngestWorkPriorityGate
 
 public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
 {
-    internal const int MaximumRawObservationRowsPerTransaction = 25_000;
+    internal const int MaximumRawObservationRowsPerTransaction =
+        HistoryRetentionPolicy.MaximumRawObservationsPerPollTrace;
     internal const int MaximumPollTracesPerTransaction = 50;
+    internal static readonly TimeSpan TerminalStatePersistenceTimeout = TimeSpan.FromSeconds(1);
 
     private readonly IHistoryCleanupOperations _operations;
     private readonly MesIngestHostOptions _options;
@@ -186,12 +188,23 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
             nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, interruptedAt, interval);
             if (runStarted)
             {
-                await _operations.CompleteHistoryCleanupRunAsync(
-                    runId,
-                    HistoryCleanupRunStatuses.Interrupted,
-                    interruptedAt,
-                    nextCheckAt,
-                    CancellationToken.None).ConfigureAwait(false);
+                using var persistenceTimeout = new CancellationTokenSource(
+                    TerminalStatePersistenceTimeout);
+                try
+                {
+                    await _operations.CompleteHistoryCleanupRunAsync(
+                        runId,
+                        HistoryCleanupRunStatuses.Interrupted,
+                        interruptedAt,
+                        nextCheckAt,
+                        persistenceTimeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception persistenceException)
+                {
+                    _logger.LogError(
+                        "History cleanup interruption state was not persisted ({ExceptionType}).",
+                        persistenceException.GetType().Name);
+                }
             }
             throw;
         }
@@ -201,13 +214,24 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
             nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, failedAt, interval);
             if (runStarted)
             {
-                await _operations.FailHistoryCleanupRunAsync(
-                    runId,
-                    failedAt,
-                    nextCheckAt,
-                    HistoryCleanupFailureCodes.BatchFailed,
-                    exception.GetType().Name,
-                    CancellationToken.None).ConfigureAwait(false);
+                using var persistenceTimeout = new CancellationTokenSource(
+                    TerminalStatePersistenceTimeout);
+                try
+                {
+                    await _operations.FailHistoryCleanupRunAsync(
+                        runId,
+                        failedAt,
+                        nextCheckAt,
+                        HistoryCleanupFailureCodes.BatchFailed,
+                        exception.GetType().Name,
+                        persistenceTimeout.Token).ConfigureAwait(false);
+                }
+                catch (Exception persistenceException)
+                {
+                    _logger.LogError(
+                        "History cleanup failure state was not persisted ({ExceptionType}).",
+                        persistenceException.GetType().Name);
+                }
             }
             _logger.LogError(
                 "History cleanup batch failed ({ExceptionType}); nextCheck={NextCheckAt}.",

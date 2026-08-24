@@ -409,7 +409,7 @@ public sealed partial class SqlServerMesIngestProjection
         items.Add(new CurrentIngestAttentionItemSnapshot(
             CurrentIngestAttentionKinds.HistoryCleanupFailure,
             CurrentIngestAttentionSeverities.Error,
-            state.LastCompletedAt ?? state.LastStartedAt
+            state.LastFailureAt
                 ?? throw new InvalidOperationException(
                     "A history cleanup failure must have an occurrence time."),
             "HISTORY_CLEANUP_FAILURE",
@@ -419,7 +419,7 @@ public sealed partial class SqlServerMesIngestProjection
             Target: null,
             SubjectKind: "HISTORY_CLEANUP",
             new CurrentIngestAttentionEvidenceSnapshot(
-                EvidenceId: state.RunId,
+                EvidenceId: state.LastFailureRunId,
                 Phase: state.Status,
                 FailureReason: state.LastFailureReason,
                 NextCheckAt: state.NextCheckAt),

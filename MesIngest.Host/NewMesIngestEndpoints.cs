@@ -1547,7 +1547,9 @@ internal sealed record HistoryCleanupStateDto(
     long TotalDeletedSeriesCount,
     DateTimeOffset? EarliestAvailableHostUtc,
     string? LastFailureCode,
-    string? LastFailureReason)
+    string? LastFailureReason,
+    DateTimeOffset? LastFailureAt,
+    string? LastFailureRunId)
 {
     public static HistoryCleanupStateDto From(HistoryCleanupStateSnapshot state) => new(
         state.Status,
@@ -1564,7 +1566,9 @@ internal sealed record HistoryCleanupStateDto(
         state.TotalDeletedSeriesCount,
         state.EarliestAvailableHostUtc,
         state.LastFailureCode,
-        state.LastFailureReason);
+        state.LastFailureReason,
+        state.LastFailureAt,
+        state.LastFailureRunId);
 }
 
 internal sealed record WatchOverviewFacetDto(
