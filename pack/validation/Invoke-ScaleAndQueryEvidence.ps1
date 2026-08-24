@@ -1528,6 +1528,7 @@ function New-FailedAcceleratedStabilityValues {
         retrySchedulePassed = $false; logicalDayBoundaryPassed = $false
         historyEpochPreservedAcrossRestart = $false; restartStatePreserved = $false
         runtimeFailureType = $null; runtimeFailureStage = $null; runtimeFailureDetailType = $null
+        runtimeFailureCode = $null
         hostExitedBeforeFailure = $null; hostExitCode = $null; resourceSnapshotsComplete = $false
         latencySamplesComplete = $false; xeventSignalsComplete = $false
         cleanupEvidenceComplete = $false; deterministicContractEvidenceComplete = $false
@@ -1639,6 +1640,7 @@ function New-AcceleratedStabilityEvidence {
             runtimeFailureType = $Values.runtimeFailureType
             runtimeFailureStage = $Values.runtimeFailureStage
             runtimeFailureDetailType = $Values.runtimeFailureDetailType
+            runtimeFailureCode = $Values.runtimeFailureCode
             hostExitedBeforeFailure = $Values.hostExitedBeforeFailure
             hostExitCode = $Values.hostExitCode
             resourceSnapshotsComplete = $Values.resourceSnapshotsComplete
@@ -3301,6 +3303,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             runtimeFailureType = $null
             runtimeFailureStage = $null
             runtimeFailureDetailType = $null
+            runtimeFailureCode = $null
             hostExitedBeforeFailure = $null
             hostExitCode = $null
             resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
@@ -3318,11 +3321,18 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             } else {
                 $_.Exception.InnerException.GetType().Name
             }
+            $runtimeFailureCode = if ($_.Exception.Message -match `
+                    '^([A-Za-z0-9]+) returned HTTP ([0-9]{3})\.$') {
+                ('HTTP_' + $Matches[1].ToUpperInvariant() + '_' + $Matches[2])
+            } elseif ($_.Exception.Message -match '^Frozen DemandSeries detail returned HTTP ([0-9]{3})\.$') {
+                'HTTP_FROZEN_DEMAND_SERIES_' + $Matches[1]
+            } else { $null }
             Stop-EvidenceHost $hostRun
             $hostRun = $null
             $stabilityValues['runtimeFailureType'] = $_.Exception.GetType().Name
             $stabilityValues['runtimeFailureStage'] = $stabilityStage
             $stabilityValues['runtimeFailureDetailType'] = $runtimeFailureDetailType
+            $stabilityValues['runtimeFailureCode'] = $runtimeFailureCode
             $stabilityValues['hostExitedBeforeFailure'] = $hostExitedBeforeFailure
             $stabilityValues['hostExitCode'] = $hostExitCode
             $stabilityValues['durationSeconds'] = `

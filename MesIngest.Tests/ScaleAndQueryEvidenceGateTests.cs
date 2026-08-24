@@ -109,6 +109,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "ticket27LinearityTolerance",
                      "runtimeFailureStage",
                      "runtimeFailureDetailType",
+                     "runtimeFailureCode",
                      "hostExitedBeforeFailure",
                      "CapacityBlockerEvidencePath",
                      "ticket27CapacityBlocked",
