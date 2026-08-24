@@ -6,16 +6,4 @@ obj/
 appsettings.Local.json
 appsettings.*.Local.json
 dist/
-.artifacts/ticket04-tests/
-.artifacts/ticket05-tests/
-.artifacts/ticket06-tests/
-.artifacts/ticket07-tests/
-.artifacts/ticket08-tests/
-.artifacts/ticket09-tests/
-.artifacts/ticket10-tests/
-.artifacts/ticket11-tests/
-.artifacts/ticket12-tests/
-.artifacts/ticket14-tests/
-.artifacts/ticket15-tests/
-.artifacts/ticket16-tests/
-.artifacts/ticket15-release-package/
+.artifacts/
