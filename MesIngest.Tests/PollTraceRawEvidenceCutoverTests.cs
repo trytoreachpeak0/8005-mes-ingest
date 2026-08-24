@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace MesIngest.Tests;
@@ -25,7 +26,8 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
-        await using var factory = CreateFactory();
+        await using var factory = CreateFactory(new AdjustableTimeProvider(
+            new DateTimeOffset(2026, 8, 24, 1, 2, 0, TimeSpan.Zero)));
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
         var targetCompletedAt = new DateTimeOffset(2026, 8, 24, 1, 0, 0, TimeSpan.Zero);
@@ -104,7 +106,8 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
-        await using var factory = CreateFactory();
+        await using var factory = CreateFactory(new AdjustableTimeProvider(
+            new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero)));
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
         var expiredCompletedAt = new DateTimeOffset(2026, 7, 24, 1, 0, 0, TimeSpan.Zero);
@@ -287,8 +290,16 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
         return json.RootElement.Clone();
     }
 
-    private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+    private WebApplicationFactory<Program> CreateFactory(AdjustableTimeProvider clock) =>
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(Environments.Production);
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(clock);
+            });
+        });
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
         new Ticket01ProcessEnvironmentScope(new Dictionary<string, string?>

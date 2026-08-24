@@ -52,6 +52,11 @@ public sealed partial class SqlServerMesIngestProjection
                 query,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                snapshot.Snapshot.PollTraceId,
+                cancellationToken).ConfigureAwait(false);
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
 

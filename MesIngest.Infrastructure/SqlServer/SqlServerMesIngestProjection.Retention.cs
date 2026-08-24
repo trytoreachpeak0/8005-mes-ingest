@@ -11,7 +11,8 @@ public sealed partial class SqlServerMesIngestProjection
     {
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
         var advancedAt = _timeProvider.GetUtcNow().ToUniversalTime();
-        var cutoff = advancedAt.Subtract(HistoryRetentionPolicy.AvailabilityWindow);
+        var cutoff = advancedAt.Subtract(
+            HistoryRetentionPolicy.RawObservationAvailabilityWindow);
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -108,6 +109,7 @@ public sealed partial class SqlServerMesIngestProjection
         SqlConnection connection,
         SqlTransaction transaction,
         DateTimeOffset eligibilityAt,
+        string projectionCommitId,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
@@ -136,7 +138,25 @@ public sealed partial class SqlServerMesIngestProjection
                              )
                         THEN 1
                         ELSE 0
-                    END) AS IsEligible
+                    END) AS IsEligible,
+                    CONVERT(BIT, CASE
+                        WHEN EXISTS
+                             (
+                                 SELECT 1
+                                 FROM mesingest.DemandRawObservations AS observation
+                                 WHERE observation.SeriesId = series.SeriesId
+                                   AND observation.ProjectionCommitId = @projectionCommitId
+                             )
+                             OR EXISTS
+                             (
+                                 SELECT 1
+                                 FROM mesingest.DemandSeriesEvents AS seriesEvent
+                                 WHERE seriesEvent.SeriesId = series.SeriesId
+                                   AND seriesEvent.ProjectionCommitId = @projectionCommitId
+                             )
+                        THEN 1
+                        ELSE 0
+                    END) AS HadActivityThisCommit
                 FROM mesingest.DemandSeries AS series
                 INNER JOIN mesingest.TransportDemands AS demand
                     ON demand.DemandId = series.CurrentDemandId
@@ -149,10 +169,13 @@ public sealed partial class SqlServerMesIngestProjection
                 END
             FROM mesingest.DemandSeries AS series
             INNER JOIN RetentionState AS state ON state.SeriesId = series.SeriesId
-            WHERE (state.IsEligible = 1 AND series.RetentionEligibilityAt IS NULL)
+            WHERE (state.IsEligible = 1
+                   AND (series.RetentionEligibilityAt IS NULL
+                        OR state.HadActivityThisCommit = 1))
                OR (state.IsEligible = 0 AND series.RetentionEligibilityAt IS NOT NULL);
             """;
         AddDateTimeOffset(command, "@eligibilityAt", eligibilityAt.ToUniversalTime());
+        AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

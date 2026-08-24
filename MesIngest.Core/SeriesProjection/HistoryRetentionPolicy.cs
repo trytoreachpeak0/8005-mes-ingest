@@ -1,29 +1,32 @@
 namespace MesIngest.Core.SeriesProjection;
 
 /// <summary>
-/// Exact Host-UTC boundaries shared by raw-observation availability and
-/// retention-eligible Series cleanup. Calendar months and local dates are not
-/// part of either contract.
+/// Exact Host-UTC boundaries for RawObservationAvailabilityWindow and
+/// RetentionEligibleDemandSeries. Calendar months and local dates are not part
+/// of either contract.
 /// </summary>
 public static class HistoryRetentionPolicy
 {
-    public static readonly TimeSpan AvailabilityWindow = TimeSpan.FromDays(30);
+    public static readonly TimeSpan RawObservationAvailabilityWindow = TimeSpan.FromDays(30);
+
+    public static readonly TimeSpan RetentionEligibleDemandSeriesWindow = TimeSpan.FromDays(30);
 
     public static DateTimeOffset RawObservationExpiresAt(DateTimeOffset completedAt) =>
-        completedAt.ToUniversalTime().Add(AvailabilityWindow);
+        completedAt.ToUniversalTime().Add(RawObservationAvailabilityWindow);
 
     public static bool IsRawObservationExpired(
         DateTimeOffset completedAt,
         DateTimeOffset asOf) =>
         asOf.ToUniversalTime() >= RawObservationExpiresAt(completedAt);
 
-    public static DateTimeOffset SeriesCleanupDueAt(DateTimeOffset eligibilityAt) =>
-        eligibilityAt.ToUniversalTime().Add(AvailabilityWindow);
+    public static DateTimeOffset RetentionEligibleDemandSeriesCleanupDueAt(
+        DateTimeOffset eligibilityAt) =>
+        eligibilityAt.ToUniversalTime().Add(RetentionEligibleDemandSeriesWindow);
 
-    public static bool IsSeriesCleanupDue(
+    public static bool IsRetentionEligibleDemandSeriesCleanupDue(
         DateTimeOffset eligibilityAt,
         DateTimeOffset asOf) =>
-        asOf.ToUniversalTime() >= SeriesCleanupDueAt(eligibilityAt);
+        asOf.ToUniversalTime() >= RetentionEligibleDemandSeriesCleanupDueAt(eligibilityAt);
 }
 
 public sealed record HistoryRetentionAdvanceResult(

@@ -186,6 +186,58 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
     }
 
     [Ticket01SqlServerFact]
+    public async Task Raw_evidence_from_an_expired_PollTrace_is_410_under_a_newer_retained_snapshot()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        var observedAt = new DateTimeOffset(2026, 7, 1, 3, 0, 0, TimeSpan.Zero);
+        var retainedAt = observedAt.AddDays(1);
+        var clock = new AdjustableTimeProvider(retainedAt);
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        const string sublot = "SL-T13-EXPIRED-RAW-EVIDENCE";
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket13-expired-raw-open",
+            observedAt,
+            Observation(sublot, "N3-3", "WB-31", "QFN-A"),
+            Observation(sublot, "N3-4", "WB-32", "QFN-B")));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket13-expired-raw-retained",
+            retainedAt,
+            Observation(sublot, "N3-3", "WB-31", "QFN-VALID")));
+
+        var list = await GetJsonAsync(
+            client,
+            "/api/v2/error-search?window=ALL_HISTORY"
+            + "&code=DUPLICATE_TRANSPORT_DEMAND_KEY&pageSize=20");
+        var seriesId = Assert.Single(list.GetProperty("items").EnumerateArray())
+            .GetProperty("seriesId").GetString()!;
+        var snapshotReference = list.GetProperty("snapshotReference").GetString()!;
+        var detail = await GetJsonAsync(client, DetailUri(seriesId, snapshotReference));
+        var evidenceId = detail.GetProperty("periods").EnumerateArray()
+            .SelectMany(period => period.GetProperty("evidence").EnumerateArray())
+            .Single(value => value.GetProperty("pollTraceId").GetString()
+                == "poll-ticket13-expired-raw-open")
+            .GetProperty("evidenceId").GetString()!;
+
+        clock.SetUtcNow(observedAt.AddDays(30));
+        using var response = await SendAuthorizedAsync(
+            client,
+            RawUri(seriesId, evidenceId, snapshotReference, "workType,package", 20));
+        var body = await response.Content.ReadAsStringAsync();
+        using var json = JsonDocument.Parse(body);
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        Assert.Equal(
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            json.RootElement.GetProperty("code").GetString());
+        Assert.Equal(
+            observedAt,
+            json.RootElement.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
+    }
+
+    [Ticket01SqlServerFact]
     public async Task Raw_evidence_rejections_are_stable_non_leaking_and_leave_the_snapshot_unchanged()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();

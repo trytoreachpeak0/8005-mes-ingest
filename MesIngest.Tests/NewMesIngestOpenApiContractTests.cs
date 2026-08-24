@@ -328,6 +328,31 @@ public sealed class NewMesIngestOpenApiContractTests
             "MES_INGEST_HISTORY_EXPIRED",
             expired.GetProperty("description").GetString(),
             StringComparison.Ordinal);
+        foreach (var path in new[]
+        {
+            "/api/v2/demand-series/{seriesId}",
+            "/api/v2/readability-audit/{demandId}",
+            "/api/v2/error-search/{seriesId}",
+            "/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
+        })
+        {
+            var gone = root.GetProperty("paths")
+                .GetProperty(path)
+                .GetProperty("get")
+                .GetProperty("responses")
+                .GetProperty("410");
+            Assert.Contains(
+                PollEvidenceErrorCodes.MesIngestHistoryExpired,
+                gone.GetProperty("description").GetString(),
+                StringComparison.Ordinal);
+            Assert.Equal(
+                2,
+                gone.GetProperty("content")
+                    .GetProperty("application/json")
+                    .GetProperty("schema")
+                    .GetProperty("oneOf")
+                    .GetArrayLength());
+        }
 
         var catalogOperation = root.GetProperty("paths")
             .GetProperty("/api/v2/externally-readable-demand-catalog")

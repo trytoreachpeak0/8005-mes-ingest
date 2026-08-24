@@ -94,7 +94,12 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             responses[status] = operation.Path == "/api/v2/poll-traces/{pollTraceId}"
                 && status is "404" or "410"
                     ? JsonResponse(description, typeof(HistoricalReadErrorDto), context)
-                    : ErrorResponse(description, context);
+                    : status == "410"
+                      && description.Contains(
+                          PollEvidenceErrorCodes.MesIngestHistoryExpired,
+                          StringComparison.Ordinal)
+                        ? HistoricalOrCapabilityErrorResponse(description, context)
+                        : ErrorResponse(description, context);
         }
 
         if (!responses.ContainsKey("400"))
@@ -140,6 +145,32 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
         string description,
         DocumentFilterContext context) =>
         JsonResponse(description, typeof(NewMesIngestErrorDto), context);
+
+    private static OpenApiResponse HistoricalOrCapabilityErrorResponse(
+        string description,
+        DocumentFilterContext context) =>
+        new()
+        {
+            Description = description,
+            Content = new Dictionary<string, OpenApiMediaType>(StringComparer.Ordinal)
+            {
+                [JsonMediaType] = new()
+                {
+                    Schema = new OpenApiSchema
+                    {
+                        OneOf =
+                        [
+                            context.SchemaGenerator.GenerateSchema(
+                                typeof(NewMesIngestErrorDto),
+                                context.SchemaRepository),
+                            context.SchemaGenerator.GenerateSchema(
+                                typeof(HistoricalReadErrorDto),
+                                context.SchemaRepository),
+                        ],
+                    },
+                },
+            },
+        };
 
     private static Dictionary<string, OpenApiHeader> CatalogHeaders() =>
         new(StringComparer.Ordinal)
@@ -344,7 +375,7 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
                 ("400", "INVALID_ERROR_SEARCH_QUERY, INVALID_ERROR_SEARCH_SNAPSHOT_REFERENCE, or RAW_EVIDENCE_FIELD_NOT_ALLOWED."),
                 ("403", "RAW_EVIDENCE_ACCESS_DENIED — explicit Bearer authorization is absent or wrong."),
                 ("404", "ERROR_SEARCH_OBJECT_NOT_IN_SNAPSHOT."),
-                ("410", "ERROR_SEARCH_SNAPSHOT_NOT_FOUND."),
+                ("410", "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc."),
                 ("413", "RAW_EVIDENCE_LIMIT_EXCEEDED.")));
         yield return Operation(
             "/api/v2/current-ingest-attention",
@@ -428,17 +459,17 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
     private static IReadOnlyDictionary<string, string> BrowseErrors() => Errors(
         ("400", "INVALID_DEMAND_SERIES_QUERY, INVALID_DEMAND_SERIES_SNAPSHOT_REFERENCE, DEMAND_SERIES_SNAPSHOT_MISMATCH, INVALID_DEMAND_SERIES_CURSOR, or DEMAND_SERIES_CURSOR_MISMATCH."),
         ("409", "DEMAND_SERIES_PROJECTION_NOT_AVAILABLE."),
-        ("410", "DEMAND_SERIES_SNAPSHOT_NOT_FOUND."));
+        ("410", "DEMAND_SERIES_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc."));
 
     private static IReadOnlyDictionary<string, string> AuditErrors() => Errors(
         ("400", "INVALID_READABILITY_AUDIT_QUERY, INVALID_READABILITY_AUDIT_SNAPSHOT_REFERENCE, READABILITY_AUDIT_SNAPSHOT_MISMATCH, INVALID_READABILITY_AUDIT_CURSOR, or READABILITY_AUDIT_CURSOR_MISMATCH."),
         ("409", "READABILITY_AUDIT_PROJECTION_NOT_AVAILABLE."),
-        ("410", "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND."));
+        ("410", "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc."));
 
     private static IReadOnlyDictionary<string, string> SearchErrors() => Errors(
         ("400", "INVALID_ERROR_SEARCH_QUERY, INVALID_ERROR_SEARCH_SNAPSHOT_REFERENCE, ERROR_SEARCH_SNAPSHOT_MISMATCH, INVALID_ERROR_SEARCH_CURSOR, or ERROR_SEARCH_CURSOR_MISMATCH."),
         ("409", "ERROR_SEARCH_PROJECTION_NOT_AVAILABLE."),
-        ("410", "ERROR_SEARCH_SNAPSHOT_NOT_FOUND."));
+        ("410", "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc."));
 
     private static IReadOnlyDictionary<string, string> DetailErrors(string prefix) => prefix switch
     {

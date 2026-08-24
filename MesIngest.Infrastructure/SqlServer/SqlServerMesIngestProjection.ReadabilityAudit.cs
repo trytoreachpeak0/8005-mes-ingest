@@ -48,6 +48,11 @@ public sealed partial class SqlServerMesIngestProjection
                 query.SnapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                snapshot.PollTraceId,
+                cancellationToken).ConfigureAwait(false);
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.ReadabilityAudit,
                 new ProjectionReadFence(
@@ -155,6 +160,11 @@ public sealed partial class SqlServerMesIngestProjection
                 transaction,
                 snapshotReference,
                 signingKey,
+                cancellationToken).ConfigureAwait(false);
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                snapshot.PollTraceId,
                 cancellationToken).ConfigureAwait(false);
             await _readBoundaryObserver.OnFenceSelectedAsync(
                 ProjectionReadSurface.ReadabilityAudit,

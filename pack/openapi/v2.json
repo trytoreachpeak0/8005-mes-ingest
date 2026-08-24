@@ -445,11 +445,18 @@
             }
           },
           "410": {
-            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND.",
+            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -540,11 +547,18 @@
             }
           },
           "410": {
-            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND.",
+            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -636,11 +650,18 @@
             }
           },
           "410": {
-            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND.",
+            "description": "DEMAND_SERIES_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -853,11 +874,18 @@
             }
           },
           "410": {
-            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND.",
+            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -940,11 +968,18 @@
             }
           },
           "410": {
-            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND.",
+            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -1089,11 +1124,18 @@
             }
           },
           "410": {
-            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND.",
+            "description": "ERROR_SEARCH_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -1604,11 +1646,18 @@
             }
           },
           "410": {
-            "description": "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND.",
+            "description": "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }
@@ -1691,11 +1740,18 @@
             }
           },
           "410": {
-            "description": "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND.",
+            "description": "READABILITY_AUDIT_SNAPSHOT_NOT_FOUND, or MES_INGEST_HISTORY_EXPIRED with HistoryEpoch and earliestAvailableHostUtc.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NewMesIngestErrorDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/HistoricalReadErrorDto"
+                    }
+                  ]
                 }
               }
             }

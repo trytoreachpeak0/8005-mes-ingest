@@ -54,6 +54,9 @@ public sealed partial class SqlServerMesIngestProjection
                 cancellationToken).ConfigureAwait(false);
 
             if (trace.RawObservationsExpiredAt is not null
+                || HistoryRetentionPolicy.IsRawObservationExpired(
+                    trace.CompletedAt,
+                    _timeProvider.GetUtcNow())
                 || (boundary.EarliestAvailableHostUtc is { } earliest
                     && trace.CompletedAt < earliest))
             {

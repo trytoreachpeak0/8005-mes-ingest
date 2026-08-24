@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using MesIngest.Infrastructure.SqlServer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
@@ -28,7 +29,12 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         var completedAt = new DateTimeOffset(2026, 7, 1, 8, 15, 30, TimeSpan.Zero);
         var boundary = completedAt.AddDays(30);
 
-        Assert.Equal(TimeSpan.FromDays(30), HistoryRetentionPolicy.AvailabilityWindow);
+        Assert.Equal(
+            TimeSpan.FromDays(30),
+            HistoryRetentionPolicy.RawObservationAvailabilityWindow);
+        Assert.Equal(
+            TimeSpan.FromDays(30),
+            HistoryRetentionPolicy.RetentionEligibleDemandSeriesWindow);
         Assert.Equal(boundary, HistoryRetentionPolicy.RawObservationExpiresAt(completedAt));
         Assert.False(HistoryRetentionPolicy.IsRawObservationExpired(
             completedAt,
@@ -38,11 +44,13 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             completedAt,
             boundary.AddTicks(1)));
 
-        Assert.False(HistoryRetentionPolicy.IsSeriesCleanupDue(
+        Assert.False(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
             completedAt,
             boundary.AddTicks(-1)));
-        Assert.True(HistoryRetentionPolicy.IsSeriesCleanupDue(completedAt, boundary));
-        Assert.True(HistoryRetentionPolicy.IsSeriesCleanupDue(
+        Assert.True(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
+            completedAt,
+            boundary));
+        Assert.True(HistoryRetentionPolicy.IsRetentionEligibleDemandSeriesCleanupDue(
             completedAt,
             boundary.AddTicks(1)));
     }
@@ -66,6 +74,9 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             InvalidObservation("SL-TICKET13-RETAINED-GRAPH"),
             InvalidObservation("SL-TICKET13-RETAINED-GRAPH"),
             new MesTaskUnionObservation(null, null, null, null, null, null, null, null)));
+        var oldSeriesSnapshot = await ReadSeriesAsync(client, "SL-TICKET13-RETAINED-GRAPH");
+        var oldSeriesId = oldSeriesSnapshot.GetProperty("seriesId").GetString()!;
+        var oldSnapshotReference = oldSeriesSnapshot.GetProperty("snapshotReference").GetString()!;
         var emptyExpired = await ingestor.IngestAsync(FailureRound(
             "poll-ticket13-expiring-empty",
             completedAt));
@@ -86,39 +97,44 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         }
 
         clock.SetUtcNow(completedAt.AddDays(30));
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/poll-traces/{expiring.PollTraceId}",
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/demand-series/{oldSeriesId}?snapshot="
+            + Uri.EscapeDataString(oldSnapshotReference),
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
+
         var expired = await projection.AdvanceHistoryRetentionAsync();
         Assert.Equal(clock.GetUtcNow(), expired.AdvancedAt);
         Assert.Equal(completedAt, expired.RawObservationCutoff);
         Assert.Equal(2, expired.ExpiredPollTraceCount);
         Assert.Equal(3, expired.DeletedRawObservationCount);
 
-        using (var response = await client.GetAsync($"/api/v2/poll-traces/{expiring.PollTraceId}"))
-        {
-            var body = await ReadJsonAsync(response);
-            Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
-            Assert.Equal(PollEvidenceErrorCodes.MesIngestHistoryExpired,
-                body.GetProperty("code").GetString());
-            Assert.Equal(retainedAt,
-                body.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
-        }
-        using (var response = await client.GetAsync($"/api/v2/poll-traces/{emptyExpired.PollTraceId}"))
-        {
-            var body = await ReadJsonAsync(response);
-            Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
-            Assert.Equal(PollEvidenceErrorCodes.MesIngestHistoryExpired,
-                body.GetProperty("code").GetString());
-            Assert.Equal(retainedAt,
-                body.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
-        }
-        using (var response = await client.GetAsync("/api/v2/poll-traces/poll-ticket13-never-existed"))
-        {
-            var body = await ReadJsonAsync(response);
-            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-            Assert.Equal(PollEvidenceErrorCodes.PollTraceNotFound,
-                body.GetProperty("code").GetString());
-            Assert.Equal(retainedAt,
-                body.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
-        }
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/poll-traces/{expiring.PollTraceId}",
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            retainedAt);
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/poll-traces/{emptyExpired.PollTraceId}",
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            retainedAt);
+        await AssertHistoricalUnavailableAsync(
+            client,
+            "/api/v2/poll-traces/poll-ticket13-never-existed",
+            HttpStatusCode.NotFound,
+            PollEvidenceErrorCodes.PollTraceNotFound,
+            retainedAt);
 
         var afterSeries = await ReadSeriesAsync(client, "SL-TICKET13-RETAINED-GRAPH");
         Assert.Equal(
@@ -146,7 +162,8 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
         var firstSeenAt = new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero);
         var clock = new AdjustableTimeProvider(firstSeenAt);
-        await using var factory = CreateFactory(clock);
+        var eventObserver = new SeriesActivityCheckpointObserver();
+        await using var factory = CreateFactory(clock, eventObserver);
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
 
@@ -175,7 +192,8 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         Assert.Equal(DemandSeriesLifecycleContract.Gone, eligible.CurrentPresence);
         Assert.Equal(archiveAt, eligible.EligibilityAt);
         Assert.Equal(archiveAt.AddDays(30),
-            HistoryRetentionPolicy.SeriesCleanupDueAt(eligible.EligibilityAt!.Value));
+            HistoryRetentionPolicy.RetentionEligibleDemandSeriesCleanupDueAt(
+                eligible.EligibilityAt!.Value));
         Assert.Equal(0, eligible.CurrentConditionCount);
         Assert.Equal(0, eligible.OpenErrorPeriodCount);
 
@@ -184,6 +202,19 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             archiveAt.AddMinutes(1)));
         var stillEligible = await ReadRetentionStateAsync(database.ConnectionString, seriesId);
         Assert.Equal(archiveAt, stillEligible.EligibilityAt);
+
+        var eventOnlyAt = archiveAt.AddMinutes(2);
+        eventObserver.Arm("poll-ticket13-event-only-activity", seriesId, eventOnlyAt);
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket13-event-only-activity",
+            eventOnlyAt));
+        var eligibleAfterEvent = await ReadRetentionStateAsync(
+            database.ConnectionString,
+            seriesId);
+        Assert.Equal(eventOnlyAt, eligibleAfterEvent.EligibilityAt);
+        Assert.True(eligibleAfterEvent.EventCount > stillEligible.EventCount);
+        Assert.Equal(0, eligibleAfterEvent.CurrentConditionCount);
+        Assert.Equal(0, eligibleAfterEvent.OpenErrorPeriodCount);
 
         var reappearedAt = archiveAt.AddHours(1);
         await ingestor.IngestAsync(SuccessRound(
@@ -230,16 +261,17 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         Assert.Equal(0, advance.DeletedRawObservationCount);
         Assert.Equal(completedAt, advance.EarliestAvailableHostUtc);
 
-        using var response = await client.GetAsync($"/api/v2/poll-traces/{receipt.PollTraceId}");
-        var body = await ReadJsonAsync(response);
-        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
-        Assert.Equal(PollEvidenceErrorCodes.MesIngestHistoryExpired,
-            body.GetProperty("code").GetString());
-        Assert.Equal(completedAt,
-            body.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
+        await AssertHistoricalUnavailableAsync(
+            client,
+            $"/api/v2/poll-traces/{receipt.PollTraceId}",
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
     }
 
-    private WebApplicationFactory<Program> CreateFactory(AdjustableTimeProvider clock) =>
+    private WebApplicationFactory<Program> CreateFactory(
+        AdjustableTimeProvider clock,
+        IProjectionCommitCheckpointObserver? checkpointObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(Environments.Production);
@@ -247,6 +279,11 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             {
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(clock);
+                if (checkpointObserver is not null)
+                {
+                    services.RemoveAll<IProjectionCommitCheckpointObserver>();
+                    services.AddSingleton(checkpointObserver);
+                }
             });
         });
 
@@ -310,6 +347,22 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         var body = await response.Content.ReadAsStringAsync();
         using var json = JsonDocument.Parse(body);
         return json.RootElement.Clone();
+    }
+
+    private static async Task AssertHistoricalUnavailableAsync(
+        HttpClient client,
+        string uri,
+        HttpStatusCode expectedStatus,
+        string expectedCode,
+        DateTimeOffset expectedBoundary)
+    {
+        using var response = await client.GetAsync(uri);
+        var body = await ReadJsonAsync(response);
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Equal(expectedCode, body.GetProperty("code").GetString());
+        Assert.Equal(
+            expectedBoundary,
+            body.GetProperty("earliestAvailableHostUtc").GetDateTimeOffset());
     }
 
     private static async Task<int> CountRawObservationsAsync(
@@ -376,4 +429,71 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         int OpenErrorPeriodCount,
         int EventCount,
         int RawObservationCount);
+
+    private sealed class SeriesActivityCheckpointObserver
+        : IProjectionCommitCheckpointObserver
+    {
+        private string? _pollTraceId;
+        private string? _seriesId;
+        private DateTimeOffset? _occurredAt;
+
+        public void Arm(
+            string pollTraceId,
+            string seriesId,
+            DateTimeOffset occurredAt)
+        {
+            Assert.Null(_pollTraceId);
+            _pollTraceId = pollTraceId;
+            _seriesId = seriesId;
+            _occurredAt = occurredAt;
+        }
+
+        public async Task OnCheckpointAsync(
+            ProjectionCommitCheckpoint checkpoint,
+            ProjectionCommitCheckpointContext context,
+            SqlConnection connection,
+            SqlTransaction transaction,
+            CancellationToken cancellationToken)
+        {
+            if (checkpoint is not ProjectionCommitCheckpoint.DemandProjectionPersisted
+                || !string.Equals(context.PollTraceId, _pollTraceId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var seriesId = _seriesId!;
+            var occurredAt = _occurredAt!.Value;
+            _pollTraceId = null;
+            _seriesId = null;
+            _occurredAt = null;
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                DECLARE @nextSequence BIGINT =
+                    (SELECT LastSeriesSequence + 1
+                     FROM mesingest.DemandSeries WITH (UPDLOCK, HOLDLOCK)
+                     WHERE SeriesId = @seriesId);
+
+                INSERT INTO mesingest.DemandSeriesEvents
+                    (EventId, SeriesId, SeriesSequence, EventType, OccurredAt,
+                     SubjectKind, SubjectId, PollTraceId, ProjectionCommitId,
+                     PayloadVersion, Payload)
+                VALUES
+                    (@eventId, @seriesId, @nextSequence, N'RETENTION_ACTIVITY_TEST',
+                     @occurredAt, N'SERIES', @seriesId, @pollTraceId,
+                     @projectionCommitId, 1, N'{"source":"checkpoint"}');
+
+                UPDATE mesingest.DemandSeries
+                SET LastSeriesSequence = @nextSequence,
+                    LatestProjectionCommitId = @projectionCommitId
+                WHERE SeriesId = @seriesId;
+                """;
+            command.Parameters.AddWithValue("@eventId", Guid.NewGuid().ToString("N"));
+            command.Parameters.AddWithValue("@seriesId", seriesId);
+            command.Parameters.AddWithValue("@occurredAt", occurredAt);
+            command.Parameters.AddWithValue("@pollTraceId", context.PollTraceId);
+            command.Parameters.AddWithValue("@projectionCommitId", context.ProjectionCommitId);
+            Assert.Equal(2, await command.ExecuteNonQueryAsync(cancellationToken));
+        }
+    }
 }

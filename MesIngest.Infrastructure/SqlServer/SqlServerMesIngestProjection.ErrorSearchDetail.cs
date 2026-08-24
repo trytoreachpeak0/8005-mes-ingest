@@ -47,6 +47,11 @@ public sealed partial class SqlServerMesIngestProjection
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                snapshot.Snapshot.PollTraceId,
+                cancellationToken).ConfigureAwait(false);
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
             var series = await ReadErrorSearchSeriesMatchAsync(
@@ -115,6 +120,11 @@ public sealed partial class SqlServerMesIngestProjection
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                snapshot.Snapshot.PollTraceId,
+                cancellationToken).ConfigureAwait(false);
             await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
                 .ConfigureAwait(false);
             var matchedEvidence = await ReadExactErrorSearchEvidenceAsync(
@@ -129,6 +139,12 @@ public sealed partial class SqlServerMesIngestProjection
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return null;
             }
+
+            await EnsureHistoricalPollTraceAvailableAsync(
+                connection,
+                transaction,
+                matchedEvidence.Evidence.PollTraceId,
+                cancellationToken).ConfigureAwait(false);
 
             var items = await ReadBoundedRawEvidenceItemsAsync(
                 connection,
