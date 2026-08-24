@@ -546,6 +546,255 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
     }
 
     [Ticket01SqlServerFact]
+    public async Task Frozen_read_matrix_is_commit_consistent_nonblocking_and_cancellation_releases_resources()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var at = new DateTimeOffset(2026, 8, 24, 2, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(at.AddHours(1));
+        var frozenObserver = new ConcurrentProjectionReadBoundaryObserver();
+        var overviewObserver = new MatrixOverviewReadBoundaryObserver();
+        await using var factory = CreateFactory(
+            clock,
+            readBoundaryObserver: frozenObserver,
+            overviewReadBoundaryObserver: overviewObserver);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+
+        var rowA = Observation(
+            "FROZEN-MATRIX",
+            "SL-TICKET12-FROZEN-MATRIX",
+            "N1-1",
+            eqp: null);
+        var receiptA = await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket12-frozen-a",
+            at,
+            [rowA]));
+
+        var demandA = await ReadJsonAsync(client, SeriesListPath);
+        var demandSnapshot = demandA.GetProperty("snapshotReference").GetString()!;
+        var demandItem = Assert.Single(demandA.GetProperty("items").EnumerateArray());
+        var seriesId = demandItem.GetProperty("seriesId").GetString()!;
+        var frozenDemandListPath = SeriesListPath
+            + "&snapshot=" + Uri.EscapeDataString(demandSnapshot);
+        var frozenDemandDetailPath = "/api/v2/demand-series/"
+            + Uri.EscapeDataString(seriesId)
+            + "?snapshot=" + Uri.EscapeDataString(demandSnapshot);
+
+        var auditA = await ReadJsonAsync(
+            client,
+            "/api/v2/readability-audit?pageSize=100");
+        var auditSnapshot = auditA.GetProperty("snapshotReference").GetString()!;
+        var auditItem = Assert.Single(auditA.GetProperty("items").EnumerateArray());
+        var demandId = auditItem.GetProperty("demandId").GetString()!;
+        var frozenAuditListPath = "/api/v2/readability-audit?pageSize=100"
+            + "&snapshot=" + Uri.EscapeDataString(auditSnapshot);
+        var frozenAuditDetailPath = "/api/v2/readability-audit/"
+            + Uri.EscapeDataString(demandId)
+            + "?snapshot=" + Uri.EscapeDataString(auditSnapshot);
+
+        var errorA = await ReadJsonAsync(client, "/api/v2/error-search?pageSize=100");
+        var errorSnapshot = errorA.GetProperty("snapshotReference").GetString()!;
+        var errorItem = Assert.Single(errorA.GetProperty("items").EnumerateArray());
+        Assert.Equal(seriesId, errorItem.GetProperty("seriesId").GetString());
+        var frozenErrorListPath = "/api/v2/error-search?pageSize=100&snapshot="
+            + Uri.EscapeDataString(errorSnapshot);
+        var frozenErrorDetailPath = "/api/v2/error-search/"
+            + Uri.EscapeDataString(seriesId)
+            + "?snapshot=" + Uri.EscapeDataString(errorSnapshot);
+        var pollTraceAPath = "/api/v2/poll-traces/"
+            + Uri.EscapeDataString(receiptA.PollTraceId);
+
+        var demandGate = frozenObserver.Arm("DemandSeries", expectedInvocationCount: 2);
+        var auditGate = frozenObserver.Arm("ReadabilityAudit", expectedInvocationCount: 2);
+        var errorGate = frozenObserver.Arm("ErrorSearch", expectedInvocationCount: 2);
+        var pollEvidenceGate = frozenObserver.Arm("PollEvidence", expectedInvocationCount: 1);
+        var pendingDemandList = ReadRawSuccessAsync(client, frozenDemandListPath);
+        var pendingDemandDetail = ReadRawSuccessAsync(client, frozenDemandDetailPath);
+        var pendingAuditList = ReadRawSuccessAsync(client, frozenAuditListPath);
+        var pendingAuditDetail = ReadRawSuccessAsync(client, frozenAuditDetailPath);
+        var pendingErrorList = ReadRawSuccessAsync(client, frozenErrorListPath);
+        var pendingErrorDetail = ReadRawSuccessAsync(client, frozenErrorDetailPath);
+        var pendingPollEvidence = ReadRawSuccessAsync(client, pollTraceAPath);
+        var pendingOverview = ReadRawSuccessAsync(client, "/api/v2/watch-overview");
+
+        var demandFences = await demandGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        var auditFences = await auditGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        var errorFences = await errorGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        var pollEvidenceFences = await pollEvidenceGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        var overviewFence = await overviewObserver.FenceSelected.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.All(
+            demandFences.Concat(auditFences).Concat(errorFences).Concat(pollEvidenceFences),
+            fence =>
+            {
+                Assert.Equal(receiptA.ProjectionCommitId, fence.ProjectionCommitId);
+                Assert.Equal(receiptA.ProjectionSequence, fence.ProjectionSequence);
+            });
+        Assert.Equal(receiptA.ProjectionCommitId, overviewFence.ProjectionCommitId);
+        Assert.Equal(receiptA.ProjectionSequence, overviewFence.ProjectionSequence);
+
+        var rowB = rowA with { Area = "N2-2", Eqp = "EQP-TICKET12-RECOVERED" };
+        var writerB = ingestor.IngestAsync(SuccessRound(
+            "poll-ticket12-frozen-b",
+            at.AddMinutes(1),
+            [rowB]));
+        RoundCommitReceipt receiptB;
+        try
+        {
+            await Task.Delay(100);
+            Assert.False(writerB.IsCompleted);
+            overviewObserver.Release();
+            receiptB = await writerB.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.All(
+                new[] { pendingDemandList, pendingDemandDetail, pendingAuditList,
+                    pendingAuditDetail, pendingErrorList, pendingErrorDetail,
+                    pendingPollEvidence },
+                pending => Assert.False(pending.IsCompleted));
+        }
+        finally
+        {
+            overviewObserver.Release();
+            demandGate.Release();
+            auditGate.Release();
+            errorGate.Release();
+            pollEvidenceGate.Release();
+        }
+
+        using var oldOverview = JsonDocument.Parse(
+            await pendingOverview.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            oldOverview.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+
+        using var frozenDemandList = JsonDocument.Parse(
+            await pendingDemandList.WaitAsync(TimeSpan.FromSeconds(10)));
+        using var frozenDemandDetail = JsonDocument.Parse(
+            await pendingDemandDetail.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenDemandList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(1L, frozenDemandList.RootElement.GetProperty("exactTotalCount").GetInt64());
+        Assert.Equal(
+            1L,
+            frozenDemandList.RootElement.GetProperty("facets").GetProperty("trackingCount").GetInt64());
+        Assert.Equal(
+            1L,
+            frozenDemandList.RootElement.GetProperty("facets").GetProperty("visibleCount").GetInt64());
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenDemandDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            frozenDemandDetail.RootElement.GetProperty("currentDemand")
+                .GetProperty("liveMesFields").GetProperty("eqp").ValueKind);
+
+        using var frozenAuditList = JsonDocument.Parse(
+            await pendingAuditList.WaitAsync(TimeSpan.FromSeconds(10)));
+        using var frozenAuditDetail = JsonDocument.Parse(
+            await pendingAuditDetail.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenAuditList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(1L, frozenAuditList.RootElement.GetProperty("exactTotalDemandCount").GetInt64());
+        var frozenAuditStateFacet = frozenAuditList.RootElement.GetProperty("facets")
+            .GetProperty("readabilityStates").EnumerateArray()
+            .Single(facet => facet.GetProperty("state").GetString() == "NOT_READABLE");
+        Assert.Equal("NOT_READABLE", frozenAuditStateFacet.GetProperty("state").GetString());
+        Assert.Equal(1L, frozenAuditStateFacet.GetProperty("demandCount").GetInt64());
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenAuditDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.NotEmpty(frozenAuditDetail.RootElement.GetProperty("blockers").EnumerateArray());
+
+        using var frozenErrorList = JsonDocument.Parse(
+            await pendingErrorList.WaitAsync(TimeSpan.FromSeconds(10)));
+        using var frozenErrorDetail = JsonDocument.Parse(
+            await pendingErrorDetail.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenErrorList.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.Equal(1L, frozenErrorList.RootElement.GetProperty("totalSeriesCount").GetInt64());
+        var frozenErrorStateFacet = frozenErrorList.RootElement.GetProperty("facets")
+            .GetProperty("activityStates").EnumerateArray()
+            .Single(facet => facet.GetProperty("state").GetString() == "ACTIVE");
+        Assert.Equal("ACTIVE", frozenErrorStateFacet.GetProperty("state").GetString());
+        Assert.Equal(1L, frozenErrorStateFacet.GetProperty("seriesCount").GetInt64());
+        Assert.Equal("ACTIVE", Assert.Single(frozenErrorList.RootElement.GetProperty("items").EnumerateArray())
+            .GetProperty("activityState").GetString());
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenErrorDetail.RootElement.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+        Assert.NotEmpty(frozenErrorDetail.RootElement.GetProperty("periods").EnumerateArray());
+
+        using var frozenPollEvidence = JsonDocument.Parse(
+            await pendingPollEvidence.WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(
+            receiptA.ProjectionCommitId,
+            frozenPollEvidence.RootElement.GetProperty("projectionCommit")
+                .GetProperty("projectionCommitId").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            Assert.Single(frozenPollEvidence.RootElement.GetProperty("observations").EnumerateArray())
+                .GetProperty("eqp").ValueKind);
+
+        var currentDemand = await ReadJsonAsync(client, SeriesListPath);
+        var currentAudit = await ReadJsonAsync(
+            client,
+            "/api/v2/readability-audit?pageSize=100");
+        var currentError = await ReadJsonAsync(client, "/api/v2/error-search?pageSize=100");
+        var currentOverview = await ReadJsonAsync(client, "/api/v2/watch-overview");
+        var currentPollEvidence = await ReadJsonAsync(
+            client,
+            "/api/v2/poll-traces/" + Uri.EscapeDataString(receiptB.PollTraceId));
+        Assert.All(
+            new[] { currentDemand, currentAudit, currentError, currentOverview },
+            body => Assert.Equal(
+                receiptB.ProjectionCommitId,
+                body.GetProperty("snapshot").GetProperty("projectionCommitId").GetString()));
+        Assert.Equal(
+            receiptB.ProjectionCommitId,
+            currentPollEvidence.GetProperty("projectionCommit").GetProperty("projectionCommitId").GetString());
+
+        var cancellationGate = frozenObserver.Arm("ErrorSearch", expectedInvocationCount: 1);
+        using var cancellation = new CancellationTokenSource();
+        var cancelledRead = ReadRawSuccessAsync(client, frozenErrorListPath, cancellation.Token);
+        await cancellationGate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelledRead);
+        cancellationGate.Release();
+
+        var receiptC = await ingestor.IngestAsync(SuccessRound(
+                "poll-ticket12-frozen-c",
+                at.AddMinutes(2),
+                [rowB with { Area = "N3-3" }]))
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(0, await ReadActiveUserTransactionCountAsync(database.ConnectionString));
+        var afterCancellation = await ReadJsonAsync(client, SeriesListPath);
+        Assert.Equal(
+            receiptC.ProjectionCommitId,
+            afterCancellation.GetProperty("snapshot").GetProperty("projectionCommitId").GetString());
+
+        var isolation = await ReadSnapshotIsolationOptionsAsync(database.ConnectionString);
+        Assert.Equal(0, isolation.SnapshotIsolationState);
+        Assert.False(isolation.IsReadCommittedSnapshotOn);
+        WriteTicket12Marker(new
+        {
+            matrixSurfaces = new[]
+            {
+                "DemandSeries",
+                "ReadabilityAudit",
+                "ErrorSearch",
+                "WatchOverview",
+                "PollEvidence",
+            },
+            frozenReaders = 7,
+            writerCompletedWhileFrozenReadersWereHeld = true,
+            cancellationLeftActiveUserTransactions = 0,
+            snapshotIsolationUsed = false,
+        });
+    }
+
+    [Ticket01SqlServerFact]
     public async Task Failure_incomplete_and_mid_transaction_cancellation_preserve_business_projection_and_open_error_periods()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
@@ -957,10 +1206,16 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         return document.RootElement.Clone();
     }
 
-    private static async Task<string> ReadRawSuccessAsync(HttpClient client, string path)
+    private static Task<string> ReadRawSuccessAsync(HttpClient client, string path) =>
+        ReadRawSuccessAsync(client, path, CancellationToken.None);
+
+    private static async Task<string> ReadRawSuccessAsync(
+        HttpClient client,
+        string path,
+        CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync(path);
-        var body = await response.Content.ReadAsStringAsync();
+        using var response = await client.GetAsync(path, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
         Assert.True(
             response.IsSuccessStatusCode,
             $"Expected HTTP success from {path}, got {(int)response.StatusCode}: {body}");
@@ -1106,15 +1361,55 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             reader.GetInt32(3));
     }
 
+    private static async Task<int> ReadActiveUserTransactionCountAsync(string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sys.dm_tran_database_transactions AS databaseTransaction
+            INNER JOIN sys.dm_tran_session_transactions AS sessionTransaction
+                ON sessionTransaction.transaction_id = databaseTransaction.transaction_id
+            INNER JOIN sys.dm_exec_sessions AS session
+                ON session.session_id = sessionTransaction.session_id
+            WHERE databaseTransaction.database_id = DB_ID()
+              AND session.is_user_process = 1;
+            """;
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
+    }
+
+    private static async Task<SnapshotIsolationOptions> ReadSnapshotIsolationOptionsAsync(
+        string connectionString)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT snapshot_isolation_state, is_read_committed_snapshot_on
+            FROM sys.databases
+            WHERE database_id = DB_ID();
+            """;
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        return new SnapshotIsolationOptions(reader.GetByte(0), reader.GetBoolean(1));
+    }
+
     private void WriteMarker(object marker) =>
         _output.WriteLine(
             "MESINGEST_TICKET16_REPORT_JSON:"
             + JsonSerializer.Serialize(marker));
 
+    private void WriteTicket12Marker(object marker) =>
+        _output.WriteLine(
+            "MESINGEST_TICKET12_FROZEN_READ_REPORT_JSON:"
+            + JsonSerializer.Serialize(marker));
+
     private WebApplicationFactory<Program> CreateFactory(
         TimeProvider clock,
         IProjectionCommitCheckpointObserver? checkpointObserver = null,
-        IProjectionReadBoundaryObserver? readBoundaryObserver = null) =>
+        IProjectionReadBoundaryObserver? readBoundaryObserver = null,
+        IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(Environments.Production);
@@ -1131,6 +1426,11 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
                 {
                     services.RemoveAll<IProjectionReadBoundaryObserver>();
                     services.AddSingleton(readBoundaryObserver);
+                }
+                if (overviewReadBoundaryObserver is not null)
+                {
+                    services.RemoveAll<IWatchOverviewReadBoundaryObserver>();
+                    services.AddSingleton(overviewReadBoundaryObserver);
                 }
             });
         });
@@ -1294,6 +1594,101 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         public void Release() => _release.TrySetResult(true);
     }
 
+    private sealed class ConcurrentProjectionReadBoundaryObserver : IProjectionReadBoundaryObserver
+    {
+        private readonly object _sync = new();
+        private readonly Dictionary<string, NamedReadGate> _gates = new(StringComparer.Ordinal);
+
+        public NamedReadGate Arm(string surface, int expectedInvocationCount)
+        {
+            var gate = new NamedReadGate(surface, expectedInvocationCount);
+            lock (_sync)
+            {
+                _gates[surface] = gate;
+            }
+            return gate;
+        }
+
+        public Task OnFenceSelectedAsync(
+            ProjectionReadSurface surface,
+            ProjectionReadFence fence,
+            CancellationToken cancellationToken)
+        {
+            NamedReadGate? claimed = null;
+            lock (_sync)
+            {
+                if (_gates.TryGetValue(surface.ToString(), out var candidate)
+                    && candidate.TryClaim(fence))
+                {
+                    claimed = candidate;
+                }
+            }
+            return claimed is null
+                ? Task.CompletedTask
+                : claimed.WaitForReleaseAsync(cancellationToken);
+        }
+    }
+
+    private sealed class NamedReadGate
+    {
+        private readonly int _expectedInvocationCount;
+        private readonly List<ProjectionReadFence> _fences = [];
+        private readonly TaskCompletionSource<IReadOnlyList<ProjectionReadFence>> _selected =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public NamedReadGate(string surface, int expectedInvocationCount)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(surface));
+            Assert.True(expectedInvocationCount > 0);
+            Surface = surface;
+            _expectedInvocationCount = expectedInvocationCount;
+        }
+
+        public string Surface { get; }
+        public Task<IReadOnlyList<ProjectionReadFence>> Selected => _selected.Task;
+
+        public bool TryClaim(ProjectionReadFence fence)
+        {
+            if (_fences.Count >= _expectedInvocationCount)
+            {
+                return false;
+            }
+            _fences.Add(fence);
+            if (_fences.Count == _expectedInvocationCount)
+            {
+                _selected.TrySetResult(_fences.ToArray());
+            }
+            return true;
+        }
+
+        public Task WaitForReleaseAsync(CancellationToken cancellationToken) =>
+            _release.Task.WaitAsync(cancellationToken);
+
+        public void Release() => _release.TrySetResult(true);
+    }
+
+    private sealed class MatrixOverviewReadBoundaryObserver : IWatchOverviewReadBoundaryObserver
+    {
+        private readonly TaskCompletionSource<OperationalSnapshotIdentity> _selected =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<OperationalSnapshotIdentity> FenceSelected => _selected.Task;
+
+        public Task OnFenceSelectedAsync(
+            OperationalSnapshotIdentity snapshot,
+            CancellationToken cancellationToken)
+        {
+            _selected.TrySetResult(snapshot);
+            return _release.Task.WaitAsync(cancellationToken);
+        }
+
+        public void Release() => _release.TrySetResult(true);
+    }
+
     private sealed record BusinessSurfaceFingerprint(
         string SeriesList,
         string SeriesDetail,
@@ -1303,6 +1698,10 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         string? Attention);
 
     private sealed record CatalogCapture(JsonElement Body, string? ETag);
+
+    private sealed record SnapshotIsolationOptions(
+        byte SnapshotIsolationState,
+        bool IsReadCommittedSnapshotOn);
 
     private sealed record HistoricalBundle(
         string SeriesList,

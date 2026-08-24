@@ -8,6 +8,8 @@ public enum ProjectionReadSurface
 {
     DemandSeries,
     ReadabilityAudit,
+    ErrorSearch,
+    PollEvidence,
     Catalog,
     CurrentIngestAttention,
 }

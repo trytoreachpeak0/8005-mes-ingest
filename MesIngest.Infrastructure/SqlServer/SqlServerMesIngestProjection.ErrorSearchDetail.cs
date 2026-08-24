@@ -47,6 +47,8 @@ public sealed partial class SqlServerMesIngestProjection
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
             var series = await ReadErrorSearchSeriesMatchAsync(
                 connection,
                 transaction,
@@ -113,6 +115,8 @@ public sealed partial class SqlServerMesIngestProjection
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
             var matchedEvidence = await ReadExactErrorSearchEvidenceAsync(
                 connection,
                 transaction,

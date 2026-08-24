@@ -45,6 +45,14 @@ public sealed partial class SqlServerMesIngestProjection
                     boundary).ConfigureAwait(false);
             }
 
+            await _readBoundaryObserver.OnFenceSelectedAsync(
+                ProjectionReadSurface.PollEvidence,
+                new ProjectionReadFence(
+                    boundary.HistoryEpoch,
+                    trace.ProjectionCommitId,
+                    trace.ProjectionSequence),
+                cancellationToken).ConfigureAwait(false);
+
             if (boundary.EarliestAvailableHostUtc is { } earliest
                 && trace.CompletedAt < earliest)
             {

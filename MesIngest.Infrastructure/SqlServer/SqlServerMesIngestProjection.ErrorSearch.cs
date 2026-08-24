@@ -52,6 +52,8 @@ public sealed partial class SqlServerMesIngestProjection
                 query,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
+            await ObserveErrorSearchFenceAsync(snapshot, cancellationToken)
+                .ConfigureAwait(false);
 
             ErrorSearchCursor? cursor = null;
             var pageNumber = 1;
@@ -284,6 +286,17 @@ public sealed partial class SqlServerMesIngestProjection
             query.Window.Resolve(asOf),
             query.Order);
     }
+
+    private Task ObserveErrorSearchFenceAsync(
+        ErrorSearchSnapshotReference snapshot,
+        CancellationToken cancellationToken) =>
+        _readBoundaryObserver.OnFenceSelectedAsync(
+            ProjectionReadSurface.ErrorSearch,
+            new ProjectionReadFence(
+                snapshot.Snapshot.HistoryEpoch,
+                snapshot.Snapshot.ProjectionCommitId,
+                snapshot.Snapshot.ProjectionSequence),
+            cancellationToken);
 
     private static async Task<ErrorSearchPageState> ReadErrorSearchPageAsync(
         SqlConnection connection,
