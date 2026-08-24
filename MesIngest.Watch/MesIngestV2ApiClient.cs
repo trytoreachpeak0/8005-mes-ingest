@@ -508,7 +508,8 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
         NewMesIngestContract.RequireExactCompatibility(
             contractVersion,
             NewMesIngestContract.SchemaVersion,
-            NewMesIngestContract.Capabilities.Select(capability => capability.Id));
+            NewMesIngestContract.Capabilities.Select(capability =>
+                new NewMesIngestCapabilityIdentity(capability.Id, capability.Version)));
 
     private async Task DiscoverAndRequireExactContractAsync(
         string correlationId,
@@ -551,7 +552,10 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
             NewMesIngestContract.RequireExactCompatibility(
                 contract.ContractVersion,
                 contract.SchemaVersion,
-                contract.Capabilities?.Select(capability => capability.Id!));
+                contract.Capabilities?.Select(capability =>
+                    new NewMesIngestCapabilityIdentity(
+                        capability.Id!,
+                        capability.Version!)));
         }
         catch (WatchEndpointFetchException)
         {
@@ -591,7 +595,7 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
         int SchemaVersion,
         IReadOnlyList<ContractCapabilityPayload>? Capabilities);
 
-    private sealed record ContractCapabilityPayload(string? Id);
+    private sealed record ContractCapabilityPayload(string? Id, string? Version);
 
     private sealed record V2ErrorPayload(string? Code, string? Error);
 }

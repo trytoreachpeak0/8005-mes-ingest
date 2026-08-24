@@ -44,6 +44,36 @@ public sealed class WatchV2ApiClientTests
     }
 
     [Fact]
+    public async Task Contract_discovery_rejects_an_old_capability_version_before_business_reads()
+    {
+        var requests = new List<string>();
+        using var handler = new DelegateHandler((request, _) =>
+        {
+            requests.Add(request.RequestUri!.AbsolutePath);
+            return Task.FromResult(JsonResponse(new
+            {
+                contractVersion = NewMesIngestContract.Version,
+                schemaVersion = NewMesIngestContract.SchemaVersion,
+                capabilities = NewMesIngestContract.Capabilities.Select(capability => new
+                {
+                    id = capability.Id,
+                    version = capability.Id == "DEMAND_SERIES" ? "1.0" : capability.Version,
+                }),
+            }));
+        });
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings("http://ticket20-host:5088", "secret", 30),
+            handler: handler);
+
+        var error = await Assert.ThrowsAsync<WatchHostQueryException>(
+            () => client.VerifyContractAsync(CancellationToken.None));
+
+        Assert.Equal(WatchHostFailureKind.Contract, error.Kind);
+        Assert.Equal(NewMesIngestContractMismatchException.ErrorCode, error.ErrorCode);
+        Assert.Equal(["/api/v2/contract"], requests);
+    }
+
+    [Fact]
     public async Task Overview_normalizes_area_scope_and_decodes_one_atomic_v2_snapshot()
     {
         Uri? observed = null;

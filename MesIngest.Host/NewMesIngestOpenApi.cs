@@ -572,7 +572,9 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
         {
             ["NewMesIngestOperationDto.method"] = ["GET"],
             ["NewMesIngestCapabilityDto.id"] = NewMesIngestContract.Capabilities.Select(x => x.Id).ToArray(),
-            ["NewMesIngestCapabilityDto.version"] = ["1.0"],
+            ["NewMesIngestCapabilityDto.version"] =
+                NewMesIngestContract.Capabilities.Select(x => x.Version)
+                    .Distinct(StringComparer.Ordinal).ToArray(),
             ["SeriesErrorDefinitionDto.code"] = SeriesErrorCatalog.Definitions.Select(x => x.Code).ToArray(),
             ["SeriesErrorDefinitionDto.category"] = SeriesErrorCatalog.Definitions.Select(x => x.Category).Distinct().Order().ToArray(),
             ["SeriesErrorDefinitionDto.severity"] = SeriesErrorCatalog.Definitions.Select(x => x.Severity).Distinct().Order().ToArray(),
@@ -675,6 +677,14 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
             }
 
             propertySchema.Description = Describe(context.Type.Name, jsonName, property.PropertyType);
+            if (context.Type == typeof(NewMesIngestContractDto)
+                && string.Equals(jsonName, "schemaVersion", StringComparison.Ordinal))
+            {
+                propertySchema.Enum =
+                    [(IOpenApiAny)new OpenApiInteger(NewMesIngestContract.SchemaVersion)];
+                continue;
+            }
+
             IReadOnlyList<string>? values = string.Equals(
                 jsonName,
                 "contractVersion",
@@ -733,6 +743,12 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
         if (string.Equals(propertyName, "contractVersion", StringComparison.Ordinal))
         {
             return $"Exact comparable contract identity; must equal {NewMesIngestContract.Version}.";
+        }
+
+        if (typeName == nameof(NewMesIngestContractDto)
+            && string.Equals(propertyName, "schemaVersion", StringComparison.Ordinal))
+        {
+            return $"Exact schema identity; must equal {NewMesIngestContract.SchemaVersion}.";
         }
 
         if (propertyName.Contains("snapshotReference", StringComparison.OrdinalIgnoreCase))

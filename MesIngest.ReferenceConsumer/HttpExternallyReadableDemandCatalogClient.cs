@@ -141,29 +141,15 @@ public sealed class HttpExternallyReadableDemandCatalogClient
             NewMesIngestContract.RequireExactCompatibility(
                 body.ContractVersion,
                 body.SchemaVersion,
-                capabilities.Select(capability => capability?.Id ?? string.Empty));
+                capabilities.Select(capability => new NewMesIngestCapabilityIdentity(
+                    capability?.Id ?? string.Empty,
+                    capability?.Version ?? string.Empty)));
         }
         catch (NewMesIngestContractMismatchException error)
         {
             throw ContractMismatch(error.Message, error);
         }
 
-        var actualById = capabilities
-            .Select(capability => capability!)
-            .ToDictionary(
-                capability => capability.Id!,
-                StringComparer.Ordinal);
-        foreach (var expected in NewMesIngestContract.Capabilities)
-        {
-            if (!string.Equals(
-                    actualById[expected.Id].Version,
-                    expected.Version,
-                    StringComparison.Ordinal))
-            {
-                throw ContractMismatch(
-                    $"Capability '{expected.Id}' must have version '{expected.Version}'.");
-            }
-        }
     }
 
     private static InvalidDataException ContractMismatch(

@@ -74,8 +74,9 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'FactoryAcceptanceTools.ps1')
 
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.0'
-$expectedContractSchemaVersion = 18
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.1'
+$expectedContractSchemaVersion = 28
+$expectedCapabilityVersion = '2.0'
 $expectedCapabilityIds = @(
     'CONTRACT_DISCOVERY',
     'CURRENT_INGEST_ATTENTION',
@@ -914,6 +915,12 @@ try {
             if (@(Compare-Object -ReferenceObject ($expectedCapabilityIds | Sort-Object) `
                     -DifferenceObject $capabilityIds -CaseSensitive).Count -gt 0) {
                 throw 'The capability set is not the exact frozen set.'
+            }
+            $wrongCapabilityVersions = @($contract.capabilities | Where-Object {
+                [string]$_.version -cne $expectedCapabilityVersion
+            })
+            if ($wrongCapabilityVersions.Count -gt 0) {
+                throw "The capability versions are not the exact frozen $expectedCapabilityVersion set."
             }
             $nonGet = @($contract.capabilities |
                 ForEach-Object { $_.operations } |

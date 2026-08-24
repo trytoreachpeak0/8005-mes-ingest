@@ -214,6 +214,15 @@ public sealed class NewMesIngestOpenApiContractTests
             contract.GetProperty("contractVersion").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));
         Assert.Equal(
+            [NewMesIngestContract.SchemaVersion],
+            contract.GetProperty("schemaVersion").GetProperty("enum")
+                .EnumerateArray().Select(value => value.GetInt32()));
+        Assert.Equal(
+            ["2.0"],
+            Schema(root, "NewMesIngestCapabilityDto").GetProperty("properties")
+                .GetProperty("version").GetProperty("enum")
+                .EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal(
             ["ORDINAL_CASE_SENSITIVE_WHITESPACE_PRESERVING"],
             contract.GetProperty("transportDemandKeyComparison").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));

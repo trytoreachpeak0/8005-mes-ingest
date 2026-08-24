@@ -7,9 +7,9 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.v2.0";
+    public const string Version = "2026.08.new-mes-ingest.v2.1";
 
-    public const int SchemaVersion = 27;
+    public const int SchemaVersion = 28;
 
     public const string CompatibilityPolicy = "EXACT_VERSION_SCHEMA_AND_CAPABILITIES";
 
@@ -26,15 +26,15 @@ public static class NewMesIngestContract
     [
         new(
             "CONTRACT_DISCOVERY",
-            "1.0",
+            "2.0",
             [Get("/api/v2/contract")]),
         new(
             "CURRENT_INGEST_ATTENTION",
-            "1.0",
+            "2.0",
             [Get("/api/v2/current-ingest-attention")]),
         new(
             "DEMAND_SERIES",
-            "1.0",
+            "2.0",
             [
                 Get("/api/v2/demand-series"),
                 Get("/api/v2/demand-series/by-key"),
@@ -42,7 +42,7 @@ public static class NewMesIngestContract
             ]),
         new(
             "ERROR_SEARCH",
-            "1.0",
+            "2.0",
             [
                 Get("/api/v2/error-search"),
                 Get("/api/v2/error-search/{seriesId}"),
@@ -50,11 +50,11 @@ public static class NewMesIngestContract
             ]),
         new(
             "EXTERNALLY_READABLE_DEMAND_CATALOG",
-            "1.0",
+            "2.0",
             [Get("/api/v2/externally-readable-demand-catalog")]),
         new(
             "POLL_HEALTH_AND_EVIDENCE",
-            "1.0",
+            "2.0",
             [
                 Get("/api/v2/poll-traces/{pollTraceId}"),
                 Get("/api/v2/absence-authority"),
@@ -64,18 +64,18 @@ public static class NewMesIngestContract
             ]),
         new(
             "READABILITY_AUDIT",
-            "1.0",
+            "2.0",
             [
                 Get("/api/v2/readability-audit"),
                 Get("/api/v2/readability-audit/{demandId}"),
             ]),
         new(
             "SERIES_ERROR_CATALOG",
-            "1.0",
+            "2.0",
             [Get("/api/v2/contract")]),
         new(
             "WATCH_OVERVIEW",
-            "1.0",
+            "2.0",
             [Get("/api/v2/watch-overview")]),
     ];
 
@@ -87,22 +87,25 @@ public static class NewMesIngestContract
     public static void RequireExactCompatibility(
         string? contractVersion,
         int schemaVersion,
-        IEnumerable<string>? capabilityIds)
+        IEnumerable<NewMesIngestCapabilityIdentity>? capabilities)
     {
         var expectedCapabilities = Capabilities
-            .Select(capability => capability.Id)
-            .Order(StringComparer.Ordinal)
+            .Select(capability => new NewMesIngestCapabilityIdentity(
+                capability.Id,
+                capability.Version))
+            .OrderBy(capability => capability.Id, StringComparer.Ordinal)
             .ToArray();
-        var actualCapabilities = capabilityIds?
-            .Where(id => id is not null)
-            .Order(StringComparer.Ordinal)
+        var actualCapabilities = capabilities?
+            .OrderBy(capability => capability.Id, StringComparer.Ordinal)
             .ToArray()
             ?? [];
 
         if (!string.Equals(contractVersion, Version, StringComparison.Ordinal)
             || schemaVersion != SchemaVersion
-            || actualCapabilities.Length != actualCapabilities.Distinct(StringComparer.Ordinal).Count()
-            || !actualCapabilities.SequenceEqual(expectedCapabilities, StringComparer.Ordinal))
+            || actualCapabilities.Length
+                != actualCapabilities.Select(capability => capability.Id)
+                    .Distinct(StringComparer.Ordinal).Count()
+            || !actualCapabilities.SequenceEqual(expectedCapabilities))
         {
             throw new NewMesIngestContractMismatchException(
                 contractVersion,
@@ -120,6 +123,8 @@ public sealed record NewMesIngestCapability(
     string Id,
     string Version,
     IReadOnlyList<NewMesIngestOperation> Operations);
+
+public sealed record NewMesIngestCapabilityIdentity(string Id, string Version);
 
 public static class PollEvidenceErrorCodes
 {
@@ -140,13 +145,13 @@ public sealed class NewMesIngestContractMismatchException : Exception
     public NewMesIngestContractMismatchException(
         string? actualVersion,
         int actualSchemaVersion,
-        IReadOnlyList<string> actualCapabilities)
+        IReadOnlyList<NewMesIngestCapabilityIdentity> actualCapabilities)
         : base(
             $"MesIngest business interpretation was refused: expected contract "
             + $"'{NewMesIngestContract.Version}' schema {NewMesIngestContract.SchemaVersion} "
             + "and the exact frozen capability set, but received "
             + $"'{actualVersion ?? "<missing>"}' schema {actualSchemaVersion} with "
-            + $"[{string.Join(", ", actualCapabilities)}].")
+            + $"[{string.Join(", ", actualCapabilities.Select(capability => $"{capability.Id}/{capability.Version}"))}].")
     {
     }
 
