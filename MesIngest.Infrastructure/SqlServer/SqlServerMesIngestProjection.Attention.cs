@@ -398,45 +398,9 @@ public sealed partial class SqlServerMesIngestProjection
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
-            SELECT
-                HistoryCleanupStatus, HistoryCleanupRunId,
-                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
-                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
-                HistoryCleanupLastExpiredPollTraceCount,
-                HistoryCleanupLastDeletedRawObservationCount,
-                HistoryCleanupLastDeletedSeriesCount,
-                HistoryCleanupTotalExpiredPollTraceCount,
-                HistoryCleanupTotalDeletedRawObservationCount,
-                HistoryCleanupTotalDeletedSeriesCount,
-                EarliestAvailableHostUtc,
-                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
-            FROM mesingest.SchemaInfo
-            WHERE Id = 1;
-            """;
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+        command.CommandText = HistoryCleanupStateSelectSql;
+        var state = await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
             .ConfigureAwait(false);
-        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-        {
-            throw new InvalidOperationException("The history cleanup state row is missing.");
-        }
-
-        var state = new HistoryCleanupStateSnapshot(
-            reader.GetString(0),
-            reader.IsDBNull(1) ? null : reader.GetString(1),
-            ReadNullableDateTimeOffset(reader, 2),
-            ReadNullableDateTimeOffset(reader, 3),
-            ReadNullableDateTimeOffset(reader, 4),
-            ReadNullableDateTimeOffset(reader, 5),
-            reader.GetInt32(6),
-            reader.GetInt32(7),
-            reader.GetInt32(8),
-            reader.GetInt64(9),
-            reader.GetInt64(10),
-            reader.GetInt64(11),
-            ReadNullableDateTimeOffset(reader, 12),
-            reader.IsDBNull(13) ? null : reader.GetString(13),
-            reader.IsDBNull(14) ? null : reader.GetString(14));
         if (state.LastFailureCode is null)
         {
             return state;

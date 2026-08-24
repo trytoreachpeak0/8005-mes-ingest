@@ -46,11 +46,12 @@ The SQL connection must target a dedicated empty database (which V2 bootstraps) 
 
 The Host owns one cleanup loop; SQL Server Agent and Windows Task Scheduler do not delete
 MesIngest business history. Checks use Host `TimeProvider` on fixed hourly boundaries and do
-not catch up missed slots. Production defaults are frozen from the measured 600 rows per
-14-second baseline: 210,000 raw-observation rows and 25 whole Series per check, with a
-15-second elapsed budget checked between transactions. Raw deletion is further split into
-transactions targeting at most 25,000 rows / 50 PollTraces. One indivisible PollTrace may
-exceed the row target so its raw observation multiset is never partially deleted. A started Series cleanup always finishes
+not catch up missed slots. The measured 600 rows per 14-second intake baseline freezes a
+210,000-row hourly budget (more than 30% headroom). A real-SQL cleanup probe freezes the
+separate safety caps at 25 whole Series and 15 elapsed seconds per check. Raw deletion is
+further split into transactions of at most 25,000 rows / 50 PollTraces; successful poll
+ingestion and the SQL schema both enforce the same 25,000-row PollTrace ceiling, so a raw
+multiset is never partially deleted. A started Series cleanup always finishes
 its tombstone and detailed graph in the existing indivisible transaction.
 
 Operators may override `HistoryCleanupCheckIntervalSeconds`,

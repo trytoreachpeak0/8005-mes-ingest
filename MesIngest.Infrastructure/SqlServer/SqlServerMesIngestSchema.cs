@@ -170,6 +170,14 @@ internal static class SqlServerMesIngestSchema
             HistoryEpoch UNIQUEIDENTIFIER NOT NULL
                 CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch UNIQUE,
             EarliestAvailableHostUtc DATETIMEOFFSET(7) NULL,
+            CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
+            CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
+                CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
+        );
+
+        CREATE TABLE mesingest.HistoryCleanupState
+        (
+            Id TINYINT NOT NULL CONSTRAINT PK_MesIngest_HistoryCleanupState PRIMARY KEY,
             HistoryCleanupStatus NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
             HistoryCleanupRunId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
             HistoryCleanupLastStartedAt DATETIMEOFFSET(7) NULL,
@@ -184,9 +192,7 @@ internal static class SqlServerMesIngestSchema
             HistoryCleanupTotalDeletedSeriesCount BIGINT NOT NULL,
             HistoryCleanupLastFailureCode NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
             HistoryCleanupLastFailureReason NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NULL,
-            CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
-            CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
-                CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
+            CONSTRAINT CK_MesIngest_HistoryCleanupState_SingleRow CHECK (Id = 1)
         );
 
         CREATE TABLE mesingest.PollTraces
@@ -207,7 +213,8 @@ internal static class SqlServerMesIngestSchema
             CONSTRAINT UQ_MesIngest_PollTraces_Sequence UNIQUE (PollTraceSequence),
             CONSTRAINT CK_MesIngest_PollTraces_Outcome
                 CHECK (Outcome IN (N'SUCCESS', N'FAILURE', N'INCOMPLETE')),
-            CONSTRAINT CK_MesIngest_PollTraces_RowCount CHECK ([RowCount] >= 0),
+            CONSTRAINT CK_MesIngest_PollTraces_RowCount
+                CHECK ([RowCount] BETWEEN 0 AND 25000),
             CONSTRAINT CK_MesIngest_PollTraces_Diagnostic CHECK
             (
                 (DiagnosticStage IS NULL AND DiagnosticCode IS NULL AND DiagnosticSafeDetail IS NULL)
@@ -793,8 +800,13 @@ internal static class SqlServerMesIngestSchema
 
         INSERT INTO mesingest.SchemaInfo
             (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison,
-             SnapshotTokenSigningKey, HistoryEpoch, EarliestAvailableHostUtc,
-             HistoryCleanupStatus, HistoryCleanupRunId,
+             SnapshotTokenSigningKey, HistoryEpoch, EarliestAvailableHostUtc)
+        VALUES
+            (1, @schemaVersion, @contractVersion, @keyComparison,
+             CRYPT_GEN_RANDOM(32), @historyEpoch, NULL);
+
+        INSERT INTO mesingest.HistoryCleanupState
+            (Id, HistoryCleanupStatus, HistoryCleanupRunId,
              HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
              HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
              HistoryCleanupLastExpiredPollTraceCount,
@@ -805,9 +817,7 @@ internal static class SqlServerMesIngestSchema
              HistoryCleanupTotalDeletedSeriesCount,
              HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason)
         VALUES
-            (1, @schemaVersion, @contractVersion, @keyComparison,
-             CRYPT_GEN_RANDOM(32), @historyEpoch, NULL,
-             N'NOT_RUN', NULL, NULL, NULL, NULL, NULL,
+            (1, N'NOT_RUN', NULL, NULL, NULL, NULL, NULL,
              0, 0, 0, 0, 0, 0, NULL, NULL);
         """;
 
@@ -833,7 +843,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 23
+        ) <> 24
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -843,6 +853,7 @@ internal static class SqlServerMesIngestSchema
             SELECT N'mesingest', v.TableName
             FROM (VALUES
                 (N'SchemaInfo'),
+                (N'HistoryCleanupState'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
@@ -872,6 +883,7 @@ internal static class SqlServerMesIngestSchema
             SELECT N'mesingest', v.TableName
             FROM (VALUES
                 (N'SchemaInfo'),
+                (N'HistoryCleanupState'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
@@ -925,20 +937,21 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
             (N'SchemaInfo', 6, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
             (N'SchemaInfo', 7, N'EarliestAvailableHostUtc', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'SchemaInfo', 8, N'HistoryCleanupStatus', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
-            (N'SchemaInfo', 9, N'HistoryCleanupRunId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
-            (N'SchemaInfo', 10, N'HistoryCleanupLastStartedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'SchemaInfo', 11, N'HistoryCleanupLastCompletedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'SchemaInfo', 12, N'HistoryCleanupLastSuccessfulAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'SchemaInfo', 13, N'HistoryCleanupNextCheckAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
-            (N'SchemaInfo', 14, N'HistoryCleanupLastExpiredPollTraceCount', N'int', 4, 10, 0, 0, NULL),
-            (N'SchemaInfo', 15, N'HistoryCleanupLastDeletedRawObservationCount', N'int', 4, 10, 0, 0, NULL),
-            (N'SchemaInfo', 16, N'HistoryCleanupLastDeletedSeriesCount', N'int', 4, 10, 0, 0, NULL),
-            (N'SchemaInfo', 17, N'HistoryCleanupTotalExpiredPollTraceCount', N'bigint', 8, 19, 0, 0, NULL),
-            (N'SchemaInfo', 18, N'HistoryCleanupTotalDeletedRawObservationCount', N'bigint', 8, 19, 0, 0, NULL),
-            (N'SchemaInfo', 19, N'HistoryCleanupTotalDeletedSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
-            (N'SchemaInfo', 20, N'HistoryCleanupLastFailureCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
-            (N'SchemaInfo', 21, N'HistoryCleanupLastFailureReason', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'HistoryCleanupState', 1, N'Id', N'tinyint', 1, 3, 0, 0, NULL),
+            (N'HistoryCleanupState', 2, N'HistoryCleanupStatus', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'HistoryCleanupState', 3, N'HistoryCleanupRunId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'HistoryCleanupState', 4, N'HistoryCleanupLastStartedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'HistoryCleanupState', 5, N'HistoryCleanupLastCompletedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'HistoryCleanupState', 6, N'HistoryCleanupLastSuccessfulAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'HistoryCleanupState', 7, N'HistoryCleanupNextCheckAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'HistoryCleanupState', 8, N'HistoryCleanupLastExpiredPollTraceCount', N'int', 4, 10, 0, 0, NULL),
+            (N'HistoryCleanupState', 9, N'HistoryCleanupLastDeletedRawObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'HistoryCleanupState', 10, N'HistoryCleanupLastDeletedSeriesCount', N'int', 4, 10, 0, 0, NULL),
+            (N'HistoryCleanupState', 11, N'HistoryCleanupTotalExpiredPollTraceCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'HistoryCleanupState', 12, N'HistoryCleanupTotalDeletedRawObservationCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'HistoryCleanupState', 13, N'HistoryCleanupTotalDeletedSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'HistoryCleanupState', 14, N'HistoryCleanupLastFailureCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'HistoryCleanupState', 15, N'HistoryCleanupLastFailureReason', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -1279,6 +1292,7 @@ internal static class SqlServerMesIngestSchema
         INSERT INTO @ExpectedKeys VALUES
             (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
             (N'UQ_MesIngest_SchemaInfo_HistoryEpoch', N'SchemaInfo', 0, 1, 1, N'HistoryEpoch', 0),
+            (N'PK_MesIngest_HistoryCleanupState', N'HistoryCleanupState', 1, 1, 1, N'Id', 0),
             (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
             (N'UQ_MesIngest_PollTraces_Sequence', N'PollTraces', 0, 1, 1, N'PollTraceSequence', 0),
             (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
@@ -1446,7 +1460,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 50
+            WHERE s.name = N'mesingest') <> 51
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1497,8 +1511,9 @@ internal static class SqlServerMesIngestSchema
         INSERT INTO @ExpectedChecks VALUES
             (N'CK_MesIngest_SchemaInfo_SingleRow', N'SchemaInfo', N'([Id]=(1))'),
             (N'CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength', N'SchemaInfo', N'(datalength([SnapshotTokenSigningKey])=(32))'),
+            (N'CK_MesIngest_HistoryCleanupState_SingleRow', N'HistoryCleanupState', N'([Id]=(1))'),
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
-            (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0))'),
+            (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0) AND [RowCount]<=(25000))'),
             (N'CK_MesIngest_PollTraces_Diagnostic', N'PollTraces', N'([DiagnosticStage] IS NULL AND [DiagnosticCode] IS NULL AND [DiagnosticSafeDetail] IS NULL OR [Outcome]<>N''SUCCESS'' AND [DiagnosticStage] IS NOT NULL AND [DiagnosticCode] IS NOT NULL AND [DiagnosticSafeDetail] IS NOT NULL)'),
             (N'CK_MesIngest_ProjectionCommitUnassignedObservationFacts_State', N'ProjectionCommitUnassignedObservationFacts', N'([ObservationCount]=(0) AND [ContentDigest] IS NULL OR [ObservationCount]>(0) AND [ContentDigest] IS NOT NULL)'),
             (N'CK_MesIngest_UnassignedMesObservationEvents_EventType', N'UnassignedMesObservationEvents', N'([EventType]=N''UNASSIGNED_MES_OBSERVATION_CLEARED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED'' OR [EventType]=N''UNASSIGNED_MES_OBSERVATION_APPEARED'')'),
@@ -1545,7 +1560,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 46
+            WHERE s.name = N'mesingest') <> 47
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
@@ -1900,6 +1915,7 @@ internal static class SqlServerMesIngestSchema
             THROW 51007, 'The configured database contains unexpected new-MesIngest triggers.', 1;
 
         IF (SELECT COUNT(*) FROM mesingest.SchemaInfo) <> 1
+        OR (SELECT COUNT(*) FROM mesingest.HistoryCleanupState) <> 1
         OR NOT EXISTS
         (
             SELECT 1 FROM mesingest.SchemaInfo
@@ -1909,6 +1925,14 @@ internal static class SqlServerMesIngestSchema
               AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2
               AND DATALENGTH(SnapshotTokenSigningKey) = 32
               AND HistoryEpoch <> '00000000-0000-0000-0000-000000000000'
+        )
+        OR NOT EXISTS
+        (
+            SELECT 1 FROM mesingest.HistoryCleanupState
+            WHERE Id = 1
+              AND HistoryCleanupStatus IN
+                  (N'NOT_RUN', N'RUNNING', N'SUCCEEDED', N'BUDGET_EXHAUSTED',
+                   N'YIELDED_TO_POLL', N'INTERRUPTED', N'FAILED')
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
         """;

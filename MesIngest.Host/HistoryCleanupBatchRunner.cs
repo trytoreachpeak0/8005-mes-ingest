@@ -71,20 +71,24 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    public async Task RunBatchAsync(
+    public async Task<DateTimeOffset> RunBatchAsync(
         DateTimeOffset scheduledAt,
         CancellationToken cancellationToken)
     {
         if (!await _singleFlight.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            return;
+            return HistoryCleanupSchedule.NextCheck(
+                scheduledAt,
+                _timeProvider.GetUtcNow(),
+                TimeSpan.FromSeconds(_options.HistoryCleanupCheckIntervalSeconds));
         }
 
         var runId = Guid.NewGuid().ToString("N");
         var startedAt = _timeProvider.GetUtcNow().ToUniversalTime();
-        var nextCheckAt = scheduledAt.ToUniversalTime().AddSeconds(
-            _options.HistoryCleanupCheckIntervalSeconds);
+        var interval = TimeSpan.FromSeconds(_options.HistoryCleanupCheckIntervalSeconds);
+        var nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, startedAt, interval);
         var deadline = startedAt.AddSeconds(_options.HistoryCleanupTimeBudgetSeconds);
+        var runStarted = false;
         try
         {
             await _operations.BeginHistoryCleanupRunAsync(
@@ -92,6 +96,7 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
                 startedAt,
                 nextCheckAt,
                 cancellationToken).ConfigureAwait(false);
+            runStarted = true;
 
             var deletedRawRows = 0;
             var hasMoreRaw = true;
@@ -152,6 +157,7 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
             }
 
             var completedAt = _timeProvider.GetUtcNow().ToUniversalTime();
+            nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, completedAt, interval);
             var status = yieldedToPoll
                 ? HistoryCleanupRunStatuses.YieldedToPoll
                 : hasMoreRaw
@@ -172,26 +178,42 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
                 state.LastDeletedRawObservationCount,
                 state.LastDeletedSeriesCount,
                 state.NextCheckAt);
+            return nextCheckAt;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            var interruptedAt = _timeProvider.GetUtcNow().ToUniversalTime();
+            nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, interruptedAt, interval);
+            if (runStarted)
+            {
+                await _operations.CompleteHistoryCleanupRunAsync(
+                    runId,
+                    HistoryCleanupRunStatuses.Interrupted,
+                    interruptedAt,
+                    nextCheckAt,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
             throw;
         }
         catch (Exception exception)
         {
             var failedAt = _timeProvider.GetUtcNow().ToUniversalTime();
-            await _operations.FailHistoryCleanupRunAsync(
-                runId,
-                failedAt,
-                nextCheckAt,
-                HistoryCleanupFailureCodes.BatchFailed,
-                exception.GetType().Name,
-                cancellationToken).ConfigureAwait(false);
+            nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, failedAt, interval);
+            if (runStarted)
+            {
+                await _operations.FailHistoryCleanupRunAsync(
+                    runId,
+                    failedAt,
+                    nextCheckAt,
+                    HistoryCleanupFailureCodes.BatchFailed,
+                    exception.GetType().Name,
+                    CancellationToken.None).ConfigureAwait(false);
+            }
             _logger.LogError(
                 "History cleanup batch failed ({ExceptionType}); nextCheck={NextCheckAt}.",
                 exception.GetType().Name,
                 nextCheckAt);
-            throw;
+            return nextCheckAt;
         }
         finally
         {

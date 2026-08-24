@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
@@ -52,8 +53,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         await ingestor.IngestAsync(SuccessRound("poll-ticket16-attention-baseline", now));
         var runner = factory.Services.GetRequiredService<IHistoryCleanupBatchRunner>();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            runner.RunBatchAsync(now.AddHours(1), CancellationToken.None));
+        await runner.RunBatchAsync(now.AddHours(1), CancellationToken.None);
 
         var failed = await GetJsonAsync(client, "/api/v2/current-ingest-attention");
         var failedStatus = failed.GetProperty("historyCleanup");
@@ -73,7 +73,10 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         using (await factory.Services.GetRequiredService<IngestWorkPriorityGate>()
                    .EnterPollAsync(CancellationToken.None))
         {
-            // Cleanup failure releases the shared priority gate; polling remains eligible.
+            var continued = await ingestor.IngestAsync(
+                SuccessRound("poll-ticket16-after-cleanup-failure", now.AddHours(1).AddMinutes(1)));
+            Assert.Equal(MesTaskUnionRoundOutcome.Success, continued.Outcome);
+            Assert.NotNull(continued.ProjectionCommitId);
         }
 
         Assert.NotNull(failOnce);
@@ -161,6 +164,45 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         Assert.Equal(completed.TotalDeletedSeriesCount, repeated.TotalDeletedSeriesCount);
     }
 
+    [Ticket01SqlServerFact]
+    public async Task Real_sql_baseline_cleans_the_default_25_whole_series_inside_the_15_second_budget()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var firstSeenAt = new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(firstSeenAt);
+        await using var factory = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(Environments.Production);
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(clock);
+            });
+        });
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var projection = factory.Services.GetRequiredService<IMesIngestProjection>();
+        await SeedArchivedSeriesBatchAsync(ingestor, projection, firstSeenAt, seriesCount: 25);
+        var cleanupAt = firstSeenAt
+            .AddMinutes(2)
+            .Add(DemandSeriesArchivePolicy.MinimumGoneDuration)
+            .Add(HistoryRetentionPolicy.RetentionEligibleDemandSeriesWindow);
+        clock.SetUtcNow(cleanupAt);
+
+        var stopwatch = Stopwatch.StartNew();
+        await factory.Services.GetRequiredService<IHistoryCleanupBatchRunner>()
+            .RunBatchAsync(cleanupAt, CancellationToken.None);
+        stopwatch.Stop();
+        var state = await factory.Services.GetRequiredService<IHistoryCleanupOperations>()
+            .ReadHistoryCleanupStateAsync();
+
+        Assert.Equal(HistoryCleanupRunStatuses.BudgetExhausted, state.Status);
+        Assert.Equal(25, state.LastDeletedSeriesCount);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(15),
+            $"The real-SQL baseline took {stopwatch.Elapsed}.");
+    }
+
     private static async Task SeedMinimumArchivedSeriesAsync(
         RoundIngestor ingestor,
         IMesIngestProjection projection,
@@ -192,6 +234,41 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
             "SL-TICKET16-NORMAL");
         Assert.NotNull(series);
         Assert.Equal(DemandSeriesLifecycleContract.Archived, series.Lifecycle);
+    }
+
+    private static async Task SeedArchivedSeriesBatchAsync(
+        RoundIngestor ingestor,
+        IMesIngestProjection projection,
+        DateTimeOffset firstSeenAt,
+        int seriesCount)
+    {
+        var invalid = Enumerable.Range(0, seriesCount)
+            .Select(index => new MesTaskUnionObservation(
+                $"WIRE_TO_NITROGEN_{index:D2}", $"SL-TICKET16-BASELINE-{index:D2}", "N3-3", null,
+                "焊线2", null, null, "not-a-date"))
+            .ToArray();
+        var valid = Enumerable.Range(0, seriesCount)
+            .Select(index => new MesTaskUnionObservation(
+                $"WIRE_TO_NITROGEN_{index:D2}", $"SL-TICKET16-BASELINE-{index:D2}", "N3-3", $"WB-{index:D2}",
+                "焊线2", firstSeenAt, "QFN"))
+            .ToArray();
+        await ingestor.IngestAsync(SuccessRoundWithObservations(
+            "poll-ticket16-baseline-invalid", firstSeenAt, invalid));
+        await ingestor.IngestAsync(SuccessRoundWithObservations(
+            "poll-ticket16-baseline-valid", firstSeenAt.AddMinutes(1), valid));
+        await ingestor.IngestAsync(SuccessRoundWithObservations(
+            "poll-ticket16-baseline-gone", firstSeenAt.AddMinutes(2)));
+        var archivedAt = firstSeenAt
+            .AddMinutes(2)
+            .Add(DemandSeriesArchivePolicy.MinimumGoneDuration);
+        await ingestor.IngestAsync(SuccessRoundWithObservations(
+            "poll-ticket16-baseline-archived", archivedAt));
+
+        var sample = await projection.GetDemandSeriesByKeyAsync(
+            "WIRE_TO_NITROGEN_00",
+            "SL-TICKET16-BASELINE-00");
+        Assert.NotNull(sample);
+        Assert.Equal(DemandSeriesLifecycleContract.Archived, sample.Lifecycle);
     }
 
     private static MesTaskUnionRound SuccessRoundWithObservations(

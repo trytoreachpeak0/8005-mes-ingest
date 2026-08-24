@@ -1,6 +1,7 @@
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using MesIngest.Infrastructure.SqlServer;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MesIngest.Tests;
@@ -45,6 +46,7 @@ public sealed class HistoryCleanupPolicyTests
     [InlineData(3_600, 210_000, 25, 0)]
     [InlineData(86_401, 210_000, 25, 15)]
     [InlineData(3_600, 1_000_001, 25, 15)]
+    [InlineData(3_600, 24_999, 25, 15)]
     [InlineData(3_600, 210_000, 1_001, 15)]
     [InlineData(3_600, 210_000, 25, 301)]
     public void Cleanup_options_reject_non_positive_or_unbounded_operational_budgets(
@@ -118,6 +120,49 @@ public sealed class HistoryCleanupPolicyTests
     }
 
     [Fact]
+    public async Task Overrunning_batch_publishes_the_same_skipped_slot_the_host_will_use()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 4, 30, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(now);
+        var operations = new SeriesBudgetCleanupOperations(clock, now);
+        var runner = new HistoryCleanupBatchRunner(
+            operations,
+            new MesIngestHostOptions
+            {
+                HistoryCleanupCheckIntervalSeconds = 10,
+                HistoryCleanupTimeBudgetSeconds = 15,
+            },
+            clock,
+            new IngestWorkPriorityGate(),
+            NullLogger<HistoryCleanupBatchRunner>.Instance);
+
+        var actualNextCheckAt = await runner.RunBatchAsync(now, CancellationToken.None);
+
+        Assert.Equal(now.AddSeconds(25), operations.State.NextCheckAt);
+        Assert.Equal(operations.State.NextCheckAt, actualNextCheckAt);
+    }
+
+    [Fact]
+    public async Task Poll_already_in_progress_prevents_any_cleanup_data_transaction()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 5, 30, 0, TimeSpan.Zero);
+        var operations = new RecordingCleanupOperations(rawRowsDue: 1);
+        var gate = new IngestWorkPriorityGate();
+        var runner = new HistoryCleanupBatchRunner(
+            operations,
+            new MesIngestHostOptions(),
+            new AdjustableTimeProvider(now),
+            gate,
+            NullLogger<HistoryCleanupBatchRunner>.Instance);
+        using var pollLease = await gate.EnterPollAsync(CancellationToken.None);
+
+        await runner.RunBatchAsync(now, CancellationToken.None);
+
+        Assert.Empty(operations.RawRowLimits);
+        Assert.Equal(HistoryCleanupRunStatuses.YieldedToPoll, operations.State.Status);
+    }
+
+    [Fact]
     public async Task Pending_poll_prevents_another_cleanup_transaction_and_cleanup_never_overlaps_itself()
     {
         var now = new DateTimeOffset(2026, 8, 24, 6, 0, 0, TimeSpan.Zero);
@@ -168,12 +213,46 @@ public sealed class HistoryCleanupPolicyTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => cleanup.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Equal(HistoryCleanupRunStatuses.Running, operations.State.Status);
+        Assert.Equal(HistoryCleanupRunStatuses.Interrupted, operations.State.Status);
         Assert.Null(operations.State.LastFailureCode);
 
         using var pollLease = await gate.EnterPollAsync(CancellationToken.None)
             .AsTask()
             .WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task One_poll_trace_cannot_exceed_the_hard_cleanup_transaction_bound()
+    {
+        var projection = new SqlServerMesIngestProjection(
+            "Server=unused;Database=unused;Integrated Security=True;Encrypt=False");
+        var completedAt = new DateTimeOffset(2026, 8, 24, 7, 30, 0, TimeSpan.Zero);
+        var round = new MesTaskUnionRound(
+            "poll-ticket16-over-bound",
+            "ticket16-policy-v1",
+            MesTaskUnionRoundOutcome.Success,
+            completedAt.AddSeconds(-1),
+            completedAt,
+            new OversizedObservationList());
+
+        var exception = await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => projection.CommitRoundAsync(round));
+
+        Assert.Equal("round", exception.ParamName);
+    }
+
+    private sealed class OversizedObservationList : IReadOnlyList<MesTaskUnionObservation>
+    {
+        public int Count => HistoryRetentionPolicy.MaximumRawObservationsPerPollTrace + 1;
+
+        public MesTaskUnionObservation this[int index] =>
+            throw new InvalidOperationException("The bound must be checked before enumeration.");
+
+        public IEnumerator<MesTaskUnionObservation> GetEnumerator() =>
+            throw new InvalidOperationException("The bound must be checked before enumeration.");
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() =>
+            GetEnumerator();
     }
 
     private sealed class RecordingCleanupOperations(int rawRowsDue) : IHistoryCleanupOperations

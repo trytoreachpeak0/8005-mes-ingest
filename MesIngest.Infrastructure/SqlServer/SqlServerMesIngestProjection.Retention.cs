@@ -6,6 +6,24 @@ namespace MesIngest.Infrastructure.SqlServer;
 
 public sealed partial class SqlServerMesIngestProjection
 {
+    private const string HistoryCleanupStateSelectSql = """
+        SELECT
+            state.HistoryCleanupStatus, state.HistoryCleanupRunId,
+            state.HistoryCleanupLastStartedAt, state.HistoryCleanupLastCompletedAt,
+            state.HistoryCleanupLastSuccessfulAt, state.HistoryCleanupNextCheckAt,
+            state.HistoryCleanupLastExpiredPollTraceCount,
+            state.HistoryCleanupLastDeletedRawObservationCount,
+            state.HistoryCleanupLastDeletedSeriesCount,
+            state.HistoryCleanupTotalExpiredPollTraceCount,
+            state.HistoryCleanupTotalDeletedRawObservationCount,
+            state.HistoryCleanupTotalDeletedSeriesCount,
+            schemaInfo.EarliestAvailableHostUtc,
+            state.HistoryCleanupLastFailureCode, state.HistoryCleanupLastFailureReason
+        FROM mesingest.HistoryCleanupState AS state
+        INNER JOIN mesingest.SchemaInfo AS schemaInfo ON schemaInfo.Id = state.Id
+        WHERE state.Id = 1;
+        """;
+
     public async Task<HistoryRetentionAdvanceResult> AdvanceHistoryRetentionAsync(
         CancellationToken cancellationToken = default)
     {
@@ -163,7 +181,6 @@ public sealed partial class SqlServerMesIngestProjection
                         PollTraceId,
                         CompletedAt,
                         ObservationCount,
-                        ROW_NUMBER() OVER (ORDER BY CompletedAt, PollTraceId) AS CandidateOrdinal,
                         SUM(ObservationCount) OVER
                             (ORDER BY CompletedAt, PollTraceId ROWS UNBOUNDED PRECEDING) AS RunningRows
                     FROM Due
@@ -171,7 +188,7 @@ public sealed partial class SqlServerMesIngestProjection
                 INSERT INTO @expired (PollTraceId)
                 SELECT PollTraceId
                 FROM Ranked
-                WHERE CandidateOrdinal = 1 OR RunningRows <= @maximumRawObservationRows
+                WHERE RunningRows <= @maximumRawObservationRows
                 ORDER BY CompletedAt, PollTraceId;
 
                 DECLARE @expiredPollTraceCount INT = @@ROWCOUNT;
@@ -202,7 +219,11 @@ public sealed partial class SqlServerMesIngestProjection
                                  OR @candidateBoundary > EarliestAvailableHostUtc
                             THEN @candidateBoundary
                             ELSE EarliestAvailableHostUtc
-                        END,
+                        END
+                WHERE Id = 1;
+
+                UPDATE mesingest.HistoryCleanupState
+                SET
                     HistoryCleanupLastExpiredPollTraceCount =
                         HistoryCleanupLastExpiredPollTraceCount + @expiredPollTraceCount,
                     HistoryCleanupLastDeletedRawObservationCount =
@@ -531,7 +552,7 @@ public sealed partial class SqlServerMesIngestProjection
                 await using var progress = connection.CreateCommand();
                 progress.Transaction = transaction;
                 progress.CommandText = """
-                    UPDATE mesingest.SchemaInfo
+                    UPDATE mesingest.HistoryCleanupState
                     SET HistoryCleanupLastDeletedSeriesCount =
                             HistoryCleanupLastDeletedSeriesCount + 1,
                         HistoryCleanupTotalDeletedSeriesCount =
@@ -574,7 +595,7 @@ public sealed partial class SqlServerMesIngestProjection
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            UPDATE mesingest.SchemaInfo
+            UPDATE mesingest.HistoryCleanupState
             SET HistoryCleanupStatus = N'RUNNING',
                 HistoryCleanupRunId = @runId,
                 HistoryCleanupLastStartedAt = @startedAt,
@@ -585,20 +606,7 @@ public sealed partial class SqlServerMesIngestProjection
                 HistoryCleanupLastDeletedSeriesCount = 0
             WHERE Id = 1;
 
-            SELECT
-                HistoryCleanupStatus, HistoryCleanupRunId,
-                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
-                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
-                HistoryCleanupLastExpiredPollTraceCount,
-                HistoryCleanupLastDeletedRawObservationCount,
-                HistoryCleanupLastDeletedSeriesCount,
-                HistoryCleanupTotalExpiredPollTraceCount,
-                HistoryCleanupTotalDeletedRawObservationCount,
-                HistoryCleanupTotalDeletedSeriesCount,
-                EarliestAvailableHostUtc,
-                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
-            FROM mesingest.SchemaInfo WHERE Id = 1;
-            """;
+            """ + HistoryCleanupStateSelectSql;
         AddNVarChar(command, "@runId", 64, runId);
         AddDateTimeOffset(command, "@startedAt", startedAt.ToUniversalTime());
         AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
@@ -616,7 +624,8 @@ public sealed partial class SqlServerMesIngestProjection
         ValidateRequiredText(runId, nameof(runId), 64);
         if (status is not (HistoryCleanupRunStatuses.Succeeded
             or HistoryCleanupRunStatuses.BudgetExhausted
-            or HistoryCleanupRunStatuses.YieldedToPoll))
+            or HistoryCleanupRunStatuses.YieldedToPoll
+            or HistoryCleanupRunStatuses.Interrupted))
         {
             throw new ArgumentException("The cleanup completion status is invalid.", nameof(status));
         }
@@ -626,10 +635,13 @@ public sealed partial class SqlServerMesIngestProjection
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            UPDATE mesingest.SchemaInfo
+            UPDATE mesingest.HistoryCleanupState
             SET HistoryCleanupStatus = @status,
                 HistoryCleanupLastCompletedAt = @completedAt,
-                HistoryCleanupLastSuccessfulAt = @completedAt,
+                HistoryCleanupLastSuccessfulAt =
+                    CASE WHEN @status = N'INTERRUPTED'
+                         THEN HistoryCleanupLastSuccessfulAt
+                         ELSE @completedAt END,
                 HistoryCleanupNextCheckAt = @nextCheckAt,
                 HistoryCleanupLastFailureCode = NULL,
                 HistoryCleanupLastFailureReason = NULL
@@ -638,20 +650,7 @@ public sealed partial class SqlServerMesIngestProjection
             IF @@ROWCOUNT <> 1
                 THROW 51042, 'The history cleanup run identity changed before completion.', 1;
 
-            SELECT
-                HistoryCleanupStatus, HistoryCleanupRunId,
-                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
-                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
-                HistoryCleanupLastExpiredPollTraceCount,
-                HistoryCleanupLastDeletedRawObservationCount,
-                HistoryCleanupLastDeletedSeriesCount,
-                HistoryCleanupTotalExpiredPollTraceCount,
-                HistoryCleanupTotalDeletedRawObservationCount,
-                HistoryCleanupTotalDeletedSeriesCount,
-                EarliestAvailableHostUtc,
-                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
-            FROM mesingest.SchemaInfo WHERE Id = 1;
-            """;
+            """ + HistoryCleanupStateSelectSql;
         AddNVarChar(command, "@runId", 64, runId);
         AddNVarChar(command, "@status", 32, status);
         AddDateTimeOffset(command, "@completedAt", completedAt.ToUniversalTime());
@@ -676,7 +675,7 @@ public sealed partial class SqlServerMesIngestProjection
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            UPDATE mesingest.SchemaInfo
+            UPDATE mesingest.HistoryCleanupState
             SET HistoryCleanupStatus = N'FAILED',
                 HistoryCleanupLastCompletedAt = @failedAt,
                 HistoryCleanupNextCheckAt = @nextCheckAt,
@@ -687,20 +686,7 @@ public sealed partial class SqlServerMesIngestProjection
             IF @@ROWCOUNT <> 1
                 THROW 51042, 'The history cleanup run identity changed before failure recording.', 1;
 
-            SELECT
-                HistoryCleanupStatus, HistoryCleanupRunId,
-                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
-                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
-                HistoryCleanupLastExpiredPollTraceCount,
-                HistoryCleanupLastDeletedRawObservationCount,
-                HistoryCleanupLastDeletedSeriesCount,
-                HistoryCleanupTotalExpiredPollTraceCount,
-                HistoryCleanupTotalDeletedRawObservationCount,
-                HistoryCleanupTotalDeletedSeriesCount,
-                EarliestAvailableHostUtc,
-                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
-            FROM mesingest.SchemaInfo WHERE Id = 1;
-            """;
+            """ + HistoryCleanupStateSelectSql;
         AddNVarChar(command, "@runId", 64, runId);
         AddDateTimeOffset(command, "@failedAt", failedAt.ToUniversalTime());
         AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
@@ -717,21 +703,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT
-                HistoryCleanupStatus, HistoryCleanupRunId,
-                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
-                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
-                HistoryCleanupLastExpiredPollTraceCount,
-                HistoryCleanupLastDeletedRawObservationCount,
-                HistoryCleanupLastDeletedSeriesCount,
-                HistoryCleanupTotalExpiredPollTraceCount,
-                HistoryCleanupTotalDeletedRawObservationCount,
-                HistoryCleanupTotalDeletedSeriesCount,
-                EarliestAvailableHostUtc,
-                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
-            FROM mesingest.SchemaInfo WHERE Id = 1;
-            """;
+        command.CommandText = HistoryCleanupStateSelectSql;
         return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
             .ConfigureAwait(false);
     }

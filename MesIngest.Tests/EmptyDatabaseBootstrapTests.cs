@@ -451,11 +451,11 @@ public sealed class EmptyDatabaseBootstrapTests
                 SELECT CONVERT(BIT, CASE
                     WHEN COL_LENGTH(N'mesingest.PollTraces', N'RawObservationsExpiredAt') IS NOT NULL
                      AND COL_LENGTH(N'mesingest.DemandSeries', N'RetentionEligibilityAt') IS NOT NULL
-                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupStatus') IS NOT NULL
-                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupNextCheckAt') IS NOT NULL
-                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupTotalDeletedRawObservationCount') IS NOT NULL
-                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupLastFailureReason') IS NOT NULL
-                     AND (SELECT HistoryCleanupStatus FROM mesingest.SchemaInfo WHERE Id = 1) = N'NOT_RUN'
+                     AND COL_LENGTH(N'mesingest.HistoryCleanupState', N'HistoryCleanupStatus') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.HistoryCleanupState', N'HistoryCleanupNextCheckAt') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.HistoryCleanupState', N'HistoryCleanupTotalDeletedRawObservationCount') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.HistoryCleanupState', N'HistoryCleanupLastFailureReason') IS NOT NULL
+                     AND (SELECT HistoryCleanupStatus FROM mesingest.HistoryCleanupState WHERE Id = 1) = N'NOT_RUN'
                      AND EXISTS
                      (
                          SELECT 1

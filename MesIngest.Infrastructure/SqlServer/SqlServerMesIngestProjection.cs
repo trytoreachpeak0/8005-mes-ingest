@@ -1107,6 +1107,12 @@ public sealed partial class SqlServerMesIngestProjection :
         ValidateRequiredText(round.PollTraceId, nameof(round.PollTraceId), 128);
         ValidateRequiredText(round.QueryVersion, nameof(round.QueryVersion), 128);
         ArgumentNullException.ThrowIfNull(round.Observations);
+        if (round.Observations.Count > HistoryRetentionPolicy.MaximumRawObservationsPerPollTrace)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(round),
+                $"A PollTrace cannot contain more than {HistoryRetentionPolicy.MaximumRawObservationsPerPollTrace} raw observations.");
+        }
         if (round.CompletedAt < round.StartedAt)
         {
             throw new ArgumentException(

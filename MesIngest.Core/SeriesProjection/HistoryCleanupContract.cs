@@ -7,10 +7,11 @@ public static class HistoryCleanupRunStatuses
     public const string Succeeded = "SUCCEEDED";
     public const string BudgetExhausted = "BUDGET_EXHAUSTED";
     public const string YieldedToPoll = "YIELDED_TO_POLL";
+    public const string Interrupted = "INTERRUPTED";
     public const string Failed = "FAILED";
 
     public static IReadOnlyList<string> All { get; } =
-        [NotRun, Running, Succeeded, BudgetExhausted, YieldedToPoll, Failed];
+        [NotRun, Running, Succeeded, BudgetExhausted, YieldedToPoll, Interrupted, Failed];
 }
 
 public static class HistoryCleanupFailureCodes
@@ -60,7 +61,7 @@ public sealed record HistoryCleanupStateSnapshot(
         LastFailureCode: null,
         LastFailureReason: null);
 
-    public HistoryCleanupStateSnapshot Begin(
+    internal HistoryCleanupStateSnapshot Begin(
         string runId,
         DateTimeOffset startedAt,
         DateTimeOffset nextCheckAt) => this with
@@ -75,7 +76,7 @@ public sealed record HistoryCleanupStateSnapshot(
         LastDeletedSeriesCount = 0,
     };
 
-    public HistoryCleanupStateSnapshot RecordRawProgress(
+    internal HistoryCleanupStateSnapshot RecordRawProgress(
         int expiredPollTraceCount,
         int deletedRawObservationCount,
         DateTimeOffset earliestAvailableHostUtc) => this with
@@ -89,26 +90,28 @@ public sealed record HistoryCleanupStateSnapshot(
         EarliestAvailableHostUtc = earliestAvailableHostUtc,
     };
 
-    public HistoryCleanupStateSnapshot RecordSeriesProgress() => this with
+    internal HistoryCleanupStateSnapshot RecordSeriesProgress() => this with
     {
         LastDeletedSeriesCount = checked(LastDeletedSeriesCount + 1),
         TotalDeletedSeriesCount = checked(TotalDeletedSeriesCount + 1),
     };
 
-    public HistoryCleanupStateSnapshot Complete(
+    internal HistoryCleanupStateSnapshot Complete(
         string status,
         DateTimeOffset completedAt,
         DateTimeOffset nextCheckAt) => this with
     {
         Status = status,
         LastCompletedAt = completedAt,
-        LastSuccessfulAt = completedAt,
+        LastSuccessfulAt = status == HistoryCleanupRunStatuses.Interrupted
+            ? LastSuccessfulAt
+            : completedAt,
         NextCheckAt = nextCheckAt,
         LastFailureCode = null,
         LastFailureReason = null,
     };
 
-    public HistoryCleanupStateSnapshot Fail(
+    internal HistoryCleanupStateSnapshot Fail(
         DateTimeOffset failedAt,
         DateTimeOffset nextCheckAt,
         string failureCode,

@@ -195,8 +195,9 @@ public sealed class MesIngestHostOptions
             HistoryCleanupCheckIntervalSeconds,
             24 * 60 * 60,
             nameof(HistoryCleanupCheckIntervalSeconds));
-        ValidateBoundedPositive(
+        ValidateBounded(
             HistoryCleanupMaximumRawObservationRowsPerBatch,
+            HistoryRetentionPolicy.MaximumRawObservationsPerPollTrace,
             1_000_000,
             nameof(HistoryCleanupMaximumRawObservationRowsPerBatch));
         ValidateBoundedPositive(
@@ -215,6 +216,15 @@ public sealed class MesIngestHostOptions
         {
             throw new InvalidOperationException(
                 $"{SectionName}:{name} must be between 1 and {maximum}.");
+        }
+    }
+
+    private static void ValidateBounded(int value, int minimum, int maximum, string name)
+    {
+        if (value < minimum || value > maximum)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:{name} must be between {minimum} and {maximum}.");
         }
     }
 

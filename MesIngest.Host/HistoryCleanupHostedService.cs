@@ -2,9 +2,22 @@ namespace MesIngest.Host;
 
 public interface IHistoryCleanupBatchRunner
 {
-    Task RunBatchAsync(
+    Task<DateTimeOffset> RunBatchAsync(
         DateTimeOffset scheduledAt,
         CancellationToken cancellationToken);
+}
+
+internal static class HistoryCleanupSchedule
+{
+    public static DateTimeOffset NextCheck(
+        DateTimeOffset scheduledAt,
+        DateTimeOffset completedAt,
+        TimeSpan interval)
+    {
+        var candidate = scheduledAt.ToUniversalTime().Add(interval);
+        var completedUtc = completedAt.ToUniversalTime();
+        return candidate > completedUtc ? candidate : completedUtc.Add(interval);
+    }
 }
 
 /// <summary>
@@ -50,10 +63,9 @@ public sealed class HistoryCleanupHostedService : BackgroundService
                     scheduledAt = nextScheduledAt;
                 }
 
-                await _runner.RunBatchAsync(
+                nextScheduledAt = await _runner.RunBatchAsync(
                     scheduledAt,
                     stoppingToken).ConfigureAwait(false);
-                nextScheduledAt = scheduledAt;
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -62,13 +74,13 @@ public sealed class HistoryCleanupHostedService : BackgroundService
             catch (Exception exception)
             {
                 _logger.LogError(
-                    exception,
-                    "History cleanup batch failed; the Host will retry at the next check.");
+                    "History cleanup scheduler failed ({ExceptionType}); the Host will retry.",
+                    exception.GetType().Name);
+                nextScheduledAt = HistoryCleanupSchedule.NextCheck(
+                    nextScheduledAt,
+                    _timeProvider.GetUtcNow(),
+                    interval);
             }
-
-            var candidate = nextScheduledAt.Add(interval);
-            var now = _timeProvider.GetUtcNow().ToUniversalTime();
-            nextScheduledAt = candidate > now ? candidate : now.Add(interval);
         }
     }
 }

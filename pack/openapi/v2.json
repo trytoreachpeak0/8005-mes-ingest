@@ -3955,6 +3955,7 @@
               "SUCCEEDED",
               "BUDGET_EXHAUSTED",
               "YIELDED_TO_POLL",
+              "INTERRUPTED",
               "FAILED"
             ],
             "type": "string",

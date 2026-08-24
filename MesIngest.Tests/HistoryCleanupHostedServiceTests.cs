@@ -1,4 +1,5 @@
 using MesIngest.Host;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace MesIngest.Tests;
@@ -64,6 +65,28 @@ public sealed class HistoryCleanupHostedServiceTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task Scheduler_logs_only_the_exception_type_when_its_runner_fails()
+    {
+        var startedAt = new DateTimeOffset(2026, 8, 24, 12, 0, 0, TimeSpan.Zero);
+        var clock = new ManualTimerTimeProvider(startedAt);
+        var logger = new CapturingLogger<HistoryCleanupHostedService>();
+        var service = new HistoryCleanupHostedService(
+            new ThrowingHistoryCleanupBatchRunner(),
+            new MesIngestHostOptions(),
+            clock,
+            logger);
+
+        await service.StartAsync(CancellationToken.None);
+        clock.Advance(TimeSpan.FromHours(1));
+        await logger.Logged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Null(logger.Exception);
+        Assert.DoesNotContain("secret scheduler detail", logger.Message, StringComparison.Ordinal);
+        Assert.Contains(nameof(InvalidOperationException), logger.Message, StringComparison.Ordinal);
+    }
+
     private sealed class RecordingHistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
     {
         private readonly TaskCompletionSource _firstRun = new(
@@ -76,7 +99,7 @@ public sealed class HistoryCleanupHostedServiceTests
 
         public List<DateTimeOffset> StartedAt { get; } = [];
 
-        public Task RunBatchAsync(
+        public Task<DateTimeOffset> RunBatchAsync(
             DateTimeOffset scheduledAt,
             CancellationToken cancellationToken)
         {
@@ -88,7 +111,7 @@ public sealed class HistoryCleanupHostedServiceTests
 
             var count = Interlocked.Increment(ref _runCount);
             (count == 1 ? _firstRun : _secondRun).TrySetResult();
-            return Task.CompletedTask;
+            return Task.FromResult(scheduledAt.AddHours(1));
         }
 
         public async Task WaitForRunsAsync(int count)
@@ -111,7 +134,7 @@ public sealed class HistoryCleanupHostedServiceTests
 
         public List<DateTimeOffset> ScheduledAt { get; } = [];
 
-        public Task RunBatchAsync(
+        public Task<DateTimeOffset> RunBatchAsync(
             DateTimeOffset scheduledAt,
             CancellationToken cancellationToken)
         {
@@ -127,11 +150,45 @@ public sealed class HistoryCleanupHostedServiceTests
                 _secondRun.TrySetResult();
             }
 
-            return Task.CompletedTask;
+            return Task.FromResult(scheduledAt.AddHours(1));
         }
 
         public Task WaitForRunsAsync(int count) =>
             (count == 1 ? _firstRun.Task : _secondRun.Task)
                 .WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    private sealed class ThrowingHistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
+    {
+        public Task<DateTimeOffset> RunBatchAsync(
+            DateTimeOffset scheduledAt,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("secret scheduler detail");
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public TaskCompletionSource Logged { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public string Message { get; private set; } = string.Empty;
+
+        public Exception? Exception { get; private set; }
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Message = formatter(state, exception);
+            Exception = exception;
+            Logged.TrySetResult();
+        }
     }
 }
