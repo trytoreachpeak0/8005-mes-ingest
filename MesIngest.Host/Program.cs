@@ -44,6 +44,10 @@ if (projectionEnabled
         $"MesIngest:ZeroDropClearStreak must be {TaskTypeProtectionPolicy.RequiredRecoveryStreak} "
         + "when the projection is enabled.");
 }
+if (projectionEnabled)
+{
+    configured.ValidateHistoryCleanupPolicy();
+}
 if (!probeOracle && !builder.Environment.IsDevelopment() && !projectionEnabled)
 {
     throw new InvalidOperationException(
@@ -89,7 +93,7 @@ if (projectionEnabled)
         NoopProjectionCommitCheckpointObserver.Instance);
     builder.Services.AddSingleton<IProjectionReadBoundaryObserver>(
         NoopProjectionReadBoundaryObserver.Instance);
-    builder.Services.AddSingleton<IMesIngestProjection>(sp =>
+    builder.Services.AddSingleton<SqlServerMesIngestProjection>(sp =>
         new SqlServerMesIngestProjection(
             configured.NewSqlServerConnectionString,
             configured.ZeroDropEnterThreshold,
@@ -97,6 +101,13 @@ if (projectionEnabled)
             sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>(),
             sp.GetRequiredService<IProjectionCommitCheckpointObserver>(),
             sp.GetRequiredService<IProjectionReadBoundaryObserver>()));
+    builder.Services.AddSingleton<IMesIngestProjection>(sp =>
+        sp.GetRequiredService<SqlServerMesIngestProjection>());
+    builder.Services.AddSingleton<IHistoryCleanupOperations>(sp =>
+        sp.GetRequiredService<SqlServerMesIngestProjection>());
+    builder.Services.AddSingleton<IngestWorkPriorityGate>();
+    builder.Services.AddSingleton<IHistoryCleanupBatchRunner, HistoryCleanupBatchRunner>();
+    builder.Services.AddHostedService<HistoryCleanupHostedService>();
     builder.Services.AddSingleton<RoundIngestor>();
     builder.Services.AddHostedService<NewMesIngestHostSessionService>();
     if (oracleRuntimeEnabled)

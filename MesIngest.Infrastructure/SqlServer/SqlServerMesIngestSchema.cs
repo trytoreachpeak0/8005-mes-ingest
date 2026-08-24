@@ -170,6 +170,20 @@ internal static class SqlServerMesIngestSchema
             HistoryEpoch UNIQUEIDENTIFIER NOT NULL
                 CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch UNIQUE,
             EarliestAvailableHostUtc DATETIMEOFFSET(7) NULL,
+            HistoryCleanupStatus NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            HistoryCleanupRunId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            HistoryCleanupLastStartedAt DATETIMEOFFSET(7) NULL,
+            HistoryCleanupLastCompletedAt DATETIMEOFFSET(7) NULL,
+            HistoryCleanupLastSuccessfulAt DATETIMEOFFSET(7) NULL,
+            HistoryCleanupNextCheckAt DATETIMEOFFSET(7) NULL,
+            HistoryCleanupLastExpiredPollTraceCount INT NOT NULL,
+            HistoryCleanupLastDeletedRawObservationCount INT NOT NULL,
+            HistoryCleanupLastDeletedSeriesCount INT NOT NULL,
+            HistoryCleanupTotalExpiredPollTraceCount BIGINT NOT NULL,
+            HistoryCleanupTotalDeletedRawObservationCount BIGINT NOT NULL,
+            HistoryCleanupTotalDeletedSeriesCount BIGINT NOT NULL,
+            HistoryCleanupLastFailureCode NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NULL,
+            HistoryCleanupLastFailureReason NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NULL,
             CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
             CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
                 CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
@@ -205,6 +219,10 @@ internal static class SqlServerMesIngestSchema
         CREATE INDEX IX_MesIngest_PollTraces_CompletedAt
             ON mesingest.PollTraces (CompletedAt, PollTraceId)
             INCLUDE ([RowCount]);
+        CREATE INDEX IX_MesIngest_PollTraces_RawRetentionDue
+            ON mesingest.PollTraces (CompletedAt, PollTraceId)
+            INCLUDE ([RowCount])
+            WHERE RawObservationsExpiredAt IS NULL;
 
         CREATE TABLE mesingest.ProjectionCommits
         (
@@ -775,10 +793,22 @@ internal static class SqlServerMesIngestSchema
 
         INSERT INTO mesingest.SchemaInfo
             (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison,
-             SnapshotTokenSigningKey, HistoryEpoch, EarliestAvailableHostUtc)
+             SnapshotTokenSigningKey, HistoryEpoch, EarliestAvailableHostUtc,
+             HistoryCleanupStatus, HistoryCleanupRunId,
+             HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+             HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+             HistoryCleanupLastExpiredPollTraceCount,
+             HistoryCleanupLastDeletedRawObservationCount,
+             HistoryCleanupLastDeletedSeriesCount,
+             HistoryCleanupTotalExpiredPollTraceCount,
+             HistoryCleanupTotalDeletedRawObservationCount,
+             HistoryCleanupTotalDeletedSeriesCount,
+             HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason)
         VALUES
             (1, @schemaVersion, @contractVersion, @keyComparison,
-             CRYPT_GEN_RANDOM(32), @historyEpoch, NULL);
+             CRYPT_GEN_RANDOM(32), @historyEpoch, NULL,
+             N'NOT_RUN', NULL, NULL, NULL, NULL, NULL,
+             0, 0, 0, 0, 0, 0, NULL, NULL);
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -895,6 +925,20 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
             (N'SchemaInfo', 6, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
             (N'SchemaInfo', 7, N'EarliestAvailableHostUtc', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'SchemaInfo', 8, N'HistoryCleanupStatus', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'SchemaInfo', 9, N'HistoryCleanupRunId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'SchemaInfo', 10, N'HistoryCleanupLastStartedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'SchemaInfo', 11, N'HistoryCleanupLastCompletedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'SchemaInfo', 12, N'HistoryCleanupLastSuccessfulAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'SchemaInfo', 13, N'HistoryCleanupNextCheckAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'SchemaInfo', 14, N'HistoryCleanupLastExpiredPollTraceCount', N'int', 4, 10, 0, 0, NULL),
+            (N'SchemaInfo', 15, N'HistoryCleanupLastDeletedRawObservationCount', N'int', 4, 10, 0, 0, NULL),
+            (N'SchemaInfo', 16, N'HistoryCleanupLastDeletedSeriesCount', N'int', 4, 10, 0, 0, NULL),
+            (N'SchemaInfo', 17, N'HistoryCleanupTotalExpiredPollTraceCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'SchemaInfo', 18, N'HistoryCleanupTotalDeletedRawObservationCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'SchemaInfo', 19, N'HistoryCleanupTotalDeletedSeriesCount', N'bigint', 8, 19, 0, 0, NULL),
+            (N'SchemaInfo', 20, N'HistoryCleanupLastFailureCode', N'nvarchar', 256, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'SchemaInfo', 21, N'HistoryCleanupLastFailureReason', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -1813,6 +1857,7 @@ internal static class SqlServerMesIngestSchema
         FROM @ExpectedKeys;
         INSERT INTO @ExpectedIndexes (TableName, IndexName) VALUES
             (N'PollTraces', N'IX_MesIngest_PollTraces_CompletedAt'),
+            (N'PollTraces', N'IX_MesIngest_PollTraces_RawRetentionDue'),
             (N'UnassignedMesObservationEvents', N'IX_MesIngest_UnassignedMesObservationEvents_Overview'),
             (N'TaskTypeProtectionEvents', N'IX_MesIngest_TaskTypeProtectionEvents_Commit'),
             (N'DemandSeries', N'IX_MesIngest_DemandSeries_RetentionEligibilityAt'),

@@ -136,6 +136,11 @@ public sealed partial class SqlServerMesIngestProjection
             snapshot,
             items,
             cancellationToken).ConfigureAwait(false);
+        var historyCleanup = await ReadHistoryCleanupAttentionAsync(
+            connection,
+            transaction,
+            items,
+            cancellationToken).ConfigureAwait(false);
 
         var allItems = items.ToArray();
         var ordered = allItems
@@ -176,7 +181,8 @@ public sealed partial class SqlServerMesIngestProjection
             totalPages,
             query.Kinds ?? Array.Empty<string>(),
             query.Severities ?? Array.Empty<string>(),
-            page);
+            page,
+            historyCleanup);
     }
 
     private static async Task ReadSeriesErrorAttentionAsync(
@@ -382,6 +388,82 @@ public sealed partial class SqlServerMesIngestProjection
             new OverviewNavigationIntent(
                 OverviewNavigationTargets.PollTrace,
                 PollTraceId: pollTraceId)));
+    }
+
+    private static async Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupAttentionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ICollection<CurrentIngestAttentionItemSnapshot> items,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT
+                HistoryCleanupStatus, HistoryCleanupRunId,
+                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount,
+                HistoryCleanupLastDeletedRawObservationCount,
+                HistoryCleanupLastDeletedSeriesCount,
+                HistoryCleanupTotalExpiredPollTraceCount,
+                HistoryCleanupTotalDeletedRawObservationCount,
+                HistoryCleanupTotalDeletedSeriesCount,
+                EarliestAvailableHostUtc,
+                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
+            FROM mesingest.SchemaInfo
+            WHERE Id = 1;
+            """;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("The history cleanup state row is missing.");
+        }
+
+        var state = new HistoryCleanupStateSnapshot(
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            ReadNullableDateTimeOffset(reader, 2),
+            ReadNullableDateTimeOffset(reader, 3),
+            ReadNullableDateTimeOffset(reader, 4),
+            ReadNullableDateTimeOffset(reader, 5),
+            reader.GetInt32(6),
+            reader.GetInt32(7),
+            reader.GetInt32(8),
+            reader.GetInt64(9),
+            reader.GetInt64(10),
+            reader.GetInt64(11),
+            ReadNullableDateTimeOffset(reader, 12),
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            reader.IsDBNull(14) ? null : reader.GetString(14));
+        if (state.LastFailureCode is null)
+        {
+            return state;
+        }
+
+        items.Add(new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.HistoryCleanupFailure,
+            CurrentIngestAttentionSeverities.Error,
+            state.LastCompletedAt ?? state.LastStartedAt
+                ?? throw new InvalidOperationException(
+                    "A history cleanup failure must have an occurrence time."),
+            "HISTORY_CLEANUP_FAILURE",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: state.LastFailureCode,
+            Target: null,
+            SubjectKind: "HISTORY_CLEANUP",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                EvidenceId: state.RunId,
+                Phase: state.Status,
+                FailureReason: state.LastFailureReason,
+                NextCheckAt: state.NextCheckAt),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.HistoryCleanupFailure],
+                AttentionSeverities: [CurrentIngestAttentionSeverities.Error])));
+        return state;
     }
 
     private static int SeverityRank(string severity) => severity switch

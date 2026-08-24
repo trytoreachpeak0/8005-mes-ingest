@@ -12,7 +12,9 @@ namespace MesIngest.Infrastructure.SqlServer;
 /// result is recorded transactionally; only SUCCESS receives a projection commit
 /// and can change business state.
 /// </summary>
-public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
+public sealed partial class SqlServerMesIngestProjection :
+    IMesIngestProjection,
+    IHistoryCleanupOperations
 {
     private const string SuccessOutcome = "SUCCESS";
     private const string TrackingLifecycle = DemandSeriesLifecycleContract.Tracking;

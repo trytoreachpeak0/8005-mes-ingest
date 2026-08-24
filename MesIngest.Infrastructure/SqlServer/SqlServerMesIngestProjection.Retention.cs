@@ -105,8 +105,179 @@ public sealed partial class SqlServerMesIngestProjection
         }
     }
 
-    public async Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesAsync(
+    public async Task<HistoryRawCleanupBatchResult> AdvanceHistoryRetentionBatchAsync(
+        string runId,
+        int maximumRawObservationRows,
+        int maximumPollTraces,
         CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(runId, nameof(runId), 64);
+        if (maximumRawObservationRows <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumRawObservationRows));
+        }
+
+        if (maximumPollTraces <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumPollTraces));
+        }
+
+        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        var advancedAt = _timeProvider.GetUtcNow().ToUniversalTime();
+        var cutoff = advancedAt.Subtract(HistoryRetentionPolicy.RawObservationAvailabilityWindow);
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await AcquireCommitRoundOrderLockAsync(
+                connection,
+                transaction,
+                cancellationToken).ConfigureAwait(false);
+
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                DECLARE @expired TABLE
+                (
+                    PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY
+                );
+
+                ;WITH Due AS
+                (
+                    SELECT TOP (@maximumPollTraces)
+                        trace.PollTraceId,
+                        trace.CompletedAt,
+                        CONVERT(BIGINT, trace.[RowCount]) AS ObservationCount
+                    FROM mesingest.PollTraces AS trace WITH (UPDLOCK, HOLDLOCK)
+                    WHERE trace.RawObservationsExpiredAt IS NULL
+                      AND trace.CompletedAt <= @cutoff
+                    ORDER BY trace.CompletedAt, trace.PollTraceId
+                ),
+                Ranked AS
+                (
+                    SELECT
+                        PollTraceId,
+                        CompletedAt,
+                        ObservationCount,
+                        ROW_NUMBER() OVER (ORDER BY CompletedAt, PollTraceId) AS CandidateOrdinal,
+                        SUM(ObservationCount) OVER
+                            (ORDER BY CompletedAt, PollTraceId ROWS UNBOUNDED PRECEDING) AS RunningRows
+                    FROM Due
+                )
+                INSERT INTO @expired (PollTraceId)
+                SELECT PollTraceId
+                FROM Ranked
+                WHERE CandidateOrdinal = 1 OR RunningRows <= @maximumRawObservationRows
+                ORDER BY CompletedAt, PollTraceId;
+
+                DECLARE @expiredPollTraceCount INT = @@ROWCOUNT;
+
+                DELETE observation
+                FROM mesingest.DemandRawObservations AS observation
+                INNER JOIN @expired AS expired
+                    ON expired.PollTraceId = observation.PollTraceId;
+
+                DECLARE @deletedRawObservationCount INT = @@ROWCOUNT;
+
+                UPDATE trace
+                SET RawObservationsExpiredAt = @advancedAt
+                FROM mesingest.PollTraces AS trace
+                INNER JOIN @expired AS expired
+                    ON expired.PollTraceId = trace.PollTraceId;
+
+                DECLARE @candidateBoundary DATETIMEOFFSET(7) = COALESCE(
+                    (SELECT MIN(CompletedAt)
+                     FROM mesingest.PollTraces
+                     WHERE RawObservationsExpiredAt IS NULL),
+                    @cutoff);
+
+                UPDATE mesingest.SchemaInfo
+                SET EarliestAvailableHostUtc =
+                        CASE
+                            WHEN EarliestAvailableHostUtc IS NULL
+                                 OR @candidateBoundary > EarliestAvailableHostUtc
+                            THEN @candidateBoundary
+                            ELSE EarliestAvailableHostUtc
+                        END,
+                    HistoryCleanupLastExpiredPollTraceCount =
+                        HistoryCleanupLastExpiredPollTraceCount + @expiredPollTraceCount,
+                    HistoryCleanupLastDeletedRawObservationCount =
+                        HistoryCleanupLastDeletedRawObservationCount + @deletedRawObservationCount,
+                    HistoryCleanupTotalExpiredPollTraceCount =
+                        HistoryCleanupTotalExpiredPollTraceCount + @expiredPollTraceCount,
+                    HistoryCleanupTotalDeletedRawObservationCount =
+                        HistoryCleanupTotalDeletedRawObservationCount + @deletedRawObservationCount
+                WHERE Id = 1 AND HistoryCleanupRunId = @runId;
+
+                IF @@ROWCOUNT <> 1
+                    THROW 51042, 'The history cleanup run identity changed during raw retention.', 1;
+
+                SELECT
+                    @expiredPollTraceCount,
+                    @deletedRawObservationCount,
+                    EarliestAvailableHostUtc,
+                    CONVERT(BIT, CASE WHEN EXISTS
+                    (
+                        SELECT 1
+                        FROM mesingest.PollTraces
+                        WHERE RawObservationsExpiredAt IS NULL
+                          AND CompletedAt <= @cutoff
+                    ) THEN 1 ELSE 0 END)
+                FROM mesingest.SchemaInfo
+                WHERE Id = 1;
+                """;
+            AddDateTimeOffset(command, "@advancedAt", advancedAt);
+            AddDateTimeOffset(command, "@cutoff", cutoff);
+            AddNVarChar(command, "@runId", 64, runId);
+            command.Parameters.Add("@maximumRawObservationRows", SqlDbType.Int).Value =
+                maximumRawObservationRows;
+            command.Parameters.Add("@maximumPollTraces", SqlDbType.Int).Value =
+                maximumPollTraces;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                throw new InvalidOperationException(
+                    "The bounded history-retention advance did not return progress.");
+            }
+
+            var result = new HistoryRawCleanupBatchResult(
+                advancedAt,
+                cutoff,
+                reader.GetInt32(0),
+                reader.GetInt32(1),
+                reader.GetFieldValue<DateTimeOffset>(2),
+                reader.GetBoolean(3));
+            await reader.DisposeAsync().ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return result;
+        }
+        catch (Exception exception)
+        {
+            await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    public Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesAsync(
+        string runId,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(runId, nameof(runId), 64);
+        return CleanupNextRetentionEligibleSeriesCoreAsync(runId, cancellationToken);
+    }
+
+    public Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesAsync(
+        CancellationToken cancellationToken = default) =>
+        CleanupNextRetentionEligibleSeriesCoreAsync(runId: null, cancellationToken);
+
+    private async Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesCoreAsync(
+        string? runId,
+        CancellationToken cancellationToken)
     {
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
         var cleanedAt = _timeProvider.GetUtcNow().ToUniversalTime();
@@ -355,6 +526,26 @@ public sealed partial class SqlServerMesIngestProjection
                 transaction,
                 cancellationToken).ConfigureAwait(false);
 
+            if (runId is not null)
+            {
+                await using var progress = connection.CreateCommand();
+                progress.Transaction = transaction;
+                progress.CommandText = """
+                    UPDATE mesingest.SchemaInfo
+                    SET HistoryCleanupLastDeletedSeriesCount =
+                            HistoryCleanupLastDeletedSeriesCount + 1,
+                        HistoryCleanupTotalDeletedSeriesCount =
+                            HistoryCleanupTotalDeletedSeriesCount + 1
+                    WHERE Id = 1 AND HistoryCleanupRunId = @runId;
+                    """;
+                AddNVarChar(progress, "@runId", 64, runId);
+                if (await progress.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) != 1)
+                {
+                    throw new InvalidOperationException(
+                        "The history cleanup run identity changed during Series cleanup.");
+                }
+            }
+
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             return new RetentionEligibleSeriesCleanupResult(
                 cleanedAt,
@@ -370,6 +561,212 @@ public sealed partial class SqlServerMesIngestProjection
             throw;
         }
     }
+
+    public async Task<HistoryCleanupStateSnapshot> BeginHistoryCleanupRunAsync(
+        string runId,
+        DateTimeOffset startedAt,
+        DateTimeOffset nextCheckAt,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(runId, nameof(runId), 64);
+        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE mesingest.SchemaInfo
+            SET HistoryCleanupStatus = N'RUNNING',
+                HistoryCleanupRunId = @runId,
+                HistoryCleanupLastStartedAt = @startedAt,
+                HistoryCleanupLastCompletedAt = NULL,
+                HistoryCleanupNextCheckAt = @nextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount = 0,
+                HistoryCleanupLastDeletedRawObservationCount = 0,
+                HistoryCleanupLastDeletedSeriesCount = 0
+            WHERE Id = 1;
+
+            SELECT
+                HistoryCleanupStatus, HistoryCleanupRunId,
+                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount,
+                HistoryCleanupLastDeletedRawObservationCount,
+                HistoryCleanupLastDeletedSeriesCount,
+                HistoryCleanupTotalExpiredPollTraceCount,
+                HistoryCleanupTotalDeletedRawObservationCount,
+                HistoryCleanupTotalDeletedSeriesCount,
+                EarliestAvailableHostUtc,
+                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
+            FROM mesingest.SchemaInfo WHERE Id = 1;
+            """;
+        AddNVarChar(command, "@runId", 64, runId);
+        AddDateTimeOffset(command, "@startedAt", startedAt.ToUniversalTime());
+        AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
+        return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<HistoryCleanupStateSnapshot> CompleteHistoryCleanupRunAsync(
+        string runId,
+        string status,
+        DateTimeOffset completedAt,
+        DateTimeOffset nextCheckAt,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(runId, nameof(runId), 64);
+        if (status is not (HistoryCleanupRunStatuses.Succeeded
+            or HistoryCleanupRunStatuses.BudgetExhausted
+            or HistoryCleanupRunStatuses.YieldedToPoll))
+        {
+            throw new ArgumentException("The cleanup completion status is invalid.", nameof(status));
+        }
+
+        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE mesingest.SchemaInfo
+            SET HistoryCleanupStatus = @status,
+                HistoryCleanupLastCompletedAt = @completedAt,
+                HistoryCleanupLastSuccessfulAt = @completedAt,
+                HistoryCleanupNextCheckAt = @nextCheckAt,
+                HistoryCleanupLastFailureCode = NULL,
+                HistoryCleanupLastFailureReason = NULL
+            WHERE Id = 1 AND HistoryCleanupRunId = @runId;
+
+            IF @@ROWCOUNT <> 1
+                THROW 51042, 'The history cleanup run identity changed before completion.', 1;
+
+            SELECT
+                HistoryCleanupStatus, HistoryCleanupRunId,
+                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount,
+                HistoryCleanupLastDeletedRawObservationCount,
+                HistoryCleanupLastDeletedSeriesCount,
+                HistoryCleanupTotalExpiredPollTraceCount,
+                HistoryCleanupTotalDeletedRawObservationCount,
+                HistoryCleanupTotalDeletedSeriesCount,
+                EarliestAvailableHostUtc,
+                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
+            FROM mesingest.SchemaInfo WHERE Id = 1;
+            """;
+        AddNVarChar(command, "@runId", 64, runId);
+        AddNVarChar(command, "@status", 32, status);
+        AddDateTimeOffset(command, "@completedAt", completedAt.ToUniversalTime());
+        AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
+        return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+        string runId,
+        DateTimeOffset failedAt,
+        DateTimeOffset nextCheckAt,
+        string failureCode,
+        string failureReason,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateRequiredText(runId, nameof(runId), 64);
+        ValidateRequiredText(failureCode, nameof(failureCode), 128);
+        ValidateRequiredText(failureReason, nameof(failureReason), 256);
+        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE mesingest.SchemaInfo
+            SET HistoryCleanupStatus = N'FAILED',
+                HistoryCleanupLastCompletedAt = @failedAt,
+                HistoryCleanupNextCheckAt = @nextCheckAt,
+                HistoryCleanupLastFailureCode = @failureCode,
+                HistoryCleanupLastFailureReason = @failureReason
+            WHERE Id = 1 AND HistoryCleanupRunId = @runId;
+
+            IF @@ROWCOUNT <> 1
+                THROW 51042, 'The history cleanup run identity changed before failure recording.', 1;
+
+            SELECT
+                HistoryCleanupStatus, HistoryCleanupRunId,
+                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount,
+                HistoryCleanupLastDeletedRawObservationCount,
+                HistoryCleanupLastDeletedSeriesCount,
+                HistoryCleanupTotalExpiredPollTraceCount,
+                HistoryCleanupTotalDeletedRawObservationCount,
+                HistoryCleanupTotalDeletedSeriesCount,
+                EarliestAvailableHostUtc,
+                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
+            FROM mesingest.SchemaInfo WHERE Id = 1;
+            """;
+        AddNVarChar(command, "@runId", 64, runId);
+        AddDateTimeOffset(command, "@failedAt", failedAt.ToUniversalTime());
+        AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
+        AddNVarChar(command, "@failureCode", 128, failureCode);
+        AddNVarChar(command, "@failureReason", 256, failureReason);
+        return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                HistoryCleanupStatus, HistoryCleanupRunId,
+                HistoryCleanupLastStartedAt, HistoryCleanupLastCompletedAt,
+                HistoryCleanupLastSuccessfulAt, HistoryCleanupNextCheckAt,
+                HistoryCleanupLastExpiredPollTraceCount,
+                HistoryCleanupLastDeletedRawObservationCount,
+                HistoryCleanupLastDeletedSeriesCount,
+                HistoryCleanupTotalExpiredPollTraceCount,
+                HistoryCleanupTotalDeletedRawObservationCount,
+                HistoryCleanupTotalDeletedSeriesCount,
+                EarliestAvailableHostUtc,
+                HistoryCleanupLastFailureCode, HistoryCleanupLastFailureReason
+            FROM mesingest.SchemaInfo WHERE Id = 1;
+            """;
+        return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private static async Task<HistoryCleanupStateSnapshot> ExecuteHistoryCleanupStateReaderAsync(
+        SqlCommand command,
+        CancellationToken cancellationToken)
+    {
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("The history cleanup state row is missing.");
+        }
+
+        return new HistoryCleanupStateSnapshot(
+            reader.GetString(0),
+            reader.IsDBNull(1) ? null : reader.GetString(1),
+            ReadNullableDateTimeOffset(reader, 2),
+            ReadNullableDateTimeOffset(reader, 3),
+            ReadNullableDateTimeOffset(reader, 4),
+            ReadNullableDateTimeOffset(reader, 5),
+            reader.GetInt32(6),
+            reader.GetInt32(7),
+            reader.GetInt32(8),
+            reader.GetInt64(9),
+            reader.GetInt64(10),
+            reader.GetInt64(11),
+            ReadNullableDateTimeOffset(reader, 12),
+            reader.IsDBNull(13) ? null : reader.GetString(13),
+            reader.IsDBNull(14) ? null : reader.GetString(14));
+    }
+
+    private static DateTimeOffset? ReadNullableDateTimeOffset(SqlDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetFieldValue<DateTimeOffset>(ordinal);
 
     private async Task ObserveSeriesCleanupCheckpointAsync(
         SeriesCleanupCheckpoint checkpoint,

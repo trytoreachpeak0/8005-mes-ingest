@@ -1451,7 +1451,9 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
     string? ContentDigest,
     string? Phase,
     string? Outcome,
-    int? ObservationCount)
+    int? ObservationCount,
+    string? FailureReason,
+    DateTimeOffset? NextCheckAt)
 {
     public static CurrentIngestAttentionEvidenceDto From(
         CurrentIngestAttentionEvidenceSnapshot evidence) =>
@@ -1468,7 +1470,9 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
             evidence.ContentDigest,
             evidence.Phase,
             evidence.Outcome,
-            evidence.ObservationCount);
+            evidence.ObservationCount,
+            evidence.FailureReason,
+            evidence.NextCheckAt);
 }
 
 internal sealed record CurrentIngestAttentionItemDto(
@@ -1509,7 +1513,8 @@ internal sealed record CurrentIngestAttentionDto(
     int TotalPages,
     IReadOnlyList<string> Kinds,
     IReadOnlyList<string> Severities,
-    IReadOnlyList<CurrentIngestAttentionItemDto> Items)
+    IReadOnlyList<CurrentIngestAttentionItemDto> Items,
+    HistoryCleanupStateDto HistoryCleanup)
 {
     public static CurrentIngestAttentionDto From(CurrentIngestAttentionSnapshot snapshot) =>
         new(
@@ -1522,7 +1527,44 @@ internal sealed record CurrentIngestAttentionDto(
             snapshot.TotalPages,
             snapshot.Kinds,
             snapshot.Severities,
-            snapshot.Items.Select(CurrentIngestAttentionItemDto.From).ToArray());
+            snapshot.Items.Select(CurrentIngestAttentionItemDto.From).ToArray(),
+            HistoryCleanupStateDto.From(
+                snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun));
+}
+
+internal sealed record HistoryCleanupStateDto(
+    string Status,
+    string? RunId,
+    DateTimeOffset? LastStartedAt,
+    DateTimeOffset? LastCompletedAt,
+    DateTimeOffset? LastSuccessfulAt,
+    DateTimeOffset? NextCheckAt,
+    int LastExpiredPollTraceCount,
+    int LastDeletedRawObservationCount,
+    int LastDeletedSeriesCount,
+    long TotalExpiredPollTraceCount,
+    long TotalDeletedRawObservationCount,
+    long TotalDeletedSeriesCount,
+    DateTimeOffset? EarliestAvailableHostUtc,
+    string? LastFailureCode,
+    string? LastFailureReason)
+{
+    public static HistoryCleanupStateDto From(HistoryCleanupStateSnapshot state) => new(
+        state.Status,
+        state.RunId,
+        state.LastStartedAt,
+        state.LastCompletedAt,
+        state.LastSuccessfulAt,
+        state.NextCheckAt,
+        state.LastExpiredPollTraceCount,
+        state.LastDeletedRawObservationCount,
+        state.LastDeletedSeriesCount,
+        state.TotalExpiredPollTraceCount,
+        state.TotalDeletedRawObservationCount,
+        state.TotalDeletedSeriesCount,
+        state.EarliestAvailableHostUtc,
+        state.LastFailureCode,
+        state.LastFailureReason);
 }
 
 internal sealed record WatchOverviewFacetDto(

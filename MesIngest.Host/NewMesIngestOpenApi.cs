@@ -387,7 +387,7 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "ListCurrentIngestAttention",
             "CurrentIngestAttention",
             "List current operator attention items",
-            "Returns one operational snapshot with exact totals/facets and fixed severity/time/identity order. This is a read model, not an alert acknowledgement channel.",
+            "Returns one operational snapshot with exact totals/facets, fixed severity/time/identity order, and durable bounded-history cleanup progress. This is a read model, not an alert acknowledgement channel.",
             typeof(CurrentIngestAttentionDto),
             [
                 PageSize(), PageNumber("pageNumber"),
@@ -631,6 +631,7 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
             ["CurrentIngestAttentionDto.severities"] = CurrentIngestAttentionSeverities.All,
             ["CurrentIngestAttentionItemDto.kind"] = CurrentIngestAttentionKinds.All,
             ["CurrentIngestAttentionItemDto.severity"] = CurrentIngestAttentionSeverities.All,
+            ["HistoryCleanupStateDto.status"] = HistoryCleanupRunStatuses.All,
             ["OverviewNavigationIntentDto.target"] = ["DEMAND_SERIES", "READABILITY_AUDIT", "ERROR_SEARCH", "CURRENT_INGEST_ATTENTION", "DEMAND_SERIES_DETAIL", "TASK_TYPE_PROTECTION", "POLL_TRACE"],
             ["WatchOverviewDto.recentActivityState"] = ["HAS_RECENT_HIGHLIGHTS", "NO_RECENT_HIGHLIGHTS"],
             ["AbsenceAuthorityDto.phase"] = ["BARRIER", "POST_BARRIER", "NORMAL"],

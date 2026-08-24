@@ -68,6 +68,32 @@ public sealed class MesIngestHostOptions
     public int QueryTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
+    /// Host-owned history cleanup check interval. The production default is one
+    /// hour; tests may shorten it through configuration without changing the
+    /// 30-day retention policy.
+    /// </summary>
+    public int HistoryCleanupCheckIntervalSeconds { get; set; } = 60 * 60;
+
+    /// <summary>
+    /// Maximum raw-observation rows committed by one scheduled cleanup check.
+    /// The 210,000 default covers the measured 600 rows per 14-second round for
+    /// one hour with more than 30 percent headroom.
+    /// </summary>
+    public int HistoryCleanupMaximumRawObservationRowsPerBatch { get; set; } = 210_000;
+
+    /// <summary>
+    /// Maximum whole Series graphs committed by one scheduled cleanup check.
+    /// One Series is always one indivisible tombstone transaction.
+    /// </summary>
+    public int HistoryCleanupMaximumSeriesPerBatch { get; set; } = 25;
+
+    /// <summary>
+    /// Host-UTC elapsed budget checked between cleanup transactions. A started
+    /// Series transaction is allowed to finish atomically.
+    /// </summary>
+    public int HistoryCleanupTimeBudgetSeconds { get; set; } = 15;
+
+    /// <summary>
     /// Enter PAUSED_ZERO_DROP when prior healthy non-zero count for a TASK_TYPE
     /// is at/above this threshold and the next successful count is 0.
     /// </summary>
@@ -160,6 +186,35 @@ public sealed class MesIngestHostOptions
         {
             throw new InvalidOperationException(
                 $"{SectionName}:SnapshotSource must be {OracleRoundSource} or {NoRoundSource}.");
+        }
+    }
+
+    public void ValidateHistoryCleanupPolicy()
+    {
+        ValidateBoundedPositive(
+            HistoryCleanupCheckIntervalSeconds,
+            24 * 60 * 60,
+            nameof(HistoryCleanupCheckIntervalSeconds));
+        ValidateBoundedPositive(
+            HistoryCleanupMaximumRawObservationRowsPerBatch,
+            1_000_000,
+            nameof(HistoryCleanupMaximumRawObservationRowsPerBatch));
+        ValidateBoundedPositive(
+            HistoryCleanupMaximumSeriesPerBatch,
+            1_000,
+            nameof(HistoryCleanupMaximumSeriesPerBatch));
+        ValidateBoundedPositive(
+            HistoryCleanupTimeBudgetSeconds,
+            5 * 60,
+            nameof(HistoryCleanupTimeBudgetSeconds));
+    }
+
+    private static void ValidateBoundedPositive(int value, int maximum, string name)
+    {
+        if (value is < 1 || value > maximum)
+        {
+            throw new InvalidOperationException(
+                $"{SectionName}:{name} must be between 1 and {maximum}.");
         }
     }
 

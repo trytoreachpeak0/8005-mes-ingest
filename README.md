@@ -42,6 +42,29 @@ dotnet run --project MesIngest.Host --urls http://127.0.0.1:5088
 
 The SQL connection must target a dedicated empty database (which V2 bootstraps) or a database already matching the exact V2 schema contract. It is never an in-place migration target for the replaced schema, and Production has no in-memory fallback.
 
+## Bounded history cleanup
+
+The Host owns one cleanup loop; SQL Server Agent and Windows Task Scheduler do not delete
+MesIngest business history. Checks use Host `TimeProvider` on fixed hourly boundaries and do
+not catch up missed slots. Production defaults are frozen from the measured 600 rows per
+14-second baseline: 210,000 raw-observation rows and 25 whole Series per check, with a
+15-second elapsed budget checked between transactions. Raw deletion is further split into
+transactions targeting at most 25,000 rows / 50 PollTraces. One indivisible PollTrace may
+exceed the row target so its raw observation multiset is never partially deleted. A started Series cleanup always finishes
+its tombstone and detailed graph in the existing indivisible transaction.
+
+Operators may override `HistoryCleanupCheckIntervalSeconds`,
+`HistoryCleanupMaximumRawObservationRowsPerBatch`,
+`HistoryCleanupMaximumSeriesPerBatch`, and `HistoryCleanupTimeBudgetSeconds`; startup rejects
+zero, negative, or unbounded values. These settings only control work per check and never
+change either exact 30×24-hour retention window.
+
+`GET /api/v2/current-ingest-attention` returns the durable `historyCleanup` status with the
+last attempt/success, per-run and cumulative delete counts, earliest available Host UTC,
+sanitized failure reason, and next check. A failure also appears as
+`HISTORY_CLEANUP_FAILURE`; the next successful check clears that item. Cleanup failure alone
+does not pause MES polling—storage-pressure pause remains a separate threshold policy.
+
 Representative read-only endpoints are:
 
 - `GET /api/v2/contract`

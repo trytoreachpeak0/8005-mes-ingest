@@ -22,9 +22,16 @@ public static class CurrentIngestAttentionKinds
     public const string PollRunFailure = "POLL_RUN_FAILURE";
     public const string TaskTypeProtection = "TASK_TYPE_PROTECTION";
     public const string UnassignedMesObservation = "UNASSIGNED_MES_OBSERVATION";
+    public const string HistoryCleanupFailure = "HISTORY_CLEANUP_FAILURE";
 
     public static IReadOnlyList<string> All { get; } =
-        [SeriesError, PollRunFailure, TaskTypeProtection, UnassignedMesObservation];
+        [
+            SeriesError,
+            PollRunFailure,
+            TaskTypeProtection,
+            UnassignedMesObservation,
+            HistoryCleanupFailure,
+        ];
 }
 
 public static class CurrentIngestAttentionSeverities
@@ -126,7 +133,9 @@ public sealed record CurrentIngestAttentionEvidenceSnapshot(
     string? ContentDigest = null,
     string? Phase = null,
     string? Outcome = null,
-    int? ObservationCount = null);
+    int? ObservationCount = null,
+    string? FailureReason = null,
+    DateTimeOffset? NextCheckAt = null);
 
 public sealed record CurrentIngestAttentionItemSnapshot(
     string Kind,
@@ -151,7 +160,8 @@ public sealed record CurrentIngestAttentionSnapshot(
     int TotalPages,
     IReadOnlyList<string> Kinds,
     IReadOnlyList<string> Severities,
-    IReadOnlyList<CurrentIngestAttentionItemSnapshot> Items);
+    IReadOnlyList<CurrentIngestAttentionItemSnapshot> Items,
+    HistoryCleanupStateSnapshot? HistoryCleanup = null);
 
 public static class CurrentIngestAttentionErrorCodes
 {

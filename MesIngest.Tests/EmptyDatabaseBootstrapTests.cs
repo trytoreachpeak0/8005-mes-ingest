@@ -451,12 +451,25 @@ public sealed class EmptyDatabaseBootstrapTests
                 SELECT CONVERT(BIT, CASE
                     WHEN COL_LENGTH(N'mesingest.PollTraces', N'RawObservationsExpiredAt') IS NOT NULL
                      AND COL_LENGTH(N'mesingest.DemandSeries', N'RetentionEligibilityAt') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupStatus') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupNextCheckAt') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupTotalDeletedRawObservationCount') IS NOT NULL
+                     AND COL_LENGTH(N'mesingest.SchemaInfo', N'HistoryCleanupLastFailureReason') IS NOT NULL
+                     AND (SELECT HistoryCleanupStatus FROM mesingest.SchemaInfo WHERE Id = 1) = N'NOT_RUN'
                      AND EXISTS
                      (
                          SELECT 1
                          FROM sys.indexes
                          WHERE object_id = OBJECT_ID(N'mesingest.DemandSeries')
                            AND name = N'IX_MesIngest_DemandSeries_RetentionEligibilityAt'
+                           AND has_filter = 1
+                     )
+                     AND EXISTS
+                     (
+                         SELECT 1
+                         FROM sys.indexes
+                         WHERE object_id = OBJECT_ID(N'mesingest.PollTraces')
+                           AND name = N'IX_MesIngest_PollTraces_RawRetentionDue'
                            AND has_filter = 1
                      )
                     THEN 1 ELSE 0 END);

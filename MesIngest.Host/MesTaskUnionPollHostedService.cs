@@ -12,15 +12,18 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
     private readonly MesTaskUnionPollRunner _runner;
     private readonly MesIngestHostOptions _options;
     private readonly ILogger<MesTaskUnionPollHostedService> _logger;
+    private readonly IngestWorkPriorityGate _workPriorityGate;
 
     public MesTaskUnionPollHostedService(
         MesTaskUnionPollRunner runner,
         MesIngestHostOptions options,
-        ILogger<MesTaskUnionPollHostedService> logger)
+        ILogger<MesTaskUnionPollHostedService> logger,
+        IngestWorkPriorityGate? workPriorityGate = null)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _workPriorityGate = workPriorityGate ?? new IngestWorkPriorityGate();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,6 +43,8 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
         await SingleFlightPollLoop.RunAsync(
             runRound: async cancellationToken =>
             {
+                using var priorityLease = await _workPriorityGate.EnterPollAsync(cancellationToken)
+                    .ConfigureAwait(false);
                 try
                 {
                     var receipt = await _runner.RunOnceAsync(cancellationToken).ConfigureAwait(false);
