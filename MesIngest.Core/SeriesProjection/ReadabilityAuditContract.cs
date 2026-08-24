@@ -299,7 +299,7 @@ public sealed record ReadabilityAuditSeriesSnapshot(
     string Sublot,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     DateTimeOffset? ArchivedAt,
     string CurrentDemandId);
 

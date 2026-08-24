@@ -481,7 +481,7 @@ public sealed partial class SqlServerMesIngestProjection
                 MesSourceDate DATETIMEOFFSET(7) NULL,
                 Package NVARCHAR(512) NULL,
                 IsAreaTrusted BIT NOT NULL,
-                SeriesStartedAt DATETIMEOFFSET(7) NOT NULL,
+                SeriesStartedAt DATETIMEOFFSET(7) NULL,
                 SeriesArchivedAt DATETIMEOFFSET(7) NULL,
                 CurrentDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 DemandStatus NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
@@ -551,12 +551,17 @@ public sealed partial class SqlServerMesIngestProjection
             ),
             ArchiveState AS
             (
-                SELECT eventRow.SeriesId, MIN(eventRow.OccurredAt) AS ArchivedAt
+                SELECT
+                    eventRow.SeriesId,
+                    MIN(CASE WHEN eventRow.EventType = N'GONE_TIMEOUT_ARCHIVED'
+                        THEN eventRow.OccurredAt END) AS ArchivedAt,
+                    MAX(CONVERT(INT, 1)) AS HasArchiveConclusion
                 FROM mesingest.DemandSeriesEvents AS eventRow
                 INNER JOIN mesingest.ProjectionCommits AS eventCommit
                     ON eventCommit.ProjectionCommitId = eventRow.ProjectionCommitId
                 WHERE eventCommit.ProjectionSequence <= @snapshotSequence
-                  AND eventRow.EventType = N'GONE_TIMEOUT_ARCHIVED'
+                  AND eventRow.EventType IN
+                    (N'GONE_TIMEOUT_ARCHIVED', N'ARCHIVED_DEMAND_KEY_REAPPEARED')
                 GROUP BY eventRow.SeriesId
             )
             INSERT INTO #AuditStates
@@ -585,17 +590,21 @@ public sealed partial class SqlServerMesIngestProjection
                         OR (DATALENGTH(fields.Area) = 12
                             AND fields.Area COLLATE Latin1_General_100_BIN2 LIKE N'[A-Z][1-9][0-9]-[1-9][0-9]')
                     ) THEN 1 ELSE 0 END),
-                series.StartedAt, archive.ArchivedAt, currentDemand.DemandId,
+                series.StartedAt, COALESCE(archive.ArchivedAt, series.ArchivedAt),
+                currentDemand.DemandId,
                 CASE
                     WHEN gone.GoneConfirmedAt IS NOT NULL THEN N'GONE'
-                    WHEN archive.ArchivedAt IS NOT NULL AND d.CreatedAt >= archive.ArchivedAt
+                    WHEN archive.HasArchiveConclusion IS NOT NULL
+                         AND d.CreatedAt >= COALESCE(archive.ArchivedAt, series.ArchivedAt)
                         THEN N'LONG_GONE_BUT_VISIBLE'
                     ELSE N'VISIBLE'
                 END,
-                CASE WHEN archive.ArchivedAt IS NULL THEN N'TRACKING' ELSE N'ARCHIVED' END,
+                CASE WHEN archive.HasArchiveConclusion IS NULL
+                    THEN N'TRACKING' ELSE N'ARCHIVED' END,
                 CASE
                     WHEN currentGone.GoneConfirmedAt IS NOT NULL THEN N'GONE'
-                    WHEN archive.ArchivedAt IS NOT NULL THEN N'LONG_GONE_BUT_VISIBLE'
+                    WHEN archive.HasArchiveConclusion IS NOT NULL
+                        THEN N'LONG_GONE_BUT_VISIBLE'
                     ELSE N'VISIBLE'
                 END
             FROM EligibleDemands AS d
@@ -794,7 +803,7 @@ public sealed partial class SqlServerMesIngestProjection
                 reader.GetFieldValue<DateTimeOffset>(7), reader.GetFieldValue<DateTimeOffset>(8),
                 GetNullableDateTimeOffset(reader, 9), reader.GetString(10), reader.GetString(11),
                 rawObservationCount, fields, reader.GetString(22), reader.GetString(23),
-                reader.GetFieldValue<DateTimeOffset>(18), GetNullableDateTimeOffset(reader, 19),
+                GetNullableDateTimeOffset(reader, 18), GetNullableDateTimeOffset(reader, 19),
                 reader.GetString(20), reader.GetString(21), blockers));
         }
 
@@ -877,12 +886,17 @@ public sealed partial class SqlServerMesIngestProjection
             ),
             ArchiveState AS
             (
-                SELECT eventRow.SeriesId, MIN(eventRow.OccurredAt) AS ArchivedAt
+                SELECT
+                    eventRow.SeriesId,
+                    MIN(CASE WHEN eventRow.EventType = N'GONE_TIMEOUT_ARCHIVED'
+                        THEN eventRow.OccurredAt END) AS ArchivedAt,
+                    MAX(CONVERT(INT, 1)) AS HasArchiveConclusion
                 FROM mesingest.DemandSeriesEvents AS eventRow
                 INNER JOIN mesingest.ProjectionCommits AS eventCommit
                     ON eventCommit.ProjectionCommitId = eventRow.ProjectionCommitId
                 WHERE eventCommit.ProjectionSequence <= @snapshotSequence
-                  AND eventRow.EventType = N'GONE_TIMEOUT_ARCHIVED'
+                  AND eventRow.EventType IN
+                    (N'GONE_TIMEOUT_ARCHIVED', N'ARCHIVED_DEMAND_KEY_REAPPEARED')
                 GROUP BY eventRow.SeriesId
             )
             SELECT d.DemandId, d.SeriesId, series.WorkType, series.Sublot,
@@ -891,7 +905,7 @@ public sealed partial class SqlServerMesIngestProjection
                 fields.ProjectionCommitId, fields.PollTraceId,
                 COALESCE(fields.ObservationCount, 0),
                 fields.Area, fields.Eqp, fields.Step, fields.MesSourceDate, fields.Package,
-                series.StartedAt, archive.ArchivedAt,
+                series.StartedAt, COALESCE(archive.ArchivedAt, series.ArchivedAt),
                 currentDemand.DemandId AS CurrentDemandId,
                 currentGone.GoneConfirmedAt AS CurrentDemandGoneConfirmedAt
             FROM EligibleDemands AS d
@@ -922,7 +936,7 @@ public sealed partial class SqlServerMesIngestProjection
                 reader.GetString(10), reader.GetString(11), checked((int)reader.GetInt64(12)),
                 GetNullableString(reader, 13), GetNullableString(reader, 14),
                 GetNullableString(reader, 15), GetNullableDateTimeOffset(reader, 16),
-                GetNullableString(reader, 17), reader.GetFieldValue<DateTimeOffset>(18),
+                GetNullableString(reader, 17), GetNullableDateTimeOffset(reader, 18),
                 GetNullableDateTimeOffset(reader, 19), reader.GetString(20),
                 GetNullableDateTimeOffset(reader, 21)));
         }
@@ -1209,7 +1223,8 @@ public sealed partial class SqlServerMesIngestProjection
                   (
                       (eventRow.EventType = N'DEMAND_GONE'
                        AND eventRow.SubjectId = @demandId)
-                      OR eventRow.EventType = N'GONE_TIMEOUT_ARCHIVED'
+                      OR eventRow.EventType IN
+                        (N'GONE_TIMEOUT_ARCHIVED', N'ARCHIVED_DEMAND_KEY_REAPPEARED')
                   )
                 ORDER BY eventCommit.ProjectionSequence, eventRow.SeriesSequence;
                 """;
@@ -1303,7 +1318,7 @@ public sealed partial class SqlServerMesIngestProjection
         string? Step,
         DateTimeOffset? MesSourceDate,
         string? Package,
-        DateTimeOffset SeriesStartedAt,
+        DateTimeOffset? SeriesStartedAt,
         DateTimeOffset? SeriesArchivedAt,
         string CurrentDemandId,
         DateTimeOffset? CurrentDemandGoneConfirmedAt);
@@ -1325,7 +1340,7 @@ public sealed partial class SqlServerMesIngestProjection
         LiveMesFieldSetSnapshot? LiveMesFields,
         string SeriesLifecycle,
         string SeriesCurrentPresence,
-        DateTimeOffset SeriesStartedAt,
+        DateTimeOffset? SeriesStartedAt,
         DateTimeOffset? SeriesArchivedAt,
         string CurrentDemandId,
         string DemandStatus,

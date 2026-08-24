@@ -29,7 +29,7 @@ public sealed partial class SqlServerMesIngestProjection
                 SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY,
                 WorkType NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 Sublot NVARCHAR(256) COLLATE Latin1_General_100_BIN2 NOT NULL,
-                StartedAt DATETIMEOFFSET(7) NOT NULL,
+                StartedAt DATETIMEOFFSET(7) NULL,
                 CreatedPollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 CreatedProjectionCommitId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
                 CurrentDemandId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
@@ -201,7 +201,7 @@ public sealed partial class SqlServerMesIngestProjection
 
             states.Add(new BrowseSeriesState(
                 reader.GetString(0), reader.GetString(1), reader.GetString(2),
-                reader.GetFieldValue<DateTimeOffset>(3), reader.GetString(4), reader.GetString(5),
+                GetNullableDateTimeOffset(reader, 3), reader.GetString(4), reader.GetString(5),
                 reader.GetString(6), reader.GetInt32(7), GetNullableString(reader, 8),
                 reader.GetFieldValue<DateTimeOffset>(9), reader.GetString(10), reader.GetString(11),
                 reader.GetString(12), reader.GetString(13), archivedAt, reader.GetString(15),
@@ -270,7 +270,7 @@ public sealed partial class SqlServerMesIngestProjection
                 ? new CurrentDemandSeriesRow(
                     reader.GetString(0), reader.GetString(1), reader.GetString(2),
                     reader.GetString(3), reader.GetString(4),
-                    reader.GetFieldValue<DateTimeOffset>(5), GetNullableDateTimeOffset(reader, 6),
+                    GetNullableDateTimeOffset(reader, 5), GetNullableDateTimeOffset(reader, 6),
                     reader.GetString(7), reader.GetString(8), reader.GetString(9),
                     reader.GetInt64(10), reader.GetString(11), reader.GetInt32(12),
                     GetNullableString(reader, 13), reader.GetString(14),
@@ -407,7 +407,7 @@ public sealed partial class SqlServerMesIngestProjection
         string Sublot,
         string Lifecycle,
         string CurrentPresence,
-        DateTimeOffset StartedAt,
+        DateTimeOffset? StartedAt,
         DateTimeOffset? ArchivedAt,
         string CreatedPollTraceId,
         string CreatedProjectionCommitId,

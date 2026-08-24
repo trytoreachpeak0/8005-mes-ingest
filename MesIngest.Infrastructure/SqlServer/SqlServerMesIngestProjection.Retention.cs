@@ -6,8 +6,6 @@ namespace MesIngest.Infrastructure.SqlServer;
 
 public sealed partial class SqlServerMesIngestProjection
 {
-    private const int ArchivedDemandKeyTombstoneVersion = 1;
-
     public async Task<HistoryRetentionAdvanceResult> AdvanceHistoryRetentionAsync(
         CancellationToken cancellationToken = default)
     {
@@ -246,7 +244,7 @@ public sealed partial class SqlServerMesIngestProjection
                 AddNVarChar(tombstone, "@seriesId", 64, candidate.SeriesId);
                 AddDateTimeOffset(tombstone, "@archivedAt", candidate.ArchivedAt);
                 tombstone.Parameters.Add("@tombstoneVersion", SqlDbType.Int).Value =
-                    ArchivedDemandKeyTombstoneVersion;
+                    ArchivedDemandKeyTombstoneContract.Version;
                 await tombstone.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -364,7 +362,7 @@ public sealed partial class SqlServerMesIngestProjection
                 candidate.WorkType,
                 candidate.Sublot,
                 candidate.ArchivedAt,
-                ArchivedDemandKeyTombstoneVersion);
+                ArchivedDemandKeyTombstoneContract.Version);
         }
         catch (Exception exception)
         {

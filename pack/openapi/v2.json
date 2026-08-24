@@ -2690,7 +2690,6 @@
           "lifecycle",
           "readabilityBlockers",
           "seriesId",
-          "startedAt",
           "sublot",
           "workType"
         ],
@@ -2728,7 +2727,8 @@
           "startedAt": {
             "type": "string",
             "description": "ISO-8601 date-time generated or normalized by Host in UTC.",
-            "format": "date-time"
+            "format": "date-time",
+            "nullable": true
           },
           "archivedAt": {
             "type": "string",
@@ -3778,7 +3778,6 @@
           "seriesId",
           "snapshot",
           "snapshotReference",
-          "startedAt",
           "sublot",
           "workType"
         ],
@@ -3823,7 +3822,8 @@
           "startedAt": {
             "type": "string",
             "description": "ISO-8601 date-time generated or normalized by Host in UTC.",
-            "format": "date-time"
+            "format": "date-time",
+            "nullable": true
           },
           "archivedAt": {
             "type": "string",
@@ -4883,7 +4883,6 @@
           "currentPresence",
           "lifecycle",
           "seriesId",
-          "startedAt",
           "transportDemandKey"
         ],
         "type": "object",
@@ -4906,7 +4905,8 @@
           "startedAt": {
             "type": "string",
             "description": "ISO-8601 date-time generated or normalized by Host in UTC.",
-            "format": "date-time"
+            "format": "date-time",
+            "nullable": true
           },
           "archivedAt": {
             "type": "string",

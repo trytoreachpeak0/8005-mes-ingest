@@ -191,7 +191,7 @@ public sealed record DemandSeriesSnapshot(
     string Sublot,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
     string LatestProjectionCommitId,

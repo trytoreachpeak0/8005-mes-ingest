@@ -166,7 +166,7 @@ public sealed record DemandSeriesListItemSnapshot(
     string Sublot,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     DateTimeOffset? ArchivedAt,
     string CurrentDemandId,
     int CurrentGeneration,

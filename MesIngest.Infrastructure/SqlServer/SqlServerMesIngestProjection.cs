@@ -2206,8 +2206,11 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             reader.GetFieldValue<DateTimeOffset>(3),
             reader.GetString(4),
             reader.GetInt32(5));
-        if (!string.Equals(row.ArchiveConclusion, ArchivedLifecycle, StringComparison.Ordinal)
-            || row.TombstoneVersion != 1)
+        if (!string.Equals(
+                row.ArchiveConclusion,
+                ArchivedDemandKeyTombstoneContract.ArchiveConclusion,
+                StringComparison.Ordinal)
+            || row.TombstoneVersion != ArchivedDemandKeyTombstoneContract.Version)
         {
             throw new InvalidOperationException(
                 "The archived Demand key tombstone has an unsupported safety conclusion or version.");
@@ -2250,7 +2253,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
                      RetentionEligibilityAt)
                 VALUES
                     (@seriesId, @keyToken, @workType, @sublot, N'ARCHIVED',
-                     N'LONG_GONE_BUT_VISIBLE', @occurredAt, @archivedAt, @pollTraceId,
+                     N'LONG_GONE_BUT_VISIBLE', NULL, @archivedAt, @pollTraceId,
                      @projectionCommitId, @projectionCommitId, NULL, 0, NULL);
 
                 INSERT INTO mesingest.TransportDemands
@@ -2296,7 +2299,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             transaction,
             tombstone.OriginalSeriesId,
             sequence: 1,
-            SeriesArchivedEvent,
+            ArchivedDemandKeyTombstoneContract.ReappearedEvent,
             "SERIES",
             tombstone.OriginalSeriesId,
             round,
@@ -2305,6 +2308,7 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             {
                 tombstone.OriginalSeriesId,
                 tombstone.TombstoneVersion,
+                tombstone.ArchivedAt,
             }),
             cancellationToken).ConfigureAwait(false);
         await InsertInitialEventAsync(

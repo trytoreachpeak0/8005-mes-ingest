@@ -15,3 +15,13 @@ public static class DemandSeriesLifecycleContract
     public const string PostarchiveReappearanceReason = "POSTARCHIVE_REAPPEARANCE";
     public const string SeriesArchivedBlocker = "SERIES_ARCHIVED";
 }
+
+/// <summary>
+/// Stable safety contract retained after an archived DemandSeries graph expires.
+/// </summary>
+public static class ArchivedDemandKeyTombstoneContract
+{
+    public const int Version = 1;
+    public const string ArchiveConclusion = DemandSeriesLifecycleContract.Archived;
+    public const string ReappearedEvent = "ARCHIVED_DEMAND_KEY_REAPPEARED";
+}

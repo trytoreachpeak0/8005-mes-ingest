@@ -145,12 +145,45 @@ public sealed class ArchivedDemandKeyTombstoneTests : IClassFixture<WebApplicati
         Assert.Equal(originalSeriesId, body.GetProperty("seriesId").GetString());
         Assert.Equal("ARCHIVED", body.GetProperty("lifecycle").GetString());
         Assert.Equal("LONG_GONE_BUT_VISIBLE", body.GetProperty("currentPresence").GetString());
+        Assert.Equal(JsonValueKind.Null, body.GetProperty("startedAt").ValueKind);
         Assert.Equal(
             "LONG_GONE_BUT_VISIBLE",
             body.GetProperty("currentDemand").GetProperty("status").GetString());
         Assert.Contains(
             body.GetProperty("currentConditions").EnumerateArray(),
             condition => condition.GetProperty("code").GetString() == "LONG_GONE_BUT_VISIBLE");
+        var rebuiltEvents = await ReadSeriesEventTypesAsync(
+            database.ConnectionString,
+            originalSeriesId);
+        Assert.Contains(ArchivedDemandKeyTombstoneContract.ReappearedEvent, rebuiltEvents);
+        Assert.DoesNotContain(DemandSeriesLifecycleContract.GoneTimeoutArchivedEvent, rebuiltEvents);
+
+        using var listResponse = await client.GetAsync(
+            "/api/v2/demand-series?pageSize=100&page=1&workType="
+            + Uri.EscapeDataString(WorkType));
+        Assert.Equal(HttpStatusCode.OK, listResponse.StatusCode);
+        var list = await ReadJsonAsync(listResponse);
+        var listItem = Assert.Single(list.GetProperty("items").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, listItem.GetProperty("startedAt").ValueKind);
+        var snapshotReference = list.GetProperty("snapshotReference").GetString()!;
+
+        using var frozenResponse = await client.GetAsync(
+            $"/api/v2/demand-series/{Uri.EscapeDataString(originalSeriesId)}"
+            + $"?snapshot={Uri.EscapeDataString(snapshotReference)}");
+        Assert.Equal(HttpStatusCode.OK, frozenResponse.StatusCode);
+        var frozen = await ReadJsonAsync(frozenResponse);
+        Assert.Equal("ARCHIVED", frozen.GetProperty("lifecycle").GetString());
+        Assert.Equal(
+            "LONG_GONE_BUT_VISIBLE",
+            frozen.GetProperty("currentPresence").GetString());
+        Assert.Equal(JsonValueKind.Null, frozen.GetProperty("startedAt").ValueKind);
+        Assert.Equal(
+            await ReadTombstoneArchivedAtAsync(database.ConnectionString),
+            frozen.GetProperty("archivedAt").GetDateTimeOffset());
+        Assert.Contains(
+            frozen.GetProperty("events").EnumerateArray(),
+            item => item.GetProperty("eventType").GetString()
+                == ArchivedDemandKeyTombstoneContract.ReappearedEvent);
 
         var catalog = await restartedFactory.Services
             .GetRequiredService<IMesIngestProjection>()
@@ -246,6 +279,35 @@ public sealed class ArchivedDemandKeyTombstoneTests : IClassFixture<WebApplicati
         Convert.ToInt32(await ScalarAsync(
             connectionString,
             "SELECT COUNT(*) FROM mesingest.ArchivedDemandKeyTombstones;"));
+
+    private static async Task<IReadOnlyList<string>> ReadSeriesEventTypesAsync(
+        string connectionString,
+        string seriesId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EventType
+            FROM mesingest.DemandSeriesEvents
+            WHERE SeriesId = @seriesId
+            ORDER BY SeriesSequence;
+            """;
+        command.Parameters.AddWithValue("@seriesId", seriesId);
+        var eventTypes = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            eventTypes.Add(reader.GetString(0));
+        }
+        return eventTypes;
+    }
+
+    private static async Task<DateTimeOffset> ReadTombstoneArchivedAtAsync(
+        string connectionString) =>
+        (DateTimeOffset)(await ScalarAsync(
+            connectionString,
+            "SELECT ArchivedAt FROM mesingest.ArchivedDemandKeyTombstones;"))!;
 
     private static async Task<TombstoneFacts> ReadTombstoneFactsAsync(string connectionString)
     {

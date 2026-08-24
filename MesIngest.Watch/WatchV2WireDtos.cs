@@ -53,7 +53,7 @@ internal sealed record WatchV2DemandSeriesListItemWire(
     string Sublot,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     DateTimeOffset? ArchivedAt,
     string CurrentDemandId,
     int CurrentGeneration,
@@ -309,7 +309,7 @@ internal sealed record WatchV2FrozenDemandSeriesWire(
     string Sublot,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     DateTimeOffset? ArchivedAt,
     string CreatedPollTraceId,
     string CreatedProjectionCommitId,
@@ -482,7 +482,7 @@ internal sealed record WatchV2ReadabilityAuditSeriesWire(
     WatchV2TransportDemandKeyWire TransportDemandKey,
     string Lifecycle,
     string CurrentPresence,
-    DateTimeOffset StartedAt,
+    DateTimeOffset? StartedAt,
     DateTimeOffset? ArchivedAt,
     string CurrentDemandId)
 {
