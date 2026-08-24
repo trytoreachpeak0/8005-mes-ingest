@@ -141,6 +141,11 @@ public sealed partial class SqlServerMesIngestProjection
             transaction,
             items,
             cancellationToken).ConfigureAwait(false);
+        var storagePressure = await ReadStoragePressureAttentionAsync(
+            connection,
+            transaction,
+            items,
+            cancellationToken).ConfigureAwait(false);
 
         var allItems = items.ToArray();
         var ordered = allItems
@@ -182,7 +187,8 @@ public sealed partial class SqlServerMesIngestProjection
             query.Kinds ?? Array.Empty<string>(),
             query.Severities ?? Array.Empty<string>(),
             page,
-            historyCleanup);
+            historyCleanup,
+            storagePressure);
     }
 
     private static async Task ReadSeriesErrorAttentionAsync(
@@ -426,6 +432,46 @@ public sealed partial class SqlServerMesIngestProjection
             new OverviewNavigationIntent(
                 OverviewNavigationTargets.CurrentIngestAttention,
                 AttentionKinds: [CurrentIngestAttentionKinds.HistoryCleanupFailure],
+                AttentionSeverities: [CurrentIngestAttentionSeverities.Error])));
+        return state;
+    }
+
+    private static async Task<StoragePressureStateSnapshot> ReadStoragePressureAttentionAsync(
+        SqlConnection connection,
+        SqlTransaction transaction,
+        ICollection<CurrentIngestAttentionItemSnapshot> items,
+        CancellationToken cancellationToken)
+    {
+        var state = await ReadStoragePressureStateAsync(
+            connection,
+            transaction,
+            forUpdate: false,
+            cancellationToken).ConfigureAwait(false);
+        if (string.Equals(state.Status, StoragePressureStatuses.Healthy, StringComparison.Ordinal))
+        {
+            return state;
+        }
+
+        items.Add(new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.StoragePressure,
+            CurrentIngestAttentionSeverities.Error,
+            state.PausedAt ?? state.ObservedAt,
+            "STORAGE_PRESSURE",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: state.Status,
+            Target: state.DatabaseName,
+            SubjectKind: "DATABASE_VOLUME",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                EvidenceId: state.PauseId,
+                Phase: state.Status,
+                FailureReason: state.PauseReason,
+                DatabaseName: state.DatabaseName,
+                VolumeRoot: state.Space.VolumeRoot,
+                AvailablePercent: state.Space.AvailablePercent),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure],
                 AttentionSeverities: [CurrentIngestAttentionSeverities.Error])));
         return state;
     }

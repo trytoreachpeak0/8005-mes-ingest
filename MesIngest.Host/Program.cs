@@ -46,6 +46,7 @@ if (projectionEnabled
 }
 if (projectionEnabled)
 {
+    builder.Services.AddSingleton<IVolumeSpaceReader, PhysicalVolumeSpaceReader>();
     configured.ValidateHistoryCleanupPolicy();
 }
 if (!probeOracle && !builder.Environment.IsDevelopment() && !projectionEnabled)
@@ -100,11 +101,15 @@ if (projectionEnabled)
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<IWatchOverviewReadBoundaryObserver>(),
             sp.GetRequiredService<IProjectionCommitCheckpointObserver>(),
-            sp.GetRequiredService<IProjectionReadBoundaryObserver>()));
+            sp.GetRequiredService<IProjectionReadBoundaryObserver>(),
+            volumeSpaceReader: sp.GetRequiredService<IVolumeSpaceReader>()));
     builder.Services.AddSingleton<IMesIngestProjection>(sp =>
         sp.GetRequiredService<SqlServerMesIngestProjection>());
     builder.Services.AddSingleton<IHistoryCleanupOperations>(sp =>
         sp.GetRequiredService<SqlServerMesIngestProjection>());
+    builder.Services.AddSingleton<IStoragePressureOperations>(sp =>
+        sp.GetRequiredService<SqlServerMesIngestProjection>());
+    builder.Services.AddSingleton<IStoragePressurePollGate, StoragePressurePollGate>();
     builder.Services.AddSingleton<IngestWorkPriorityGate>();
     builder.Services.AddSingleton<IHistoryCleanupBatchRunner, HistoryCleanupBatchRunner>();
     builder.Services.AddHostedService<HistoryCleanupHostedService>();
@@ -129,6 +134,9 @@ if (projectionEnabled)
         });
         builder.Services.AddSingleton<IOracleStatementExecutorFactory, OracleStatementExecutorFactory>();
         builder.Services.AddSingleton<MesTaskUnionPollRunner>();
+        builder.Services.AddSingleton<IMesTaskUnionPollRunner>(sp =>
+            sp.GetRequiredService<MesTaskUnionPollRunner>());
+        builder.Services.AddSingleton<StoragePressureGuardedPollRunner>();
         if (!probeOracle)
         {
             builder.Services.AddHostedService<MesTaskUnionPollHostedService>();
@@ -199,7 +207,8 @@ if (app.Services.GetRequiredService<MesIngestHostOptions>().RunOneShotOnStartup)
 {
     if (oracleRuntimeEnabled)
     {
-        await app.Services.GetRequiredService<MesTaskUnionPollRunner>().RunOnceAsync();
+        await app.Services.GetRequiredService<StoragePressureGuardedPollRunner>()
+            .RunOnceIfAllowedAsync();
     }
 }
 

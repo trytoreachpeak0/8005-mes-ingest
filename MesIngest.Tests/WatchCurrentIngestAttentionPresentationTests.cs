@@ -18,7 +18,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                 CurrentIngestAttentionKinds.PollRunFailure,
             ],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: FiveKinds());
+            items: SixKinds());
         snapshot = snapshot with
         {
             Facets = new CurrentIngestAttentionFacets(
@@ -28,6 +28,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                     new(CurrentIngestAttentionKinds.PollRunFailure, 1),
                     new(CurrentIngestAttentionKinds.UnassignedMesObservation, 1),
                     new(CurrentIngestAttentionKinds.HistoryCleanupFailure, 0),
+                    new(CurrentIngestAttentionKinds.StoragePressure, 0),
                 ],
                 [
                     new(CurrentIngestAttentionSeverities.Warning, 17),
@@ -61,7 +62,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(presentation.CanGoPrevious);
         Assert.True(presentation.CanGoNext);
         Assert.Equal(
-            [17L, 388L, 1L, 1L, 0L],
+            [17L, 388L, 1L, 1L, 0L, 0L],
             presentation.TypeFacets.Select(facet => facet.ItemCount).ToArray());
         Assert.Equal(
             [
@@ -70,7 +71,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             ],
             presentation.SeverityFacets.Select(facet => facet.Value).ToArray());
         Assert.Equal(
-            FiveKinds().Select(item => item.StableIdentity),
+            SixKinds().Select(item => item.StableIdentity),
             presentation.Rows.Select(row => row.StableIdentity));
         Assert.Equal(
             "全 Host 当前关注；本机 AREA 配置不会筛选、计数或翻页此页面。",
@@ -78,10 +79,10 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
     }
 
     [Fact]
-    public void All_five_kinds_keep_stable_identity_and_structured_evidence()
+    public void All_six_kinds_keep_stable_identity_and_structured_evidence()
     {
         var presentation = WatchCurrentIngestAttentionPresentation.Project(
-            Workspace(Snapshot(items: FiveKinds())),
+            Workspace(Snapshot(items: SixKinds())),
             WatchCurrentIngestAttentionQueries.StartLatest());
 
         Assert.Equal(
@@ -156,6 +157,15 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal(WatchPresentationSeverity.Error, cleanup.SeverityStyle);
         Assert.Equal(OverviewNavigationTargets.CurrentIngestAttention, cleanup.Navigation.Target);
 
+        var storage = Assert.Single(presentation.Rows.Where(row =>
+            row.Kind == CurrentIngestAttentionKinds.StoragePressure));
+        Assert.Equal("存储压力", storage.KindLabel);
+        Assert.Contains("数据库 MesIngest", storage.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Contains("卷 D:\\", storage.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Contains("可用 9.5%", storage.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Equal(WatchPresentationSeverity.Error, storage.SeverityStyle);
+        Assert.Equal(OverviewNavigationTargets.CurrentIngestAttention, storage.Navigation.Target);
+
         Assert.Equal(
             "只读当前关注项；不创建 fingerprint incident，不提供人工确认、人工恢复或关闭操作。",
             presentation.SemanticsNotice);
@@ -208,7 +218,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             exactTotal: 1,
             kinds: [CurrentIngestAttentionKinds.SeriesError],
             severities: [CurrentIngestAttentionSeverities.Error],
-            items: [FiveKinds()[2]]);
+            items: [SixKinds()[3]]);
         var successful = Workspace(retained).CurrentAttention;
         var attempted = WatchCurrentIngestAttentionQueries.StartLatest(
             [CurrentIngestAttentionKinds.PollRunFailure],
@@ -397,7 +407,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         };
 
     private static CurrentIngestAttentionSnapshot Snapshot(
-        long exactTotal = 5,
+        long exactTotal = 6,
         int pageNumber = 1,
         int totalPages = 1,
         IReadOnlyList<string>? kinds = null,
@@ -410,7 +420,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
                 .Select(kind => new CurrentIngestAttentionFacetSnapshot(kind, 1))
                 .ToArray(),
             [
-                new(CurrentIngestAttentionSeverities.Error, 3),
+                new(CurrentIngestAttentionSeverities.Error, 5),
                 new(CurrentIngestAttentionSeverities.Warning, 1),
             ]),
         CurrentIngestAttentionOrder.Default,
@@ -419,13 +429,34 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         TotalPages: totalPages,
         Kinds: kinds ?? [],
         Severities: severities ?? [],
-        Items: items ?? FiveKinds());
+        Items: items ?? SixKinds());
 
-    private static CurrentIngestAttentionItemSnapshot[] FiveKinds()
+    private static CurrentIngestAttentionItemSnapshot[] SixKinds()
     {
         var at = DateTimeOffset.Parse("2026-08-14T05:06:07Z");
         return
         [
+            new CurrentIngestAttentionItemSnapshot(
+                CurrentIngestAttentionKinds.StoragePressure,
+                CurrentIngestAttentionSeverities.Error,
+                at.AddMinutes(5),
+                "STORAGE_PRESSURE",
+                SeriesId: null,
+                WorkType: null,
+                ErrorCode: StoragePressureStatuses.Paused,
+                Target: "MesIngest",
+                SubjectKind: "DATABASE_VOLUME",
+                new CurrentIngestAttentionEvidenceSnapshot(
+                    EvidenceId: "pause-22",
+                    Phase: StoragePressureStatuses.Paused,
+                    FailureReason: "low space",
+                    DatabaseName: "MesIngest",
+                    VolumeRoot: @"D:\",
+                    AvailablePercent: 9.5m),
+                new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure],
+                    AttentionSeverities: [CurrentIngestAttentionSeverities.Error])),
             new CurrentIngestAttentionItemSnapshot(
                 CurrentIngestAttentionKinds.HistoryCleanupFailure,
                 CurrentIngestAttentionSeverities.Error,

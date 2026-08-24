@@ -1081,7 +1081,18 @@ public sealed class WatchV2ApiClientTests
                         OverviewNavigationTargets.ErrorSearch,
                         ErrorActivityStates: [ErrorSearchActivityStates.Active],
                         SeriesId: "series-attention")),
-            ]);
+            ],
+            StoragePressure: new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Healthy,
+                HistoryEpoch.FromGuid(Guid.Parse("77777777-7777-7777-7777-777777777777")),
+                "MesIngest",
+                @"D:\sql\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 25m),
+                at,
+                PausedAt: null,
+                PauseId: null,
+                PauseReason: null,
+                RecoveryAuditId: null));
     }
 
     private sealed class DelegateHandler : HttpMessageHandler

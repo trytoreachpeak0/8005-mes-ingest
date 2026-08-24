@@ -28,6 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\MesIngest.Core\MesIngest.Core.csproj" />
     <ProjectReference Include="..\MesIngest.Host\MesIngest.Host.csproj" />
+    <ProjectReference Include="..\MesIngest.LocalAdministration\MesIngest.LocalAdministration.csproj" />
     <ProjectReference Include="..\MesIngest.ReferenceConsumer\MesIngest.ReferenceConsumer.csproj" />
     <ProjectReference Include="..\MesIngest.Watch\MesIngest.Watch.csproj" />
   </ItemGroup>

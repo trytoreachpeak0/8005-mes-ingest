@@ -304,7 +304,9 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "A full-range catalog resource. It accepts no query parameters. If-None-Match carries the weak HistoryEpoch plus CatalogRevision ETag and yields 304 only when both are unchanged.",
             typeof(ExternallyReadableDemandCatalogDto),
             [Header("If-None-Match", "One weak catalog ETag, for example W/\"catalog-h11111111111111111111111111111111-r42\".")],
-            Errors(("400", "CATALOG_QUERY_NOT_SUPPORTED or INVALID_CATALOG_CONDITION.")));
+            Errors(
+                ("400", "CATALOG_QUERY_NOT_SUPPORTED or INVALID_CATALOG_CONDITION."),
+                ("503", "INGEST_NOT_CURRENT — StoragePressurePause prevents a current external commitment.")));
         yield return Operation(
             "/api/v2/readability-audit",
             "ListReadabilityAudit",

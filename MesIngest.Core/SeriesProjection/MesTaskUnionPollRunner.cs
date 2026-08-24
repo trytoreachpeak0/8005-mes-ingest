@@ -1,10 +1,15 @@
 namespace MesIngest.Core.SeriesProjection;
 
+public interface IMesTaskUnionPollRunner
+{
+    Task<RoundCommitReceipt> RunOnceAsync(CancellationToken cancellationToken = default);
+}
+
 /// <summary>
 /// Production entry for one formal Oracle poll: read one complete causal round,
 /// then hand exactly that round to the V2 projection transaction boundary.
 /// </summary>
-public sealed class MesTaskUnionPollRunner
+public sealed class MesTaskUnionPollRunner : IMesTaskUnionPollRunner
 {
     private readonly IMesTaskUnionRoundSource _source;
     private readonly RoundIngestor _ingestor;

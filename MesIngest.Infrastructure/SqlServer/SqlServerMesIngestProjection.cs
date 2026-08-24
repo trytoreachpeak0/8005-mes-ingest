@@ -43,6 +43,8 @@ public sealed partial class SqlServerMesIngestProjection :
     private readonly IProjectionCommitCheckpointObserver _checkpointObserver;
     private readonly IProjectionReadBoundaryObserver _readBoundaryObserver;
     private readonly HistoryEpochBootstrapIntent? _historyEpochBootstrapIntent;
+    private readonly IVolumeSpaceReader _volumeSpaceReader;
+    private readonly ILocalAdministrationContextProvider _localAdministrationContextProvider;
     private readonly string _hostSessionId = NewId();
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private readonly SemaphoreSlim _hostSessionGate = new(1, 1);
@@ -57,7 +59,9 @@ public sealed partial class SqlServerMesIngestProjection :
         IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null,
         IProjectionCommitCheckpointObserver? checkpointObserver = null,
         IProjectionReadBoundaryObserver? readBoundaryObserver = null,
-        HistoryEpochBootstrapIntent? historyEpochBootstrapIntent = null)
+        HistoryEpochBootstrapIntent? historyEpochBootstrapIntent = null,
+        IVolumeSpaceReader? volumeSpaceReader = null,
+        ILocalAdministrationContextProvider? localAdministrationContextProvider = null)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -84,6 +88,9 @@ public sealed partial class SqlServerMesIngestProjection :
         _readBoundaryObserver = readBoundaryObserver
             ?? NoopProjectionReadBoundaryObserver.Instance;
         _historyEpochBootstrapIntent = historyEpochBootstrapIntent;
+        _volumeSpaceReader = volumeSpaceReader ?? new PhysicalVolumeSpaceReader();
+        _localAdministrationContextProvider = localAdministrationContextProvider
+            ?? new SqlServerLocalAdministrationContextProvider();
     }
 
     public async Task BeginHostSessionAsync(CancellationToken cancellationToken = default)

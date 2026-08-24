@@ -47,7 +47,9 @@ public sealed class MesTaskUnionPollRunnerTests
         var source = new RepeatingRoundSource();
         var projection = new RecordingProjection();
         var service = new MesTaskUnionPollHostedService(
-            new MesTaskUnionPollRunner(source, new RoundIngestor(projection)),
+            new StoragePressureGuardedPollRunner(
+                new MesTaskUnionPollRunner(source, new RoundIngestor(projection)),
+                new AllowStoragePressurePollGate()),
             new MesIngestHostOptions
             {
                 ContinuousPollEnabled = true,
@@ -181,5 +183,14 @@ public sealed class MesTaskUnionPollRunnerTests
         public Task<AbsenceAuthoritySnapshot?> GetAbsenceAuthorityAsync(string hostSessionId, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<IReadOnlyList<TaskTypeProtectionSnapshot>> ListTaskTypeProtectionsAsync(CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<TaskTypeProtectionSnapshot?> GetTaskTypeProtectionAsync(string workType, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class AllowStoragePressurePollGate : IStoragePressurePollGate
+    {
+        public Task<bool> CanQueryMesAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(true);
+        }
     }
 }

@@ -23,6 +23,7 @@ public static class CurrentIngestAttentionKinds
     public const string TaskTypeProtection = "TASK_TYPE_PROTECTION";
     public const string UnassignedMesObservation = "UNASSIGNED_MES_OBSERVATION";
     public const string HistoryCleanupFailure = "HISTORY_CLEANUP_FAILURE";
+    public const string StoragePressure = "STORAGE_PRESSURE";
 
     public static IReadOnlyList<string> All { get; } =
         [
@@ -31,6 +32,7 @@ public static class CurrentIngestAttentionKinds
             TaskTypeProtection,
             UnassignedMesObservation,
             HistoryCleanupFailure,
+            StoragePressure,
         ];
 }
 
@@ -135,7 +137,10 @@ public sealed record CurrentIngestAttentionEvidenceSnapshot(
     string? Outcome = null,
     int? ObservationCount = null,
     string? FailureReason = null,
-    DateTimeOffset? NextCheckAt = null);
+    DateTimeOffset? NextCheckAt = null,
+    string? DatabaseName = null,
+    string? VolumeRoot = null,
+    decimal? AvailablePercent = null);
 
 public sealed record CurrentIngestAttentionItemSnapshot(
     string Kind,
@@ -161,7 +166,8 @@ public sealed record CurrentIngestAttentionSnapshot(
     IReadOnlyList<string> Kinds,
     IReadOnlyList<string> Severities,
     IReadOnlyList<CurrentIngestAttentionItemSnapshot> Items,
-    HistoryCleanupStateSnapshot? HistoryCleanup = null);
+    HistoryCleanupStateSnapshot? HistoryCleanup = null,
+    StoragePressureStateSnapshot? StoragePressure = null);
 
 public static class CurrentIngestAttentionErrorCodes
 {

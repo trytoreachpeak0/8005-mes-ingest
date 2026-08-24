@@ -265,6 +265,33 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
         Assert.Equal(HttpStatusCode.InternalServerError, error.StatusCode);
     }
 
+    [Fact]
+    public async Task Storage_pressure_503_aborts_the_unconditional_execution_commitment_read()
+    {
+        var handler = new RecordingHttpMessageHandler(request =>
+            request.RequestUri!.AbsolutePath == HttpExternallyReadableDemandCatalogClient.ContractPath
+                ? JsonResponse(HttpStatusCode.OK, CreateContractBody())
+                : JsonResponse(
+                    HttpStatusCode.ServiceUnavailable,
+                    "{\"code\":\"INGEST_NOT_CURRENT\"}"));
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://mes.example/"),
+        };
+        var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
+
+        var error = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.ReadAsync(knownIdentity: null));
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, error.StatusCode);
+        Assert.Equal(
+            [
+                HttpExternallyReadableDemandCatalogClient.ContractPath,
+                HttpExternallyReadableDemandCatalogClient.CatalogPath,
+            ],
+            handler.Requests.Select(request => request.PathAndQuery));
+    }
+
     [Theory]
     [InlineData("contract-version")]
     [InlineData("schema-version")]

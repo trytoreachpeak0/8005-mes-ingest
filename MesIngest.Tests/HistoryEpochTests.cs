@@ -163,9 +163,15 @@ public sealed class HistoryEpochTests
             """
             ALTER TABLE mesingest.ProjectionCommits
                 DROP CONSTRAINT FK_MesIngest_ProjectionCommits_HistoryEpoch;
+            ALTER TABLE mesingest.StoragePressureState
+                DROP CONSTRAINT FK_MesIngest_StoragePressureState_HistoryEpoch;
+            ALTER TABLE mesingest.StoragePressureRecoveryAudits
+                DROP CONSTRAINT FK_MesIngest_StoragePressureRecoveryAudits_HistoryEpoch;
             ALTER TABLE mesingest.SchemaInfo
                 DROP CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch;
             ALTER TABLE mesingest.ProjectionCommits DROP COLUMN HistoryEpoch;
+            ALTER TABLE mesingest.StoragePressureState DROP COLUMN HistoryEpoch;
+            ALTER TABLE mesingest.StoragePressureRecoveryAudits DROP COLUMN HistoryEpoch;
             ALTER TABLE mesingest.SchemaInfo DROP COLUMN HistoryEpoch;
             """);
 

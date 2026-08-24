@@ -115,6 +115,7 @@ public sealed class CurrentIngestAttentionTests : IClassFixture<WebApplicationFa
         Assert.Equal(1L, typeFacets[CurrentIngestAttentionKinds.TaskTypeProtection]);
         Assert.Equal(1L, typeFacets[CurrentIngestAttentionKinds.UnassignedMesObservation]);
         Assert.Equal(0L, typeFacets[CurrentIngestAttentionKinds.HistoryCleanupFailure]);
+        Assert.Equal(0L, typeFacets[CurrentIngestAttentionKinds.StoragePressure]);
         var severityFacets = ReadFacets(current, "severities");
         Assert.Equal(4L, severityFacets[CurrentIngestAttentionSeverities.Error]);
         Assert.Equal(1L, severityFacets[CurrentIngestAttentionSeverities.Warning]);
@@ -236,6 +237,7 @@ public sealed class CurrentIngestAttentionTests : IClassFixture<WebApplicationFa
         Assert.Equal(1L, recoveredTypes[CurrentIngestAttentionKinds.TaskTypeProtection]);
         Assert.Equal(0L, recoveredTypes[CurrentIngestAttentionKinds.UnassignedMesObservation]);
         Assert.Equal(0L, recoveredTypes[CurrentIngestAttentionKinds.HistoryCleanupFailure]);
+        Assert.Equal(0L, recoveredTypes[CurrentIngestAttentionKinds.StoragePressure]);
         var recoveredSeverities = ReadFacets(recovered, "severities");
         Assert.Equal(0L, recoveredSeverities[CurrentIngestAttentionSeverities.Error]);
         Assert.Equal(1L, recoveredSeverities[CurrentIngestAttentionSeverities.Warning]);

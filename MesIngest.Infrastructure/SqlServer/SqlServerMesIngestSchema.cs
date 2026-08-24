@@ -197,6 +197,47 @@ internal static class SqlServerMesIngestSchema
             CONSTRAINT CK_MesIngest_HistoryCleanupState_SingleRow CHECK (Id = 1)
         );
 
+        CREATE TABLE mesingest.StoragePressureState
+        (
+            Id TINYINT NOT NULL CONSTRAINT PK_MesIngest_StoragePressureState PRIMARY KEY,
+            StoragePressureStatus NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            HistoryEpoch UNIQUEIDENTIFIER NOT NULL,
+            DatabaseName NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            DatabaseFilePath NVARCHAR(1024) NOT NULL,
+            VolumeRoot NVARCHAR(512) NOT NULL,
+            TotalBytes BIGINT NOT NULL,
+            AvailableBytes BIGINT NOT NULL,
+            ObservedAt DATETIMEOFFSET(7) NULL,
+            PausedAt DATETIMEOFFSET(7) NULL,
+            PauseId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            PauseReason NVARCHAR(256) NULL,
+            RecoveryAuditId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NULL,
+            CONSTRAINT CK_MesIngest_StoragePressureState_SingleRow CHECK (Id = 1),
+            CONSTRAINT FK_MesIngest_StoragePressureState_HistoryEpoch
+                FOREIGN KEY (HistoryEpoch) REFERENCES mesingest.SchemaInfo (HistoryEpoch)
+        );
+
+        CREATE TABLE mesingest.StoragePressureRecoveryAudits
+        (
+            RecoveryAuditId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT PK_MesIngest_StoragePressureRecoveryAudits PRIMARY KEY,
+            PauseId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL
+                CONSTRAINT UQ_MesIngest_StoragePressureRecoveryAudits_PauseId UNIQUE,
+            HistoryEpoch UNIQUEIDENTIFIER NOT NULL,
+            DatabaseName NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            ExecutionIdentity NVARCHAR(256) NOT NULL,
+            DatabaseHost NVARCHAR(256) NOT NULL,
+            Reason NVARCHAR(512) NOT NULL,
+            StatusBefore NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            StatusAfter NVARCHAR(32) COLLATE Latin1_General_100_BIN2 NOT NULL,
+            RecoveredAt DATETIMEOFFSET(7) NOT NULL,
+            VolumeRoot NVARCHAR(512) NOT NULL,
+            TotalBytes BIGINT NOT NULL,
+            AvailableBytes BIGINT NOT NULL,
+            CONSTRAINT FK_MesIngest_StoragePressureRecoveryAudits_HistoryEpoch
+                FOREIGN KEY (HistoryEpoch) REFERENCES mesingest.SchemaInfo (HistoryEpoch)
+        );
+
         CREATE TABLE mesingest.PollTraces
         (
             PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL
@@ -822,6 +863,14 @@ internal static class SqlServerMesIngestSchema
         VALUES
             (1, N'NOT_RUN', NULL, NULL, NULL, NULL, NULL,
              0, 0, 0, 0, 0, 0, NULL, NULL, NULL, NULL);
+
+        INSERT INTO mesingest.StoragePressureState
+            (Id, StoragePressureStatus, HistoryEpoch, DatabaseName,
+             DatabaseFilePath, VolumeRoot, TotalBytes, AvailableBytes,
+             ObservedAt, PausedAt, PauseId, PauseReason, RecoveryAuditId)
+        VALUES
+            (1, N'HEALTHY', @historyEpoch, DB_NAME(), N'', N'', 1, 1,
+             NULL, NULL, NULL, NULL, NULL);
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -846,7 +895,7 @@ internal static class SqlServerMesIngestSchema
         IF
         (
             SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0
-        ) <> 24
+        ) <> 26
         OR EXISTS
         (
             SELECT SCHEMA_NAME(t.schema_id), t.name
@@ -857,6 +906,8 @@ internal static class SqlServerMesIngestSchema
             FROM (VALUES
                 (N'SchemaInfo'),
                 (N'HistoryCleanupState'),
+                (N'StoragePressureState'),
+                (N'StoragePressureRecoveryAudits'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
@@ -887,6 +938,8 @@ internal static class SqlServerMesIngestSchema
             FROM (VALUES
                 (N'SchemaInfo'),
                 (N'HistoryCleanupState'),
+                (N'StoragePressureState'),
+                (N'StoragePressureRecoveryAudits'),
                 (N'PollTraces'),
                 (N'ProjectionCommits'),
                 (N'ProjectionCommitUnassignedObservationFacts'),
@@ -957,6 +1010,34 @@ internal static class SqlServerMesIngestSchema
             (N'HistoryCleanupState', 15, N'HistoryCleanupLastFailureReason', N'nvarchar', 512, 0, 0, 1, N'Latin1_General_100_BIN2'),
             (N'HistoryCleanupState', 16, N'HistoryCleanupLastFailureAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
             (N'HistoryCleanupState', 17, N'HistoryCleanupLastFailureRunId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+
+            (N'StoragePressureState', 1, N'Id', N'tinyint', 1, 3, 0, 0, NULL),
+            (N'StoragePressureState', 2, N'StoragePressureStatus', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureState', 3, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
+            (N'StoragePressureState', 4, N'DatabaseName', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureState', 5, N'DatabaseFilePath', N'nvarchar', 2048, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureState', 6, N'VolumeRoot', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureState', 7, N'TotalBytes', N'bigint', 8, 19, 0, 0, NULL),
+            (N'StoragePressureState', 8, N'AvailableBytes', N'bigint', 8, 19, 0, 0, NULL),
+            (N'StoragePressureState', 9, N'ObservedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'StoragePressureState', 10, N'PausedAt', N'datetimeoffset', 10, 34, 7, 1, NULL),
+            (N'StoragePressureState', 11, N'PauseId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureState', 12, N'PauseReason', N'nvarchar', 512, 0, 0, 1, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureState', 13, N'RecoveryAuditId', N'nvarchar', 128, 0, 0, 1, N'Latin1_General_100_BIN2'),
+
+            (N'StoragePressureRecoveryAudits', 1, N'RecoveryAuditId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureRecoveryAudits', 2, N'PauseId', N'nvarchar', 128, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureRecoveryAudits', 3, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
+            (N'StoragePressureRecoveryAudits', 4, N'DatabaseName', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureRecoveryAudits', 5, N'ExecutionIdentity', N'nvarchar', 512, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureRecoveryAudits', 6, N'DatabaseHost', N'nvarchar', 512, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureRecoveryAudits', 7, N'Reason', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureRecoveryAudits', 8, N'StatusBefore', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureRecoveryAudits', 9, N'StatusAfter', N'nvarchar', 64, 0, 0, 0, N'Latin1_General_100_BIN2'),
+            (N'StoragePressureRecoveryAudits', 10, N'RecoveredAt', N'datetimeoffset', 10, 34, 7, 0, NULL),
+            (N'StoragePressureRecoveryAudits', 11, N'VolumeRoot', N'nvarchar', 1024, 0, 0, 0, CONVERT(SYSNAME, DATABASEPROPERTYEX(DB_NAME(), 'Collation'))),
+            (N'StoragePressureRecoveryAudits', 12, N'TotalBytes', N'bigint', 8, 19, 0, 0, NULL),
+            (N'StoragePressureRecoveryAudits', 13, N'AvailableBytes', N'bigint', 8, 19, 0, 0, NULL),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),
@@ -1298,6 +1379,9 @@ internal static class SqlServerMesIngestSchema
             (N'PK_MesIngest_SchemaInfo', N'SchemaInfo', 1, 1, 1, N'Id', 0),
             (N'UQ_MesIngest_SchemaInfo_HistoryEpoch', N'SchemaInfo', 0, 1, 1, N'HistoryEpoch', 0),
             (N'PK_MesIngest_HistoryCleanupState', N'HistoryCleanupState', 1, 1, 1, N'Id', 0),
+            (N'PK_MesIngest_StoragePressureState', N'StoragePressureState', 1, 1, 1, N'Id', 0),
+            (N'PK_MesIngest_StoragePressureRecoveryAudits', N'StoragePressureRecoveryAudits', 1, 1, 1, N'RecoveryAuditId', 0),
+            (N'UQ_MesIngest_StoragePressureRecoveryAudits_PauseId', N'StoragePressureRecoveryAudits', 0, 1, 1, N'PauseId', 0),
             (N'PK_MesIngest_PollTraces', N'PollTraces', 1, 1, 1, N'PollTraceId', 0),
             (N'UQ_MesIngest_PollTraces_Sequence', N'PollTraces', 0, 1, 1, N'PollTraceSequence', 0),
             (N'PK_MesIngest_ProjectionCommits', N'ProjectionCommits', 1, 1, 1, N'ProjectionCommitId', 0),
@@ -1411,6 +1495,8 @@ internal static class SqlServerMesIngestSchema
             ReferencedColumn SYSNAME NOT NULL
         );
         INSERT INTO @ExpectedForeignKeys VALUES
+            (N'FK_MesIngest_StoragePressureState_HistoryEpoch', N'StoragePressureState', N'HistoryEpoch', N'SchemaInfo', N'HistoryEpoch'),
+            (N'FK_MesIngest_StoragePressureRecoveryAudits_HistoryEpoch', N'StoragePressureRecoveryAudits', N'HistoryEpoch', N'SchemaInfo', N'HistoryEpoch'),
             (N'FK_MesIngest_ProjectionCommits_PollTrace', N'ProjectionCommits', N'PollTraceId', N'PollTraces', N'PollTraceId'),
             (N'FK_MesIngest_ProjectionCommits_HistoryEpoch', N'ProjectionCommits', N'HistoryEpoch', N'SchemaInfo', N'HistoryEpoch'),
             (N'FK_MesIngest_ProjectionCommits_HostSession', N'ProjectionCommits', N'HostSessionId', N'HostSessions', N'HostSessionId'),
@@ -1465,7 +1551,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.foreign_keys AS fk
             INNER JOIN sys.tables AS t ON t.object_id = fk.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 50
+            WHERE s.name = N'mesingest') <> 52
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedForeignKeys AS e
@@ -1517,6 +1603,7 @@ internal static class SqlServerMesIngestSchema
             (N'CK_MesIngest_SchemaInfo_SingleRow', N'SchemaInfo', N'([Id]=(1))'),
             (N'CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength', N'SchemaInfo', N'(datalength([SnapshotTokenSigningKey])=(32))'),
             (N'CK_MesIngest_HistoryCleanupState_SingleRow', N'HistoryCleanupState', N'([Id]=(1))'),
+            (N'CK_MesIngest_StoragePressureState_SingleRow', N'StoragePressureState', N'([Id]=(1))'),
             (N'CK_MesIngest_PollTraces_Outcome', N'PollTraces', N'([Outcome]=N''INCOMPLETE'' OR [Outcome]=N''FAILURE'' OR [Outcome]=N''SUCCESS'')'),
             (N'CK_MesIngest_PollTraces_RowCount', N'PollTraces', N'([RowCount]>=(0) AND [RowCount]<=(25000))'),
             (N'CK_MesIngest_PollTraces_Diagnostic', N'PollTraces', N'([DiagnosticStage] IS NULL AND [DiagnosticCode] IS NULL AND [DiagnosticSafeDetail] IS NULL OR [Outcome]<>N''SUCCESS'' AND [DiagnosticStage] IS NOT NULL AND [DiagnosticCode] IS NOT NULL AND [DiagnosticSafeDetail] IS NOT NULL)'),
@@ -1565,7 +1652,7 @@ internal static class SqlServerMesIngestSchema
         IF (SELECT COUNT(*) FROM sys.check_constraints AS cc
             INNER JOIN sys.tables AS t ON t.object_id = cc.parent_object_id
             INNER JOIN sys.schemas AS s ON s.schema_id = t.schema_id
-            WHERE s.name = N'mesingest') <> 47
+            WHERE s.name = N'mesingest') <> 48
         OR EXISTS
         (
             SELECT e.* FROM @ExpectedChecks AS e
@@ -1921,6 +2008,7 @@ internal static class SqlServerMesIngestSchema
 
         IF (SELECT COUNT(*) FROM mesingest.SchemaInfo) <> 1
         OR (SELECT COUNT(*) FROM mesingest.HistoryCleanupState) <> 1
+        OR (SELECT COUNT(*) FROM mesingest.StoragePressureState) <> 1
         OR NOT EXISTS
         (
             SELECT 1 FROM mesingest.SchemaInfo
@@ -1938,6 +2026,14 @@ internal static class SqlServerMesIngestSchema
               AND HistoryCleanupStatus IN
                   (N'NOT_RUN', N'RUNNING', N'SUCCEEDED', N'BUDGET_EXHAUSTED',
                    N'YIELDED_TO_POLL', N'INTERRUPTED', N'FAILED')
+        )
+        OR NOT EXISTS
+        (
+            SELECT 1 FROM mesingest.StoragePressureState
+            WHERE Id = 1
+              AND StoragePressureStatus IN
+                  (N'HEALTHY', N'CRITICAL_WARNING', N'STORAGE_PRESSURE_PAUSE')
+              AND HistoryEpoch = (SELECT HistoryEpoch FROM mesingest.SchemaInfo WHERE Id = 1)
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
         """;

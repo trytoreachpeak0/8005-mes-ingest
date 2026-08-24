@@ -31,6 +31,7 @@ $ErrorActionPreference = "Stop"
 
 $csharpRoot = Split-Path -Parent $PSScriptRoot
 $hostProj = Join-Path $csharpRoot "MesIngest.Host\MesIngest.Host.csproj"
+$administrationProj = Join-Path $csharpRoot "MesIngest.LocalAdministration\MesIngest.LocalAdministration.csproj"
 $watchProj = Join-Path $csharpRoot "MesIngest.Watch\MesIngest.Watch.csproj"
 $exampleLocal = Join-Path $csharpRoot "MesIngest.Host\appsettings.Local.json.example"
 $exampleWatchLocal = Join-Path $csharpRoot "MesIngest.Watch\appsettings.Local.json.example"
@@ -86,6 +87,7 @@ if ([string]::IsNullOrWhiteSpace($resolvedOutput) `
 }
 $OutputDir = $resolvedOutput
 $serviceDir = Join-Path $OutputDir "service"
+$administrationDir = Join-Path $OutputDir "administration"
 $watchDir = Join-Path $OutputDir "watch"
 $openapiDir = Join-Path $OutputDir "openapi"
 $templatesDir = Join-Path $OutputDir "templates"
@@ -108,6 +110,17 @@ dotnet publish $hostProj `
     /p:PublishSingleFile=false `
     /p:NuGetAudit=false
 if ($LASTEXITCODE -ne 0) { throw "Host publish failed ($LASTEXITCODE)" }
+
+Write-Host "Publishing Local Administration -> $administrationDir"
+dotnet publish $administrationProj `
+    -c $Configuration `
+    -r $Runtime `
+    --self-contained true `
+    --ignore-failed-sources `
+    -o $administrationDir `
+    /p:PublishSingleFile=false `
+    /p:NuGetAudit=false
+if ($LASTEXITCODE -ne 0) { throw "Local Administration publish failed ($LASTEXITCODE)" }
 
 if (-not $SkipWatch) {
     Write-Host "Publishing Watch -> $watchDir"

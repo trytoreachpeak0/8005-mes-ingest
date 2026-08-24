@@ -70,6 +70,21 @@ sc.exe delete MesIngest
 
 Watch 与 Service 的进程生命周期互相独立：**关闭 WPF 不会停止 Service**，Service 继续轮询并继续提供 API。发布烟测会实测这一点（见下）。
 
+## StoragePressurePause 本地恢复
+
+恢复只能在 SQL Server 数据库主机上以 Windows 集成身份运行打包的本地管理程序。先把精确连接串放入当前进程环境变量，不要放到命令行；再提供 Watch 诊断显示的精确数据库名、HistoryEpoch 和操作原因：
+
+```powershell
+$env:MES_INGEST_LOCAL_ADMINISTRATION_CONNECTION_STRING = '<integrated-security connection string>'
+.\administration\MesIngest.LocalAdministration.exe resume-storage-pressure `
+  --database '<exact database name>' `
+  --history-epoch '<current HistoryEpoch>' `
+  --reason '<operator reason>'
+Remove-Item Env:MES_INGEST_LOCAL_ADMINISTRATION_CONNECTION_STRING
+```
+
+命令会再次验证执行位置、`db_owner`/`sysadmin` 授权、精确数据库和纪元、当前暂停状态、卷空间至少 15%、数据库 `ONLINE`/`READ_WRITE`，并在同一事务中写恢复审计。Watch 与远程 Host API 没有恢复写操作；直接修改状态表不会形成合法恢复审计，也不会重新开放轮询。
+
 ## 日志位置
 
 - **Windows Service**：写入 Windows **应用程序**事件日志（来源通常为 `.NET Runtime` / 进程名）；用「事件查看器」筛选 MesIngest.Host

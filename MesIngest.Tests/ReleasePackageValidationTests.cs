@@ -469,7 +469,7 @@ public sealed class ReleasePackageValidationTests
         var root = Path.Combine(Path.GetTempPath(), $"mes-ingest-release-{Guid.NewGuid():N}");
         foreach (var directory in new[]
                  {
-                     "service", "watch", "templates", "scripts", "validation", "openapi",
+                     "service", "watch", "administration", "templates", "scripts", "validation", "openapi",
                  })
         {
             Directory.CreateDirectory(Path.Combine(root, directory));
@@ -477,6 +477,9 @@ public sealed class ReleasePackageValidationTests
 
         File.WriteAllText(Path.Combine(root, "service", "MesIngest.Host.exe"), "host");
         File.WriteAllText(Path.Combine(root, "watch", "MesIngest.Watch.exe"), "watch");
+        File.WriteAllText(
+            Path.Combine(root, "administration", "MesIngest.LocalAdministration.exe"),
+            "administration");
         // Service and Watch publish the same MesIngest.Core, which carries the frozen
         // contract identity. Identical bytes are what the validator checks.
         File.WriteAllText(Path.Combine(root, "service", "MesIngest.Core.dll"), "shared-contract");

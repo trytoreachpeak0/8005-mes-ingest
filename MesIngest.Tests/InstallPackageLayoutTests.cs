@@ -37,6 +37,7 @@ public class InstallPackageLayoutTests
         Assert.True(File.Exists(Path.Combine(pack, "UPGRADE.md")));
         Assert.True(File.Exists(Path.Combine(pack, "install-service.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "uninstall-service.ps1")));
+        Assert.True(File.Exists(Path.Combine(CSharpRoot, "MesIngest.LocalAdministration", "MesIngest.LocalAdministration.csproj")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-EmptyDatabaseCutover.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "Invoke-CutoverRollback.ps1")));
         Assert.True(File.Exists(Path.Combine(pack, "cutover", "CutoverSqlTools.ps1")));
@@ -47,6 +48,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("SharedSecret", install, StringComparison.Ordinal);
         Assert.Contains("事件", install, StringComparison.Ordinal);
         Assert.Contains("VERSION.txt", install, StringComparison.Ordinal);
+        Assert.Contains("MesIngest.LocalAdministration.exe resume-storage-pressure", install, StringComparison.Ordinal);
+        Assert.Contains("MES_INGEST_LOCAL_ADMINISTRATION_CONNECTION_STRING", install, StringComparison.Ordinal);
 
         var upgrade = File.ReadAllText(Path.Combine(pack, "UPGRADE.md"));
         Assert.Contains("BACKUP DATABASE", upgrade, StringComparison.OrdinalIgnoreCase);

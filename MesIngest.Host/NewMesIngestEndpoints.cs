@@ -186,9 +186,19 @@ internal static class NewMesIngestEndpoints
                 conditionError!));
         }
 
-        var read = await projection.ReadExternallyReadableDemandCatalogAsync(
-            knownIdentity,
-            cancellationToken);
+        ExternallyReadableDemandCatalogRead read;
+        try
+        {
+            read = await projection.ReadExternallyReadableDemandCatalogAsync(
+                knownIdentity,
+                cancellationToken);
+        }
+        catch (IngestNotCurrentException exception)
+        {
+            return Results.Json(
+                new NewMesIngestErrorDto(IngestNotCurrentException.ErrorCode, exception.Message),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
         var etag = CreateCatalogEtag(read.Identity);
         response.Headers.ETag = etag;
         response.Headers.CacheControl = "private, no-cache";
@@ -1453,7 +1463,10 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
     string? Outcome,
     int? ObservationCount,
     string? FailureReason,
-    DateTimeOffset? NextCheckAt)
+    DateTimeOffset? NextCheckAt,
+    string? DatabaseName,
+    string? VolumeRoot,
+    decimal? AvailablePercent)
 {
     public static CurrentIngestAttentionEvidenceDto From(
         CurrentIngestAttentionEvidenceSnapshot evidence) =>
@@ -1472,7 +1485,10 @@ internal sealed record CurrentIngestAttentionEvidenceDto(
             evidence.Outcome,
             evidence.ObservationCount,
             evidence.FailureReason,
-            evidence.NextCheckAt);
+            evidence.NextCheckAt,
+            evidence.DatabaseName,
+            evidence.VolumeRoot,
+            evidence.AvailablePercent);
 }
 
 internal sealed record CurrentIngestAttentionItemDto(
@@ -1514,7 +1530,8 @@ internal sealed record CurrentIngestAttentionDto(
     IReadOnlyList<string> Kinds,
     IReadOnlyList<string> Severities,
     IReadOnlyList<CurrentIngestAttentionItemDto> Items,
-    HistoryCleanupStateDto HistoryCleanup)
+    HistoryCleanupStateDto HistoryCleanup,
+    StoragePressureStateDto StoragePressure)
 {
     public static CurrentIngestAttentionDto From(CurrentIngestAttentionSnapshot snapshot) =>
         new(
@@ -1529,7 +1546,38 @@ internal sealed record CurrentIngestAttentionDto(
             snapshot.Severities,
             snapshot.Items.Select(CurrentIngestAttentionItemDto.From).ToArray(),
             HistoryCleanupStateDto.From(
-                snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun));
+                snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun),
+            StoragePressureStateDto.From(snapshot.StoragePressure
+                ?? throw new InvalidOperationException("Storage pressure diagnostics are missing.")));
+}
+
+internal sealed record StoragePressureStateDto(
+    string Status,
+    string HistoryEpoch,
+    string DatabaseName,
+    string DatabaseFilePath,
+    string VolumeRoot,
+    long TotalBytes,
+    long AvailableBytes,
+    decimal AvailablePercent,
+    DateTimeOffset ObservedAt,
+    DateTimeOffset? PausedAt,
+    string? PauseId,
+    string? PauseReason)
+{
+    public static StoragePressureStateDto From(StoragePressureStateSnapshot state) => new(
+        state.Status,
+        state.HistoryEpoch.Value.ToString("D"),
+        state.DatabaseName,
+        state.DatabaseFilePath,
+        state.Space.VolumeRoot,
+        state.Space.TotalBytes,
+        state.Space.AvailableBytes,
+        state.Space.AvailablePercent,
+        state.ObservedAt,
+        state.PausedAt,
+        state.PauseId,
+        state.PauseReason);
 }
 
 internal sealed record HistoryCleanupStateDto(

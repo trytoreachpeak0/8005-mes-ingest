@@ -26,7 +26,10 @@ internal sealed record WatchCurrentIngestAttentionEvidencePresentation(
     string? EvidenceId,
     string? ContentDigest,
     string? Phase,
-    string? Outcome)
+    string? Outcome,
+    string? DatabaseName,
+    string? VolumeRoot,
+    decimal? AvailablePercent)
 {
     public string Facts => string.Join(
         " · ",
@@ -54,6 +57,9 @@ internal sealed record WatchCurrentIngestAttentionEvidencePresentation(
             ContentDigest is null ? null : $"Digest {ContentDigest}",
             Phase is null ? null : $"阶段 {Phase}",
             Outcome is null ? null : $"结果 {Outcome}",
+            DatabaseName is null ? null : $"数据库 {DatabaseName}",
+            VolumeRoot is null ? null : $"卷 {VolumeRoot}",
+            AvailablePercent is null ? null : $"可用 {AvailablePercent:0.###}%",
         }.Where(value => value is not null));
 }
 
@@ -242,7 +248,10 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
                 evidence.EvidenceId,
                 evidence.ContentDigest,
                 evidence.Phase,
-                evidence.Outcome),
+                evidence.Outcome,
+                evidence.DatabaseName,
+                evidence.VolumeRoot,
+                evidence.AvailablePercent),
             item.Navigation,
             errorSearchDrill);
     }
@@ -348,6 +357,8 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
         CurrentIngestAttentionKinds.PollRunFailure => "轮询运行失败",
         CurrentIngestAttentionKinds.TaskTypeProtection => "TaskType 保护",
         CurrentIngestAttentionKinds.UnassignedMesObservation => "未归属 MES 观测",
+        CurrentIngestAttentionKinds.HistoryCleanupFailure => "HISTORY_CLEANUP_FAILURE",
+        CurrentIngestAttentionKinds.StoragePressure => "存储压力",
         _ => kind,
     };
 
@@ -368,6 +379,8 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
             $"WorkType {ProjectText(item.WorkType ?? item.Evidence.WorkType)} · {ProjectText(item.Evidence.Phase)}",
         CurrentIngestAttentionKinds.UnassignedMesObservation =>
             $"PollTrace {ProjectText(item.Evidence.PollTraceId)} · 观测序号 {item.Evidence.ObservationOrdinal?.ToString() ?? "—"}",
+        CurrentIngestAttentionKinds.StoragePressure =>
+            $"数据库 {ProjectText(item.Evidence.DatabaseName)} · 卷 {ProjectText(item.Evidence.VolumeRoot)} · 可用 {item.Evidence.AvailablePercent?.ToString("0.###") ?? "—"}%",
         _ => item.StableIdentity,
     };
 

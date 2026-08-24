@@ -10,6 +10,14 @@ public sealed partial class SqlServerMesIngestProjection
         ExternallyReadableDemandCatalogIdentity? knownIdentity = null,
         CancellationToken cancellationToken = default)
     {
+        var storagePressure = await ReadStoragePressureStateAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (storagePressure.IsPaused)
+        {
+            throw new IngestNotCurrentException(
+                "StoragePressurePause is active; current external Demand reads are unavailable.");
+        }
+
         knownIdentity?.Validate();
 
         await EnsureSchemaAsync(cancellationToken).ConfigureAwait(false);

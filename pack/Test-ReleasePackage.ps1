@@ -63,6 +63,7 @@ $expectedOpenApiPaths = @(
 
 $required = @(
     "service\MesIngest.Host.exe",
+    "administration\MesIngest.LocalAdministration.exe",
     "templates\appsettings.Local.json.example",
     "templates\watch.appsettings.Local.json.example",
     "scripts\install-service.ps1",

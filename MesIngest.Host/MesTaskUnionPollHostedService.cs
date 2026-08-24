@@ -9,13 +9,13 @@ namespace MesIngest.Host;
 /// </summary>
 public sealed class MesTaskUnionPollHostedService : BackgroundService
 {
-    private readonly MesTaskUnionPollRunner _runner;
+    private readonly StoragePressureGuardedPollRunner _runner;
     private readonly MesIngestHostOptions _options;
     private readonly ILogger<MesTaskUnionPollHostedService> _logger;
     private readonly IngestWorkPriorityGate _workPriorityGate;
 
     public MesTaskUnionPollHostedService(
-        MesTaskUnionPollRunner runner,
+        StoragePressureGuardedPollRunner runner,
         MesIngestHostOptions options,
         ILogger<MesTaskUnionPollHostedService> logger,
         IngestWorkPriorityGate? workPriorityGate = null)
@@ -47,7 +47,15 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
                     .ConfigureAwait(false);
                 try
                 {
-                    var receipt = await _runner.RunOnceAsync(cancellationToken).ConfigureAwait(false);
+                    var receipt = await _runner.RunOnceIfAllowedAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    if (receipt is null)
+                    {
+                        _logger.LogCritical(
+                            "MES query skipped because the durable StoragePressurePause gate is closed.");
+                        return;
+                    }
+
                     _logger.LogInformation(
                         "V2 Oracle round {PollTraceId} completed as {Outcome}; projectionCommit={ProjectionCommitId}.",
                         receipt.PollTraceId,
