@@ -113,23 +113,11 @@ public sealed partial class SqlServerMesIngestProjection
                 snapshotReference,
                 signingKey,
                 cancellationToken).ConfigureAwait(false);
-            var series = await ReadErrorSearchSeriesMatchAsync(
-                connection,
-                transaction,
-                snapshot,
-                seriesId.Trim(),
-                cancellationToken).ConfigureAwait(false);
-            if (series is null)
-            {
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return null;
-            }
-
             var matchedEvidence = await ReadExactErrorSearchEvidenceAsync(
                 connection,
                 transaction,
                 snapshot,
-                series.SeriesId,
+                seriesId.Trim(),
                 evidenceId.Trim(),
                 cancellationToken).ConfigureAwait(false);
             if (matchedEvidence is null)
@@ -151,7 +139,7 @@ public sealed partial class SqlServerMesIngestProjection
             var result = new ErrorSearchRawEvidenceSnapshot(
                 snapshotReference,
                 snapshot.Snapshot,
-                series.SeriesId,
+                matchedEvidence.SeriesId,
                 matchedEvidence.PeriodId,
                 matchedEvidence.Evidence.EvidenceId,
                 matchedEvidence.Evidence.PollTraceId,
@@ -199,6 +187,7 @@ public sealed partial class SqlServerMesIngestProjection
                 evidence.PollTraceId,
                 evidence.ProjectionCommitId,
                 evidence.DemandId,
+                demandSeries.SeriesId,
                 demandSeries.WorkType,
                 evidence.ObservedValue,
                 evidence.ExpectedRule
@@ -219,8 +208,58 @@ public sealed partial class SqlServerMesIngestProjection
                 ON demand.DemandId = evidence.DemandId
             INNER JOIN mesingest.DemandSeries AS demandSeries
                 ON demandSeries.SeriesId = demand.SeriesId
+            OUTER APPLY
+            (
+                SELECT TOP (1) 1 AS HasActiveMatch
+                FROM mesingest.DemandSeriesErrorPeriods AS candidate
+                INNER JOIN mesingest.DemandSeriesEvents AS candidateOpened
+                    ON candidateOpened.EventId = candidate.OpenedEventId
+                INNER JOIN mesingest.ProjectionCommits AS candidateOpenedCommit
+                    ON candidateOpenedCommit.ProjectionCommitId = candidateOpened.ProjectionCommitId
+                LEFT JOIN mesingest.DemandSeriesEvents AS candidateClosed
+                    ON candidateClosed.EventId = candidate.ClosedEventId
+                LEFT JOIN mesingest.ProjectionCommits AS candidateClosedCommit
+                    ON candidateClosedCommit.ProjectionCommitId = candidateClosed.ProjectionCommitId
+                WHERE candidate.SeriesId = period.SeriesId
+                  AND candidateOpenedCommit.ProjectionSequence <= @snapshotSequence
+                  AND candidate.StartedAt <= @asOf
+                  AND candidate.StartedAt < @windowTo
+                  AND (@windowFrom IS NULL OR COALESCE(
+                        CASE WHEN candidateClosedCommit.ProjectionSequence <= @snapshotSequence
+                               AND candidate.EndedAt <= @asOf THEN candidate.EndedAt END,
+                        @asOf) > @windowFrom)
+                  AND (candidateClosedCommit.ProjectionSequence IS NULL
+                       OR candidateClosedCommit.ProjectionSequence > @snapshotSequence
+                       OR candidate.EndedAt > @asOf)
+                  AND (NOT EXISTS (SELECT 1 FROM OPENJSON(@categoriesJson))
+                       OR candidate.Category IN
+                          (SELECT [value] COLLATE Latin1_General_100_BIN2
+                           FROM OPENJSON(@categoriesJson)))
+                  AND (NOT EXISTS (SELECT 1 FROM OPENJSON(@errorCodesJson))
+                       OR candidate.ErrorCode IN
+                          (SELECT [value] COLLATE Latin1_General_100_BIN2
+                           FROM OPENJSON(@errorCodesJson)))
+                  AND EXISTS
+                  (
+                      SELECT 1
+                      FROM mesingest.SeriesErrorPeriodEvidence AS candidateEvidence
+                      INNER JOIN mesingest.ProjectionCommits AS candidateEvidenceCommit
+                          ON candidateEvidenceCommit.ProjectionCommitId =
+                             candidateEvidence.ProjectionCommitId
+                      WHERE candidateEvidence.PeriodId = candidate.PeriodId
+                        AND candidateEvidenceCommit.ProjectionSequence <= @snapshotSequence
+                        AND candidateEvidence.ObservedAt <= @asOf
+                        AND (@demandId IS NULL OR candidateEvidence.DemandId =
+                             @demandId COLLATE Latin1_General_100_CI_AS)
+                  )
+            ) AS seriesActivity
             WHERE evidence.EvidenceId = @evidenceId
               AND period.SeriesId = @detailSeriesId COLLATE Latin1_General_100_CI_AS
+              AND (@seriesIdFilter IS NULL OR period.SeriesId =
+                   @seriesIdFilter COLLATE Latin1_General_100_CI_AS)
+              AND (@sublotContains IS NULL OR CHARINDEX(
+                   @sublotContains COLLATE Latin1_General_100_CI_AS,
+                   demandSeries.Sublot COLLATE Latin1_General_100_CI_AS) > 0)
               AND openedCommit.ProjectionSequence <= @snapshotSequence
               AND evidenceCommit.ProjectionSequence <= @snapshotSequence
               AND period.StartedAt <= @asOf
@@ -237,7 +276,12 @@ public sealed partial class SqlServerMesIngestProjection
                    OR period.ErrorCode IN (SELECT [value] COLLATE Latin1_General_100_BIN2
                                            FROM OPENJSON(@errorCodesJson)))
               AND (@demandId IS NULL
-                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS);
+                   OR evidence.DemandId = @demandId COLLATE Latin1_General_100_CI_AS)
+              AND (NOT EXISTS (SELECT 1 FROM OPENJSON(@activityStatesJson))
+                   OR CASE WHEN seriesActivity.HasActiveMatch = 1
+                           THEN N'ACTIVE' ELSE N'ENDED' END IN
+                      (SELECT [value] COLLATE Latin1_General_100_BIN2
+                       FROM OPENJSON(@activityStatesJson)));
             """;
         AddNVarChar(command, "@evidenceId", 64, evidenceId);
         AddNVarChar(command, "@detailSeriesId", 64, seriesId);
@@ -248,7 +292,14 @@ public sealed partial class SqlServerMesIngestProjection
         AddDateTimeOffset(command, "@windowTo", snapshot.Window.ToUtc);
         AddNVarChar(command, "@categoriesJson", -1, JsonSerializer.Serialize(filter.Categories));
         AddNVarChar(command, "@errorCodesJson", -1, JsonSerializer.Serialize(filter.ErrorCodes));
+        AddNVarChar(
+            command,
+            "@activityStatesJson",
+            -1,
+            JsonSerializer.Serialize(filter.ActivityStates));
+        AddNullableNVarChar(command, "@seriesIdFilter", 64, filter.SeriesId);
         AddNullableNVarChar(command, "@demandId", 64, filter.DemandId);
+        AddNullableNVarChar(command, "@sublotContains", 256, filter.SublotContains);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -259,6 +310,7 @@ public sealed partial class SqlServerMesIngestProjection
 
         return new RawEvidenceMatch(
             reader.GetString(0),
+            reader.GetString(8),
             CreateDetailEvidence(
                 reader.GetString(1),
                 reader.GetString(2),
@@ -267,9 +319,9 @@ public sealed partial class SqlServerMesIngestProjection
                 reader.GetString(5),
                 reader.GetString(6),
                 reader.GetString(7),
-                reader.GetString(8),
-                GetNullableString(reader, 9),
-                reader.GetString(10),
+                reader.GetString(9),
+                GetNullableString(reader, 10),
+                reader.GetString(11),
                 rawEvidenceAvailable: true));
     }
 
@@ -691,6 +743,7 @@ public sealed partial class SqlServerMesIngestProjection
 
     private sealed record RawEvidenceMatch(
         string PeriodId,
+        string SeriesId,
         ErrorSearchDetailEvidenceSnapshot Evidence);
 
     private sealed class MutableErrorSearchDetailPeriod(
