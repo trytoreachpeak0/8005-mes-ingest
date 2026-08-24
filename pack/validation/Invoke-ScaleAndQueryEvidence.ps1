@@ -28,6 +28,7 @@ param(
 
     [string] $ServiceRoot = '',
     [string] $OutputRoot = '',
+    [string] $DatabaseFileRoot = '',
     [string] $SqlConnectionStringEnvironmentVariable = 'MES_INGEST_SCALE_EVIDENCE_SQLSERVER',
     [string] $SqlTier1AttestationPath = '',
     [string] $DeterministicContractEvidencePath = '',
@@ -136,6 +137,23 @@ if ([string]::IsNullOrWhiteSpace($ServiceRoot)) {
 }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'scale-evidence-runs'
+}
+$resolvedDatabaseFileRoot = $null
+$databaseDataFilePath = $null
+$databaseLogFilePath = $null
+if (-not [string]::IsNullOrWhiteSpace($DatabaseFileRoot)) {
+    $resolvedDatabaseFileRoot = [IO.Path]::GetFullPath($DatabaseFileRoot).TrimEnd('\', '/')
+    $databaseFilePathRoot = [IO.Path]::GetPathRoot($resolvedDatabaseFileRoot).TrimEnd('\', '/')
+    if ($resolvedDatabaseFileRoot -eq $databaseFilePathRoot -or
+        -not (Test-Path -LiteralPath $resolvedDatabaseFileRoot -PathType Container)) {
+        throw 'DatabaseFileRoot must be an existing dedicated directory, not a volume root.'
+    }
+    $databaseDataFilePath = Join-Path $resolvedDatabaseFileRoot ($DatabaseName + '.mdf')
+    $databaseLogFilePath = Join-Path $resolvedDatabaseFileRoot ($DatabaseName + '_log.ldf')
+    if ((Test-Path -LiteralPath $databaseDataFilePath) -or
+        (Test-Path -LiteralPath $databaseLogFilePath)) {
+        throw 'DatabaseFileRoot already contains a file for the requested isolated database.'
+    }
 }
 
 Add-Type -AssemblyName System.Data
@@ -2134,7 +2152,23 @@ if ($AcceleratedConcurrencyStability) {
 }
 
 try {
-    [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
+    if ($null -eq $resolvedDatabaseFileRoot) {
+        [void](Invoke-SqlNonQuery $masterConnectionString "CREATE DATABASE [$DatabaseName];")
+    } else {
+        [void](Invoke-SqlNonQuery $masterConnectionString @"
+CREATE DATABASE [$DatabaseName]
+ON PRIMARY
+(
+    NAME = N'${DatabaseName}_data',
+    FILENAME = @dataFilePath
+)
+LOG ON
+(
+    NAME = N'${DatabaseName}_log',
+    FILENAME = @logFilePath
+);
+"@ @{ '@dataFilePath' = $databaseDataFilePath; '@logFilePath' = $databaseLogFilePath })
+    }
     $databaseCreated = $true
     [void](Invoke-SqlNonQuery $masterConnectionString "ALTER DATABASE [$DatabaseName] SET RECOVERY SIMPLE;")
 
@@ -3663,7 +3697,10 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             watchClientSha256 = $watchClientSha256
             referenceConsumerSha256 = $referenceConsumerSha256
         }
-        database = [ordered]@{ name = $DatabaseName; ownerRunId = $runId; removedAfterEvidence = -not $KeepDatabase }
+        database = [ordered]@{
+            name = $DatabaseName; ownerRunId = $runId; removedAfterEvidence = -not $KeepDatabase
+            fileRoot = $resolvedDatabaseFileRoot
+        }
         sqlServer = [ordered]@{
             dataSource = $masterBuilder.DataSource; productVersion = $serverIdentity.product_version
             productMajor = $serverIdentity.product_major; engineEdition = $serverIdentity.engine_edition
