@@ -126,7 +126,8 @@ internal sealed record WatchV2WorkspaceState(
     WatchV2ViewState<DemandSeriesListSnapshot, DemandSeriesDetailSnapshot> DemandSeries,
     WatchV2ViewState<ReadabilityAuditListSnapshot, ReadabilityAuditDetailSnapshot> ReadabilityAudit,
     WatchV2ViewState<ErrorSearchListSnapshot, ErrorSearchDetailSnapshot> ErrorSearch,
-    WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail> CurrentAttention)
+    WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail> CurrentAttention,
+    WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail> Protection)
 {
     public static WatchV2WorkspaceState Empty { get; } = Reset(
         hostGeneration: 0,
@@ -149,6 +150,7 @@ internal sealed record WatchV2WorkspaceState(
         WatchV2ViewState<DemandSeriesListSnapshot, DemandSeriesDetailSnapshot>.Empty(hostGeneration),
         WatchV2ViewState<ReadabilityAuditListSnapshot, ReadabilityAuditDetailSnapshot>.Empty(hostGeneration),
         WatchV2ViewState<ErrorSearchListSnapshot, ErrorSearchDetailSnapshot>.Empty(hostGeneration),
+        WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail>.Empty(hostGeneration),
         WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail>.Empty(hostGeneration));
 }
 
@@ -323,6 +325,59 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
             static (client, value, token) => client.FetchOverviewAsync(value, token),
             static snapshot => snapshot.Snapshot.ContractVersion,
             "/api/v2/watch-overview",
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Refreshes the visible Overview window and, only when its exact Host
+    /// facets report a storage/history protection item, loads the bounded
+    /// two-kind Current Attention page that supplies the status details shown
+    /// by Overview. Both reads share the caller's one active-page lifetime.
+    /// </summary>
+    public async Task RefreshOverviewPageAsync(
+        WatchOverviewQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        await RefreshOverviewAsync(query, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var overview = State.Overview;
+        if (overview.IsStale
+            || overview.LastFailureAt is not null
+            || overview.Snapshot?.Attention.Types.Any(facet =>
+                facet.Count > 0
+                && (facet.Value is CurrentIngestAttentionKinds.StoragePressure
+                    or CurrentIngestAttentionKinds.HistoryReset)) != true)
+        {
+            return;
+        }
+
+        await RefreshProtectionAsync(
+                new CurrentIngestAttentionQuery(
+                    PageSize: 2,
+                    Kinds:
+                    [
+                        CurrentIngestAttentionKinds.StoragePressure,
+                        CurrentIngestAttentionKinds.HistoryReset,
+                    ]),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task RefreshProtectionAsync(
+        CurrentIngestAttentionQuery query,
+        CancellationToken cancellationToken)
+    {
+        var normalized = query.NormalizeAndValidate();
+        await RefreshViewAsync(
+            RequestSlot.Protection,
+            WatchV2QueryKeys.CurrentAttention(normalized),
+            normalized,
+            state => state.Protection,
+            (state, view) => state with { Protection = view },
+            static (client, value, token) => client.FetchCurrentAttentionAsync(value, token),
+            static snapshot => snapshot.Snapshot.ContractVersion,
+            "/api/v2/current-ingest-attention",
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
@@ -1656,6 +1711,7 @@ internal sealed class WatchV2WorkspaceSession : IDisposable
         ReadabilityAudit,
         ErrorSearch,
         CurrentAttention,
+        Protection,
     }
 
     private sealed record RequestLease<TSnapshot, TDetail>(

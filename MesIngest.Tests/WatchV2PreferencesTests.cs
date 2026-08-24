@@ -95,10 +95,11 @@ public sealed class WatchV2PreferencesTests
     {
         var preferences = WatchV2Preferences.Default;
 
-        foreach (var view in Enum.GetValues<WatchV2DataView>())
-        {
-            Assert.Equal(10, preferences.RefreshIntervals.For(view).IntervalSeconds);
-        }
+        Assert.Equal(30, preferences.RefreshIntervals.Overview.IntervalSeconds);
+        Assert.Equal(60, preferences.RefreshIntervals.DemandSeries.IntervalSeconds);
+        Assert.Equal(60, preferences.RefreshIntervals.ReadabilityAudit.IntervalSeconds);
+        Assert.Equal(60, preferences.RefreshIntervals.ErrorSearch.IntervalSeconds);
+        Assert.Equal(30, preferences.RefreshIntervals.CurrentIngestAttention.IntervalSeconds);
 
         Assert.Equal(5, Enum.GetValues<WatchV2DataView>().Length);
         Assert.Null(typeof(WatchV2AutoRefreshSetting).GetProperty("Enabled"));

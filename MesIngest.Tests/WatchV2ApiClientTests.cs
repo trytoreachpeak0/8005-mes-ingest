@@ -542,6 +542,8 @@ public sealed class WatchV2ApiClientTests
         Assert.Equal(expected.Kinds, actual.Kinds);
         Assert.Equal(expected.Severities, actual.Severities);
         Assert.Equal(expected.Items[0].Evidence, actual.Items[0].Evidence);
+        Assert.Equal(expected.HistoryCleanup, actual.HistoryCleanup);
+        Assert.Equal(expected.StoragePressure, actual.StoragePressure);
         Assert.Equal(expected.Items[0].Navigation.Target, actual.Items[0].Navigation.Target);
         Assert.Equal(
             expected.Items[0].Navigation.ErrorActivityStates,
@@ -1133,22 +1135,32 @@ public sealed class WatchV2ApiClientTests
                         "evidence-attention",
                         "digest-attention",
                         "PROJECT",
-                        "SUCCESS"),
+                        "SUCCESS",
+                        ObservationCount: 1,
+                        FailureReason: "wire-failure-reason",
+                        NextCheckAt: at.AddHours(1),
+                        DatabaseName: "MesIngest",
+                        VolumeRoot: @"D:\",
+                        AvailablePercent: 9.5m),
                     new OverviewNavigationIntent(
                         OverviewNavigationTargets.ErrorSearch,
                         ErrorActivityStates: [ErrorSearchActivityStates.Active],
                         SeriesId: "series-attention")),
             ],
+            HistoryCleanup: HistoryCleanupStateSnapshot.NotRun with
+            {
+                EarliestAvailableHostUtc = at.AddDays(-30),
+            },
             StoragePressure: new StoragePressureStateSnapshot(
-                StoragePressureStatuses.Healthy,
+                StoragePressureStatuses.Paused,
                 HistoryEpoch.FromGuid(Guid.Parse("77777777-7777-7777-7777-777777777777")),
                 "MesIngest",
                 @"D:\sql\MesIngest.mdf",
-                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 25m),
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 9.5m),
                 at,
-                PausedAt: null,
-                PauseId: null,
-                PauseReason: null,
+                PausedAt: at,
+                PauseId: "pause-wire",
+                PauseReason: "wire-pause-reason",
                 RecoveryAuditId: null));
     }
 

@@ -286,7 +286,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        var overviewRefresh = _session.RefreshOverviewAsync(_overviewQuery, cancellationToken);
+        var overviewRefresh = _session.RefreshOverviewPageAsync(_overviewQuery, cancellationToken);
         var demandSeriesRefresh = _session.RefreshLatestDemandSeriesPageAsync(
             _demandSeriesQuery,
             cancellationToken);
@@ -333,6 +333,16 @@ internal partial class WatchWorkspaceWindow : IDisposable
             if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken))
             {
                 return;
+            }
+
+            if (_demandSeriesNavigation?.OpenInspector == true
+                && OpenOrShowDemandSeriesInspector())
+            {
+                await DemandSeriesInspectorLoadTask.ConfigureAwait(true);
+                if (!IsCurrentDemandSeriesOperation(demandAreaOperation, cancellationToken))
+                {
+                    return;
+                }
             }
         }
 
@@ -494,7 +504,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private async Task RefreshOverviewAndRenderAsync(CancellationToken cancellationToken)
     {
-        var refresh = _session.RefreshOverviewAsync(_overviewQuery, cancellationToken);
+        var refresh = _session.RefreshOverviewPageAsync(_overviewQuery, cancellationToken);
         RenderWorkspace();
         await refresh.ConfigureAwait(true);
         RenderWorkspace();
@@ -1071,7 +1081,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             state.Overview.Snapshot?.Readability.NotReadableNavigation);
         SetNavigationAction(ActiveErrorsSummaryAction, state.Overview.Snapshot?.Errors.ActiveNavigation);
         SetNavigationAction(PriorErrorsSummaryAction, state.Overview.Snapshot?.Errors.Prior7DaysNavigation);
-        RenderAttentionFacetSummary(state.Overview.Snapshot?.Attention);
+        RenderAttentionFacetSummary(
+            state.Overview.Snapshot?.Attention,
+            presentation.Protection);
         RenderRecentActivity(presentation);
         RenderHostFooter(state, presentation);
         RenderDataPageAreaProfileSelectors();
@@ -1299,9 +1311,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
-    private void RenderAttentionFacetSummary(WatchOverviewAttentionSummary? attention)
+    private void RenderAttentionFacetSummary(
+        WatchOverviewAttentionSummary? attention,
+        WatchProtectionStatusPresentation protection)
     {
-        var summary = attention is null
+        var severitySummary = attention is null
             ? "等待严重度分面"
             : attention.Severities.Count == 0
                 ? "Host 未返回严重度分面"
@@ -1309,10 +1323,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     " · ",
                     attention.Severities.Select(facet =>
                         $"{facet.Count:N0} {AttentionFacetLabel(facet.Value)}"));
+        var summary = $"{protection.Status} · {severitySummary}";
         AttentionSummaryFacetText.Text = summary;
         AutomationProperties.SetName(
             AttentionSummaryFacetText,
-            $"接入告警严重度精确分面：{summary}");
+            $"存储与历史保护状态：{protection.Status}。{protection.Detail}。接入告警严重度精确分面：{severitySummary}");
+        AutomationProperties.SetName(
+            AttentionSummaryCard,
+            $"概览健康区：{protection.Status}。{protection.Detail}");
     }
 
     private void RenderRecentActivity(WatchOverviewPresentation presentation)
@@ -1435,15 +1453,21 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 state.ReadabilityAudit.LastFailureAt,
                 state.ErrorSearch.LastFailureAt,
                 state.CurrentAttention.LastFailureAt,
+                state.Protection.LastFailureAt,
             }
             .Where(value => value is not null)
             .Select(value => value!.Value)
             .DefaultIfEmpty()
             .Max();
         var hasViewFailure = latestViewFailure != default;
+        var hasProtectionIssue = overview.Protection.RequiresAttention;
         HostNavigationItem.Content = state.ConnectionStatus switch
         {
+            WatchHostConnectionStatus.Connected when hasViewFailure && hasProtectionIssue =>
+                $"Host 已连接 · {overview.Protection.Status} · 读取失败",
             WatchHostConnectionStatus.Connected when hasViewFailure => "Host 已连接 · 读取失败",
+            WatchHostConnectionStatus.Connected when hasProtectionIssue =>
+                $"Host 已连接 · {overview.Protection.Status}",
             WatchHostConnectionStatus.Connected => "Host 已连接",
             WatchHostConnectionStatus.Connecting => "Host 连接中",
             WatchHostConnectionStatus.Failed => "Host 连接失败",
@@ -1451,7 +1475,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
         };
         HostNavigationIcon.Symbol = state.ConnectionStatus switch
         {
+            WatchHostConnectionStatus.Connected when hasViewFailure && hasProtectionIssue =>
+                SymbolRegular.CloudError24,
             WatchHostConnectionStatus.Connected when hasViewFailure => SymbolRegular.CloudError24,
+            WatchHostConnectionStatus.Connected when hasProtectionIssue => SymbolRegular.CloudError24,
             WatchHostConnectionStatus.Connected => SymbolRegular.CloudCheckmark24,
             WatchHostConnectionStatus.Connecting => SymbolRegular.CloudSync24,
             WatchHostConnectionStatus.Failed => SymbolRegular.CloudDismiss24,
@@ -1461,7 +1488,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
         OverviewHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
         var hostStatusStyleKey = state.ConnectionStatus switch
         {
+            WatchHostConnectionStatus.Connected
+                when hasProtectionIssue
+                     && overview.Protection.Severity == WatchPresentationSeverity.Error =>
+                "StatusPillCritical",
             WatchHostConnectionStatus.Connected when hasViewFailure => "StatusPillCaution",
+            WatchHostConnectionStatus.Connected when hasProtectionIssue => "StatusPillCaution",
             WatchHostConnectionStatus.Connected => "StatusPillSuccess",
             WatchHostConnectionStatus.Connecting => "StatusPillAccent",
             WatchHostConnectionStatus.Failed => "StatusPillCritical",
@@ -1473,7 +1505,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SettingsHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
         var (settingsIconBackground, settingsIconForeground) = state.ConnectionStatus switch
         {
+            WatchHostConnectionStatus.Connected
+                when hasProtectionIssue
+                     && overview.Protection.Severity == WatchPresentationSeverity.Error =>
+                ("SystemFillColorCriticalBackgroundBrush", "SystemFillColorCriticalBrush"),
             WatchHostConnectionStatus.Connected when hasViewFailure =>
+                ("SystemFillColorCautionBackgroundBrush", "SystemFillColorCautionBrush"),
+            WatchHostConnectionStatus.Connected when hasProtectionIssue =>
                 ("SystemFillColorCautionBackgroundBrush", "SystemFillColorCautionBrush"),
             WatchHostConnectionStatus.Connected =>
                 ("SystemFillColorSuccessBackgroundBrush", "SystemFillColorSuccessBrush"),
@@ -1494,10 +1532,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
             $"概览 Host 状态：{OverviewHostStatusText.Text}");
         AutomationProperties.SetName(
             HostNavigationItem,
-            $"Host 状态：{HostNavigationItem.Content}；打开连接设置");
-        HostNavigationItem.ToolTip = hasViewFailure
-            ? $"{overview.HostDetail} · 最近页面读取失败 {latestViewFailure:yyyy-MM-dd HH:mm:ss}"
-            : overview.HostDetail;
+            $"Host 状态：{HostNavigationItem.Content}；{overview.Protection.Detail}；打开连接设置");
+        var viewFailureDetail = hasViewFailure
+            ? $" · 最近页面读取失败 {latestViewFailure:yyyy-MM-dd HH:mm:ss}"
+            : string.Empty;
+        HostNavigationItem.ToolTip =
+            $"{overview.HostDetail} · {overview.Protection.Status} · {overview.Protection.Detail}{viewFailureDetail}";
         SettingsHostStateText.Text = $"{HostNavigationItem.Content} · {overview.HostDetail}";
         AutomationProperties.SetName(
             SettingsHostStatusPill,
@@ -1518,6 +1558,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         CurrentIngestAttentionKinds.PollRunFailure => "轮询失败",
         CurrentIngestAttentionKinds.TaskTypeProtection => "任务类型保护",
         CurrentIngestAttentionKinds.UnassignedMesObservation => "未分配观测",
+        CurrentIngestAttentionKinds.HistoryCleanupFailure => "历史清理失败",
+        CurrentIngestAttentionKinds.StoragePressure => "存储压力",
+        CurrentIngestAttentionKinds.HistoryReset => "历史重置",
         CurrentIngestAttentionSeverities.Error => "ERROR",
         CurrentIngestAttentionSeverities.Warning => "WARNING",
         _ => value,

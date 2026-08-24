@@ -54,6 +54,12 @@ internal sealed record WatchOverviewActivityPresentation(
     WatchPresentationSeverity Severity,
     OverviewNavigationIntent Navigation);
 
+internal sealed record WatchProtectionStatusPresentation(
+    string Status,
+    string Detail,
+    WatchPresentationSeverity Severity,
+    bool RequiresAttention);
+
 internal sealed record WatchOverviewPresentation(
     string HostStatus,
     string HostDetail,
@@ -75,6 +81,7 @@ internal sealed record WatchOverviewPresentation(
     string ErrorsDetail,
     string AttentionValue,
     string AttentionDetail,
+    WatchProtectionStatusPresentation Protection,
     string LocalAreaHeading,
     string LocalAreaDetail,
     string HostAreaScope,
@@ -96,6 +103,7 @@ internal sealed record WatchOverviewPresentation(
         var snapshot = view.Snapshot;
         var host = ProjectHost(workspace, view);
         var info = ProjectInfo(workspace, view);
+        var protection = ProjectProtection(workspace, snapshot);
 
         var localAreaDetail = local.MesAreas.Count == 0
             ? $"{local.LocalState} · 未限制 Host AREA 查询"
@@ -128,6 +136,7 @@ internal sealed record WatchOverviewPresentation(
                 "等待 Host 概览",
                 "—",
                 "等待 Host 概览",
+                protection,
                 local.ProfileName,
                 localAreaDetail,
                 "Host 已提交范围：尚无快照",
@@ -173,6 +182,7 @@ internal sealed record WatchOverviewPresentation(
             $"活动错误 Series · 近 7 天 {snapshot.Errors.Prior7DaysSeriesCount:N0} 个 Series",
             snapshot.Attention.ExactTotalItemCount.ToString("N0", CultureInfo.InvariantCulture),
             ProjectAttentionDetail(snapshot.Attention),
+            protection,
             local.ProfileName,
             localAreaDetail,
             ProjectHostAreas(snapshot.MesAreas),
@@ -183,6 +193,126 @@ internal sealed record WatchOverviewPresentation(
             snapshot.Errors.Navigation,
             snapshot.Attention.Navigation);
     }
+
+    private static WatchProtectionStatusPresentation ProjectProtection(
+        WatchV2WorkspaceState workspace,
+        WatchOverviewSnapshot? overview)
+    {
+        if (workspace.ConnectionStatus != WatchHostConnectionStatus.Connected)
+        {
+            return new(
+                "保护状态不可用",
+                "连接 Host 后读取 StoragePressure 与 HistoryEpoch 保护状态。",
+                WatchPresentationSeverity.Informational,
+                RequiresAttention: false);
+        }
+
+        var overviewKinds = overview?.Attention.Types
+            .Where(facet => facet.Count > 0)
+            .Select(facet => facet.Value)
+            .ToHashSet(StringComparer.Ordinal) ?? [];
+        var overviewHasProtection = overviewKinds.Contains(
+                CurrentIngestAttentionKinds.HistoryReset)
+            || overviewKinds.Contains(CurrentIngestAttentionKinds.StoragePressure);
+        var protectionDetail = (
+            workspace.Protection.Snapshot,
+            workspace.Protection.LastSuccessfulAt);
+        var currentAttentionDetail = (
+            workspace.CurrentAttention.Snapshot,
+            workspace.CurrentAttention.LastSuccessfulAt);
+        var currentDetail = overviewHasProtection
+                && protectionDetail.Snapshot is not null
+            ? protectionDetail
+            : new[] { protectionDetail, currentAttentionDetail }
+                .Where(candidate => candidate.Snapshot is not null)
+                .OrderByDescending(candidate => candidate.LastSuccessfulAt)
+                .ThenByDescending(candidate => candidate.Snapshot!.Snapshot.SnapshotAsOf)
+                .FirstOrDefault();
+        var current = currentDetail.Snapshot;
+        var overviewEpoch = overview?.Snapshot.HistoryEpoch;
+        var currentEpoch = current?.Snapshot.HistoryEpoch;
+        var currentMatchesOverview = current is not null
+            && (overviewEpoch is null
+                || currentEpoch is null
+                || overviewEpoch == currentEpoch)
+            && (overview is null
+                || overviewHasProtection
+                || currentDetail.LastSuccessfulAt > workspace.Overview.LastSuccessfulAt);
+        if (currentMatchesOverview)
+        {
+            var historyReset = current!.Items.FirstOrDefault(item => string.Equals(
+                item.Kind,
+                CurrentIngestAttentionKinds.HistoryReset,
+                StringComparison.Ordinal));
+            if (historyReset is not null)
+            {
+                return new(
+                    "历史重置待确认",
+                    $"HistoryEpoch {ProjectEpoch(current.Snapshot.HistoryEpoch)} · 外部当前读取 503 INGEST_NOT_CURRENT · 仅可在数据库主机本地提交 HistoryResetAcknowledgement。",
+                    WatchPresentationSeverity.Error,
+                    RequiresAttention: true);
+            }
+
+            if (current.StoragePressure is { } storage)
+            {
+                var observed = $"卷 {storage.Space.VolumeRoot} 可用 {storage.Space.AvailablePercent:0.###}% · 观测 {FormatTime(storage.ObservedAt)}";
+                return storage.Status switch
+                {
+                    StoragePressureStatuses.Paused => new(
+                        "StoragePressurePause",
+                        $"{observed} · MES 轮询暂停；仅可在数据库主机本地恢复。",
+                        WatchPresentationSeverity.Error,
+                        RequiresAttention: true),
+                    StoragePressureStatuses.Warning => new(
+                        "存储空间严重告警",
+                        $"{observed} · 低于 15% 告警阈值，尚未进入暂停。",
+                        WatchPresentationSeverity.Warning,
+                        RequiresAttention: true),
+                    _ => new(
+                        "存储与历史保护正常",
+                        $"{observed} · 当前 HistoryEpoch {ProjectEpoch(storage.HistoryEpoch)}。",
+                        WatchPresentationSeverity.Success,
+                        RequiresAttention: false),
+                };
+            }
+        }
+
+        if (overview is not null)
+        {
+            if (overviewKinds.Contains(CurrentIngestAttentionKinds.HistoryReset))
+            {
+                return new(
+                    "历史重置待确认",
+                    $"HistoryEpoch {ProjectEpoch(overview.Snapshot.HistoryEpoch)} · 打开接入告警查看新纪元建立进度、503 原因与本地确认指引。",
+                    WatchPresentationSeverity.Error,
+                    RequiresAttention: true);
+            }
+
+            if (overviewKinds.Contains(CurrentIngestAttentionKinds.StoragePressure))
+            {
+                return new(
+                    "存储压力需处理",
+                    "打开接入告警查看剩余空间、是否已暂停、最后成功窗口与本地恢复指引。",
+                    WatchPresentationSeverity.Warning,
+                    RequiresAttention: true);
+            }
+
+            return new(
+                "未报告存储或历史保护项",
+                $"Host 快照 {FormatTime(overview.Snapshot.SnapshotAsOf)} 的当前关注分面中无 StoragePressure 或 HistoryReset。",
+                WatchPresentationSeverity.Success,
+                RequiresAttention: false);
+        }
+
+        return new(
+            "等待保护状态",
+            "等待 Host 概览快照。",
+            WatchPresentationSeverity.Informational,
+            RequiresAttention: false);
+    }
+
+    private static string ProjectEpoch(HistoryEpoch? historyEpoch) =>
+        historyEpoch?.ToString() ?? "—";
 
     private static (string Status, string Detail, WatchPresentationSeverity Severity) ProjectHost(
         WatchV2WorkspaceState workspace,

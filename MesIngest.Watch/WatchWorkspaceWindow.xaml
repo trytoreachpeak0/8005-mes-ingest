@@ -3456,7 +3456,7 @@
                                                               AutomationProperties.Name="接入告警选中项上下文" />
                                             </Border>
                                             <ui:TextBlock Grid.Row="2"
-                                                          Text="当前页面只呈现仍需关注的四类 Host 事实；不会创建 incident，也没有人工确认或恢复状态。"
+                                                          Text="当前页面只读呈现七类 Host 事实及本地恢复指引；不会创建 incident，也不提供确认、恢复或其它管理操作。"
                                                           Style="{StaticResource SecondaryText}"
                                                           TextWrapping="Wrap" />
                                             <StackPanel Grid.Row="3" Orientation="Horizontal">

@@ -39,7 +39,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
 
         var query = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
@@ -77,7 +77,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
 
         coordinator.ActivateOverview(new WatchOverviewQuery(["A1-1"]));
@@ -103,7 +103,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
 
         coordinator.ActivateOverview(new WatchOverviewQuery());
@@ -163,7 +163,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         var activePage = new DemandSeriesBrowseQuery(
             new DemandSeriesBrowseFilter
@@ -238,7 +238,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.SelectReadabilityDemandAsync("demand-a");
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         coordinator.ActivateReadabilityAudit(activePage);
 
@@ -346,7 +346,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         coordinator.ActivateOverview(new WatchOverviewQuery());
 
@@ -373,6 +373,121 @@ public sealed class WatchV2AutoRefreshTests
     }
 
     [Fact]
+    public async Task Switching_pages_cancels_the_old_page_refresh_and_starts_the_new_page_clock()
+    {
+        var clock = new ManualTimerTimeProvider(
+            DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+        var oldPageCanceled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new RecordingV2Client();
+        client.DemandSeriesHandler = (query, _) => Task.FromResult(
+            RecordingV2Client.DemandSeriesSnapshot(
+                query,
+                "commit-new-page",
+                "snapshot-new-page",
+                totalPages: 3));
+        client.OverviewHandler = async (query, token) =>
+        {
+            if (client.OverviewCallCount == 1)
+            {
+                return RecordingV2Client.OverviewSnapshot(query);
+            }
+
+            using var registration = token.Register(() => oldPageCanceled.TrySetResult());
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            throw new InvalidOperationException("The canceled overview read must not complete.");
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client, clock);
+        await session.ApplyAsync(ValidHostSettings());
+        await session.RefreshOverviewAsync(new WatchOverviewQuery());
+        var retainedOverview = Assert.IsType<WatchOverviewSnapshot>(
+            session.State.Overview.Snapshot);
+        var retainedAt = Assert.IsType<DateTimeOffset>(
+            session.State.Overview.LastSuccessfulAt);
+        var settings = WatchV2AutoRefreshSettings.Default
+            .With(WatchV2DataView.Overview, new WatchV2AutoRefreshSetting(10))
+            .With(WatchV2DataView.DemandSeries, new WatchV2AutoRefreshSetting(30));
+        using var coordinator = new WatchV2AutoRefreshCoordinator(session, settings, clock);
+        coordinator.ActivateOverview(new WatchOverviewQuery());
+
+        clock.Advance(TimeSpan.FromSeconds(10));
+        var oldRefresh = coordinator.WaitForIdleAsync();
+        Assert.Equal(2, client.OverviewCallCount);
+
+        coordinator.ActivateDemandSeries(
+            new DemandSeriesBrowseQuery(
+                new DemandSeriesBrowseFilter(),
+                PageNumber: 3,
+                SnapshotReference: "snapshot-old-page"));
+
+        await oldPageCanceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await oldRefresh;
+        Assert.Same(retainedOverview, session.State.Overview.Snapshot);
+        Assert.Equal(retainedAt, session.State.Overview.LastSuccessfulAt);
+        Assert.Null(session.State.Overview.LastFailureAt);
+
+        clock.Advance(TimeSpan.FromSeconds(29));
+        Assert.Equal(0, client.DemandSeriesCallCount);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await coordinator.WaitForIdleAsync();
+
+        Assert.Equal(2, client.DemandSeriesQueries.Count);
+        var refreshedPage = client.DemandSeriesQueries[^1];
+        Assert.Equal(3, refreshedPage.PageNumber);
+    }
+
+    [Fact]
+    public async Task Overview_protection_read_uses_a_separate_workspace_slot_from_the_hidden_attention_page()
+    {
+        var client = new RecordingV2Client();
+        client.OverviewHandler = (query, _) =>
+        {
+            var snapshot = RecordingV2Client.OverviewSnapshot(query);
+            var attentionIntent = snapshot.Attention.Navigation;
+            return Task.FromResult(snapshot with
+            {
+                Attention = snapshot.Attention with
+                {
+                    ExactTotalItemCount = 1,
+                    Types =
+                    [
+                        new OverviewFacetSnapshot(
+                            CurrentIngestAttentionKinds.StoragePressure,
+                            1,
+                            attentionIntent with
+                            {
+                                AttentionKinds = [CurrentIngestAttentionKinds.StoragePressure],
+                            }),
+                    ],
+                },
+            });
+        };
+        using var session = new WatchV2WorkspaceSession(_ => client);
+        await session.ApplyAsync(ValidHostSettings());
+        var userQuery = new CurrentIngestAttentionQuery(
+            PageSize: 13,
+            Kinds: [CurrentIngestAttentionKinds.SeriesError],
+            Severities: [CurrentIngestAttentionSeverities.Error]);
+        await session.RefreshCurrentAttentionAsync(userQuery);
+        var retainedUserPage = Assert.IsType<CurrentIngestAttentionSnapshot>(
+            session.State.CurrentAttention.Snapshot);
+
+        await session.RefreshOverviewPageAsync(new WatchOverviewQuery());
+
+        Assert.Same(retainedUserPage, session.State.CurrentAttention.Snapshot);
+        var protection = Assert.IsType<CurrentIngestAttentionSnapshot>(
+            session.State.Protection.Snapshot);
+        Assert.Equal(2, protection.PageSize);
+        Assert.Equal(
+            [
+                CurrentIngestAttentionKinds.HistoryReset,
+                CurrentIngestAttentionKinds.StoragePressure,
+            ],
+            protection.Kinds);
+        Assert.Equal(2, client.CurrentAttentionCallCount);
+    }
+
+    [Fact]
     public async Task Refresh_notifications_observe_started_after_the_session_enters_refreshing_and_completed_after_success_commits()
     {
         var clock = new ManualTimerTimeProvider(
@@ -387,7 +502,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         var observations = new List<RefreshObservation>();
         coordinator.RefreshStateChanged += (_, change) => observations.Add(new(
@@ -440,7 +555,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         var observations = new List<RefreshObservation>();
         coordinator.RefreshStateChanged += (_, change) => observations.Add(new(
@@ -488,7 +603,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         using var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         var phases = new List<WatchV2AutoRefreshPhase>();
         coordinator.RefreshStateChanged += (_, _) =>
@@ -526,7 +641,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         var phases = new List<WatchV2AutoRefreshPhase>();
         coordinator.RefreshStateChanged += (_, change) => phases.Add(change.Phase);
@@ -580,7 +695,7 @@ public sealed class WatchV2AutoRefreshTests
         await session.ApplyAsync(ValidHostSettings());
         var coordinator = new WatchV2AutoRefreshCoordinator(
             session,
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         coordinator.ActivateOverview(new WatchOverviewQuery());
 
@@ -607,10 +722,11 @@ public sealed class WatchV2AutoRefreshTests
                 WatchV2DataView.CurrentIngestAttention,
             },
             views);
-        foreach (var view in views)
-        {
-            Assert.Equal(10, WatchV2AutoRefreshSettings.Default.For(view).IntervalSeconds);
-        }
+        Assert.Equal(30, WatchV2AutoRefreshSettings.Default.Overview.IntervalSeconds);
+        Assert.Equal(60, WatchV2AutoRefreshSettings.Default.DemandSeries.IntervalSeconds);
+        Assert.Equal(60, WatchV2AutoRefreshSettings.Default.ReadabilityAudit.IntervalSeconds);
+        Assert.Equal(60, WatchV2AutoRefreshSettings.Default.ErrorSearch.IntervalSeconds);
+        Assert.Equal(30, WatchV2AutoRefreshSettings.Default.CurrentIngestAttention.IntervalSeconds);
 
         Assert.Null(typeof(WatchV2AutoRefreshSetting).GetProperty("Enabled"));
     }
@@ -670,7 +786,7 @@ public sealed class WatchV2AutoRefreshTests
         var start = DateTimeOffset.Parse("2026-08-14T08:00:00Z");
         var clock = new AdjustableTimeProvider(start);
         var schedule = new WatchV2AutoRefreshSchedule(
-            WatchV2AutoRefreshSettings.Default,
+            TenSecondSettings,
             clock);
         schedule.Activate(WatchV2DataView.Overview);
 
@@ -693,6 +809,13 @@ public sealed class WatchV2AutoRefreshTests
         "http://localhost:5000",
         "test-token",
         5);
+
+    private static WatchV2AutoRefreshSettings TenSecondSettings { get; } = new(
+        new(10),
+        new(10),
+        new(10),
+        new(10),
+        new(10));
 
     private static async Task AdvanceOneIntervalAsync(
         ManualTimerTimeProvider clock,

@@ -313,7 +313,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
                 var openInspector = Find<Button>(window, "DemandSeriesOpenInspectorButton");
                 Assert.True(openInspector.IsEnabled);
-                Assert.Equal("打开详情窗口", openInspector.Content);
+                Assert.Equal("显示详情窗口", openInspector.Content);
                 openInspector.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 await Dispatcher.Yield(DispatcherPriority.Background);
 

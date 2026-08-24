@@ -1154,7 +1154,7 @@ internal partial class WatchWorkspaceWindow
             CurrentAttentionSelectedContextText.Text);
         CurrentAttentionEvidenceGrid.ItemsSource = selected is null
             ? []
-            : ProjectEvidenceFacts(selected.Evidence);
+            : ProjectEvidenceFacts(selected);
         CurrentAttentionOpenErrorSearchButton.IsEnabled = selected?.ErrorSearchDrill is not null;
         CurrentAttentionOpenDemandSeriesButton.IsEnabled =
             WatchDemandSeriesNavigationContext.FromCurrentAttention(
@@ -1163,8 +1163,9 @@ internal partial class WatchWorkspaceWindow
     }
 
     private static IReadOnlyList<WatchEvidenceFactPresentation> ProjectEvidenceFacts(
-        WatchCurrentIngestAttentionEvidencePresentation evidence)
+        WatchCurrentIngestAttentionRowPresentation selected)
     {
+        var evidence = selected.Evidence;
         var rows = new List<WatchEvidenceFactPresentation>();
         Add("ProjectionCommitId", evidence.ProjectionCommitId);
         Add("ProjectionSequence", evidence.ProjectionSequence);
@@ -1178,6 +1179,13 @@ internal partial class WatchWorkspaceWindow
         Add("ContentDigest", evidence.ContentDigest);
         Add("Phase", evidence.Phase);
         Add("Outcome", evidence.Outcome);
+        Add("ProtectionStatus", selected.Protection?.Status);
+        Add("Reason", selected.Protection?.Reason);
+        Add("LastSuccessfulWindow", selected.Protection?.LastSuccessfulWindow);
+        Add("EarliestAvailableHostUtc", selected.Protection?.EarliestAvailable);
+        Add("HistoryEpochProgress", selected.Protection?.RebuildProgress);
+        Add("CurrentReadRestriction", selected.Protection?.CurrentReadRestriction);
+        Add("LocalAdministration", selected.Protection?.LocalAdministrationGuidance);
         return rows;
 
         void Add(string name, object? value)

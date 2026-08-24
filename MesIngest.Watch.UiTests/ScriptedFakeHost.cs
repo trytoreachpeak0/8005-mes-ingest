@@ -481,7 +481,7 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
         FakeHostOperation.CurrentAttentionV2,
         _v2Scenario!.CurrentAttention,
         () => ParseCurrentAttentionQuery(context.Request.Query),
-        static snapshot => snapshot,
+        ToCurrentAttentionWire,
         CurrentIngestAttentionErrorCodes.InvalidQuery);
 
     private async Task ExecuteV2Async<TRequest, TResponse>(
@@ -785,6 +785,39 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
         detail.Order,
         Series = ToErrorSearchItemWire(detail.Series),
         detail.Periods,
+    };
+
+    private static object ToCurrentAttentionWire(CurrentIngestAttentionSnapshot snapshot) => new
+    {
+        snapshot.Snapshot,
+        snapshot.ExactTotalItemCount,
+        snapshot.Facets,
+        snapshot.Order,
+        snapshot.PageSize,
+        snapshot.PageNumber,
+        snapshot.TotalPages,
+        snapshot.Kinds,
+        snapshot.Severities,
+        snapshot.Items,
+        HistoryCleanup = snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun,
+        StoragePressure = snapshot.StoragePressure is { } storage
+            ? new
+            {
+                storage.Status,
+                HistoryEpoch = storage.HistoryEpoch.ToString(),
+                storage.DatabaseName,
+                storage.DatabaseFilePath,
+                storage.Space.VolumeRoot,
+                storage.Space.TotalBytes,
+                storage.Space.AvailableBytes,
+                storage.Space.AvailablePercent,
+                storage.ObservedAt,
+                storage.PausedAt,
+                storage.PauseId,
+                storage.PauseReason,
+            }
+            : throw new InvalidOperationException(
+                "The exact Current Attention fake surface requires storage pressure diagnostics."),
     };
 
     private static object ToReadabilityAuditItemWire(ReadabilityAuditListItemSnapshot item) => new

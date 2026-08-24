@@ -1,3 +1,4 @@
+using System.IO;
 using MesIngest.Core.SeriesProjection;
 using System.Text.Json;
 
@@ -941,7 +942,12 @@ internal sealed record WatchV2CurrentAttentionEvidenceWire(
     string? ContentDigest,
     string? Phase,
     string? Outcome,
-    int? ObservationCount)
+    int? ObservationCount,
+    string? FailureReason,
+    DateTimeOffset? NextCheckAt,
+    string? DatabaseName,
+    string? VolumeRoot,
+    decimal? AvailablePercent)
 {
     public CurrentIngestAttentionEvidenceSnapshot ToCore() => new(
         ProjectionCommitId,
@@ -956,7 +962,88 @@ internal sealed record WatchV2CurrentAttentionEvidenceWire(
         ContentDigest,
         Phase,
         Outcome,
-        ObservationCount);
+        ObservationCount,
+        FailureReason,
+        NextCheckAt,
+        DatabaseName,
+        VolumeRoot,
+        AvailablePercent);
+}
+
+internal sealed record WatchV2HistoryCleanupStateWire(
+    string Status,
+    string? RunId,
+    DateTimeOffset? LastStartedAt,
+    DateTimeOffset? LastCompletedAt,
+    DateTimeOffset? LastSuccessfulAt,
+    DateTimeOffset? NextCheckAt,
+    int LastExpiredPollTraceCount,
+    int LastDeletedRawObservationCount,
+    int LastDeletedSeriesCount,
+    long TotalExpiredPollTraceCount,
+    long TotalDeletedRawObservationCount,
+    long TotalDeletedSeriesCount,
+    DateTimeOffset? EarliestAvailableHostUtc,
+    string? LastFailureCode,
+    string? LastFailureReason,
+    DateTimeOffset? LastFailureAt,
+    string? LastFailureRunId)
+{
+    public HistoryCleanupStateSnapshot ToCore() => new(
+        Status,
+        RunId,
+        LastStartedAt,
+        LastCompletedAt,
+        LastSuccessfulAt,
+        NextCheckAt,
+        LastExpiredPollTraceCount,
+        LastDeletedRawObservationCount,
+        LastDeletedSeriesCount,
+        TotalExpiredPollTraceCount,
+        TotalDeletedRawObservationCount,
+        TotalDeletedSeriesCount,
+        EarliestAvailableHostUtc,
+        LastFailureCode,
+        LastFailureReason,
+        LastFailureAt,
+        LastFailureRunId);
+}
+
+internal sealed record WatchV2StoragePressureStateWire(
+    string Status,
+    string HistoryEpoch,
+    string DatabaseName,
+    string DatabaseFilePath,
+    string VolumeRoot,
+    long TotalBytes,
+    long AvailableBytes,
+    decimal AvailablePercent,
+    DateTimeOffset ObservedAt,
+    DateTimeOffset? PausedAt,
+    string? PauseId,
+    string? PauseReason)
+{
+    public StoragePressureStateSnapshot ToCore()
+    {
+        var space = new VolumeSpaceSample(VolumeRoot, TotalBytes, AvailableBytes).Validate();
+        if (space.AvailablePercent != AvailablePercent)
+        {
+            throw new InvalidDataException(
+                "Storage pressure availablePercent does not match the exact byte counts.");
+        }
+
+        return new StoragePressureStateSnapshot(
+            Status,
+            MesIngest.Core.SeriesProjection.HistoryEpoch.FromGuid(Guid.Parse(HistoryEpoch)),
+            DatabaseName,
+            DatabaseFilePath,
+            space,
+            ObservedAt,
+            PausedAt,
+            PauseId,
+            PauseReason,
+            RecoveryAuditId: null);
+    }
 }
 
 internal sealed record WatchV2CurrentAttentionItemWire(
@@ -996,7 +1083,9 @@ internal sealed record WatchV2CurrentAttentionWire(
     int TotalPages,
     IReadOnlyList<string> Kinds,
     IReadOnlyList<string> Severities,
-    IReadOnlyList<WatchV2CurrentAttentionItemWire> Items)
+    IReadOnlyList<WatchV2CurrentAttentionItemWire> Items,
+    WatchV2HistoryCleanupStateWire HistoryCleanup,
+    WatchV2StoragePressureStateWire StoragePressure)
 {
     public CurrentIngestAttentionSnapshot ToCore() => new(
         Snapshot.ToCore(),
@@ -1008,5 +1097,7 @@ internal sealed record WatchV2CurrentAttentionWire(
         TotalPages,
         Kinds,
         Severities,
-        Items.Select(item => item.ToCore()).ToArray());
+        Items.Select(item => item.ToCore()).ToArray(),
+        HistoryCleanup.ToCore(),
+        StoragePressure.ToCore());
 }

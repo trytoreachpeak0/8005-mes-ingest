@@ -346,6 +346,75 @@ public sealed class ScriptedFakeHostV2SurfaceTests
     }
 
     [Fact]
+    public async Task Scripted_host_drives_all_storage_and_history_protection_states_then_retains_recovery_when_offline()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var normal = CreateProtectionSurface(StoragePressureStatuses.Healthy, 20m);
+        var warning = CreateProtectionSurface(StoragePressureStatuses.Warning, 14.5m);
+        var paused = CreateProtectionSurface(StoragePressureStatuses.Paused, 9.5m);
+        var reset = CreateProtectionSurface(
+            StoragePressureStatuses.Healthy,
+            20m,
+            historyResetRequired: true);
+        var recovered = CreateProtectionSurface(StoragePressureStatuses.Healthy, 22m);
+        await using var host = await ScriptedFakeHost.StartV2Async(
+            new FakeHostV2Scenario("ticket-21-protection", "ticket-21-secret")
+            {
+                CurrentAttention = FakeHostReply.Sequence<
+                    CurrentIngestAttentionQuery,
+                    CurrentIngestAttentionSnapshot>(
+                    FakeHostReply.Return(normal),
+                    FakeHostReply.Return(warning),
+                    FakeHostReply.Return(paused),
+                    FakeHostReply.Return(reset),
+                    FakeHostReply.Return(recovered),
+                    FakeHostReply.Fail<CurrentIngestAttentionSnapshot>(
+                        WatchHostFailureKind.Network,
+                        "/api/v2/current-ingest-attention",
+                        "scripted Host offline")),
+            },
+            cancellationToken);
+        using var session = new WatchV2WorkspaceSession();
+        await session.ApplyAsync(
+            new WatchHostSettings(host.BaseUrl, "ticket-21-secret", 30),
+            cancellationToken);
+        var expectedStatuses = new[]
+        {
+            "存储与历史保护正常",
+            "存储空间严重告警",
+            "StoragePressurePause",
+            "历史重置待确认",
+            "存储与历史保护正常",
+        };
+
+        foreach (var expectedStatus in expectedStatuses)
+        {
+            await session.RefreshCurrentAttentionAsync(
+                new CurrentIngestAttentionQuery(),
+                cancellationToken);
+            var presentation = WatchOverviewPresentation.Project(
+                session.State,
+                WatchAreaDisplayContext.AllAreas);
+            Assert.Equal(expectedStatus, presentation.Protection.Status);
+        }
+
+        var recoveredSnapshot = Assert.IsType<CurrentIngestAttentionSnapshot>(
+            session.State.CurrentAttention.Snapshot);
+        Assert.Equal(22m, recoveredSnapshot.StoragePressure?.Space.AvailablePercent);
+
+        await session.RefreshCurrentAttentionAsync(
+            new CurrentIngestAttentionQuery(),
+            cancellationToken);
+
+        Assert.Same(recoveredSnapshot, session.State.CurrentAttention.Snapshot);
+        Assert.NotNull(session.State.CurrentAttention.LastFailureAt);
+        Assert.Contains(
+            "scripted Host offline",
+            session.State.CurrentAttention.ErrorMessage,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Applying_host_b_cancels_slow_host_a_http_work_and_rejects_its_late_overview()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -701,6 +770,8 @@ public sealed class ScriptedFakeHostV2SurfaceTests
     private static CurrentIngestAttentionSnapshot CreateCurrentAttentionSurface()
     {
         var at = DateTimeOffset.Parse("2026-08-14T06:07:08Z");
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
         return new CurrentIngestAttentionSnapshot(
             new OperationalSnapshotIdentity(
                 "attention-commit-18",
@@ -709,7 +780,8 @@ public sealed class ScriptedFakeHostV2SurfaceTests
                 "attention-poll-18",
                 29,
                 7,
-                at),
+                at,
+                HistoryEpoch: epoch),
             0,
             new CurrentIngestAttentionFacets([], []),
             CurrentIngestAttentionOrder.Default,
@@ -718,6 +790,112 @@ public sealed class ScriptedFakeHostV2SurfaceTests
             0,
             [CurrentIngestAttentionKinds.SeriesError],
             [CurrentIngestAttentionSeverities.Error],
-            []);
+            [],
+            HistoryCleanupStateSnapshot.NotRun,
+            new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Healthy,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 25m),
+                at,
+                PausedAt: null,
+                PauseId: null,
+                PauseReason: null,
+                RecoveryAuditId: null));
+    }
+
+    internal static CurrentIngestAttentionSnapshot CreateProtectionSurface(
+        string storageStatus,
+        decimal availablePercent,
+        bool historyResetRequired = false)
+    {
+        var at = DateTimeOffset.Parse("2026-08-24T06:07:08Z");
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("99999999-9999-9999-9999-999999999999"));
+        var historyResetItem = new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.HistoryReset,
+            CurrentIngestAttentionSeverities.Error,
+            at,
+            $"HISTORY_RESET:{epoch}",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: HistoryResetStatuses.AcknowledgementRequired,
+            Target: "MesIngest",
+            SubjectKind: "HISTORY_EPOCH",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                Phase: HistoryResetStatuses.AcknowledgementRequired,
+                FailureReason: "prior history and tombstones are unrecoverable",
+                DatabaseName: "MesIngest"),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.HistoryReset]));
+        var storageItem = new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.StoragePressure,
+            storageStatus == StoragePressureStatuses.Warning
+                ? CurrentIngestAttentionSeverities.Warning
+                : CurrentIngestAttentionSeverities.Error,
+            at,
+            "STORAGE_PRESSURE",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: storageStatus,
+            Target: "MesIngest",
+            SubjectKind: "DATABASE_VOLUME",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                EvidenceId: storageStatus == StoragePressureStatuses.Paused ? "pause-21" : null,
+                Phase: storageStatus,
+                FailureReason: storageStatus == StoragePressureStatuses.Paused
+                    ? "database volume below pause threshold"
+                    : null,
+                DatabaseName: "MesIngest",
+                VolumeRoot: @"D:\",
+                AvailablePercent: availablePercent),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure]));
+        IReadOnlyList<CurrentIngestAttentionItemSnapshot> items = historyResetRequired
+            ? [historyResetItem]
+            : storageStatus == StoragePressureStatuses.Healthy
+                ? []
+                : [storageItem];
+        return new CurrentIngestAttentionSnapshot(
+            new OperationalSnapshotIdentity(
+                "attention-commit-21",
+                23,
+                at,
+                "attention-poll-21",
+                30,
+                8,
+                at,
+                HistoryEpoch: epoch),
+            items.Count,
+            new CurrentIngestAttentionFacets(
+                items.Select(item => new CurrentIngestAttentionFacetSnapshot(item.Kind, 1)).ToArray(),
+                items.Select(item => new CurrentIngestAttentionFacetSnapshot(item.Severity, 1)).ToArray()),
+            CurrentIngestAttentionOrder.Default,
+            100,
+            1,
+            items.Count == 0 ? 0 : 1,
+            [],
+            [],
+            items,
+            HistoryCleanupStateSnapshot.NotRun with
+            {
+                EarliestAvailableHostUtc = at.AddDays(-30),
+            },
+            new StoragePressureStateSnapshot(
+                storageStatus,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, availablePercent),
+                at,
+                storageStatus == StoragePressureStatuses.Paused ? at : null,
+                storageStatus == StoragePressureStatuses.Paused ? "pause-21" : null,
+                storageStatus == StoragePressureStatuses.Paused
+                    ? "database volume below pause threshold"
+                    : null,
+                RecoveryAuditId: null));
     }
 }

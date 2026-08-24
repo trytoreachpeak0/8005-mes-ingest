@@ -68,11 +68,75 @@ public sealed class WatchV2ProductionShellTests
             Assert.Null(window.FindName("CancelRefreshButton"));
             Assert.Null(window.FindName("AutoRefreshEnabled"));
             Assert.Null(window.FindName("WatchStatusBar"));
+            Assert.Null(window.FindName("ResumeStoragePressureButton"));
+            Assert.Null(window.FindName("AcknowledgeHistoryResetButton"));
+            Assert.Null(window.FindName("DeleteDatabaseButton"));
             Assert.True(titleBar.ShowMinimize);
             Assert.True(titleBar.ShowMaximize);
             Assert.True(titleBar.ShowClose);
 
             window.Close();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        });
+
+    [Fact]
+    public void Protection_state_updates_existing_overview_footer_and_read_only_evidence_surfaces() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-protection-{Guid.NewGuid():N}");
+            var client = new ChangingOverviewClient(includeProtectionState: true);
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://host-a",
+                    SharedSecret = "external-only",
+                },
+                _ => client,
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"));
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            window.InitializeAsync().GetAwaiter().GetResult();
+
+            var hostFooter = Assert.IsType<NavigationViewItem>(
+                window.FindName("HostNavigationItem"));
+            Assert.Contains("StoragePressurePause", hostFooter.Content?.ToString(), StringComparison.Ordinal);
+            Assert.Contains("MES 轮询暂停", AutomationProperties.GetName(hostFooter), StringComparison.Ordinal);
+
+            window.NavigateFromOverview(new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention,
+                AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure]));
+            window.CurrentAttentionNavigationTask.GetAwaiter().GetResult();
+
+            Assert.Contains("StoragePressurePause", hostFooter.Content?.ToString(), StringComparison.Ordinal);
+            var protectionSummary = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("AttentionSummaryFacetText"));
+            Assert.Contains("StoragePressurePause", protectionSummary.Text, StringComparison.Ordinal);
+            Assert.Contains(
+                "MES 轮询暂停",
+                AutomationProperties.GetName(protectionSummary),
+                StringComparison.Ordinal);
+            var evidence = Assert.IsType<DataGrid>(
+                    window.FindName("CurrentAttentionEvidenceGrid"))
+                .ItemsSource
+                .Cast<object>()
+                .Select(item => (
+                    Name: Assert.IsType<string>(item.GetType().GetProperty("Name")!.GetValue(item)),
+                    Value: Assert.IsType<string>(item.GetType().GetProperty("Value")!.GetValue(item))))
+                .ToArray();
+            Assert.Contains(evidence, row => row.Name == "Reason" && row.Value.Contains(
+                "below pause threshold",
+                StringComparison.Ordinal));
+            Assert.Contains(evidence, row => row.Name == "EarliestAvailableHostUtc");
+            Assert.Contains(evidence, row => row.Name == "LocalAdministration" && row.Value.Contains(
+                "resume-storage-pressure",
+                StringComparison.Ordinal));
+            Assert.Null(window.FindName("ResumeStoragePressureButton"));
+            Assert.Null(window.FindName("AcknowledgeHistoryResetButton"));
+
+            window.Dispose();
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -331,7 +395,7 @@ public sealed class WatchV2ProductionShellTests
                 "1",
                 Assert.IsAssignableFrom<TextBlock>(window.FindName("SeriesSummaryValue")).Text);
 
-            clock.Advance(TimeSpan.FromSeconds(10));
+            clock.Advance(TimeSpan.FromSeconds(30));
 
             Assert.Equal(2, client.OverviewCallCount);
             Assert.Equal(
@@ -346,7 +410,8 @@ public sealed class WatchV2ProductionShellTests
             }
         });
 
-    private sealed class ChangingOverviewClient : IWatchV2ApiClient
+    private sealed class ChangingOverviewClient(bool includeProtectionState = false)
+        : IWatchV2ApiClient
     {
         public int OverviewCallCount { get; private set; }
 
@@ -366,7 +431,10 @@ public sealed class WatchV2ProductionShellTests
                 $"poll-{count}",
                 count,
                 count,
-                at);
+                at,
+                HistoryEpoch: includeProtectionState
+                    ? HistoryEpoch.FromGuid(Guid.Parse("99999999-9999-9999-9999-999999999999"))
+                    : null);
             var series = new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries);
             var audit = new OverviewNavigationIntent(OverviewNavigationTargets.ReadabilityAudit);
             var errors = new OverviewNavigationIntent(OverviewNavigationTargets.ErrorSearch);
@@ -387,7 +455,24 @@ public sealed class WatchV2ProductionShellTests
                     series),
                 new WatchOverviewReadabilitySummary(count, count, 0, audit, audit, audit),
                 new WatchOverviewErrorSummary(0, 0, errors, errors, errors),
-                new WatchOverviewAttentionSummary(0, [], [], attention),
+                new WatchOverviewAttentionSummary(
+                    includeProtectionState ? 1 : 0,
+                    includeProtectionState
+                        ? [new OverviewFacetSnapshot(
+                            CurrentIngestAttentionKinds.StoragePressure,
+                            1,
+                            attention with
+                            {
+                                AttentionKinds = [CurrentIngestAttentionKinds.StoragePressure],
+                            })]
+                        : [],
+                    includeProtectionState
+                        ? [new OverviewFacetSnapshot(
+                            CurrentIngestAttentionSeverities.Error,
+                            1,
+                            attention)]
+                        : [],
+                    attention),
                 [],
                 WatchOverviewRecentActivityStates.NoRecentHighlights,
                 WatchOverviewRecentActivityStates.NoRecentHighlightsMessage));
@@ -436,8 +521,73 @@ public sealed class WatchV2ProductionShellTests
 
         public Task<CurrentIngestAttentionSnapshot> FetchCurrentAttentionAsync(
             CurrentIngestAttentionQuery query,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            if (!includeProtectionState)
+            {
+                throw new NotSupportedException();
+            }
+
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:30Z");
+            var epoch = HistoryEpoch.FromGuid(
+                Guid.Parse("99999999-9999-9999-9999-999999999999"));
+            var item = new CurrentIngestAttentionItemSnapshot(
+                CurrentIngestAttentionKinds.StoragePressure,
+                CurrentIngestAttentionSeverities.Error,
+                at,
+                "STORAGE_PRESSURE",
+                SeriesId: null,
+                WorkType: null,
+                ErrorCode: StoragePressureStatuses.Paused,
+                Target: "MesIngest",
+                SubjectKind: "DATABASE_VOLUME",
+                new CurrentIngestAttentionEvidenceSnapshot(
+                    EvidenceId: "pause-21",
+                    Phase: StoragePressureStatuses.Paused,
+                    FailureReason: "database volume below pause threshold",
+                    DatabaseName: "MesIngest",
+                    VolumeRoot: @"D:\",
+                    AvailablePercent: 9.5m),
+                new OverviewNavigationIntent(
+                    OverviewNavigationTargets.CurrentIngestAttention,
+                    AttentionKinds: [CurrentIngestAttentionKinds.StoragePressure]));
+            return Task.FromResult(new CurrentIngestAttentionSnapshot(
+                new OperationalSnapshotIdentity(
+                    "commit-protection-21",
+                    21,
+                    at,
+                    "poll-protection-21",
+                    21,
+                    21,
+                    at,
+                    HistoryEpoch: epoch),
+                1,
+                new CurrentIngestAttentionFacets(
+                    [new(CurrentIngestAttentionKinds.StoragePressure, 1)],
+                    [new(CurrentIngestAttentionSeverities.Error, 1)]),
+                query.Order,
+                query.PageSize,
+                query.PageNumber,
+                1,
+                query.Kinds ?? [],
+                query.Severities ?? [],
+                [item],
+                HistoryCleanupStateSnapshot.NotRun with
+                {
+                    EarliestAvailableHostUtc = at.AddDays(-30),
+                },
+                new StoragePressureStateSnapshot(
+                    StoragePressureStatuses.Paused,
+                    epoch,
+                    "MesIngest",
+                    @"D:\SqlData\MesIngest.mdf",
+                    VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 9.5m),
+                    at,
+                    at,
+                    "pause-21",
+                    "database volume below pause threshold",
+                    RecoveryAuditId: null)));
+        }
 
         public void Dispose()
         {

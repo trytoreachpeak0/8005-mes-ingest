@@ -114,7 +114,13 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                 Assert.Equal(1, committed.TotalPages);
                 Assert.Equal(CurrentIngestAttentionQuery.DefaultPageSize, committed.PageSize);
                 Assert.Equal(
-                    CurrentIngestAttentionKinds.All.Order(StringComparer.Ordinal),
+                    new[]
+                    {
+                        CurrentIngestAttentionKinds.SeriesError,
+                        CurrentIngestAttentionKinds.PollRunFailure,
+                        CurrentIngestAttentionKinds.TaskTypeProtection,
+                        CurrentIngestAttentionKinds.UnassignedMesObservation,
+                    }.Order(StringComparer.Ordinal),
                     committed.Items.Select(item => item.Kind).Order(StringComparer.Ordinal));
                 Assert.Equal(4, Find<DataGrid>(window, "CurrentAttentionKindFacetGrid").Items.Count);
                 Assert.Equal(2, Find<DataGrid>(window, "CurrentAttentionSeverityFacetGrid").Items.Count);
@@ -124,7 +130,13 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                     .Cast<WatchCurrentIngestAttentionRowPresentation>()
                     .ToArray();
                 Assert.Equal(
-                    CurrentIngestAttentionKinds.All.Order(StringComparer.Ordinal),
+                    new[]
+                    {
+                        CurrentIngestAttentionKinds.SeriesError,
+                        CurrentIngestAttentionKinds.PollRunFailure,
+                        CurrentIngestAttentionKinds.TaskTypeProtection,
+                        CurrentIngestAttentionKinds.UnassignedMesObservation,
+                    }.Order(StringComparer.Ordinal),
                     renderedRows.Select(row => row.Kind).Order(StringComparer.Ordinal));
                 Assert.All(renderedRows, row =>
                 {
@@ -426,6 +438,8 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
         CurrentIngestAttentionQuery query)
     {
         var normalized = query.NormalizeAndValidate();
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"));
         return new CurrentIngestAttentionSnapshot(
             new OperationalSnapshotIdentity(
                 "attention-commit-22",
@@ -434,7 +448,8 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                 "attention-poll-22",
                 229,
                 22,
-                At),
+                At,
+                HistoryEpoch: epoch),
             ExactTotalItemCount: 8,
             new CurrentIngestAttentionFacets(
                 [
@@ -465,7 +480,22 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
             TotalPages: 1,
             normalized.Kinds ?? [],
             normalized.Severities ?? [],
-            CreateAttentionItems());
+            CreateAttentionItems(),
+            HistoryCleanupStateSnapshot.NotRun with
+            {
+                EarliestAvailableHostUtc = At.AddDays(-30),
+            },
+            new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Healthy,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 25m),
+                At,
+                PausedAt: null,
+                PauseId: null,
+                PauseReason: null,
+                RecoveryAuditId: null));
     }
 
     private static FakeHostV2Scenario CreateQueryResetScenario(

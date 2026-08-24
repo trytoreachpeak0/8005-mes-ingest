@@ -283,6 +283,246 @@ public sealed class WatchOverviewPresentationTests
         Assert.Equal(["A1-1"], presentation.SeriesNavigation.MesAreas);
     }
 
+    [Fact]
+    public void Overview_health_surfaces_history_reset_with_epoch_and_current_read_restriction()
+    {
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var snapshot = OverviewSnapshot() with
+        {
+            Snapshot = OverviewSnapshot().Snapshot with { HistoryEpoch = epoch },
+            Attention = OverviewSnapshot().Attention with
+            {
+                Types =
+                [
+                    new OverviewFacetSnapshot(
+                        CurrentIngestAttentionKinds.HistoryReset,
+                        1,
+                        new OverviewNavigationIntent(
+                            OverviewNavigationTargets.CurrentIngestAttention,
+                            AttentionKinds: [CurrentIngestAttentionKinds.HistoryReset])),
+                ],
+            },
+        };
+
+        var presentation = WatchOverviewPresentation.Project(
+            ConnectedWorkspace(SuccessfulView(snapshot)),
+            WatchAreaDisplayContext.AllAreas);
+
+        Assert.Equal("历史重置待确认", presentation.Protection.Status);
+        Assert.Equal(WatchPresentationSeverity.Error, presentation.Protection.Severity);
+        Assert.True(presentation.Protection.RequiresAttention);
+        Assert.Contains(epoch.ToString(), presentation.Protection.Detail, StringComparison.Ordinal);
+        Assert.Contains("接入告警", presentation.Protection.Detail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Newer_overview_without_protection_facets_clears_an_older_reset_detail()
+    {
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var overview = OverviewSnapshot() with
+        {
+            Snapshot = OverviewSnapshot().Snapshot with { HistoryEpoch = epoch },
+        };
+        var resetItem = new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.HistoryReset,
+            CurrentIngestAttentionSeverities.Error,
+            overview.Snapshot.SnapshotAsOf,
+            $"HISTORY_RESET:{epoch}",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: HistoryResetStatuses.AcknowledgementRequired,
+            Target: "MesIngest",
+            SubjectKind: "HISTORY_EPOCH",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                Phase: HistoryResetStatuses.AcknowledgementRequired,
+                DatabaseName: "MesIngest"),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention));
+        var resetSnapshot = new CurrentIngestAttentionSnapshot(
+            overview.Snapshot,
+            1,
+            new CurrentIngestAttentionFacets(
+                [new(CurrentIngestAttentionKinds.HistoryReset, 1)],
+                [new(CurrentIngestAttentionSeverities.Error, 1)]),
+            CurrentIngestAttentionOrder.Default,
+            2,
+            1,
+            1,
+            [CurrentIngestAttentionKinds.HistoryReset],
+            [],
+            [resetItem]);
+        var workspace = ConnectedWorkspace(SuccessfulView(
+            overview,
+            DateTimeOffset.Parse("2026-08-14T02:00:00Z"))) with
+        {
+            Protection = WatchV2ViewState<
+                CurrentIngestAttentionSnapshot,
+                WatchNoDetail>.Empty(HostGeneration) with
+            {
+                RequestGeneration = 1,
+                PendingQueryKey = "protection",
+                CommittedQueryKey = "protection",
+                Snapshot = resetSnapshot,
+                LastSuccessfulAt = DateTimeOffset.Parse("2026-08-14T01:59:59Z"),
+            },
+        };
+
+        var presentation = WatchOverviewPresentation.Project(
+            workspace,
+            WatchAreaDisplayContext.AllAreas);
+
+        Assert.Equal("未报告存储或历史保护项", presentation.Protection.Status);
+        Assert.Equal(WatchPresentationSeverity.Success, presentation.Protection.Severity);
+    }
+
+    [Fact]
+    public void Protection_slot_remains_authoritative_when_a_newer_filtered_attention_page_omits_reset()
+    {
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"));
+        var overview = OverviewSnapshot() with
+        {
+            Snapshot = OverviewSnapshot().Snapshot with { HistoryEpoch = epoch },
+            Attention = OverviewSnapshot().Attention with
+            {
+                Types =
+                [
+                    new OverviewFacetSnapshot(
+                        CurrentIngestAttentionKinds.HistoryReset,
+                        1,
+                        new OverviewNavigationIntent(
+                            OverviewNavigationTargets.CurrentIngestAttention)),
+                ],
+            },
+        };
+        var resetItem = new CurrentIngestAttentionItemSnapshot(
+            CurrentIngestAttentionKinds.HistoryReset,
+            CurrentIngestAttentionSeverities.Error,
+            overview.Snapshot.SnapshotAsOf,
+            $"HISTORY_RESET:{epoch}",
+            SeriesId: null,
+            WorkType: null,
+            ErrorCode: HistoryResetStatuses.AcknowledgementRequired,
+            Target: "MesIngest",
+            SubjectKind: "HISTORY_EPOCH",
+            new CurrentIngestAttentionEvidenceSnapshot(
+                Phase: HistoryResetStatuses.AcknowledgementRequired,
+                DatabaseName: "MesIngest"),
+            new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention));
+        var resetSnapshot = new CurrentIngestAttentionSnapshot(
+            overview.Snapshot,
+            1,
+            new CurrentIngestAttentionFacets(
+                [new(CurrentIngestAttentionKinds.HistoryReset, 1)],
+                [new(CurrentIngestAttentionSeverities.Error, 1)]),
+            CurrentIngestAttentionOrder.Default,
+            2,
+            1,
+            1,
+            [CurrentIngestAttentionKinds.HistoryReset],
+            [],
+            [resetItem]);
+        var filteredSnapshot = resetSnapshot with
+        {
+            ExactTotalItemCount = 0,
+            Facets = new CurrentIngestAttentionFacets([], []),
+            TotalPages = 0,
+            Kinds = [CurrentIngestAttentionKinds.SeriesError],
+            Items = [],
+        };
+        var workspace = ConnectedWorkspace(SuccessfulView(overview)) with
+        {
+            Protection = AttentionView(
+                resetSnapshot,
+                "protection",
+                DateTimeOffset.Parse("2026-08-14T01:21:00Z")),
+            CurrentAttention = AttentionView(
+                filteredSnapshot,
+                "kind=SERIES_ERROR",
+                DateTimeOffset.Parse("2026-08-14T01:22:00Z")),
+        };
+
+        var presentation = WatchOverviewPresentation.Project(
+            workspace,
+            WatchAreaDisplayContext.AllAreas);
+
+        Assert.Equal("历史重置待确认", presentation.Protection.Status);
+        Assert.Equal(WatchPresentationSeverity.Error, presentation.Protection.Severity);
+    }
+
+    [Theory]
+    [InlineData(StoragePressureStatuses.Healthy, 18.0, "存储与历史保护正常", (int)WatchPresentationSeverity.Success, false)]
+    [InlineData(StoragePressureStatuses.Warning, 14.5, "存储空间严重告警", (int)WatchPresentationSeverity.Warning, true)]
+    [InlineData(StoragePressureStatuses.Paused, 9.5, "StoragePressurePause", (int)WatchPresentationSeverity.Error, true)]
+    public void Current_attention_storage_state_drives_precise_global_protection_status(
+        string storageStatus,
+        double availablePercent,
+        string expectedStatus,
+        int expectedSeverity,
+        bool requiresAttention)
+    {
+        var overview = OverviewSnapshot();
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("44444444-4444-4444-4444-444444444444"));
+        overview = overview with
+        {
+            Snapshot = overview.Snapshot with { HistoryEpoch = epoch },
+        };
+        var attentionSnapshot = new CurrentIngestAttentionSnapshot(
+            overview.Snapshot,
+            ExactTotalItemCount: 0,
+            new CurrentIngestAttentionFacets([], []),
+            CurrentIngestAttentionOrder.Default,
+            PageSize: 100,
+            PageNumber: 1,
+            TotalPages: 0,
+            Kinds: [],
+            Severities: [],
+            Items: [],
+            HistoryCleanupStateSnapshot.NotRun,
+            new StoragePressureStateSnapshot(
+                storageStatus,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(
+                    @"D:\",
+                    1_000_000,
+                    Convert.ToDecimal(availablePercent, CultureInfo.InvariantCulture)),
+                DateTimeOffset.Parse("2026-08-14T01:16:00Z"),
+                storageStatus == StoragePressureStatuses.Paused
+                    ? DateTimeOffset.Parse("2026-08-14T01:15:30Z")
+                    : null,
+                storageStatus == StoragePressureStatuses.Paused ? "pause-21" : null,
+                storageStatus == StoragePressureStatuses.Paused ? "low space" : null,
+                RecoveryAuditId: null));
+        var workspace = ConnectedWorkspace(SuccessfulView(overview)) with
+        {
+            CurrentAttention = WatchV2ViewState<
+                CurrentIngestAttentionSnapshot,
+                WatchNoDetail>.Empty(HostGeneration) with
+            {
+                RequestGeneration = 1,
+                PendingQueryKey = "attention",
+                CommittedQueryKey = "attention",
+                Snapshot = attentionSnapshot,
+                LastSuccessfulAt = DateTimeOffset.Parse("2026-08-14T01:21:01Z"),
+            },
+        };
+
+        var presentation = WatchOverviewPresentation.Project(
+            workspace,
+            WatchAreaDisplayContext.AllAreas);
+
+        Assert.Equal(expectedStatus, presentation.Protection.Status);
+        Assert.Equal((WatchPresentationSeverity)expectedSeverity, presentation.Protection.Severity);
+        Assert.Equal(requiresAttention, presentation.Protection.RequiresAttention);
+        Assert.Contains($"{availablePercent:0.###}%", presentation.Protection.Detail, StringComparison.Ordinal);
+    }
+
     private static WatchV2WorkspaceState ConnectedWorkspace(
         WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> overview) =>
         WatchV2WorkspaceState.Reset(
@@ -304,6 +544,19 @@ public sealed class WatchOverviewPresentationTests
             Snapshot = snapshot,
             LastSuccessfulAt = lastSuccessfulAt
                 ?? DateTimeOffset.Parse("2026-08-14T01:20:00Z"),
+        };
+
+    private static WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail> AttentionView(
+        CurrentIngestAttentionSnapshot snapshot,
+        string queryKey,
+        DateTimeOffset lastSuccessfulAt) =>
+        WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail>.Empty(HostGeneration) with
+        {
+            RequestGeneration = 1,
+            PendingQueryKey = queryKey,
+            CommittedQueryKey = queryKey,
+            Snapshot = snapshot,
+            LastSuccessfulAt = lastSuccessfulAt,
         };
 
     private static WatchOverviewSnapshot OverviewSnapshot(

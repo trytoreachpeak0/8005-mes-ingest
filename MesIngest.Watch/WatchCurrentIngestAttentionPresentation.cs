@@ -63,6 +63,15 @@ internal sealed record WatchCurrentIngestAttentionEvidencePresentation(
         }.Where(value => value is not null));
 }
 
+internal sealed record WatchProtectionDetailPresentation(
+    string? Status,
+    string? Reason,
+    string? LastSuccessfulWindow,
+    string? EarliestAvailable,
+    string? RebuildProgress,
+    string? CurrentReadRestriction,
+    string? LocalAdministrationGuidance);
+
 internal sealed record WatchCurrentIngestAttentionRowPresentation(
     string Kind,
     string KindLabel,
@@ -80,7 +89,8 @@ internal sealed record WatchCurrentIngestAttentionRowPresentation(
     WatchSeriesErrorIdentityPresentation? SeriesErrorIdentity,
     WatchCurrentIngestAttentionEvidencePresentation Evidence,
     OverviewNavigationIntent Navigation,
-    ErrorSearchQuery? ErrorSearchDrill);
+    ErrorSearchQuery? ErrorSearchDrill,
+    WatchProtectionDetailPresentation? Protection);
 
 internal sealed record WatchCurrentIngestAttentionPresentation(
     bool HasSnapshot,
@@ -190,11 +200,12 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
                     facet.Value,
                     facet.ItemCount))
                 .ToArray(),
-            snapshot.Items.Select(ProjectRow).ToArray());
+            snapshot.Items.Select(item => ProjectRow(item, snapshot)).ToArray());
     }
 
     private static WatchCurrentIngestAttentionRowPresentation ProjectRow(
-        CurrentIngestAttentionItemSnapshot item)
+        CurrentIngestAttentionItemSnapshot item,
+        CurrentIngestAttentionSnapshot snapshot)
     {
         WatchSeriesErrorIdentityPresentation? seriesErrorIdentity = null;
         ErrorSearchQuery? errorSearchDrill = null;
@@ -221,6 +232,67 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
         }
 
         var evidence = item.Evidence;
+        var isStoragePressure = string.Equals(
+            item.Kind,
+            CurrentIngestAttentionKinds.StoragePressure,
+            StringComparison.Ordinal);
+        var isHistoryReset = string.Equals(
+            item.Kind,
+            CurrentIngestAttentionKinds.HistoryReset,
+            StringComparison.Ordinal);
+        var historyEpoch = snapshot.Snapshot.HistoryEpoch
+            ?? (isStoragePressure ? snapshot.StoragePressure?.HistoryEpoch : null);
+        var databaseName = evidence.DatabaseName ?? item.Target;
+        var protectionStatus = isStoragePressure
+            ? snapshot.StoragePressure?.Status ?? evidence.Phase ?? item.ErrorCode
+            : isHistoryReset
+                ? item.ErrorCode ?? evidence.Phase
+                : null;
+        var protectionReason = isStoragePressure
+            ? snapshot.StoragePressure?.PauseReason ?? evidence.FailureReason
+            : isHistoryReset
+                ? evidence.FailureReason
+                : null;
+        var isStoragePaused = isStoragePressure
+            && string.Equals(
+                protectionStatus,
+                StoragePressureStatuses.Paused,
+                StringComparison.Ordinal);
+        var lastSuccessfulWindow = isStoragePressure
+            ? $"最后成功 PollTrace {snapshot.Snapshot.PollTraceId} · 投影提交 {WatchTimeDisplay.Format(snapshot.Snapshot.ProjectionCommittedAt)} · {snapshot.Snapshot.ProjectionCommitId}"
+            : null;
+        var earliestAvailable = isStoragePressure
+            ? snapshot.HistoryCleanup?.EarliestAvailableHostUtc is { } earliest
+                ? $"earliest available {WatchTimeDisplay.Format(earliest)}"
+                : "earliest available 尚未建立"
+            : null;
+        var rebuildProgress = isHistoryReset
+            ? $"新 HistoryEpoch {ProjectEpoch(historyEpoch)} · 已建立到 ProjectionCommit {snapshot.Snapshot.ProjectionCommitId} / 序列 {snapshot.Snapshot.ProjectionSequence:N0} · {WatchTimeDisplay.Format(snapshot.Snapshot.ProjectionCommittedAt)}"
+            : null;
+        var currentReadRestriction = isStoragePaused
+            ? "StoragePressurePause 期间外部当前目录与执行承诺读取返回 503 INGEST_NOT_CURRENT；Watch 仍显示最后成功投影、诊断和可用历史。"
+            : isStoragePressure
+                ? "CRITICAL_WARNING 尚未进入 StoragePressurePause；外部当前读取不会仅因该预警返回 503 INGEST_NOT_CURRENT。"
+            : isHistoryReset
+                ? "HistoryResetAcknowledgement 提交前，外部当前目录与执行承诺读取返回 503 INGEST_NOT_CURRENT。"
+                : null;
+        var localRecoveryGuidance = isStoragePaused
+            ? StorageRecoveryGuidance(databaseName, historyEpoch)
+            : isStoragePressure
+                ? "当前仅为存储空间严重告警，不执行 resume-storage-pressure；先在数据库主机释放空间并持续观察，低于 10% 才会在下一轮 MES 查询前进入暂停。"
+            : isHistoryReset
+                ? HistoryResetGuidance(databaseName, historyEpoch)
+                : null;
+        var protection = isStoragePressure || isHistoryReset
+            ? new WatchProtectionDetailPresentation(
+                protectionStatus,
+                protectionReason,
+                lastSuccessfulWindow,
+                earliestAvailable,
+                rebuildProgress,
+                currentReadRestriction,
+                localRecoveryGuidance)
+            : null;
         return new WatchCurrentIngestAttentionRowPresentation(
             item.Kind,
             ProjectKind(item.Kind),
@@ -253,8 +325,22 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
                 evidence.VolumeRoot,
                 evidence.AvailablePercent),
             item.Navigation,
-            errorSearchDrill);
+            errorSearchDrill,
+            protection);
     }
+
+    private static string StorageRecoveryGuidance(
+        string? databaseName,
+        HistoryEpoch? historyEpoch) =>
+        $"仅限授权管理员在数据库主机本地控制台运行：MesIngest.LocalAdministration resume-storage-pressure --database \"{ProjectText(databaseName)}\" --history-epoch {ProjectEpoch(historyEpoch)} --reason \"<填写恢复原因>\"。空间恢复到至少 15%、数据库 ONLINE/READ_WRITE 且人工提交前不会自动恢复。";
+
+    private static string HistoryResetGuidance(
+        string? databaseName,
+        HistoryEpoch? historyEpoch) =>
+        $"仅限授权管理员在数据库主机本地控制台运行：MesIngest.LocalAdministration acknowledge-history-reset --database \"{ProjectText(databaseName)}\" --history-epoch {ProjectEpoch(historyEpoch)} --reason \"<填写确认原因>\" --risk-acceptance {HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance}。该确认接受旧历史与墓碑不可恢复风险，不恢复旧身份。";
+
+    private static string ProjectEpoch(HistoryEpoch? historyEpoch) =>
+        historyEpoch?.ToString() ?? "<HistoryEpoch unavailable>";
 
     private static (bool IsOpen, WatchPresentationSeverity Severity, string Title, string Message)
         ProjectInfo(
@@ -359,6 +445,7 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
         CurrentIngestAttentionKinds.UnassignedMesObservation => "未归属 MES 观测",
         CurrentIngestAttentionKinds.HistoryCleanupFailure => "HISTORY_CLEANUP_FAILURE",
         CurrentIngestAttentionKinds.StoragePressure => "存储压力",
+        CurrentIngestAttentionKinds.HistoryReset => "历史重置",
         _ => kind,
     };
 

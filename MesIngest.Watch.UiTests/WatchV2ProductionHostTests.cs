@@ -311,7 +311,7 @@ public sealed class WatchV2ProductionHostTests
                 var overviewContext = Find<TextBlock>(window, "OverviewContextText");
                 Assert.Contains("Host 快照", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains("Watch 最近成功", overviewContext.Text, StringComparison.Ordinal);
-                Assert.Contains("自动刷新 10 秒", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("自动刷新 30 秒", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains(
                     overviewContext.Text,
                     AutomationProperties.GetName(overviewContext),
@@ -343,10 +343,17 @@ public sealed class WatchV2ProductionHostTests
                 var attentionFacetSummary = Find<Wpf.Ui.Controls.TextBlock>(
                     window,
                     "AttentionSummaryFacetText");
-                Assert.Equal("3 ERROR · 10 WARNING", attentionFacetSummary.Text);
                 Assert.Equal(
+                    "未报告存储或历史保护项 · 3 ERROR · 10 WARNING",
+                    attentionFacetSummary.Text);
+                Assert.Contains(
+                    "存储与历史保护状态：未报告存储或历史保护项",
+                    AutomationProperties.GetName(attentionFacetSummary),
+                    StringComparison.Ordinal);
+                Assert.Contains(
                     "接入告警严重度精确分面：3 ERROR · 10 WARNING",
-                    AutomationProperties.GetName(attentionFacetSummary));
+                    AutomationProperties.GetName(attentionFacetSummary),
+                    StringComparison.Ordinal);
                 Assert.Null(window.FindName("AttentionSummaryActions"));
 
                 var hostFooter = Find<NavigationViewItem>(window, "HostNavigationItem");

@@ -178,6 +178,114 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
     }
 
     [Fact]
+    public void Storage_pause_and_history_reset_project_complete_local_recovery_guidance()
+    {
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var earliest = DateTimeOffset.Parse("2026-07-15T05:06:07Z");
+        var pausedAt = DateTimeOffset.Parse("2026-08-14T05:05:00Z");
+        var snapshot = Snapshot(items: SevenKinds()) with
+        {
+            Snapshot = Identity() with { HistoryEpoch = epoch },
+            HistoryCleanup = HistoryCleanupStateSnapshot.NotRun with
+            {
+                Status = HistoryCleanupRunStatuses.Succeeded,
+                EarliestAvailableHostUtc = earliest,
+            },
+            StoragePressure = new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Paused,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 9.5m),
+                pausedAt,
+                pausedAt,
+                "pause-22",
+                "database volume below the 10 percent pause threshold",
+                RecoveryAuditId: null),
+        };
+
+        var presentation = WatchCurrentIngestAttentionPresentation.Project(
+            Workspace(snapshot),
+            WatchCurrentIngestAttentionQueries.StartLatest());
+
+        var storage = Assert.Single(presentation.Rows.Where(row =>
+            row.Kind == CurrentIngestAttentionKinds.StoragePressure));
+        var storageProtection = Assert.IsType<WatchProtectionDetailPresentation>(storage.Protection);
+        Assert.Equal(StoragePressureStatuses.Paused, storageProtection.Status);
+        Assert.Contains("database volume below", storageProtection.Reason, StringComparison.Ordinal);
+        Assert.Contains("poll-attention-22", storageProtection.LastSuccessfulWindow, StringComparison.Ordinal);
+        Assert.Contains("commit-attention-22", storageProtection.LastSuccessfulWindow, StringComparison.Ordinal);
+        Assert.Contains(DisplayTime(earliest), storageProtection.EarliestAvailable, StringComparison.Ordinal);
+        Assert.Contains("数据库主机本地控制台", storageProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
+        Assert.Contains("resume-storage-pressure", storageProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
+        Assert.Contains("--database \"MesIngest\"", storageProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
+        Assert.Contains(epoch.ToString(), storageProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
+
+        var historyReset = Assert.Single(presentation.Rows.Where(row =>
+            row.Kind == CurrentIngestAttentionKinds.HistoryReset));
+        Assert.Equal("历史重置", historyReset.KindLabel);
+        var resetProtection = Assert.IsType<WatchProtectionDetailPresentation>(historyReset.Protection);
+        Assert.Equal(HistoryResetStatuses.AcknowledgementRequired, resetProtection.Status);
+        Assert.Contains(epoch.ToString(), resetProtection.RebuildProgress, StringComparison.Ordinal);
+        Assert.Contains("INGEST_NOT_CURRENT", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.Contains("503", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.Contains("acknowledge-history-reset", resetProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
+        Assert.Contains(
+            HistoryResetAcknowledgementPolicy.RequiredRiskAcceptance,
+            resetProtection.LocalAdministrationGuidance,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            typeof(WatchCurrentIngestAttentionRowPresentation).GetProperties(),
+            property => property.PropertyType == typeof(System.Windows.Input.ICommand));
+    }
+
+    [Fact]
+    public void Storage_warning_does_not_claim_pause_current_read_503_or_offer_resume()
+    {
+        var epoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var warningItem = SevenKinds()[1] with
+        {
+            Severity = CurrentIngestAttentionSeverities.Warning,
+            ErrorCode = StoragePressureStatuses.Warning,
+            Evidence = SevenKinds()[1].Evidence with
+            {
+                Phase = StoragePressureStatuses.Warning,
+                FailureReason = null,
+                AvailablePercent = 14.5m,
+            },
+        };
+        var snapshot = Snapshot(exactTotal: 1, items: [warningItem]) with
+        {
+            Snapshot = Identity() with { HistoryEpoch = epoch },
+            StoragePressure = new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Warning,
+                epoch,
+                "MesIngest",
+                @"D:\SqlData\MesIngest.mdf",
+                VolumeSpaceSample.FromPercent(@"D:\", 1_000_000, 14.5m),
+                DateTimeOffset.Parse("2026-08-14T05:06:07Z"),
+                PausedAt: null,
+                PauseId: null,
+                PauseReason: null,
+                RecoveryAuditId: null),
+        };
+
+        var presentation = WatchCurrentIngestAttentionPresentation.Project(
+            Workspace(snapshot),
+            WatchCurrentIngestAttentionQueries.StartLatest());
+
+        var warning = Assert.IsType<WatchProtectionDetailPresentation>(
+            Assert.Single(presentation.Rows).Protection);
+        Assert.Equal(StoragePressureStatuses.Warning, warning.Status);
+        Assert.Contains("尚未进入", warning.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.Contains("不会仅因该预警返回 503", warning.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.Contains("不执行 resume-storage-pressure", warning.LocalAdministrationGuidance, StringComparison.Ordinal);
+        Assert.DoesNotContain("仅限授权管理员", warning.LocalAdministrationGuidance, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Loading_without_a_success_snapshot_is_not_presented_as_an_empty_result()
     {
         var workspace = WatchV2WorkspaceState.Reset(
@@ -591,4 +699,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         PollTraceHighWater: 45,
         CatalogRevision: 9,
         DateTimeOffset.Parse("2026-08-14T05:06:08Z"));
+
+    private static string DisplayTime(DateTimeOffset value) =>
+        WatchTimeDisplay.Format(value);
 }

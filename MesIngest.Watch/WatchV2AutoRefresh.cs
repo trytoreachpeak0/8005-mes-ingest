@@ -54,11 +54,11 @@ internal sealed record WatchV2AutoRefreshSettings(
     WatchV2AutoRefreshSetting CurrentIngestAttention)
 {
     public static WatchV2AutoRefreshSettings Default { get; } = new(
-        new(),
-        new(),
-        new(),
-        new(),
-        new());
+        new(30),
+        new(60),
+        new(60),
+        new(60),
+        new(30));
 
     public WatchV2AutoRefreshSetting For(WatchV2DataView view) => view switch
     {
@@ -185,6 +185,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
     private readonly CancellationTokenSource _disposeCancellation = new();
     private readonly ITimer _timer;
     private RefreshTarget? _activeTarget;
+    private CancellationTokenSource? _activeRefreshCancellation;
     private TaskCompletionSource? _idleCompletion;
     private Exception? _lastUnhandledException;
     private bool _refreshInProgress;
@@ -291,6 +292,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             _activeTarget = null;
+            _activeRefreshCancellation?.Cancel();
             _schedule.Deactivate();
             _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
@@ -352,6 +354,12 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_activeTarget is { } activeTarget
+                && activeTarget.View != target.View)
+            {
+                _activeRefreshCancellation?.Cancel();
+            }
+
             _activeTarget = target;
             _schedule.Activate(target.View);
             ArmTimerForScheduleLocked();
@@ -362,7 +370,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
     {
         RefreshTarget? target = null;
         TaskCompletionSource? completion = null;
-        CancellationToken cancellationToken = default;
+        CancellationTokenSource? refreshCancellation = null;
         lock (_gate)
         {
             if (_disposed)
@@ -400,18 +408,21 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
                 TaskCreationOptions.RunContinuationsAsynchronously);
             _idleCompletion = completion;
             target = activeTarget;
-            cancellationToken = _disposeCancellation.Token;
+            refreshCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+                _disposeCancellation.Token);
+            _activeRefreshCancellation = refreshCancellation;
             _timer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         }
 
-        _ = RunRefreshAsync(target, completion, cancellationToken);
+        _ = RunRefreshAsync(target, completion, refreshCancellation);
     }
 
     private async Task RunRefreshAsync(
         RefreshTarget target,
         TaskCompletionSource completion,
-        CancellationToken cancellationToken)
+        CancellationTokenSource refreshCancellation)
     {
+        var cancellationToken = refreshCancellation.Token;
         try
         {
             var refresh = RefreshAsync(target, cancellationToken);
@@ -437,6 +448,11 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
             lock (_gate)
             {
                 _refreshInProgress = false;
+                if (ReferenceEquals(_activeRefreshCancellation, refreshCancellation))
+                {
+                    _activeRefreshCancellation = null;
+                }
+
                 if (!_disposed
                     && _schedule.ActiveView is { } activeView
                     && _schedule.GetDelayUntilNextDue() is null)
@@ -447,7 +463,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
                 if (!_disposed)
                 {
                     ArmTimerForScheduleLocked();
-                    publishCompleted = true;
+                    publishCompleted = ReferenceEquals(_activeTarget, target);
                 }
             }
 
@@ -459,6 +475,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
             }
 
             completion.TrySetResult();
+            refreshCancellation.Dispose();
         }
     }
 
@@ -501,7 +518,7 @@ internal sealed class WatchV2AutoRefreshCoordinator : IDisposable
     private Task RefreshAsync(RefreshTarget target, CancellationToken cancellationToken) =>
         target.View switch
         {
-            WatchV2DataView.Overview => _session.RefreshOverviewAsync(
+            WatchV2DataView.Overview => _session.RefreshOverviewPageAsync(
                 (WatchOverviewQuery)target.Query,
                 cancellationToken),
             WatchV2DataView.DemandSeries => _session.RefreshLatestDemandSeriesPageAsync(

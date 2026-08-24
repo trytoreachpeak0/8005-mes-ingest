@@ -634,9 +634,11 @@ public sealed class WatchWorkspaceProductionJourneyTests
         var cancellationToken = TestContext.Current.CancellationToken;
         ErrorSearchQuery? latestErrorQuery = null;
         var overviewAvailability = new JourneyOverviewAvailability();
+        var protectionScenario = new JourneyProtectionScenario();
         var scenario = CreateScenario(
             query => latestErrorQuery = query,
-            overviewAvailability);
+            overviewAvailability,
+            protectionScenario);
         await using var host = await ScriptedFakeHost.StartV2Async(
             scenario,
             cancellationToken,
@@ -736,6 +738,119 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 StepTimeout);
             SetNavigationPaneExpanded(window, expanded: false);
             CaptureApprovedBaseline(evidence, process.MainWindowHandle, "01-overview");
+            var protectionAreaProfile = "西区";
+
+            void ShowProtectionOverview(
+                JourneyProtectionStage stage,
+                string expectedStatus,
+                string captureName,
+                bool expectStatusInHostPill = true)
+            {
+                protectionScenario.Show(stage);
+                var overviewRequestsBeforeRefresh = host.Timeline.Count(entry =>
+                    entry.Operation == FakeHostOperation.OverviewV2
+                    && entry.State == FakeHostRequestState.Completed);
+                Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
+                SelectAreaProfile(
+                    window,
+                    "DemandSeriesAreaProfileSelector",
+                    protectionAreaProfile);
+                protectionAreaProfile = string.Equals(
+                    protectionAreaProfile,
+                    "西区",
+                    StringComparison.Ordinal)
+                    ? "东区"
+                    : "西区";
+                WaitUntil(
+                    () => host.Timeline.Count(entry =>
+                        entry.Operation == FakeHostOperation.OverviewV2
+                        && entry.State == FakeHostRequestState.Completed)
+                        > overviewRequestsBeforeRefresh,
+                    $"the production Overview refresh for {expectedStatus}",
+                    StepTimeout);
+                Navigate(window, "OverviewNavigationItem", "OverviewPage");
+                WaitUntil(
+                    () => TextValue(FindRequiredById(window, "AttentionSummaryFacetText"))
+                            .Contains(expectedStatus, StringComparison.Ordinal)
+                        && (!expectStatusInHostPill
+                            || TextValue(FindRequiredById(window, "OverviewHostStatusText"))
+                                .Contains(expectedStatus, StringComparison.Ordinal)),
+                    $"the production Overview protection state {expectedStatus}",
+                    PreviewStateTimeout);
+                Capture(evidence, process.MainWindowHandle, captureName);
+            }
+
+            void CaptureProtectionDetail(
+                string expectedCommand,
+                string captureName)
+            {
+                Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");
+                var protectionGrid = WaitForRows(
+                    window,
+                    "CurrentAttentionGrid",
+                    $"{captureName} current attention row");
+                protectionGrid.Select(0);
+                var evidenceGrid = WaitForRows(
+                    window,
+                    "CurrentAttentionEvidenceGrid",
+                    $"{captureName} protection evidence");
+                WaitUntil(
+                    () => GridText(evidenceGrid).Contains(expectedCommand, StringComparison.Ordinal),
+                    $"{captureName} exact local-administration guidance",
+                    StepTimeout);
+                Capture(evidence, process.MainWindowHandle, captureName);
+            }
+
+            failedStep = "ticket-21-storage-warning";
+            ShowProtectionOverview(
+                JourneyProtectionStage.Warning,
+                "存储空间严重告警",
+                "01g-ticket-21-storage-warning");
+
+            failedStep = "ticket-21-storage-pause";
+            ShowProtectionOverview(
+                JourneyProtectionStage.Paused,
+                "StoragePressurePause",
+                "01h-ticket-21-storage-pause");
+            CaptureProtectionDetail(
+                "resume-storage-pressure",
+                "07a-ticket-21-storage-pause-detail");
+
+            failedStep = "ticket-21-history-reset";
+            ShowProtectionOverview(
+                JourneyProtectionStage.HistoryReset,
+                "历史重置待确认",
+                "01i-ticket-21-history-reset");
+            CaptureProtectionDetail(
+                "acknowledge-history-reset",
+                "07b-ticket-21-history-reset-detail");
+
+            failedStep = "ticket-21-protection-recovered";
+            ShowProtectionOverview(
+                JourneyProtectionStage.Recovered,
+                "未报告存储或历史保护项",
+                "01j-ticket-21-protection-recovered",
+                expectStatusInHostPill: false);
+            Navigate(window, "SettingsNavigationItem", "SettingsPage");
+            Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");
+            WaitUntil(
+                () =>
+                {
+                    var hostStatus = TextValue(FindRequiredById(window, "HostNavigationItem"));
+                    return TextValue(FindRequiredById(window, "CurrentAttentionEmptyResultText"))
+                            .Contains("精确 0 个", StringComparison.Ordinal)
+                        && hostStatus.Contains("Host 已连接", StringComparison.Ordinal)
+                        && !hostStatus.Contains("StoragePressurePause", StringComparison.Ordinal)
+                        && !hostStatus.Contains("存储空间严重告警", StringComparison.Ordinal)
+                        && !hostStatus.Contains("历史重置待确认", StringComparison.Ordinal);
+                },
+                "the recovered protection state with an empty current-attention page",
+                PreviewStateTimeout);
+            Capture(
+                evidence,
+                process.MainWindowHandle,
+                "07c-ticket-21-protection-recovered");
+            Navigate(window, "OverviewNavigationItem", "OverviewPage");
 
             failedStep = "fluent-window-chrome";
             var chromeUiaEvidence = ExerciseWindowChrome(
@@ -827,6 +942,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 entry => entry.Operation == FakeHostOperation.OverviewV2
                     && entry.State == FakeHostRequestState.Completed
                     && entry.Sequence > failedOverviewTimelineSequence);
+            protectionScenario.Show(JourneyProtectionStage.SeriesError);
 
             failedStep = "settings";
             Navigate(window, "SettingsNavigationItem", "SettingsPage");
@@ -1694,7 +1810,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
     }
 
     internal static WatchOverviewSnapshot CreateJourneyOverview(
-        IReadOnlyList<string> mesAreas)
+        IReadOnlyList<string> mesAreas,
+        CurrentIngestAttentionSnapshot? attentionOverride = null)
     {
         var normalizedAreas = new WatchOverviewQuery(mesAreas)
             .NormalizeAndValidate()
@@ -1713,8 +1830,9 @@ public sealed class WatchWorkspaceProductionJourneyTests
             new ErrorSearchQuery(
                 new ErrorSearchFilter(),
                 ErrorSearchWindowSelection.Last7Days));
-        var attention = WatchCurrentAttentionProductionIntegrationTests
-            .CreateAttentionSnapshot(new CurrentIngestAttentionQuery());
+        var attention = attentionOverride
+            ?? WatchCurrentAttentionProductionIntegrationTests
+                .CreateAttentionSnapshot(new CurrentIngestAttentionQuery());
 
         var seriesNavigation = new OverviewNavigationIntent(
             OverviewNavigationTargets.DemandSeries,
@@ -1862,7 +1980,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     private static FakeHostV2Scenario CreateScenario(
         Action<ErrorSearchQuery> rememberErrorQuery,
-        JourneyOverviewAvailability? overviewAvailability = null)
+        JourneyOverviewAvailability? overviewAvailability = null,
+        JourneyProtectionScenario? protectionScenario = null)
     {
         var availability = overviewAvailability ?? new JourneyOverviewAvailability();
         var errorBindings = new ConcurrentDictionary<
@@ -1872,7 +1991,9 @@ public sealed class WatchWorkspaceProductionJourneyTests
         return new("production-preview-19-22", Credential)
         {
             Overview = FakeHostReply.Select<WatchOverviewQuery, WatchOverviewSnapshot>(query =>
-                availability.Next(query)),
+                availability.Next(
+                    query,
+                    protectionScenario?.CreateSnapshot(new CurrentIngestAttentionQuery()))),
             DemandSeries = FakeHostReply.Select<
                 DemandSeriesBrowseQuery,
                 DemandSeriesListSnapshot>(query => FakeHostReply.Return(
@@ -1925,7 +2046,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             CurrentAttention = FakeHostReply.Select<
                 CurrentIngestAttentionQuery,
                 CurrentIngestAttentionSnapshot>(query => FakeHostReply.Return(
-                    WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(
+                    protectionScenario?.CreateSnapshot(query)
+                    ?? WatchCurrentAttentionProductionIntegrationTests.CreateAttentionSnapshot(
                         query))),
         };
     }
@@ -1999,7 +2121,9 @@ public sealed class WatchWorkspaceProductionJourneyTests
             }
         }
 
-        public FakeHostReply<WatchOverviewSnapshot> Next(WatchOverviewQuery query)
+        public FakeHostReply<WatchOverviewSnapshot> Next(
+            WatchOverviewQuery query,
+            CurrentIngestAttentionSnapshot? attentionOverride = null)
         {
             bool fail;
             lock (_sync)
@@ -2024,7 +2148,73 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     HttpStatusCode.ServiceUnavailable,
                     "HOST_UNAVAILABLE",
                     "Host 暂时离线；自动刷新会继续重试。")
-                : FakeHostReply.Return(CreateJourneyOverview(query.MesAreas ?? []));
+                : FakeHostReply.Return(CreateJourneyOverview(
+                    query.MesAreas ?? [],
+                    attentionOverride));
+        }
+    }
+
+    private enum JourneyProtectionStage
+    {
+        Normal,
+        Warning,
+        Paused,
+        HistoryReset,
+        Recovered,
+        SeriesError,
+    }
+
+    private sealed class JourneyProtectionScenario
+    {
+        private readonly object _sync = new();
+        private JourneyProtectionStage _stage = JourneyProtectionStage.Normal;
+
+        public void Show(JourneyProtectionStage stage)
+        {
+            lock (_sync)
+            {
+                _stage = stage;
+            }
+        }
+
+        public CurrentIngestAttentionSnapshot CreateSnapshot(
+            CurrentIngestAttentionQuery query)
+        {
+            JourneyProtectionStage stage;
+            lock (_sync)
+            {
+                stage = _stage;
+            }
+
+            return stage switch
+            {
+                JourneyProtectionStage.Normal =>
+                    ScriptedFakeHostV2SurfaceTests.CreateProtectionSurface(
+                        StoragePressureStatuses.Healthy,
+                        20m),
+                JourneyProtectionStage.Warning =>
+                    ScriptedFakeHostV2SurfaceTests.CreateProtectionSurface(
+                        StoragePressureStatuses.Warning,
+                        14.5m),
+                JourneyProtectionStage.Paused =>
+                    ScriptedFakeHostV2SurfaceTests.CreateProtectionSurface(
+                        StoragePressureStatuses.Paused,
+                        9.5m),
+                JourneyProtectionStage.HistoryReset =>
+                    ScriptedFakeHostV2SurfaceTests.CreateProtectionSurface(
+                        StoragePressureStatuses.Healthy,
+                        20m,
+                        historyResetRequired: true),
+                JourneyProtectionStage.Recovered =>
+                    ScriptedFakeHostV2SurfaceTests.CreateProtectionSurface(
+                        StoragePressureStatuses.Healthy,
+                        22m),
+                JourneyProtectionStage.SeriesError =>
+                    WatchCurrentAttentionProductionIntegrationTests
+                        .CreateAttentionSnapshot(query),
+                _ => throw new InvalidOperationException(
+                    $"Unknown protection stage: {stage}"),
+            };
         }
     }
 
@@ -2672,6 +2862,21 @@ public sealed class WatchWorkspaceProductionJourneyTests
         element.Properties.Name.ValueOrDefault ?? string.Empty,
         element.Properties.HelpText.ValueOrDefault ?? string.Empty,
         element.Properties.ItemStatus.ValueOrDefault ?? string.Empty);
+
+    private static string GridText(Grid grid)
+    {
+        var values = new List<string>();
+        for (var index = 0; index < grid.RowCount; index++)
+        {
+            var row = grid.GetRowByIndex(index)
+                ?? throw new Xunit.Sdk.XunitException(
+                    $"UIA grid row {index} was not available for evidence inspection.");
+            row.ScrollIntoView();
+            values.AddRange(row.Cells.Select(TextValue));
+        }
+
+        return string.Join(Environment.NewLine, values);
+    }
 
     private static void WaitUntil(
         Func<bool> condition,
