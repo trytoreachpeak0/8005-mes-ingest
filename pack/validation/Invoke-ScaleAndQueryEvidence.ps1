@@ -1504,7 +1504,7 @@ function New-FailedAcceleratedStabilityValues {
         storagePressurePauseCount = 0L; storagePressureStatus = $null
         retrySchedulePassed = $false; logicalDayBoundaryPassed = $false
         historyEpochPreservedAcrossRestart = $false; restartStatePreserved = $false
-        runtimeFailureType = $null; resourceSnapshotsComplete = $false
+        runtimeFailureType = $null; runtimeFailureStage = $null; resourceSnapshotsComplete = $false
         latencySamplesComplete = $false; xeventSignalsComplete = $false
         cleanupEvidenceComplete = $false; deterministicContractEvidenceComplete = $false
         deterministicContract = $null; packagedClientReceipts = @()
@@ -1612,6 +1612,7 @@ function New-AcceleratedStabilityEvidence {
         }
         evidence = [pscustomobject][ordered]@{
             runtimeFailureType = $Values.runtimeFailureType
+            runtimeFailureStage = $Values.runtimeFailureStage
             resourceSnapshotsComplete = $Values.resourceSnapshotsComplete
             latencySamplesComplete = $Values.latencySamplesComplete
             xeventSignalsComplete = $Values.xeventSignalsComplete
@@ -2886,11 +2887,13 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         }
         $stabilityValues = New-FailedAcceleratedStabilityValues `
             0.0 $expectedTotalObservationCount @($stabilityResourceSnapshots)
+        $stabilityStage = 'capacity-blocker'
         try {
         $capacityBlocker = Get-CapacityBlockerEvidence $CapacityBlockerEvidencePath
         if (-not [bool]$capacityBlocker.preserved) {
             throw 'Ticket 27 capacity blocker evidence is missing or invalid.'
         }
+        $stabilityStage = 'published-defaults'
         $publishedDefaultsPath = Join-Path $ServiceRoot 'appsettings.json'
         if (-not (Test-Path -LiteralPath $publishedDefaultsPath -PathType Leaf)) {
             throw "Published Host defaults are missing: $publishedDefaultsPath"
@@ -2899,8 +2902,10 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         $stabilityContext['defaultPollStartIntervalSeconds'] = [int]$publishedDefaults.PollStartIntervalSeconds
         $stabilityContext['defaultCleanupCheckIntervalSeconds'] = `
             [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
+        $stabilityStage = 'deterministic-contract'
         $deterministicContract = Get-DeterministicContractEvidence `
             $DeterministicContractEvidencePath $sourceCommit $hostSha256 $packageManifestSha256
+        $stabilityStage = 'recording-identity'
         $recordingPath = Join-Path $PSScriptRoot 'release-smoke-rounds.json'
         if (-not (Test-Path -LiteralPath $recordingPath -PathType Leaf)) {
             throw "Packaged scripted MesTaskUnionRound recording is missing: $recordingPath"
@@ -2929,6 +2934,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
 
         # Make the fixed representative sample old through the existing retention seam.
         # The accelerated profile changes operation counts only; the 30-day policy stays intact.
+        $stabilityStage = 'age-representative-history'
         [void](Invoke-SqlNonQuery $databaseConnectionString @"
 UPDATE mesingest.PollTraces
 SET StartedAt = DATEADD(day, -31, StartedAt),
@@ -2946,6 +2952,7 @@ WHERE Id = 1;
         $stabilityXelBase = Join-Path $errorLogDirectory ($stabilityXEventSession + '.xel')
         $escapedStabilitySession = $stabilityXEventSession.Replace(']', ']]')
         $escapedStabilityXel = $stabilityXelBase.Replace("'", "''")
+        $stabilityStage = 'stability-xevent'
         [void](Invoke-SqlNonQuery $masterConnectionString @"
 CREATE EVENT SESSION [$escapedStabilitySession] ON SERVER
 ADD EVENT sqlserver.error_reported
@@ -2963,12 +2970,14 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
         $stabilityXEventStarted = $true
 
         $stabilityAppName = "MesIngest.ScaleEvidence.$runId.stability"
+        $stabilityStage = 'start-continuous-host'
         $hostRun = Start-EvidenceHost `
             $databaseConnectionString $secret $stabilityAppName `
             -CleanupCheckIntervalSeconds $AcceleratedCleanupCheckIntervalSeconds `
             -PollStartIntervalSeconds $AcceleratedPollStartIntervalSeconds `
             -ReplayRecordingPath $recordingPath `
             -ContinuousPoll
+        $stabilityStage = 'packaged-watch-initial'
         $watchProbePath = Join-Path $runDirectory 'packaged-watch-probe-initial.json'
         $watchProbe = Invoke-PackagedWatchProbe `
             $packageRoot $hostRun.BaseUrl $secret $watchProbePath
@@ -2978,6 +2987,7 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
             sha256 = Get-FileSha256 $watchProbePath; clientBinarySha256 = $watchClientSha256
             readCount = [long]$watchProbe.readCount
         })
+        $stabilityStage = 'packaged-reference-initial'
         $referenceProbe = Invoke-PackagedReferenceConsumerProbe `
             $packageRoot $hostRun.BaseUrl $secret ([string]$schemaIdentity.historyEpoch) $forbiddenTokenPath
         $referenceProbePath = Join-Path $runDirectory 'packaged-reference-consumer-initial.json'
@@ -2988,6 +2998,7 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
             sha256 = Get-FileSha256 $referenceProbePath; clientBinarySha256 = $referenceConsumerSha256
             readCount = 1
         })
+        $stabilityStage = 'concurrent-workload'
         $client = [Net.Http.HttpClient]::new()
         try {
             $client.Timeout = [TimeSpan]::FromSeconds($RequestTimeoutSeconds)
@@ -3228,6 +3239,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             historyEpochPreservedAcrossRestart = $restartStatePreserved
             restartStatePreserved = $restartStatePreserved
             runtimeFailureType = $null
+            runtimeFailureStage = $null
             resourceSnapshotsComplete = $resourceSnapshots.Count -ge ($StabilityDurationMinutes - 1)
             latencySamplesComplete = $latencies.Count -gt 0; xeventSignalsComplete = $true
             cleanupEvidenceComplete = $null -eq $cleanupFinal.cleanupFailureCode
@@ -3239,6 +3251,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             Stop-EvidenceHost $hostRun
             $hostRun = $null
             $stabilityValues['runtimeFailureType'] = $_.Exception.GetType().Name
+            $stabilityValues['runtimeFailureStage'] = $stabilityStage
             $stabilityValues['durationSeconds'] = `
                 ([DateTimeOffset]::UtcNow - $stabilityStartedAt).TotalSeconds
             $stabilityValues['resourceSnapshots'] = @($stabilityResourceSnapshots)

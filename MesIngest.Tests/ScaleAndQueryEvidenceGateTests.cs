@@ -104,6 +104,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "Get-VerifiedPackageIdentity",
                      "RELEASE_MANIFEST_FILE_HASH_MISMATCH",
                      "ticket27LinearityTolerance",
+                     "runtimeFailureStage",
                      "CapacityBlockerEvidencePath",
                      "ticket27CapacityBlocked",
                      "currentLogicalReadGrowthPassed",
