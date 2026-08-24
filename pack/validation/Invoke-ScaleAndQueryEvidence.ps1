@@ -449,7 +449,7 @@ $historicalObjectMaxResponseBytes = @{
     RawEvidence = 131072L
 }
 
-function Get-BoundedCurrentSurfaceFailurePrefix {
+function Get-BoundedQuerySurfaceFailurePrefix {
     param([Parameter(Mandatory = $true)][string] $Surface)
     if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($Surface)) {
         return [string]$boundedCurrentSurfaceFailurePrefixes[$Surface]
@@ -495,7 +495,7 @@ function Get-EvidenceGateFailures {
     }
     if (-not $CanonicalScaleProfile) { [void]$failures.Add('NON_CANONICAL_SCALE_PROFILE') }
     if ($boundedCurrentSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
-        $failurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+        $failurePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
         $currentSurfaces = @(if ($QuerySurface -eq 'DemandSeries') {
             $QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
         } else {
@@ -524,7 +524,7 @@ function Get-EvidenceGateFailures {
         }
     }
     if ($historicalObjectSurfaceFailurePrefixes.ContainsKey($QuerySurface)) {
-        $failurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+        $failurePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
         $historicalSurfaces = @($QueryEvidence | Where-Object { $_.name -eq $QuerySurface })
         if ($historicalSurfaces.Count -eq 0) {
             [void]$failures.Add("MISSING_$($failurePrefix)_EVIDENCE")
@@ -540,6 +540,16 @@ function Get-EvidenceGateFailures {
             }
             if ([long](($historicalSurfaces | Measure-Object -Property maxGrantedMemoryKb -Maximum).Maximum) -gt 8192) {
                 [void]$failures.Add("$($failurePrefix)_ABNORMAL_MEMORY_GRANT")
+            }
+            if (@($historicalSurfaces | Where-Object { -not [bool]$_.objectKeySeekComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_OBJECT_KEY_SEEK")
+            }
+            if ([long](($historicalSurfaces | Measure-Object -Property unrelatedHistoryScanCount -Sum).Sum) -ne 0) {
+                [void]$failures.Add("$($failurePrefix)_UNRELATED_HISTORY_SCAN")
+            }
+            if ($QuerySurface -eq 'PollTrace' -and
+                @($historicalSurfaces | Where-Object { -not [bool]$_.earliestIdentityComplete }).Count -gt 0) {
+                [void]$failures.Add("$($failurePrefix)_EARLIEST_IDENTITY")
             }
             $maxResponseBytes = [long]$historicalObjectMaxResponseBytes[$QuerySurface]
             if (@($historicalSurfaces | Where-Object {
@@ -982,6 +992,13 @@ FROM rounds r CROSS JOIN observations o;
             })
     }
 
+    [void](Invoke-SqlNonQuery $databaseConnectionString @"
+UPDATE mesingest.SchemaInfo
+SET EarliestAvailableHostUtc =
+    (SELECT MIN(CompletedAt) FROM mesingest.PollTraces)
+WHERE Id = 1;
+"@ @{})
+
     [void](Invoke-SqlNonQuery $databaseConnectionString 'EXEC sys.sp_updatestats;' @{} 0)
     $rowCounts = @(Invoke-SqlTable $databaseConnectionString @"
 SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS raw_observations,
@@ -1122,6 +1139,13 @@ ORDER BY file_name, file_offset;
         }
     }
 
+    $persistedHistoricalBoundary = @(Invoke-SqlTable $databaseConnectionString @"
+SELECT CONVERT(nvarchar(36), HistoryEpoch) AS historyEpoch,
+       EarliestAvailableHostUtc AS earliestAvailableHostUtc
+FROM mesingest.SchemaInfo
+WHERE Id = 1;
+"@ @{}) | Select-Object -First 1
+
     $queryEvidence = New-Object System.Collections.ArrayList
     $surfaceNames = @($surfaces | ForEach-Object { [string]$_.name })
     if ($measureRawEvidence) { $surfaceNames += 'RawEvidence' }
@@ -1146,6 +1170,49 @@ ORDER BY file_name, file_offset;
         $rawObservationRuntimeIo = @($surfaceRuntimeIo | Where-Object {
             ([string]$_.table).Trim('[', ']') -eq 'DemandRawObservations'
         })
+        $objectAccessRuntimeIo = @($surfaceRuntimeIo | Where-Object {
+            [string]$_.physicalOperation -match '(Scan|Seek|Lookup)'
+        })
+        $pollTraceObjectAccess = @($objectAccessRuntimeIo | Where-Object {
+            ([string]$_.table).Trim('[', ']') -eq 'PollTraces'
+        })
+        $rawObservationObjectAccess = @($objectAccessRuntimeIo | Where-Object {
+            ([string]$_.table).Trim('[', ']') -eq 'DemandRawObservations'
+        })
+        $pollTraceObjectKeySeekCount = @($pollTraceObjectAccess | Where-Object {
+            [string]$_.physicalOperation -match 'Seek' -and
+            ([string]$_.index).Trim('[', ']') -eq 'PK_MesIngest_PollTraces'
+        }).Count
+        $rawEvidenceObjectKeySeekCount = @($rawObservationObjectAccess | Where-Object {
+            [string]$_.physicalOperation -match 'Seek' -and
+            ([string]$_.index).Trim('[', ']') -eq 'PK_MesIngest_DemandRawObservations'
+        }).Count
+        $unrelatedHistoryScanCount = @(
+            @($pollTraceObjectAccess) + @($rawObservationObjectAccess) |
+                Where-Object { [string]$_.physicalOperation -match 'Scan' }
+        ).Count
+        $objectKeySeekComplete = if ($surfaceName -eq 'PollTrace') {
+            $pollTraceObjectKeySeekCount -gt 0 -and $rawEvidenceObjectKeySeekCount -gt 0 -and
+                $unrelatedHistoryScanCount -eq 0
+        } elseif ($surfaceName -eq 'RawEvidence') {
+            $rawEvidenceObjectKeySeekCount -gt 0 -and $unrelatedHistoryScanCount -eq 0
+        } else { $true }
+        $earliestIdentityComplete = $true
+        if ($surfaceName -eq 'PollTrace') {
+            $boundaryIdentities = @($surfaceSamples | ForEach-Object {
+                $body = $_.body | ConvertFrom-Json
+                if ($null -eq $body.historyEpoch -or $null -eq $body.earliestAvailableHostUtc) {
+                    return $null
+                }
+                ([guid]$body.historyEpoch).ToString('D') + '|' +
+                    ([DateTimeOffset]$body.earliestAvailableHostUtc).ToUniversalTime().ToString('O')
+            } | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            $persistedBoundaryIdentity = ([guid]$persistedHistoricalBoundary.historyEpoch).ToString('D') + '|' +
+                ([DateTimeOffset]$persistedHistoricalBoundary.earliestAvailableHostUtc).ToUniversalTime().ToString('O')
+            $earliestIdentityComplete = $boundaryIdentities.Count -eq $surfaceSamples.Count -and
+                @($boundaryIdentities | Select-Object -Unique).Count -eq 1 -and
+                $boundaryIdentities[0] -eq $persistedBoundaryIdentity
+        }
         $rawObservationLogicalReads = Get-TotalActualLogicalReads $rawObservationRuntimeIo
         $runtimeIoCarriers = @($surfaceRuntimeIo | Where-Object {
             [string]$_.physicalOperation -match '(Scan|Seek|Lookup)'
@@ -1181,6 +1248,11 @@ ORDER BY file_name, file_offset;
                 @($surfacePlans | Where-Object { $_.spillToTempDb }).Count
             rawObservationPlanOperators = $rawObservationRuntimeIo.Count
             rawObservationLogicalReads = $rawObservationLogicalReads
+            pollTraceObjectKeySeekCount = $pollTraceObjectKeySeekCount
+            rawEvidenceObjectKeySeekCount = $rawEvidenceObjectKeySeekCount
+            unrelatedHistoryScanCount = $unrelatedHistoryScanCount
+            objectKeySeekComplete = $objectKeySeekComplete
+            earliestIdentityComplete = $earliestIdentityComplete
             planSha256 = @($surfacePlans | Select-Object -ExpandProperty planSha256 -Unique)
         })
     }
@@ -1399,7 +1471,7 @@ ORDER BY t.name, i.index_id;
             $memoryGrantGrowthPassed = $growthComparison.observedMaxGrantedMemoryKb -le
                 ($growthComparison.baselineMaxGrantedMemoryKb + 1024L)
             $growthComparison.passed = $logicalReadGrowthPassed -and $memoryGrantGrowthPassed
-            $growthFailurePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+            $growthFailurePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
             if (-not $logicalReadGrowthPassed) {
                 [void]$gateFailures.Add("$($growthFailurePrefix)_LOGICAL_READ_GROWTH")
             }
@@ -1408,7 +1480,7 @@ ORDER BY t.name, i.index_id;
             }
         } catch {
             $growthComparison.passed = $false
-            $invalidBaselinePrefix = Get-BoundedCurrentSurfaceFailurePrefix $QuerySurface
+            $invalidBaselinePrefix = Get-BoundedQuerySurfaceFailurePrefix $QuerySurface
             [void]$gateFailures.Add("INVALID_$($invalidBaselinePrefix)_BASELINE")
         }
     }

@@ -424,6 +424,97 @@ public sealed class ScaleAndQueryEvidenceGateTests
         }
     }
 
+    [Theory]
+    [InlineData("PollTrace", "POLL_TRACE", true, 2097152)]
+    [InlineData("RawEvidence", "RAW_EVIDENCE", false, 131072)]
+    public void Evidence_validator_rejects_historical_object_scans_without_sql(
+        string querySurface,
+        string failurePrefix,
+        bool requiresEarliestIdentity,
+        long maxResponseBytes)
+    {
+        var script = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1");
+        var root = Path.Combine(Path.GetTempPath(), $"mesingest-historical-gate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var fixturePath = Path.Combine(root, "fixture.json");
+        File.WriteAllText(
+            fixturePath,
+            JsonSerializer.Serialize(new
+            {
+                queries = new[]
+                {
+                    new
+                    {
+                        name = querySurface,
+                        statementCount = 1,
+                        actualPlanCount = 1,
+                        runtimeIoComplete = true,
+                        memoryGrantEvidenceComplete = true,
+                        spillCount = 0,
+                        maxGrantedMemoryKb = 0,
+                        responseBytes = 1,
+                        maxResponseBytes,
+                        objectKeySeekComplete = false,
+                        unrelatedHistoryScanCount = 1,
+                        earliestIdentityComplete = false,
+                    },
+                },
+                statementMetrics = new[] { new { logical_reads = 1 } },
+                actualPlans = new[] { new { planSha256 = new string('a', 64) } },
+                data = new { series_count = 600, raw_observations = 600 },
+                tests = new { satisfied = true },
+                build = new { sourceCommit = new string('b', 40) },
+                profile = new { canonical = true },
+            }));
+
+        try
+        {
+            var start = new ProcessStartInfo("powershell.exe")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                WorkingDirectory = RepositoryPaths.CSharpRoot,
+            };
+            foreach (var argument in new[]
+                     {
+                         "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script,
+                         "-ProfileDays", "0",
+                         "-DatabaseName", "MesIngest_Scale_HistoricalFixture",
+                         "-ConfirmIsolatedDatabase", "MESINGEST_SCALE_EVIDENCE_ONLY",
+                         "-QuerySurface", querySurface,
+                         "-ValidateEvidenceFixturePath", fixturePath,
+                     })
+            {
+                start.ArgumentList.Add(argument);
+            }
+            start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
+
+            using var process = Process.Start(start)
+                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+            var stdout = process.StandardOutput.ReadToEnd();
+            var stderr = process.StandardError.ReadToEnd();
+            Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
+            Assert.NotEqual(0, process.ExitCode);
+            var output = stdout + stderr;
+            Assert.Contains($"{failurePrefix}_OBJECT_KEY_SEEK", output, StringComparison.Ordinal);
+            Assert.Contains($"{failurePrefix}_UNRELATED_HISTORY_SCAN", output, StringComparison.Ordinal);
+            if (requiresEarliestIdentity)
+            {
+                Assert.Contains($"{failurePrefix}_EARLIEST_IDENTITY", output, StringComparison.Ordinal);
+            }
+            Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", output, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     [Fact]
     public void Percentile_validator_uses_nearest_rank_for_small_tail_samples()
     {

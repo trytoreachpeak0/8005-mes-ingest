@@ -121,7 +121,10 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
 
         // Preserve the PollTrace identity while making its formerly non-empty raw
         // evidence unavailable, as the later retention job will do.
-        await DeleteRawObservationsAsync(database.ConnectionString, expired.PollTraceId);
+        await ExpireRawObservationsAsync(
+            database.ConnectionString,
+            expired.PollTraceId,
+            earliestAvailableHostUtc);
 
         using (var expiredResponse = await client.GetAsync(
             $"/api/v2/poll-traces/{Uri.EscapeDataString(expired.PollTraceId)}"))
@@ -182,6 +185,11 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
         Assert.Contains("_ABNORMAL_MEMORY_GRANT", gate, StringComparison.Ordinal);
         Assert.Contains("_LOGICAL_READ_GROWTH", gate, StringComparison.Ordinal);
         Assert.Contains("_MEMORY_GRANT_GROWTH", gate, StringComparison.Ordinal);
+        Assert.Contains("objectKeySeekComplete", gate, StringComparison.Ordinal);
+        Assert.Contains("unrelatedHistoryScanCount", gate, StringComparison.Ordinal);
+        Assert.Contains("_OBJECT_KEY_SEEK", gate, StringComparison.Ordinal);
+        Assert.Contains("_UNRELATED_HISTORY_SCAN", gate, StringComparison.Ordinal);
+        Assert.Contains("_EARLIEST_IDENTITY", gate, StringComparison.Ordinal);
     }
 
     private static MesTaskUnionObservation InvalidDuplicateObservation() =>
@@ -239,9 +247,10 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task DeleteRawObservationsAsync(
+    private static async Task ExpireRawObservationsAsync(
         string connectionString,
-        string pollTraceId)
+        string pollTraceId,
+        DateTimeOffset earliestAvailableHostUtc)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
@@ -249,8 +258,15 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
         command.CommandText = """
             DELETE FROM mesingest.DemandRawObservations
             WHERE PollTraceId = @pollTraceId;
+
+            UPDATE mesingest.SchemaInfo
+            SET EarliestAvailableHostUtc = @earliestAvailableHostUtc
+            WHERE Id = 1;
             """;
         command.Parameters.AddWithValue("@pollTraceId", pollTraceId);
+        command.Parameters.AddWithValue(
+            "@earliestAvailableHostUtc",
+            earliestAvailableHostUtc);
         Assert.True(await command.ExecuteNonQueryAsync() > 0);
     }
 

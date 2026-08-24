@@ -19,6 +19,14 @@ public sealed partial class SqlServerMesIngestProjection
             IsolationLevel.ReadCommitted,
             cancellationToken).ConfigureAwait(false);
 
+        async Task<HistoricalObjectReadResult<PollTraceSnapshot>> CompleteUnavailableAsync(
+            HistoricalObjectAvailability availability,
+            HistoricalReadBoundary boundary)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return new(availability, boundary, Value: null);
+        }
+
         try
         {
             var boundary = await ReadHistoricalReadBoundaryAsync(
@@ -32,26 +40,22 @@ public sealed partial class SqlServerMesIngestProjection
                 cancellationToken).ConfigureAwait(false);
             if (trace is null)
             {
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return new(
+                return await CompleteUnavailableAsync(
                     HistoricalObjectAvailability.NotFound,
-                    boundary,
-                    Value: null);
+                    boundary).ConfigureAwait(false);
             }
 
             if (boundary.EarliestAvailableHostUtc is { } earliest
                 && trace.CompletedAt < earliest)
             {
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return new(
+                return await CompleteUnavailableAsync(
                     HistoricalObjectAvailability.Expired,
-                    boundary,
-                    Value: null);
+                    boundary).ConfigureAwait(false);
             }
 
             var requiresRawMultiset = string.Equals(
                 trace.Outcome,
-                "SUCCESS",
+                SuccessOutcome,
                 StringComparison.Ordinal)
                 && trace.RowCount > 0;
             var observations = !requiresRawMultiset
@@ -63,11 +67,9 @@ public sealed partial class SqlServerMesIngestProjection
                     cancellationToken).ConfigureAwait(false);
             if (requiresRawMultiset && observations.Count != trace.RowCount)
             {
-                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return new(
+                return await CompleteUnavailableAsync(
                     HistoricalObjectAvailability.Expired,
-                    boundary,
-                    Value: null);
+                    boundary).ConfigureAwait(false);
             }
 
             var protectionDecisions = trace.ProjectionCommitId is null
@@ -111,42 +113,6 @@ public sealed partial class SqlServerMesIngestProjection
             await transaction.RollbackBestEffortAsync(exception).ConfigureAwait(false);
             throw;
         }
-    }
-
-    private async Task<HistoricalReadBoundary> ReadHistoricalReadBoundaryAsync(
-        SqlConnection connection,
-        SqlTransaction transaction,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT TOP (1) p.CompletedAt
-            FROM mesingest.PollTraces AS p
-            LEFT JOIN mesingest.ProjectionCommits AS c
-                ON c.PollTraceId = p.PollTraceId
-               AND c.HistoryEpoch = @historyEpoch
-            WHERE p.Outcome <> N'SUCCESS'
-               OR p.[RowCount] = 0
-               OR
-               (
-                   c.ProjectionCommitId IS NOT NULL
-                   AND CONVERT(BIGINT, p.[RowCount]) =
-                       (SELECT COUNT_BIG(*)
-                        FROM mesingest.DemandRawObservations AS o
-                        WHERE o.PollTraceId = p.PollTraceId
-                          AND o.ProjectionCommitId = c.ProjectionCommitId)
-               )
-            ORDER BY p.CompletedAt, p.PollTraceId;
-            """;
-        command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
-            _historyEpoch.Value;
-        var value = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        return new HistoricalReadBoundary(
-            _historyEpoch,
-            value is null or DBNull
-                ? null
-                : ((DateTimeOffset)value).ToUniversalTime());
     }
 
     private static async Task<PollTraceRow?> ReadExactPollTraceAsync(

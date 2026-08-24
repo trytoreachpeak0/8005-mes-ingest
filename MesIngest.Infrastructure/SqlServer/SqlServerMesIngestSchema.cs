@@ -157,6 +157,7 @@ internal static class SqlServerMesIngestSchema
             SnapshotTokenSigningKey VARBINARY(32) NOT NULL,
             HistoryEpoch UNIQUEIDENTIFIER NOT NULL
                 CONSTRAINT UQ_MesIngest_SchemaInfo_HistoryEpoch UNIQUE,
+            EarliestAvailableHostUtc DATETIMEOFFSET(7) NULL,
             CONSTRAINT CK_MesIngest_SchemaInfo_SingleRow CHECK (Id = 1),
             CONSTRAINT CK_MesIngest_SchemaInfo_SnapshotTokenSigningKeyLength
                 CHECK (DATALENGTH(SnapshotTokenSigningKey) = 32)
@@ -722,10 +723,10 @@ internal static class SqlServerMesIngestSchema
 
         INSERT INTO mesingest.SchemaInfo
             (Id, SchemaVersion, ContractVersion, TransportDemandKeyComparison,
-             SnapshotTokenSigningKey, HistoryEpoch)
+             SnapshotTokenSigningKey, HistoryEpoch, EarliestAvailableHostUtc)
         VALUES
             (1, @schemaVersion, @contractVersion, @keyComparison,
-             CRYPT_GEN_RANDOM(32), @historyEpoch);
+             CRYPT_GEN_RANDOM(32), @historyEpoch, NULL);
         """;
 
     private const string ValidateExistingSchemaSql = """
@@ -834,6 +835,7 @@ internal static class SqlServerMesIngestSchema
             (N'SchemaInfo', 4, N'TransportDemandKeyComparison', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'SchemaInfo', 5, N'SnapshotTokenSigningKey', N'varbinary', 32, 0, 0, 0, NULL),
             (N'SchemaInfo', 6, N'HistoryEpoch', N'uniqueidentifier', 16, 0, 0, 0, NULL),
+            (N'SchemaInfo', 7, N'EarliestAvailableHostUtc', N'datetimeoffset', 10, 34, 7, 1, NULL),
 
             (N'PollTraces', 1, N'PollTraceId', N'nvarchar', 256, 0, 0, 0, N'Latin1_General_100_BIN2'),
             (N'PollTraces', 2, N'PollTraceSequence', N'bigint', 8, 19, 0, 0, NULL),

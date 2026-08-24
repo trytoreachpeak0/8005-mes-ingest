@@ -1706,8 +1706,18 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             VALUES
                 (@projectionCommitId, @pollTraceId, @completedAt, @hostSessionId,
                  @restartPhaseBefore, @restartPhaseAfter, @absenceAuthority,
-                 (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1),
+                (SELECT CatalogRevision FROM mesingest.CatalogState WHERE Id = 1),
                  @historyEpoch, 0, 0);
+
+            UPDATE mesingest.SchemaInfo
+            SET EarliestAvailableHostUtc =
+                CASE
+                    WHEN EarliestAvailableHostUtc IS NULL
+                         OR @completedAt < EarliestAvailableHostUtc
+                    THEN @completedAt
+                    ELSE EarliestAvailableHostUtc
+                END
+            WHERE Id = 1;
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);
@@ -1741,6 +1751,16 @@ public sealed partial class SqlServerMesIngestProjection : IMesIngestProjection
             VALUES
                 (@pollTraceId, @queryVersion, @outcome, @startedAt, @completedAt, @rowCount, @contentDigest,
                  @diagnosticStage, @diagnosticCode, @diagnosticSafeDetail);
+
+            UPDATE mesingest.SchemaInfo
+            SET EarliestAvailableHostUtc =
+                CASE
+                    WHEN EarliestAvailableHostUtc IS NULL
+                         OR @completedAt < EarliestAvailableHostUtc
+                    THEN @completedAt
+                    ELSE EarliestAvailableHostUtc
+                END
+            WHERE Id = 1;
             """;
         AddNVarChar(command, "@pollTraceId", 128, round.PollTraceId);
         AddNVarChar(command, "@queryVersion", 128, round.QueryVersion);

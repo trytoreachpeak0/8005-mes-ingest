@@ -138,6 +138,10 @@ public sealed partial class SqlServerMesIngestProjection
         byte[] signingKey,
         CancellationToken cancellationToken)
     {
+        var historicalBoundary = await ReadHistoricalReadBoundaryAsync(
+            connection,
+            transaction,
+            cancellationToken).ConfigureAwait(false);
         ErrorSearchSnapshotReference? requested = null;
         if (query.SnapshotReference is not null
             && !ErrorSearchTokenCodec.TryReadSnapshotReference(
@@ -151,7 +155,7 @@ public sealed partial class SqlServerMesIngestProjection
 
         if (requested is not null)
         {
-            if (requested.Snapshot.HistoryEpoch != _historyEpoch)
+            if (requested.Snapshot.HistoryEpoch != historicalBoundary.HistoryEpoch)
             {
                 throw new ErrorSearchException(
                     query.Cursor is null
@@ -202,7 +206,7 @@ public sealed partial class SqlServerMesIngestProjection
                 AND HistoryEpoch = @historyEpoch;
               """;
         command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
-            _historyEpoch.Value;
+            historicalBoundary.HistoryEpoch.Value;
         if (requested is not null)
         {
             AddNVarChar(
