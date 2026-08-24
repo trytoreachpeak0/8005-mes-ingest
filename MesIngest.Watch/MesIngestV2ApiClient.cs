@@ -554,8 +554,8 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
                 contract.SchemaVersion,
                 contract.Capabilities?.Select(capability =>
                     new NewMesIngestCapabilityIdentity(
-                        capability.Id!,
-                        capability.Version!)));
+                        capability?.Id ?? string.Empty,
+                        capability?.Version ?? string.Empty)));
         }
         catch (WatchEndpointFetchException)
         {
@@ -593,7 +593,7 @@ internal sealed class MesIngestV2ApiClient : IWatchV2ApiClient
     private sealed record ContractDiscoveryPayload(
         string? ContractVersion,
         int SchemaVersion,
-        IReadOnlyList<ContractCapabilityPayload>? Capabilities);
+        IReadOnlyList<ContractCapabilityPayload?>? Capabilities);
 
     private sealed record ContractCapabilityPayload(string? Id, string? Version);
 

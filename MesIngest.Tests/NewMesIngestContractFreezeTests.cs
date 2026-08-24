@@ -92,9 +92,22 @@ public sealed class NewMesIngestContractFreezeTests
                     capability.Id == "DEMAND_SERIES"
                         ? capability with { Version = "1.0" }
                         : capability)));
+        var nullCapability = Assert.Throws<NewMesIngestContractMismatchException>(() =>
+            NewMesIngestContract.RequireExactCompatibility(
+                NewMesIngestContract.Version,
+                NewMesIngestContract.SchemaVersion,
+                capabilities.Cast<NewMesIngestCapabilityIdentity?>().Append(null)));
 
         Assert.All(
-            new[] { version, schema, missingCapability, additionalCapability, capabilityVersion },
+            new[]
+            {
+                version,
+                schema,
+                missingCapability,
+                additionalCapability,
+                capabilityVersion,
+                nullCapability,
+            },
             error => Assert.Equal("CONTRACT_VERSION_MISMATCH", error.Code));
     }
 }

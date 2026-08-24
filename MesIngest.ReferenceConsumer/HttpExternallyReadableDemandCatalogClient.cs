@@ -149,7 +149,6 @@ public sealed class HttpExternallyReadableDemandCatalogClient
         {
             throw ContractMismatch(error.Message, error);
         }
-
     }
 
     private static InvalidDataException ContractMismatch(

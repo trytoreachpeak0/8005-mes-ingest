@@ -74,6 +74,33 @@ public sealed class WatchV2ApiClientTests
     }
 
     [Fact]
+    public async Task Contract_discovery_maps_a_null_capability_to_a_stable_contract_failure()
+    {
+        using var handler = new DelegateHandler((_, _) =>
+            Task.FromResult(JsonResponse(new
+            {
+                contractVersion = NewMesIngestContract.Version,
+                schemaVersion = NewMesIngestContract.SchemaVersion,
+                capabilities = NewMesIngestContract.Capabilities
+                    .Select(capability => (object?)new
+                    {
+                        id = capability.Id,
+                        version = capability.Version,
+                    })
+                    .Append(null),
+            })));
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings("http://ticket20-host:5088", "secret", 30),
+            handler: handler);
+
+        var error = await Assert.ThrowsAsync<WatchHostQueryException>(
+            () => client.VerifyContractAsync(CancellationToken.None));
+
+        Assert.Equal(WatchHostFailureKind.Contract, error.Kind);
+        Assert.Equal(NewMesIngestContractMismatchException.ErrorCode, error.ErrorCode);
+    }
+
+    [Fact]
     public async Task Overview_normalizes_area_scope_and_decodes_one_atomic_v2_snapshot()
     {
         Uri? observed = null;

@@ -87,7 +87,7 @@ public static class NewMesIngestContract
     public static void RequireExactCompatibility(
         string? contractVersion,
         int schemaVersion,
-        IEnumerable<NewMesIngestCapabilityIdentity>? capabilities)
+        IEnumerable<NewMesIngestCapabilityIdentity?>? capabilities)
     {
         var expectedCapabilities = Capabilities
             .Select(capability => new NewMesIngestCapabilityIdentity(
@@ -96,6 +96,7 @@ public static class NewMesIngestContract
             .OrderBy(capability => capability.Id, StringComparer.Ordinal)
             .ToArray();
         var actualCapabilities = capabilities?
+            .Select(capability => capability ?? new NewMesIngestCapabilityIdentity("", ""))
             .OrderBy(capability => capability.Id, StringComparer.Ordinal)
             .ToArray()
             ?? [];
