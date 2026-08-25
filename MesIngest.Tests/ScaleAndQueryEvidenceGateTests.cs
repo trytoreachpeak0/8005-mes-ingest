@@ -155,6 +155,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
             <event name="database_file_size_change" timestamp="2026-08-25T00:00:00Z">
               <data name="file_type"><value>1</value><text>Log file</text></data>
               <data name="is_automatic"><value>1</value></data>
+              <action name="query_hash"><value>11798918993481001298</value></action>
+              <action name="sql_text"><value>/* MESINGEST_QUERY:MARK_ABSENT_VISIBLE_DEMANDS */ SELECT 1</value></action>
             </event>
             """;
         var root = Path.Combine(Path.GetTempPath(), $"mesingest-xevent-{Guid.NewGuid():N}");
@@ -166,11 +168,56 @@ public sealed class ScaleAndQueryEvidenceGateTests
             var result = RunScriptFixture("-ValidateXEventEnvelopeFixturePath", fixturePath);
             Assert.Equal(0, result.ExitCode);
             Assert.Contains("fileType=1 automatic=1", result.Output, StringComparison.Ordinal);
+            Assert.Contains("queryHash=0XA3BE2E4FAC0B6952", result.Output, StringComparison.Ordinal);
+            Assert.Contains("queryName=MARK_ABSENT_VISIBLE_DEMANDS", result.Output, StringComparison.Ordinal);
         }
         finally
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData("garbage")]
+    [InlineData("18446744073709551616")]
+    [InlineData("0x1234567890ABCDEF0")]
+    public void Stability_xevent_fixture_rejects_malformed_or_out_of_range_hashes(string queryHash)
+    {
+        var xevent = $"""
+            <event name="sort_warning" timestamp="2026-08-25T00:00:00Z">
+              <action name="query_hash"><value>{queryHash}</value></action>
+              <action name="sql_text"><value>/* MESINGEST_QUERY:MARK_ABSENT_VISIBLE_DEMANDS */ SELECT 1</value></action>
+            </event>
+            """;
+        var root = Path.Combine(Path.GetTempPath(), $"mesingest-xevent-invalid-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var fixturePath = Path.Combine(root, "invalid-hash.xel.xml");
+        File.WriteAllText(fixturePath, xevent);
+        try
+        {
+            var result = RunScriptFixture("-ValidateXEventEnvelopeFixturePath", fixturePath);
+            Assert.NotEqual(0, result.ExitCode);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Poll_projection_avoids_sql_sorts_for_bounded_demand_series_candidate_sets()
+    {
+        var source = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "MesIngest.Infrastructure",
+            "SqlServer",
+            "SqlServerMesIngestProjection.cs"));
+
+        Assert.Contains("MESINGEST_QUERY:MARK_ABSENT_VISIBLE_DEMANDS", source, StringComparison.Ordinal);
+        Assert.Contains("MESINGEST_QUERY:ARCHIVE_OVERDUE_GONE_SERIES", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ORDER BY s.SeriesId;", source, StringComparison.Ordinal);
+        Assert.Contains("visible.Sort", source, StringComparison.Ordinal);
+        Assert.Contains("candidates.Sort", source, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -195,6 +242,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
             fixture => fixture["resources"]!["spillDiagnostics"]![0]!["count"] = 2,
             fixture => fixture["latency"]!["spillCorrelations"]![0]!["queryHash"] = "0xORPHAN",
             fixture => fixture["latency"]!["spillCorrelations"]![0]!["firstSampleStartedAt"] = "2026-08-25T00:06:00Z",
+            fixture => fixture["resources"]!["spillDiagnostics"]![0]!["queryName"] = null,
+            fixture => fixture["latency"]!["spillCorrelations"]![0]!["queryName"] = "OTHER_QUERY",
+            fixture => fixture["resources"]!["spillDiagnostics"]![0]!["queryHash"] = "garbage",
         };
         foreach (var mutate in cases)
         {
@@ -832,8 +882,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 warningEvent = "sort_warning",
                 @operator = "Sort/Sort",
                 node_id = "7",
-                queryHash = "0x1111",
-                queryPlanHash = "0x2222",
+                queryName = "MARK_ABSENT_VISIBLE_DEMANDS",
+                queryHash = "0X0000000000001111",
+                queryPlanHash = "0X0000000000002222",
                 apiSurfaces = new[] { "DemandSeriesDefault" },
                 count = 1,
                 firstOccurredAt = "2026-08-25T00:05:00Z",
@@ -849,8 +900,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 workloadStage = "stable",
                 cleanupPhase = "RUNNING",
                 warningEvent = "sort_warning",
-                queryHash = "0x1111",
-                queryPlanHash = "0x2222",
+                queryName = "MARK_ABSENT_VISIBLE_DEMANDS",
+                queryHash = "0X0000000000001111",
+                queryPlanHash = "0X0000000000002222",
                 nodeId = "7",
                 firstOccurredAt = "2026-08-25T00:05:00Z",
                 lastOccurredAt = "2026-08-25T00:05:00Z",

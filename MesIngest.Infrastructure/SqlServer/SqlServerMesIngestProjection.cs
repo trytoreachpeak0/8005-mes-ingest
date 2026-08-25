@@ -3193,6 +3193,7 @@ public sealed partial class SqlServerMesIngestProjection :
         {
             command.Transaction = transaction;
             command.CommandText = """
+                /* MESINGEST_QUERY:MARK_ABSENT_VISIBLE_DEMANDS */
                 SELECT s.KeyToken, s.WorkType, s.SeriesId, d.DemandId, d.Generation, d.DemandLastSeenAt
                 FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
                 INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
@@ -3203,7 +3204,6 @@ public sealed partial class SqlServerMesIngestProjection :
                    OR (s.Lifecycle = N'ARCHIVED'
                        AND s.CurrentPresence = N'LONG_GONE_BUT_VISIBLE'
                        AND d.Status = N'LONG_GONE_BUT_VISIBLE')
-                ORDER BY s.SeriesId;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -3221,6 +3221,8 @@ public sealed partial class SqlServerMesIngestProjection :
                     visible.Add(row);
                 }
             }
+            visible.Sort(static (left, right) =>
+                StringComparer.Ordinal.Compare(left.SeriesId, right.SeriesId));
         }
 
         foreach (var absent in visible)
@@ -3325,6 +3327,7 @@ public sealed partial class SqlServerMesIngestProjection :
         {
             command.Transaction = transaction;
             command.CommandText = """
+                /* MESINGEST_QUERY:ARCHIVE_OVERDUE_GONE_SERIES */
                 SELECT s.WorkType, s.SeriesId, d.DemandId, d.Generation, d.GoneConfirmedAt
                 FROM mesingest.DemandSeries AS s WITH (UPDLOCK, HOLDLOCK)
                 INNER JOIN mesingest.TransportDemands AS d WITH (UPDLOCK, HOLDLOCK)
@@ -3333,7 +3336,6 @@ public sealed partial class SqlServerMesIngestProjection :
                   AND s.CurrentPresence = N'GONE'
                   AND d.Status = N'GONE'
                   AND d.GoneConfirmedAt IS NOT NULL
-                ORDER BY s.SeriesId;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -3345,6 +3347,8 @@ public sealed partial class SqlServerMesIngestProjection :
                     reader.GetInt32(3),
                     reader.GetFieldValue<DateTimeOffset>(4)));
             }
+            candidates.Sort(static (left, right) =>
+                StringComparer.Ordinal.Compare(left.SeriesId, right.SeriesId));
         }
 
         foreach (var candidate in candidates)

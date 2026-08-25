@@ -752,13 +752,16 @@ function Get-AcceleratedStabilityResult {
                 @($spillCorrelations | Where-Object {
                     -not (Test-EvidenceProperties $_ @(
                         'surface', 'processGeneration', 'workloadStage', 'cleanupPhase',
-                        'warningEvent', 'queryHash', 'queryPlanHash', 'nodeId',
+                        'warningEvent', 'queryName', 'queryHash', 'queryPlanHash', 'nodeId',
                         'firstOccurredAt', 'lastOccurredAt',
                         'firstSampleStartedAt', 'lastSampleCompletedAt', 'count')) -or
                     -not (Test-EvidenceTimestamp $_.firstOccurredAt) -or
                     -not (Test-EvidenceTimestamp $_.lastOccurredAt) -or
                     -not (Test-EvidenceTimestamp $_.firstSampleStartedAt) -or
                     -not (Test-EvidenceTimestamp $_.lastSampleCompletedAt) -or
+                    [string]$_.queryName -notmatch '^(?:[A-Z0-9_]+|UNMAPPED_WORKLOAD_QUERY)$' -or
+                    [string]$_.queryHash -cnotmatch '^0X[0-9A-F]{16}$' -or
+                    [string]$_.queryPlanHash -cnotmatch '^0X[0-9A-F]{16}$' -or
                     [DateTimeOffset]::Parse([string]$_.firstSampleStartedAt) -gt
                         [DateTimeOffset]::Parse([string]$_.firstOccurredAt) -or
                     [DateTimeOffset]::Parse([string]$_.lastSampleCompletedAt) -lt
@@ -769,6 +772,7 @@ function Get-AcceleratedStabilityResult {
                     $matchingCorrelations = @($spillCorrelations | Where-Object {
                         [string]$_.surface -ceq [string]$surface -and
                         [string]$_.warningEvent -ceq [string]$spillDiagnostic.warningEvent -and
+                        [string]$_.queryName -ceq [string]$spillDiagnostic.queryName -and
                         [string]$_.queryHash -ceq [string]$spillDiagnostic.queryHash -and
                         [string]$_.queryPlanHash -ceq [string]$spillDiagnostic.queryPlanHash -and
                         [string]$_.nodeId -ceq [string]$spillDiagnostic.node_id
@@ -800,6 +804,7 @@ function Get-AcceleratedStabilityResult {
             foreach ($spillCorrelation in $spillCorrelations) {
                 if (@($resources.spillDiagnostics | Where-Object {
                         [string]$_.warningEvent -ceq [string]$spillCorrelation.warningEvent -and
+                        [string]$_.queryName -ceq [string]$spillCorrelation.queryName -and
                         [string]$_.queryHash -ceq [string]$spillCorrelation.queryHash -and
                         [string]$_.queryPlanHash -ceq [string]$spillCorrelation.queryPlanHash -and
                         [string]$_.node_id -ceq [string]$spillCorrelation.nodeId -and
@@ -992,12 +997,13 @@ function Get-AcceleratedStabilityResult {
             $diagnosticSpillCount -ne [long]$resources.spillCount -or
             @($spillDiagnostics | Where-Object {
                 -not (Test-EvidenceProperties $_ @(
-                    'warningEvent', 'operator', 'node_id', 'queryHash', 'queryPlanHash',
+                    'warningEvent', 'operator', 'node_id', 'queryName', 'queryHash', 'queryPlanHash',
                     'apiSurfaces', 'count', 'firstOccurredAt', 'lastOccurredAt')) -or
                 [string]::IsNullOrWhiteSpace([string]$_.operator) -or
                 [string]::IsNullOrWhiteSpace([string]$_.node_id) -or
-                [string]::IsNullOrWhiteSpace([string]$_.queryHash) -or
-                [string]::IsNullOrWhiteSpace([string]$_.queryPlanHash) -or
+                [string]$_.queryName -notmatch '^(?:[A-Z0-9_]+|UNMAPPED_WORKLOAD_QUERY)$' -or
+                [string]$_.queryHash -cnotmatch '^0X[0-9A-F]{16}$' -or
+                [string]$_.queryPlanHash -cnotmatch '^0X[0-9A-F]{16}$' -or
                 @($_.apiSurfaces).Count -eq 0 -or [long]$_.count -le 0 -or
                 -not (Test-EvidenceTimestamp $_.firstOccurredAt) -or
                 -not (Test-EvidenceTimestamp $_.lastOccurredAt)
@@ -2263,12 +2269,48 @@ function Get-CapacityPrerequisiteEvidence {
     }
 }
 
+function Convert-XEventHashToCanonicalHex {
+    param([AllowEmptyString()][string] $Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return '' }
+    $trimmed = $Value.Trim()
+    if ($trimmed -match '^(?i)0x[0-9a-f]{1,16}$') {
+        return '0X' + $trimmed.Substring(2).PadLeft(16, '0').ToUpperInvariant()
+    }
+    $numeric = [UInt64]0
+    if ([UInt64]::TryParse(
+        $trimmed,
+        [Globalization.NumberStyles]::Integer,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$numeric)) {
+        return '0X' + $numeric.ToString('X16', [Globalization.CultureInfo]::InvariantCulture)
+    }
+    return ''
+}
+
+function Get-SpillQueryName {
+    param([AllowEmptyString()][string] $SqlText)
+    if ([string]::IsNullOrWhiteSpace($SqlText)) { return 'UNMAPPED_WORKLOAD_QUERY' }
+    $match = [regex]::Match(
+        $SqlText,
+        '/\*\s*MESINGEST_QUERY:([A-Z0-9_]+)\s*\*/',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    return $(if ($match.Success) { $match.Groups[1].Value } else { 'UNMAPPED_WORKLOAD_QUERY' })
+}
+
 if (-not [string]::IsNullOrWhiteSpace($ValidateXEventEnvelopeFixturePath)) {
     $xeventEnvelope = Read-XEventEnvelope `
         (Get-Content -Raw -LiteralPath $ValidateXEventEnvelopeFixturePath)
-    Write-Output ('MESINGEST_XEVENT_ENVELOPE_FIXTURE: fileType={0} automatic={1}' -f
+    $fixtureQueryHash = Convert-XEventHashToCanonicalHex `
+        ([string]$xeventEnvelope.Values['query_hash'])
+    if ($xeventEnvelope.Values.ContainsKey('query_hash') -and
+        [string]::IsNullOrWhiteSpace($fixtureQueryHash)) {
+        throw 'XEvent fixture query_hash is malformed or outside UInt64.'
+    }
+    Write-Output ('MESINGEST_XEVENT_ENVELOPE_FIXTURE: fileType={0} automatic={1} queryHash={2} queryName={3}' -f
         [string]$xeventEnvelope.Values['file_type'],
-        [string]$xeventEnvelope.Values['is_automatic'])
+        [string]$xeventEnvelope.Values['is_automatic'],
+        $fixtureQueryHash,
+        (Get-SpillQueryName ([string]$xeventEnvelope.Values['sql_text'])))
     exit 0
 }
 
@@ -3922,11 +3964,11 @@ ADD EVENT sqlserver.error_reported
 ),
 ADD EVENT sqlserver.sort_warning
 (
-    ACTION(sqlserver.client_app_name, sqlserver.query_hash, sqlserver.query_plan_hash)
+    ACTION(sqlserver.client_app_name, sqlserver.query_hash, sqlserver.query_plan_hash, sqlserver.sql_text)
 ),
 ADD EVENT sqlserver.hash_warning
 (
-    ACTION(sqlserver.client_app_name, sqlserver.query_hash, sqlserver.query_plan_hash)
+    ACTION(sqlserver.client_app_name, sqlserver.query_hash, sqlserver.query_plan_hash, sqlserver.sql_text)
 ),
 ADD EVENT sqlserver.database_file_size_change
 (
@@ -4208,11 +4250,14 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
             $spillEnvelope = Read-XEventEnvelope ([string]$spillEvent.event_xml)
             $spillValues = $spillEnvelope.Values
             $queryHash = if ($spillValues.ContainsKey('query_hash')) {
-                ([string]$spillValues['query_hash']).ToUpperInvariant()
+                Convert-XEventHashToCanonicalHex ([string]$spillValues['query_hash'])
             } else { '' }
             $queryPlanHash = if ($spillValues.ContainsKey('query_plan_hash')) {
-                ([string]$spillValues['query_plan_hash']).ToUpperInvariant()
+                Convert-XEventHashToCanonicalHex ([string]$spillValues['query_plan_hash'])
             } else { '' }
+            $queryName = Get-SpillQueryName $(if ($spillValues.ContainsKey('sql_text')) {
+                [string]$spillValues['sql_text']
+            } else { '' })
             $nodeId = if ($spillValues.ContainsKey('query_operation_node_id')) {
                 [string]$spillValues['query_operation_node_id']
             } else { $null }
@@ -4239,6 +4284,7 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
                 warningEvent = [string]$spillEvent.object_name
                 operator = $resolvedOperator
                 node_id = $nodeId
+                queryName = $queryName
                 queryHash = $queryHash; queryPlanHash = $queryPlanHash
                 grantedMemoryKb = if ($spillValues.ContainsKey('granted_memory_kb')) { [long]$spillValues['granted_memory_kb'] } else { $null }
                 usedMemoryKb = if ($spillValues.ContainsKey('used_memory_kb')) { [long]$spillValues['used_memory_kb'] } else { $null }
@@ -4248,14 +4294,15 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
             })
         }
         $spillDiagnostics = @($spillEventDetails | Group-Object {
-            '{0}|{1}|{2}|{3}|{4}|{5}' -f [string]$_.warningEvent, [string]$_.operator,
-                [string]$_.node_id, [string]$_.queryHash, [string]$_.queryPlanHash,
+            '{0}|{1}|{2}|{3}|{4}|{5}|{6}' -f [string]$_.warningEvent, [string]$_.operator,
+                [string]$_.node_id, [string]$_.queryName, [string]$_.queryHash, [string]$_.queryPlanHash,
                 (@($_.apiSurfaces) -join ',')
         } | ForEach-Object {
             $first = $_.Group[0]
             [pscustomobject][ordered]@{
                 warningEvent = [string]$first.warningEvent
                 operator = [string]$first.operator; node_id = $first.node_id
+                queryName = [string]$first.queryName
                 firstOccurredAt = [string](@($_.Group | Sort-Object capturedAt | Select-Object -First 1).capturedAt)
                 lastOccurredAt = [string](@($_.Group | Sort-Object capturedAt | Select-Object -Last 1).capturedAt)
                 queryHash = [string]$first.queryHash; queryPlanHash = [string]$first.queryPlanHash
@@ -4269,7 +4316,9 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
             }
         })
         $spillDiagnosticsComplete = $spillCount -eq 0 -or @($spillEventDetails | Where-Object {
-            [string]::IsNullOrWhiteSpace([string]$_.queryHash) -or
+            [string]$_.queryName -notmatch '^(?:[A-Z0-9_]+|UNMAPPED_WORKLOAD_QUERY)$' -or
+            [string]$_.queryHash -cnotmatch '^0X[0-9A-F]{16}$' -or
+            [string]$_.queryPlanHash -cnotmatch '^0X[0-9A-F]{16}$' -or
             [string]::IsNullOrWhiteSpace([string]$_.node_id) -or
             [string]::IsNullOrWhiteSpace([string]$_.operator) -or @($_.apiSurfaces).Count -eq 0
         }).Count -eq 0
@@ -4383,6 +4432,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                         workloadStage = [string]$latencySample.workloadStage
                         cleanupPhase = [string]$latencySample.cleanupPhase
                         warningEvent = [string]$spillEventDetail.warningEvent
+                        queryName = [string]$spillEventDetail.queryName
                         queryHash = [string]$spillEventDetail.queryHash
                         queryPlanHash = [string]$spillEventDetail.queryPlanHash
                         nodeId = [string]$spillEventDetail.node_id
@@ -4394,16 +4444,17 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             }
         }
         $spillCorrelations = @($rawSpillCorrelations | Group-Object {
-            '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}' -f [string]$_.surface,
+            '{0}|{1}|{2}|{3}|{4}|{5}|{6}|{7}|{8}' -f [string]$_.surface,
                 [int]$_.processGeneration, [string]$_.workloadStage, [string]$_.cleanupPhase,
-                [string]$_.warningEvent, [string]$_.queryHash,
+                [string]$_.warningEvent, [string]$_.queryName, [string]$_.queryHash,
                 [string]$_.queryPlanHash, [string]$_.nodeId
         } | ForEach-Object {
             $first = $_.Group[0]
             [pscustomobject][ordered]@{
                 surface = [string]$first.surface; processGeneration = [int]$first.processGeneration
                 workloadStage = [string]$first.workloadStage; cleanupPhase = [string]$first.cleanupPhase
-                warningEvent = [string]$first.warningEvent; queryHash = [string]$first.queryHash
+                warningEvent = [string]$first.warningEvent; queryName = [string]$first.queryName
+                queryHash = [string]$first.queryHash
                 queryPlanHash = [string]$first.queryPlanHash; nodeId = [string]$first.nodeId
                 firstOccurredAt = [string](@($_.Group | Sort-Object occurredAt | Select-Object -First 1).occurredAt)
                 lastOccurredAt = [string](@($_.Group | Sort-Object occurredAt | Select-Object -Last 1).occurredAt)
