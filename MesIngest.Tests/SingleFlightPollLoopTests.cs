@@ -1,9 +1,41 @@
 using MesIngest.Core;
+using MesIngest.Core.SeriesProjection;
 
 namespace MesIngest.Tests;
 
 public class SingleFlightPollLoopTests
 {
+    [Fact]
+    public void Observed_start_extension_preserves_the_existing_public_signatures()
+    {
+        var receiptParameters = new[]
+        {
+            typeof(string),
+            typeof(MesTaskUnionRoundOutcome),
+            typeof(string),
+            typeof(IReadOnlyList<string>),
+            typeof(IReadOnlyList<string>),
+            typeof(bool),
+            typeof(long?),
+            typeof(HistoryEpoch),
+        };
+
+        Assert.NotNull(typeof(RoundCommitReceipt).GetConstructor(receiptParameters));
+        Assert.Contains(
+            typeof(RoundCommitReceipt).GetMethods(),
+            method => method.Name == "Deconstruct"
+                && method.GetParameters().Length == receiptParameters.Length);
+
+        var legacyRunMethods = typeof(SingleFlightPollLoop)
+            .GetMethods()
+            .Where(method => method.Name == nameof(SingleFlightPollLoop.RunAsync))
+            .Where(method => method.GetParameters().Length == 5)
+            .Select(method => method.GetParameters()[0].ParameterType)
+            .ToArray();
+        Assert.Contains(typeof(Func<CancellationToken, Task>), legacyRunMethods);
+        Assert.Contains(typeof(Func<CancellationToken, Task<bool>>), legacyRunMethods);
+    }
+
     [Fact]
     public void Production_defaults_are_sixty_second_start_slots_with_60_120_300_failure_backoff()
     {
@@ -53,6 +85,46 @@ public class SingleFlightPollLoopTests
             ],
             starts);
         Assert.Equal([TimeSpan.FromSeconds(50), TimeSpan.FromSeconds(45)], delays);
+    }
+
+    [Fact]
+    public async Task Priority_gate_delay_uses_the_observed_source_start_without_a_catch_up_burst()
+    {
+        var now = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        var observedStart = (DateTimeOffset?)null;
+        var sourceStarts = new List<DateTimeOffset>();
+        var delays = new List<TimeSpan>();
+        using var cts = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                if (sourceStarts.Count == 0)
+                {
+                    now += TimeSpan.FromSeconds(40);
+                }
+                observedStart = now;
+                sourceStarts.Add(now);
+                now += TimeSpan.FromSeconds(5);
+                if (sourceStarts.Count == 2)
+                {
+                    cts.Cancel();
+                }
+                return Task.FromResult(true);
+            },
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cts.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                delays.Add(wait);
+                now += wait;
+                return Task.CompletedTask;
+            },
+            roundStartedAt: () => observedStart);
+
+        Assert.Equal(TimeSpan.FromSeconds(60), sourceStarts[1] - sourceStarts[0]);
+        Assert.Equal([TimeSpan.FromSeconds(55)], delays);
     }
 
     [Fact]

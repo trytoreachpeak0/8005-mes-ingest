@@ -18,7 +18,22 @@ public static class SingleFlightPollLoop
         TimeSpan pollStartInterval,
         CancellationToken cancellationToken,
         Func<DateTimeOffset>? utcNow = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null) =>
+        await RunAsync(
+            runRound,
+            pollStartInterval,
+            cancellationToken,
+            utcNow,
+            delay,
+            roundStartedAt: null).ConfigureAwait(false);
+
+    public static async Task RunAsync(
+        Func<CancellationToken, Task> runRound,
+        TimeSpan pollStartInterval,
+        CancellationToken cancellationToken,
+        Func<DateTimeOffset>? utcNow,
+        Func<TimeSpan, CancellationToken, Task>? delay,
+        Func<DateTimeOffset?>? roundStartedAt)
     {
         ArgumentNullException.ThrowIfNull(runRound);
         await RunAsync(
@@ -30,7 +45,8 @@ public static class SingleFlightPollLoop
             pollStartInterval,
             cancellationToken,
             utcNow,
-            delay).ConfigureAwait(false);
+            delay,
+            roundStartedAt).ConfigureAwait(false);
     }
 
     public static async Task RunAsync(
@@ -38,7 +54,22 @@ public static class SingleFlightPollLoop
         TimeSpan pollStartInterval,
         CancellationToken cancellationToken,
         Func<DateTimeOffset>? utcNow = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null) =>
+        await RunAsync(
+            runRound,
+            pollStartInterval,
+            cancellationToken,
+            utcNow,
+            delay,
+            roundStartedAt: null).ConfigureAwait(false);
+
+    public static async Task RunAsync(
+        Func<CancellationToken, Task<bool>> runRound,
+        TimeSpan pollStartInterval,
+        CancellationToken cancellationToken,
+        Func<DateTimeOffset>? utcNow,
+        Func<TimeSpan, CancellationToken, Task>? delay,
+        Func<DateTimeOffset?>? roundStartedAt)
     {
         ArgumentNullException.ThrowIfNull(runRound);
         if (pollStartInterval <= TimeSpan.Zero)
@@ -78,7 +109,13 @@ public static class SingleFlightPollLoop
             if (succeeded)
             {
                 consecutiveFailures = 0;
-                nextScheduledStart = scheduledStart + pollStartInterval;
+                var observedStart = roundStartedAt?.Invoke();
+                var cadenceStart = observedStart is not null
+                    && observedStart.Value >= scheduledStart
+                    && observedStart.Value <= completedAt
+                        ? observedStart.Value
+                        : scheduledStart;
+                nextScheduledStart = cadenceStart + pollStartInterval;
                 while (nextScheduledStart <= completedAt)
                 {
                     nextScheduledStart += pollStartInterval;

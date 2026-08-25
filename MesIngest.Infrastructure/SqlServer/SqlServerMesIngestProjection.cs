@@ -253,7 +253,8 @@ public sealed partial class SqlServerMesIngestProjection :
                     ProjectionCommitId: null,
                     SeriesIds: [],
                     DemandIds: [],
-                    IsReplay: false);
+                    IsReplay: false)
+                { StartedAt = round.StartedAt };
             }
 
             var hostSession = await LoadHostSessionForUpdateAsync(
@@ -596,7 +597,8 @@ public sealed partial class SqlServerMesIngestProjection :
                 StableDistinct(demandIds),
                 IsReplay: false,
                 projectionSequence,
-                _historyEpoch);
+                _historyEpoch)
+            { StartedAt = round.StartedAt };
         }
         catch (Exception exception)
         {
@@ -1605,7 +1607,8 @@ public sealed partial class SqlServerMesIngestProjection :
                 ProjectionCommitId: null,
                 SeriesIds: [],
                 DemandIds: [],
-                IsReplay: true);
+                IsReplay: true)
+            { StartedAt = existing.StartedAt };
         }
 
         var seriesIds = new List<string>();
@@ -1667,7 +1670,8 @@ public sealed partial class SqlServerMesIngestProjection :
             StableDistinct(demandIds),
             IsReplay: true,
             existing.ProjectionSequence,
-            historyEpoch);
+            historyEpoch)
+        { StartedAt = existing.StartedAt };
     }
 
     private static IReadOnlyList<string> StableDistinct(IReadOnlyList<string> values)

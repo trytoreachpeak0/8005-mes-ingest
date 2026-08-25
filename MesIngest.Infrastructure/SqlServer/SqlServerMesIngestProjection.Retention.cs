@@ -172,7 +172,8 @@ public sealed partial class SqlServerMesIngestProjection
                         trace.PollTraceId,
                         trace.CompletedAt,
                         CONVERT(BIGINT, trace.[RowCount]) AS ObservationCount
-                    FROM mesingest.PollTraces AS trace WITH (UPDLOCK, HOLDLOCK)
+                    FROM mesingest.PollTraces AS trace WITH
+                        (UPDLOCK, HOLDLOCK, INDEX(IX_MesIngest_PollTraces_RawRetentionDue))
                     WHERE trace.RawObservationsExpiredAt IS NULL
                       AND trace.CompletedAt <= @cutoff
                     ORDER BY trace.CompletedAt, trace.PollTraceId
@@ -190,9 +191,7 @@ public sealed partial class SqlServerMesIngestProjection
                 INSERT INTO @expired (PollTraceId)
                 SELECT PollTraceId
                 FROM Ranked
-                WHERE RunningRows <= @maximumRawObservationRows
-                ORDER BY CompletedAt, PollTraceId
-                OPTION (MIN_GRANT_PERCENT = 1.0);
+                WHERE RunningRows <= @maximumRawObservationRows;
 
                 DECLARE @expiredPollTraceCount INT = @@ROWCOUNT;
 

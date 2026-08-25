@@ -72,6 +72,57 @@ public sealed class MesTaskUnionPollRunnerTests
         Assert.Equal(stoppedAt, source.Calls);
     }
 
+    [Fact]
+    public async Task Hosted_service_anchors_cadence_to_the_receipt_start_after_priority_gate_delay()
+    {
+        var source = new RepeatingRoundSource();
+        var projection = new RecordingProjection();
+        var priorityGate = new IngestWorkPriorityGate();
+        using var cleanupLease = Assert.IsAssignableFrom<IDisposable>(priorityGate.TryEnterCleanup());
+        using var service = new MesTaskUnionPollHostedService(
+            new StoragePressureGuardedPollRunner(
+                new MesTaskUnionPollRunner(source, new RoundIngestor(projection)),
+                new AllowStoragePressurePollGate()),
+            new MesIngestHostOptions
+            {
+                ContinuousPollEnabled = true,
+                PollStartIntervalSeconds = 1,
+            },
+            NullLogger<MesTaskUnionPollHostedService>.Instance,
+            priorityGate);
+
+        IReadOnlyList<DateTimeOffset> starts;
+        var started = false;
+        try
+        {
+            await service.StartAsync(CancellationToken.None);
+            started = true;
+            await Task.Delay(800);
+            cleanupLease.Dispose();
+            await source.WaitForCallsAsync(2, TimeSpan.FromSeconds(5));
+            starts = source.Starts;
+        }
+        finally
+        {
+            if (started)
+            {
+                using var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await service.StopAsync(stopTimeout.Token);
+                }
+                catch (OperationCanceledException) when (stopTimeout.IsCancellationRequested)
+                {
+                    // Dispose below still cancels the BackgroundService if a loaded machine
+                    // cannot complete the ordinary stop inside the independent test timeout.
+                }
+            }
+        }
+
+        Assert.True(starts.Count >= 2);
+        Assert.InRange((starts[1] - starts[0]).TotalMilliseconds, 800, 4000);
+    }
+
     private static MesTaskUnionRound CreateRound(
         MesTaskUnionRoundOutcome outcome,
         string pollTraceId)
@@ -108,13 +159,30 @@ public sealed class MesTaskUnionPollRunnerTests
     private sealed class RepeatingRoundSource : IMesTaskUnionRoundSource
     {
         private int _calls;
+        private readonly object _sync = new();
+        private readonly List<DateTimeOffset> _starts = [];
         public int Calls => Volatile.Read(ref _calls);
+        public IReadOnlyList<DateTimeOffset> Starts
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _starts.ToArray();
+                }
+            }
+        }
 
         public Task<MesTaskUnionRound> ReadRoundAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var call = Interlocked.Increment(ref _calls);
-            return Task.FromResult(CreateRound(MesTaskUnionRoundOutcome.Success, $"host-poll-{call}"));
+            var round = CreateRound(MesTaskUnionRoundOutcome.Success, $"host-poll-{call}");
+            lock (_sync)
+            {
+                _starts.Add(round.StartedAt);
+            }
+            return Task.FromResult(round);
         }
 
         public async Task WaitForCallsAsync(int expected, TimeSpan timeout)
@@ -161,7 +229,8 @@ public sealed class MesTaskUnionPollRunnerTests
                 round.Outcome is MesTaskUnionRoundOutcome.Success ? "commit" : null,
                 [],
                 [],
-                false));
+                false)
+            { StartedAt = round.StartedAt });
         }
 
         public Task<DemandSeriesSnapshot?> GetDemandSeriesByKeyAsync(string workType, string sublot, CancellationToken cancellationToken = default) => throw new NotSupportedException();

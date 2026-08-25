@@ -100,9 +100,11 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             Assert.False(retry.IsReplay);
             Assert.NotNull(retry.ProjectionCommitId);
             Assert.NotNull(retry.ProjectionSequence);
+            Assert.Equal(retryRound.StartedAt, retry.StartedAt);
 
             var replay = await ingestor.IngestAsync(retryRound);
             Assert.True(replay.IsReplay);
+            Assert.Equal(retryRound.StartedAt, replay.StartedAt);
             Assert.Equal(retry.ProjectionCommitId, replay.ProjectionCommitId);
             Assert.Equal(retry.ProjectionSequence, replay.ProjectionSequence);
             Assert.Equal(retry.SeriesIds, replay.SeriesIds);

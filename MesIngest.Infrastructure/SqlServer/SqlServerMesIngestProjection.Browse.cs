@@ -969,20 +969,29 @@ public sealed partial class SqlServerMesIngestProjection
             (
                 SELECT
                     d.DemandId,
-                    observationCommit.ProjectionCommitId,
-                    observationCommit.ProjectionSequence,
-                    observationCommit.PollTraceId,
-                    observationCommit.CommittedAt,
-                    ROW_NUMBER() OVER
-                        (PARTITION BY d.DemandId ORDER BY observationCommit.ProjectionSequence DESC) AS ObservationRank
+                    latest.ProjectionCommitId,
+                    latest.ProjectionSequence,
+                    latest.PollTraceId,
+                    latest.CommittedAt
                 FROM EligibleDemands AS d
-                INNER JOIN mesingest.DemandRawObservations AS o ON o.DemandId = d.DemandId
-                INNER JOIN mesingest.ProjectionCommits AS observationCommit
-                    ON observationCommit.ProjectionCommitId = o.ProjectionCommitId
-                WHERE observationCommit.ProjectionSequence <= @snapshotSequence
-                GROUP BY d.DemandId, observationCommit.ProjectionCommitId,
-                    observationCommit.ProjectionSequence, observationCommit.PollTraceId,
-                    observationCommit.CommittedAt
+                CROSS APPLY
+                (
+                    SELECT TOP (1)
+                        observationCommit.ProjectionCommitId,
+                        observationCommit.ProjectionSequence,
+                        observationCommit.PollTraceId,
+                        observationCommit.CommittedAt
+                    FROM mesingest.ProjectionCommits AS observationCommit
+                    WHERE observationCommit.ProjectionSequence <= @snapshotSequence
+                      AND EXISTS
+                      (
+                          SELECT 1
+                          FROM mesingest.DemandRawObservations AS observation
+                          WHERE observation.DemandId = d.DemandId
+                            AND observation.ProjectionCommitId = observationCommit.ProjectionCommitId
+                      )
+                    ORDER BY observationCommit.ProjectionSequence DESC
+                ) AS latest
             ),
             LatestObservationFields AS
             (
@@ -997,7 +1006,6 @@ public sealed partial class SqlServerMesIngestProjection
                 INNER JOIN mesingest.DemandRawObservations AS o
                     ON o.DemandId = latest.DemandId
                    AND o.ProjectionCommitId = latest.ProjectionCommitId
-                WHERE latest.ObservationRank = 1
                 GROUP BY latest.DemandId, latest.ProjectionCommitId,
                     latest.ProjectionSequence, latest.PollTraceId, latest.CommittedAt
             ),
@@ -1100,8 +1108,7 @@ public sealed partial class SqlServerMesIngestProjection
             ) AS latest
             WHERE seriesCreated.ProjectionSequence <= @snapshotSequence
               AND s.SeriesId = @seriesId
-            ORDER BY s.StartedAt DESC, s.SeriesId
-            OPTION (MIN_GRANT_PERCENT = 1.0);
+            ORDER BY s.StartedAt DESC, s.SeriesId;
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
         AddNVarChar(command, "@seriesId", 64, seriesId);
@@ -1349,15 +1356,24 @@ public sealed partial class SqlServerMesIngestProjection
             ),
             LatestObservations AS
             (
-                SELECT e.DemandId, c.ProjectionCommitId, c.PollTraceId,
-                    c.ProjectionSequence, c.CommittedAt,
-                    ROW_NUMBER() OVER (PARTITION BY e.DemandId ORDER BY c.ProjectionSequence DESC) AS rn
+                SELECT e.DemandId, latest.ProjectionCommitId, latest.PollTraceId,
+                    latest.ProjectionSequence, latest.CommittedAt
                 FROM Eligible AS e
-                INNER JOIN mesingest.DemandRawObservations AS o ON o.DemandId = e.DemandId
-                INNER JOIN mesingest.ProjectionCommits AS c ON c.ProjectionCommitId = o.ProjectionCommitId
-                WHERE c.ProjectionSequence <= @snapshotSequence
-                GROUP BY e.DemandId, c.ProjectionCommitId, c.PollTraceId,
-                    c.ProjectionSequence, c.CommittedAt
+                CROSS APPLY
+                (
+                    SELECT TOP (1) c.ProjectionCommitId, c.PollTraceId,
+                        c.ProjectionSequence, c.CommittedAt
+                    FROM mesingest.ProjectionCommits AS c
+                    WHERE c.ProjectionSequence <= @snapshotSequence
+                      AND EXISTS
+                      (
+                          SELECT 1
+                          FROM mesingest.DemandRawObservations AS observation
+                          WHERE observation.DemandId = e.DemandId
+                            AND observation.ProjectionCommitId = c.ProjectionCommitId
+                      )
+                    ORDER BY c.ProjectionSequence DESC
+                ) AS latest
             ),
             Gone AS
             (
@@ -1432,12 +1448,11 @@ public sealed partial class SqlServerMesIngestProjection
                 latestDemand.ProjectionCommitId,
                 latestDemand.PollTraceId
             FROM Eligible AS d
-            LEFT JOIN LatestObservations AS latest ON latest.DemandId = d.DemandId AND latest.rn = 1
+            LEFT JOIN LatestObservations AS latest ON latest.DemandId = d.DemandId
             LEFT JOIN Gone AS gone ON gone.DemandId = d.DemandId
             LEFT JOIN LatestDemandCommit AS latestDemand
                 ON latestDemand.DemandId = d.DemandId AND latestDemand.rn = 1
-            ORDER BY d.Generation
-            OPTION (MIN_GRANT_PERCENT = 1.0);
+            ORDER BY d.Generation;
             """;
         AddNVarChar(command, "@seriesId", 64, series.SeriesId);
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;

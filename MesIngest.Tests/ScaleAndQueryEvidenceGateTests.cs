@@ -221,7 +221,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
     }
 
     [Fact]
-    public void Frozen_detail_and_cleanup_queries_reserve_bounded_sort_workspace_for_the_low_memory_gate()
+    public void Frozen_detail_and_cleanup_queries_avoid_history_sorts_under_the_low_memory_gate()
     {
         var browse = File.ReadAllText(Path.Combine(
             RepositoryPaths.CSharpRoot,
@@ -236,9 +236,11 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         Assert.Contains("MESINGEST_QUERY:FROZEN_SERIES_STATE", browse, StringComparison.Ordinal);
         Assert.Contains("MESINGEST_QUERY:FROZEN_DEMAND_GENERATIONS", browse, StringComparison.Ordinal);
-        Assert.Equal(2, browse.Split("OPTION (MIN_GRANT_PERCENT = 1.0)", StringSplitOptions.None).Length - 1);
+        Assert.Equal(2, browse.Split("CROSS APPLY", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("OPTION (MIN_GRANT_PERCENT", browse, StringComparison.Ordinal);
         Assert.Contains("MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH", retention, StringComparison.Ordinal);
-        Assert.Contains("OPTION (MIN_GRANT_PERCENT = 1.0)", retention, StringComparison.Ordinal);
+        Assert.Contains("INDEX(IX_MesIngest_PollTraces_RawRetentionDue)", retention, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPTION (MIN_GRANT_PERCENT", retention, StringComparison.Ordinal);
     }
 
     [Fact]
