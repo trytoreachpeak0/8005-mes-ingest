@@ -61,7 +61,8 @@ param(
     [ValidateRange(0, 100000)] [long] $RepresentativeHistoryRounds = 0,
     [switch] $FastCapacityProjection,
     [switch] $AcceleratedConcurrencyStability,
-    [ValidateRange(30, 45)] [int] $StabilityDurationMinutes = 30,
+    [ValidateScript({ ($_ -ge 30 -and $_ -le 45) -or $_ -eq 240 -or $_ -eq 1440 })]
+    [int] $StabilityDurationMinutes = 30,
     [ValidateRange(1, 10)] [int] $AcceleratedPollStartIntervalSeconds = 1,
     [ValidateRange(1, 300)] [int] $AcceleratedCleanupCheckIntervalSeconds = 60,
     [ValidateRange(1, 100)] [int] $WarmupCount = 2,
@@ -599,13 +600,29 @@ function Get-AcceleratedStabilityResult {
         }
     }
 
+    $minimumDurationSeconds = 1800
+    $maximumDurationSeconds = 2700
+    $resourceTimelineCoverageSeconds = 0.0
+    $resourceTimelineMaximumGapSeconds = [double]::PositiveInfinity
+    $resourceTimelineSnapshotCount = 0
     $workloadComplete = Test-EvidenceProperties $workload @(
         'durationSeconds', 'seriesCount', 'initialRawObservationRows',
         'maximumRawObservationRows', 'representativeHistoryRounds', 'concurrentClients', 'operations')
     if (-not $workloadComplete) {
         [void]$failures.Add('STABILITY_WORKLOAD_EVIDENCE_INCOMPLETE')
     } else {
-        if ([int]$workload.durationSeconds -lt 1800 -or [int]$workload.durationSeconds -gt 2700) {
+        $durationSeconds = [int]$workload.durationSeconds
+        $quickDuration = $durationSeconds -ge 1800 -and $durationSeconds -le 2700
+        $fourHourDuration = $durationSeconds -ge 14400 -and $durationSeconds -le 14700
+        $twentyFourHourDuration = $durationSeconds -ge 86400 -and $durationSeconds -le 86700
+        if ($fourHourDuration) {
+            $minimumDurationSeconds = 14400
+            $maximumDurationSeconds = 14700
+        } elseif ($twentyFourHourDuration) {
+            $minimumDurationSeconds = 86400
+            $maximumDurationSeconds = 86700
+        }
+        if (-not $quickDuration -and -not $fourHourDuration -and -not $twentyFourHourDuration) {
             [void]$failures.Add('STABILITY_DURATION_OUT_OF_RANGE')
         }
         if ([int]$workload.seriesCount -ne 600 -or
@@ -633,6 +650,10 @@ function Get-AcceleratedStabilityResult {
         }
     }
 
+    $requiredSurfaces = @(
+        'Overview', 'CurrentIngestAttention', 'DemandSeriesDefault', 'DemandSeriesVisible',
+        'DemandSeriesWorkType', 'ReadabilityAudit', 'ErrorSearch',
+        'ExternallyReadableDemandCatalog', 'DemandSeriesFrozenDetail')
     if (-not (Test-EvidenceProperties $latency @(
             'sampleCount', 'p95LatencyMs', 'p99LatencyMs',
             'firstQuartileP95LatencyMs', 'lastQuartileP95LatencyMs',
@@ -644,10 +665,6 @@ function Get-AcceleratedStabilityResult {
     } else {
         if ([double]$latency.p95LatencyMs -ge 2000.0) { [void]$failures.Add('STABILITY_API_P95') }
         if ([double]$latency.p99LatencyMs -ge 5000.0) { [void]$failures.Add('STABILITY_API_P99') }
-        $requiredSurfaces = @(
-            'Overview', 'CurrentIngestAttention', 'DemandSeriesDefault', 'DemandSeriesVisible',
-            'DemandSeriesWorkType', 'ReadabilityAudit', 'ErrorSearch',
-            'ExternallyReadableDemandCatalog', 'DemandSeriesFrozenDetail')
         $surfaceSummaries = @($latency.surfaceSummaries)
         $surfaceStages = @($latency.surfaceStages)
         $phaseSummaries = @($latency.phaseSummaries)
@@ -707,7 +724,12 @@ function Get-AcceleratedStabilityResult {
                 }
             }
         }
-        if (@($phaseEvents | Where-Object { [string]$_.kind -ceq 'restart' }).Count -lt 1 -or
+        $restartEvents = @($phaseEvents | Where-Object { [string]$_.kind -ceq 'restart' })
+        $expectedRestartEventCount = if ($workloadComplete -and
+            $null -ne $workload.operations.PSObject.Properties['hostRestarts']) {
+            [long]$workload.operations.hostRestarts
+        } else { -1L }
+        if ($restartEvents.Count -ne $expectedRestartEventCount -or
             @($phaseEvents | Where-Object { [string]$_.kind -ceq 'cleanup' }).Count -lt 1 -or
             @($phaseEvents | Where-Object {
                 -not (Test-EvidenceProperties $_ @('kind', 'occurredAt', 'processGeneration', 'state')) -or
@@ -878,6 +900,131 @@ function Get-AcceleratedStabilityResult {
         if ($snapshotSchemaInvalid) {
             [void]$failures.Add('STABILITY_RESOURCE_EVIDENCE_INCOMPLETE')
         } else {
+            $resourceTimelineSnapshotCount = $resourceSnapshots.Count
+            $resourceTimelineTimes = @($resourceSnapshots | ForEach-Object {
+                [DateTimeOffset]::Parse([string]$_.capturedAt)
+            })
+            $resourceTimelineCoverageSeconds = if ($resourceTimelineTimes.Count -lt 2) {
+                0.0
+            } else {
+                ($resourceTimelineTimes[-1] - $resourceTimelineTimes[0]).TotalSeconds
+            }
+            $resourceTimelineMaximumGapSeconds = 0.0
+            $resourceTimelineOrderInvalid = $false
+            for ($timelineIndex = 1; $timelineIndex -lt $resourceTimelineTimes.Count; $timelineIndex++) {
+                $gapSeconds = ($resourceTimelineTimes[$timelineIndex] -
+                    $resourceTimelineTimes[$timelineIndex - 1]).TotalSeconds
+                if ($gapSeconds -le 0.0) { $resourceTimelineOrderInvalid = $true }
+                $resourceTimelineMaximumGapSeconds = [Math]::Max(
+                    $resourceTimelineMaximumGapSeconds, $gapSeconds)
+            }
+            if ($workloadComplete) {
+                $minimumTimelineSnapshots = [Math]::Max(
+                    4, [int][Math]::Floor($minimumDurationSeconds / 60.0) - 1)
+                $minimumTimelineCoverageSeconds = $minimumDurationSeconds - 120.0
+                if ($resourceTimelineSnapshotCount -lt $minimumTimelineSnapshots -or
+                    $resourceTimelineOrderInvalid -or
+                    $resourceTimelineMaximumGapSeconds -gt 120.0 -or
+                    $resourceTimelineCoverageSeconds -lt $minimumTimelineCoverageSeconds -or
+                    $resourceTimelineCoverageSeconds -gt ($maximumDurationSeconds + 120.0) -or
+                    [Math]::Abs($resourceTimelineCoverageSeconds - [double]$durationSeconds) -gt 120.0) {
+                    [void]$failures.Add('STABILITY_DURATION_OUT_OF_RANGE')
+                }
+
+                $validPhaseSummaries = @($latency.phaseSummaries | Where-Object {
+                    (Test-EvidenceTimestamp $_.startedAt) -and
+                    (Test-EvidenceTimestamp $_.completedAt)
+                })
+                if ($validPhaseSummaries.Count -eq 0) {
+                    [void]$failures.Add('STABILITY_LATENCY_EVIDENCE_INCOMPLETE')
+                } else {
+                    $resourceTimelineStartedAt = $resourceTimelineTimes[0]
+                    $resourceTimelineCompletedAt = $resourceTimelineTimes[-1]
+                    $phaseTimelineLowerBound = $resourceTimelineStartedAt.AddSeconds(-120.0)
+                    $phaseTimelineTailLowerBound = $resourceTimelineCompletedAt.AddSeconds(-120.0)
+                    $phaseTimelineUpperBound = $resourceTimelineCompletedAt.AddSeconds(120.0)
+                    $finalProcessGeneration = [int](($resourceSnapshots |
+                        Measure-Object -Property hostProcessGeneration -Maximum).Maximum)
+                    $firstProcessGeneration = [int](($resourceSnapshots |
+                        Measure-Object -Property hostProcessGeneration -Minimum).Minimum)
+                    $phaseTimelineInvalid = @($validPhaseSummaries | Where-Object {
+                        [DateTimeOffset]::Parse([string]$_.startedAt) -lt $phaseTimelineLowerBound -or
+                        [DateTimeOffset]::Parse([string]$_.completedAt) -gt $phaseTimelineUpperBound
+                    }).Count -gt 0
+                    foreach ($requiredSurface in $requiredSurfaces) {
+                        $surfaceTailSummaries = @($validPhaseSummaries | Where-Object {
+                            [string]$_.surface -ceq $requiredSurface -and
+                            [int]$_.processGeneration -eq $finalProcessGeneration -and
+                            [string]$_.workloadStage -ceq 'stable' -and
+                            [DateTimeOffset]::Parse([string]$_.completedAt) -ge
+                                $phaseTimelineTailLowerBound -and
+                            [DateTimeOffset]::Parse([string]$_.completedAt) -le
+                                $phaseTimelineUpperBound
+                        })
+                        if ($surfaceTailSummaries.Count -eq 0) { $phaseTimelineInvalid = $true }
+                    }
+
+                    $frozenTargetTimestampValid =
+                        (Test-EvidenceTimestamp $behavior.frozenTargetCapturedAt)
+                    if (-not $frozenTargetTimestampValid) {
+                        $phaseTimelineInvalid = $true
+                    } else {
+                        $frozenStableAt = [DateTimeOffset]::Parse(
+                            [string]$behavior.frozenTargetCapturedAt).AddMinutes(2)
+                        if ($frozenStableAt -gt $phaseTimelineUpperBound -or
+                            [DateTimeOffset]::Parse([string]$behavior.frozenTargetCapturedAt) -lt
+                                $phaseTimelineLowerBound) {
+                            $phaseTimelineInvalid = $true
+                        }
+                        foreach ($stablePhaseSummary in @($validPhaseSummaries | Where-Object {
+                                [string]$_.workloadStage -ceq 'stable'
+                            })) {
+                            $stableAnchor = $frozenStableAt
+                            $matchingRestart = @($latency.phaseEvents | Where-Object {
+                                [string]$_.kind -ceq 'restart' -and
+                                [int]$_.processGeneration -eq
+                                    [int]$stablePhaseSummary.processGeneration -and
+                                (Test-EvidenceTimestamp $_.occurredAt)
+                            })
+                            if ([int]$stablePhaseSummary.processGeneration -ne
+                                $firstProcessGeneration -and $matchingRestart.Count -ne 1) {
+                                $phaseTimelineInvalid = $true
+                            } elseif ($matchingRestart.Count -eq 1) {
+                                $restartStableAt = [DateTimeOffset]::Parse(
+                                    [string]$matchingRestart[0].occurredAt).AddMinutes(2)
+                                $generationFirstResourceAt = @($resourceSnapshots | Where-Object {
+                                    [int]$_.hostProcessGeneration -eq
+                                        [int]$stablePhaseSummary.processGeneration
+                                } | Sort-Object {
+                                    [DateTimeOffset]::Parse([string]$_.capturedAt)
+                                } | Select-Object -First 1)
+                                $restartLeadSeconds = if ($generationFirstResourceAt.Count -ne 1) {
+                                    -1.0
+                                } else {
+                                    ([DateTimeOffset]::Parse(
+                                        [string]$generationFirstResourceAt[0].capturedAt) -
+                                     [DateTimeOffset]::Parse(
+                                        [string]$matchingRestart[0].occurredAt)).TotalSeconds
+                                }
+                                if ($restartLeadSeconds -lt 0.0 -or
+                                    $restartLeadSeconds -gt 120.0) {
+                                    $phaseTimelineInvalid = $true
+                                }
+                                if ($restartStableAt -gt $stableAnchor) {
+                                    $stableAnchor = $restartStableAt
+                                }
+                            }
+                            if ([DateTimeOffset]::Parse([string]$stablePhaseSummary.startedAt) -lt
+                                $stableAnchor) {
+                                $phaseTimelineInvalid = $true
+                            }
+                        }
+                    }
+                    if ($phaseTimelineInvalid) {
+                        [void]$failures.Add('STABILITY_LATENCY_EVIDENCE_INCOMPLETE')
+                    }
+                }
+            }
             $computedHostTrend = Get-StableHostGenerationTrend $resourceSnapshots
             $computedLdfTrend = Get-StableLdfTrend `
                 $resourceSnapshots @($computedHostTrend.snapshots) @()
@@ -1059,6 +1206,7 @@ function Get-AcceleratedStabilityResult {
         'httpErrorCount', 'unexpectedHttpOutcomeCount', 'expectedHistoryExpiredCount',
         'frozenConsistencyHttpErrorCount', 'httpOutcomesComplete', 'httpOutcomes',
         'frozenCommitMismatchCount', 'frozenSnapshotCaptureCount', 'frozenSnapshotPinned',
+        'frozenTargetCapturedAt',
         'projectionCommitsDuringFrozenReads',
         'frozenWindowsWithoutProjection', 'cleanupBacklogCount',
         'earliestAvailableAdvanced', 'storagePressurePauseCount', 'retrySchedulePassed',
@@ -1134,6 +1282,9 @@ function Get-AcceleratedStabilityResult {
             -not [bool]$behavior.frozenSnapshotPinned) {
             [void]$failures.Add('STABILITY_FROZEN_EVIDENCE_INCOMPLETE')
         }
+        if (-not (Test-EvidenceTimestamp $behavior.frozenTargetCapturedAt)) {
+            [void]$failures.Add('STABILITY_FROZEN_EVIDENCE_INCOMPLETE')
+        }
         if ([long]$behavior.projectionCommitsDuringFrozenReads -le 0 -or
             [long]$behavior.frozenWindowsWithoutProjection -ne 0) {
             [void]$failures.Add('STABILITY_FROZEN_READ_BLOCKED_PROJECTION')
@@ -1166,7 +1317,14 @@ function Get-AcceleratedStabilityResult {
         soakEscalationRequired = $uniqueFailures.Count -gt 0
         failures = $uniqueFailures
         thresholds = [ordered]@{
-            minimumDurationSeconds = 1800; maximumDurationSeconds = 2700
+            minimumDurationSeconds = $minimumDurationSeconds
+            maximumDurationSeconds = $maximumDurationSeconds
+            minimumResourceTimelineSnapshotCount = [Math]::Max(
+                4, [int][Math]::Floor($minimumDurationSeconds / 60.0) - 1)
+            maximumResourceTimelineGapSeconds = 120
+            observedResourceTimelineSnapshotCount = $resourceTimelineSnapshotCount
+            observedResourceTimelineCoverageSeconds = $resourceTimelineCoverageSeconds
+            observedResourceTimelineMaximumGapSeconds = $resourceTimelineMaximumGapSeconds
             apiP95MillisecondsExclusive = 2000; apiP99MillisecondsExclusive = 5000
             maximumRawObservationRows = 250000; maximumLockWaitMilliseconds = 5000
         }
@@ -2009,6 +2167,7 @@ function New-FailedAcceleratedStabilityValues {
         httpOutcomesComplete = $false; httpOutcomes = @()
         currentLogicalReadGrowthPassed = $false; frozenCommitMismatchCount = 0L
         frozenSnapshotCaptureCount = 0L; frozenSnapshotPinned = $false
+        frozenTargetCapturedAt = $null
         projectionCommitsDuringFrozenReads = 0L; frozenWindowsWithoutProjection = 1L
         cleanupBacklogCount = 0L; earliestAvailableAdvanced = $false
         earliestAvailableBefore = $null; earliestAvailableAfter = $null
@@ -2151,6 +2310,7 @@ function New-AcceleratedStabilityEvidence {
             frozenCommitMismatchCount = $Values.frozenCommitMismatchCount
             frozenSnapshotCaptureCount = $Values.frozenSnapshotCaptureCount
             frozenSnapshotPinned = $Values.frozenSnapshotPinned
+            frozenTargetCapturedAt = $Values.frozenTargetCapturedAt
             projectionCommitsDuringFrozenReads = $Values.projectionCommitsDuringFrozenReads
             frozenWindowsWithoutProjection = $Values.frozenWindowsWithoutProjection
             cleanupBacklogCount = $Values.cleanupBacklogCount
@@ -3015,6 +3175,9 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateStabilityFixturePath)) {
     Write-Output ("p95LatencyMs={0} p99LatencyMs={1}" -f `
         [double]$stabilityFixture.latency.p95LatencyMs, `
         [double]$stabilityFixture.latency.p99LatencyMs)
+    Write-Output ("minimumDurationSeconds={0} maximumDurationSeconds={1}" -f `
+        [int]$stabilityResult.thresholds.minimumDurationSeconds, `
+        [int]$stabilityResult.thresholds.maximumDurationSeconds)
     if (-not $stabilityResult.passed) {
         throw "Accelerated stability fixture failed: $(@($stabilityResult.failures) -join ', ')"
     }
@@ -3971,6 +4134,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         $frozenHistoryEpoch = ''
         $frozenProjectionCommitId = ''
         $frozenSnapshotCaptureCount = 0L
+        $frozenTargetCapturedAt = $null
         $intentionalHttpOutcomes = New-Object System.Collections.ArrayList
         $catalogReads = 0L
         $watchReads = 0L
@@ -4166,7 +4330,12 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                 }
 
                 $stabilityStage = 'concurrent-http-batch'
-                $workloadStage = if (($now - $hostGenerationStartedAt).TotalMinutes -lt 2.0) {
+                $stableWorkloadAt = $hostGenerationStartedAt.AddMinutes(2)
+                if ($null -ne $frozenTargetCapturedAt -and
+                    $frozenTargetCapturedAt.AddMinutes(2) -gt $stableWorkloadAt) {
+                    $stableWorkloadAt = $frozenTargetCapturedAt.AddMinutes(2)
+                }
+                $workloadStage = if ($null -eq $frozenTargetCapturedAt -or $now -lt $stableWorkloadAt) {
                     'stabilizing'
                 } else { 'stable' }
                 $cleanupPhase = if ($stabilityResourceSnapshots.Count -eq 0) { 'UNOBSERVED' } else {
@@ -4187,7 +4356,12 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                 $frozenSnapshotReference = [string]$batch.frozenSnapshotReference
                 $frozenHistoryEpoch = [string]$batch.frozenHistoryEpoch
                 $frozenProjectionCommitId = [string]$batch.frozenProjectionCommitId
-                if ([bool]$batch.frozenSnapshotCaptured) { $frozenSnapshotCaptureCount++ }
+                if ([bool]$batch.frozenSnapshotCaptured) {
+                    $frozenSnapshotCaptureCount++
+                    if ($null -eq $frozenTargetCapturedAt) {
+                        $frozenTargetCapturedAt = [DateTimeOffset]::UtcNow
+                    }
+                }
                 foreach ($sample in @($batch.samples)) {
                     [void]$stabilityLatencySamples.Add($sample)
                     if ([string]$sample.name -eq 'ExternallyReadableDemandCatalog') { $catalogReads++ }
@@ -4674,6 +4848,9 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             frozenSnapshotCaptureCount = $frozenSnapshotCaptureCount
             frozenSnapshotPinned = $frozenSnapshotCaptureCount -eq 1 -and
                 -not [string]::IsNullOrWhiteSpace($frozenSnapshotReference)
+            frozenTargetCapturedAt = if ($null -eq $frozenTargetCapturedAt) {
+                $null
+            } else { $frozenTargetCapturedAt.ToUniversalTime().ToString('o') }
             projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
             frozenWindowsWithoutProjection = $frozenWindowsWithoutProjection
             cleanupBacklogCount = [long]$cleanupFinal.cleanupBacklogCount

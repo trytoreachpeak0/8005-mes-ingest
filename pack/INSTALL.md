@@ -341,6 +341,11 @@ physical/used、autogrowth、`log_reuse_wait_desc`，并在最后一次固定 au
 `STABILITY_*` 失败退出并要求 4 小时或 24 小时真实 soak；正常快速路径仍需在关闭 Ticket 时另行
 绑定唯一一次 Skipped=0 的真实 SQL Server Tier 1。
 
+`-StabilityDurationMinutes` 只接受快速门禁的 30–45 分钟，以及升级验证的 240 或 1440 分钟；
+240/1440 只用于快速门禁已出现可归因风险或用户明确要求的升级。门禁会从分钟级资源快照重新计算
+真实持续时间、采样间隔，并要求最终 Host 代次的每个 API surface 都覆盖末段；只修改汇总时长或
+缺少末段 phase 证据不能使长跑门禁通过。
+
 ## 基本故障排查
 
 | 现象 | 检查 |

@@ -115,6 +115,151 @@ public sealed class ScaleAndQueryEvidenceGateTests
     }
 
     [Fact]
+    public void Accelerated_stability_fixture_accepts_the_four_hour_escalation_profile()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        ConfigurePassingDurationTimeline(fixture, 240);
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Contains("minimumDurationSeconds=14400", result.Output, StringComparison.Ordinal);
+        Assert.Contains("maximumDurationSeconds=14700", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_claimed_duration_without_raw_timeline_coverage()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["workload"]!["durationSeconds"] = 14_400;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_DURATION_OUT_OF_RANGE", result.Output, StringComparison.Ordinal);
+        Assert.Contains("soakEscalationRequired=True", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_accepts_the_twenty_four_hour_escalation_profile()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        ConfigurePassingDurationTimeline(fixture, 1_440);
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.Contains("minimumDurationSeconds=86400", result.Output, StringComparison.Ordinal);
+        Assert.Contains("maximumDurationSeconds=86700", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_phase_evidence_that_does_not_cover_the_tail()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        ConfigurePassingDurationTimeline(fixture, 240);
+        fixture["latency"]!["phaseSummaries"] = JsonSerializer.SerializeToNode(
+            CreatePassingPhaseSummaries(30));
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+        Assert.Contains("soakEscalationRequired=True", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_one_surface_that_does_not_cover_the_tail()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        ConfigurePassingDurationTimeline(fixture, 240);
+        var overviewTail = fixture["latency"]!["phaseSummaries"]!.AsArray().Single(summary =>
+            summary!["surface"]!.GetValue<string>() == "Overview" &&
+            summary["processGeneration"]!.GetValue<int>() == 2 &&
+            summary["workloadStage"]!.GetValue<string>() == "stable");
+        overviewTail!["completedAt"] = "2026-08-25T02:10:00Z";
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_phase_evidence_beyond_the_resource_timeline()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        ConfigurePassingDurationTimeline(fixture, 240);
+        var futureSummary = fixture["latency"]!["phaseSummaries"]!.AsArray()[0]!;
+        futureSummary["completedAt"] = "2026-08-25T04:03:00Z";
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_stable_samples_before_frozen_warmup_completes()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["behavior"]!["frozenTargetCapturedAt"] = "2026-08-25T00:01:00Z";
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_restart_evidence_for_the_wrong_process_generation()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["latency"]!["phaseEvents"]![1]!["processGeneration"] = 3;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_more_restart_events_than_the_workload_reports()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["latency"]!["phaseEvents"]!.AsArray().Add(JsonSerializer.SerializeToNode(new
+        {
+            kind = "restart",
+            occurredAt = "2026-08-25T00:00:00Z",
+            processGeneration = 1,
+            state = "STARTED",
+        }));
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_restart_after_the_new_generation_resource_snapshot()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["latency"]!["phaseEvents"]![1]!["occurredAt"] = "2026-08-25T00:17:00Z";
+        foreach (var phase in fixture["latency"]!["phaseSummaries"]!.AsArray().Where(summary =>
+                     summary!["processGeneration"]!.GetValue<int>() == 2 &&
+                     summary["workloadStage"]!.GetValue<string>() == "stable"))
+        {
+            phase!["startedAt"] = "2026-08-25T00:19:00Z";
+        }
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LATENCY_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Accelerated_stability_fixture_does_not_call_instance_lifetime_semaphore_or_one_autogrowth_sustained()
     {
         var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
@@ -127,8 +272,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
         fixture["resources"]!["resourceSemaphoreAttributedActiveOrPendingSamples"] = 2;
         fixture["resources"]!["resourceSemaphoreMaximumConsecutiveActiveOrPendingSamples"] = 1;
         fixture["resources"]!["maximumPendingMemoryGrants"] = 1;
-        fixture["resources"]!["resourceSnapshots"]![7]!["pendingMemoryGrants"] = 1;
-        fixture["resources"]!["resourceSnapshots"]![8]!["pendingMemoryGrants"] = 1;
+        fixture["resources"]!["resourceSnapshots"]![14]!["pendingMemoryGrants"] = 1;
+        fixture["resources"]!["resourceSnapshots"]![15]!["pendingMemoryGrants"] = 1;
 
         var result = RunStabilityFixture(fixture);
 
@@ -337,6 +482,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "frozenProjectionCommitId",
                      "frozenSnapshotCaptureCount",
                      "frozenSnapshotPinned",
+                     "frozenTargetCapturedAt",
                      "logicalDayBoundaryPassed",
                      "historyEpochPreservedAcrossRestart",
                      "packagedWatchClientReads",
@@ -739,17 +885,13 @@ public sealed class ScaleAndQueryEvidenceGateTests
             surfaceStagesComplete = true,
             surfaceSummaries = CreatePassingSurfaceSummaries(),
             surfaceStages = CreatePassingSurfaceStages(),
-            phaseSummaries = CreatePassingPhaseSummaries(),
-            phaseEvents = new object[]
-            {
-                new { kind = "cleanup", occurredAt = "2026-08-25T00:01:00Z", processGeneration = 1, state = "RUNNING" },
-                new { kind = "restart", occurredAt = "2026-08-25T00:15:00Z", processGeneration = 2, state = "STARTED" },
-            },
+            phaseSummaries = CreatePassingPhaseSummaries(30),
+            phaseEvents = CreatePassingPhaseEvents(30),
             spillCorrelations = Array.Empty<object>(),
         },
         resources = new
         {
-            snapshotCount = 16,
+            snapshotCount = 30,
             error701Count = 0,
             xeventDroppedEventCount = 0,
             resourceSemaphoreSustainedSamples = 0,
@@ -769,7 +911,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             hostWorkingSetSlopeMbPerMinute = 0.0,
             hostProcessGenerationCount = 2,
             hostStableProcessGeneration = 2,
-            hostStableGenerationSnapshotCount = 4,
+            hostStableGenerationSnapshotCount = 8,
             hostStableGenerationWorkingSetSlopeMbPerMinute = 0.0,
             hostStableGenerationHandleSlopePerMinute = 0.0,
             sqlWorkingSetSlopeMbPerMinute = 0.0,
@@ -783,9 +925,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ldfUsedMbPeak = 20.0,
             ldfAutogrowthEventCount = 0,
             ldfObservedGrowthIntervalCount = 0,
-            ldfStableWindowSnapshotCount = 4,
+            ldfStableWindowSnapshotCount = 8,
             ldfStableWindowPhysicalGrowthCount = 0,
-            ldfPostGrowthPlateauSnapshotCount = 4,
+            ldfPostGrowthPlateauSnapshotCount = 8,
             ldfLateGrowthIntervalCount = 0,
             ldfStableWindowUsedSlopeMbPerMinute = 0.0,
             ldfPersistentLogReuseWaitSamples = 0,
@@ -794,7 +936,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             hostHandleSlopePerMinute = 0.0,
             databaseVersionStorePeakMb = 1.0,
             tempdbVersionStorePeakMb = 2.0,
-            resourceSnapshots = CreatePassingResourceSnapshots(),
+            resourceSnapshots = CreatePassingResourceSnapshots(30),
         },
         behavior = new
         {
@@ -812,6 +954,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             frozenCommitMismatchCount = 0,
             frozenSnapshotCaptureCount = 1,
             frozenSnapshotPinned = true,
+            frozenTargetCapturedAt = "2026-08-25T00:00:00Z",
             projectionCommitsDuringFrozenReads = 1_600,
             frozenWindowsWithoutProjection = 0,
             cleanupBacklogCount = 0,
@@ -859,10 +1002,17 @@ public sealed class ScaleAndQueryEvidenceGateTests
              degraded = false,
          }).ToArray();
 
-    private static object[] CreatePassingPhaseSummaries() =>
+    private static object[] CreatePassingPhaseSummaries(int durationMinutes)
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        var restartMinute = durationMinutes / 2;
+
+        return
         (from generation in new[] { 1, 2 }
          from surface in RequiredStabilitySurfaces
          from workloadStage in new[] { "stabilizing", "stable" }
+         let generationStartMinute = generation == 1 ? 0 : restartMinute
+         let generationEndMinute = generation == 1 ? restartMinute : durationMinutes
          select (object)new
          {
              surface,
@@ -872,19 +1022,44 @@ public sealed class ScaleAndQueryEvidenceGateTests
              sampleCount = workloadStage == "stable" ? 1_000 : 100,
              p95LatencyMs = 125.0,
              p99LatencyMs = 410.0,
-             startedAt = workloadStage == "stable"
-                 ? "2026-08-25T00:02:00Z"
-                 : "2026-08-25T00:00:00Z",
-             completedAt = workloadStage == "stable"
-                 ? "2026-08-25T00:14:00Z"
-                 : "2026-08-25T00:01:59Z",
+             startedAt = startedAt.AddMinutes(generationStartMinute + (workloadStage == "stable" ? 2 : 0))
+                 .ToString("O"),
+             completedAt = startedAt.AddMinutes(workloadStage == "stable"
+                     ? generationEndMinute
+                     : generationStartMinute + 1)
+                 .ToString("O"),
          }).ToArray();
+    }
 
-    private static object[] CreatePassingResourceSnapshots() =>
-        Enumerable.Range(0, 16).Select(index => (object)new
+    private static object[] CreatePassingPhaseEvents(int durationMinutes)
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        return
+        [
+            new
+            {
+                kind = "cleanup",
+                occurredAt = startedAt.AddMinutes(1).ToString("O"),
+                processGeneration = 1,
+                state = "RUNNING",
+            },
+            new
+            {
+                kind = "restart",
+                occurredAt = startedAt.AddMinutes(durationMinutes / 2).ToString("O"),
+                processGeneration = 2,
+                state = "STARTED",
+            },
+        ];
+    }
+
+    private static object[] CreatePassingResourceSnapshots(int durationMinutes)
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-25T00:00:00Z");
+        return Enumerable.Range(1, durationMinutes).Select(minute => (object)new
         {
-            capturedAt = $"2026-08-25T00:{index:D2}:00Z",
-            hostProcessGeneration = index < 8 ? 1 : 2,
+            capturedAt = startedAt.AddMinutes(minute).ToString("O"),
+            hostProcessGeneration = minute <= durationMinutes / 2 ? 1 : 2,
             pendingMemoryGrants = 0,
             attributedResourceSemaphoreActiveWaitTasks = 0,
             attributedResourceSemaphoreWaitingTasks = 0,
@@ -904,6 +1079,24 @@ public sealed class ScaleAndQueryEvidenceGateTests
             blockedRequestCount = 0,
             storagePressureStatus = "IDLE",
         }).ToArray();
+    }
+
+    private static void ConfigurePassingDurationTimeline(JsonObject fixture, int durationMinutes)
+    {
+        fixture["workload"]!["durationSeconds"] = durationMinutes * 60;
+        fixture["latency"]!["phaseSummaries"] = JsonSerializer.SerializeToNode(
+            CreatePassingPhaseSummaries(durationMinutes));
+        fixture["latency"]!["phaseEvents"] = JsonSerializer.SerializeToNode(
+            CreatePassingPhaseEvents(durationMinutes));
+
+        var resourceSnapshots = CreatePassingResourceSnapshots(durationMinutes);
+        var stableGenerationSnapshotCount = (durationMinutes - (durationMinutes / 2) + 1) / 2;
+        fixture["resources"]!["snapshotCount"] = resourceSnapshots.Length;
+        fixture["resources"]!["resourceSnapshots"] = JsonSerializer.SerializeToNode(resourceSnapshots);
+        fixture["resources"]!["hostStableGenerationSnapshotCount"] = stableGenerationSnapshotCount;
+        fixture["resources"]!["ldfStableWindowSnapshotCount"] = stableGenerationSnapshotCount;
+        fixture["resources"]!["ldfPostGrowthPlateauSnapshotCount"] = stableGenerationSnapshotCount;
+    }
 
     private static object[] CreatePassingHttpOutcomes() =>
         RequiredStabilitySurfaces.Select(surface => (object)new
