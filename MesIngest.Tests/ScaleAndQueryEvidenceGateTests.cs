@@ -58,7 +58,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ("STABILITY_DATABASE_FILE_TREND", fixture => fixture["resources"]!["physicalDataFileSlopeMbPerMinute"] = 1.1),
             ("STABILITY_LDF_TREND", fixture => fixture["resources"]!["ldfStableWindowUsedSlopeMbPerMinute"] = 1.1),
             ("STABILITY_LDF_TREND", fixture => fixture["resources"]!["ldfLateGrowthIntervalCount"] = 1),
-            ("STABILITY_LDF_TREND", fixture => fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 2),
+            ("STABILITY_LDF_TREND", ConfigurePersistentLogReuseWait),
             ("STABILITY_RESOURCE_EVIDENCE_INCOMPLETE", fixture => fixture["resources"]!["resourceSnapshots"]![0]!.AsObject().Remove("ldfMb")),
             ("STABILITY_UNBOUNDED_LOCK_WAIT", fixture =>
             {
@@ -280,6 +280,117 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.True(result.ExitCode == 0, result.Output);
         Assert.DoesNotContain("STABILITY_RESOURCE_SEMAPHORE", result.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("STABILITY_LDF_TREND", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_does_not_call_different_short_transactions_persistent_log_reuse()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionId"] = "101";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionAgeSeconds"] = 20.0;
+        fixture["resources"]!["resourceSnapshots"]![23]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionId"] = "102";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionAgeSeconds"] = 15.0;
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 1;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.True(result.ExitCode == 0, result.Output);
+        Assert.DoesNotContain("STABILITY_LDF_TREND", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_fails_closed_when_active_transaction_identity_is_missing()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![23]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 1;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_RESOURCE_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_negative_active_transaction_age()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionId"] = "101";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionAgeSeconds"] = -1.0;
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 1;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_RESOURCE_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_rejects_same_transaction_with_decreasing_age()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionId"] = "101";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionAgeSeconds"] = 120.0;
+        fixture["resources"]!["resourceSnapshots"]![23]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionId"] = "101";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionAgeSeconds"] = 60.0;
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 1;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_RESOURCE_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_reports_nonnumeric_transaction_age_as_incomplete()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionAgeSeconds"] = "not-a-number";
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_RESOURCE_EVIDENCE_INCOMPLETE", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Accelerated_stability_fixture_keeps_different_non_active_log_reuse_reasons_fail_closed()
+    {
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "CHECKPOINT";
+        fixture["resources"]!["resourceSnapshots"]![23]!["logReuseWait"] = "LOG_BACKUP";
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 2;
+
+        var result = RunStabilityFixture(fixture);
+
+        Assert.NotEqual(0, result.ExitCode);
+        Assert.Contains("STABILITY_LDF_TREND", result.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Stability_http_batch_stops_each_surface_timer_when_that_request_completes()
+    {
+        var script = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "pack",
+            "validation",
+            "Invoke-ScaleAndQueryEvidence.ps1"));
+        var functionStart = script.IndexOf("function Invoke-StabilityHttpBatch", StringComparison.Ordinal);
+        var frozenStart = script.IndexOf("    $frozenReadCount = 0L", functionStart, StringComparison.Ordinal);
+        Assert.True(functionStart >= 0 && frozenStart > functionStart);
+        var ordinaryBatch = script[functionStart..frozenStart];
+
+        Assert.Contains("$incompleteRequests", ordinaryBatch, StringComparison.Ordinal);
+        Assert.Contains("$item.task.IsCompleted", ordinaryBatch, StringComparison.Ordinal);
+        Assert.Contains("$item.timer.Stop()", ordinaryBatch, StringComparison.Ordinal);
+        Assert.Contains("completedAt = $item.completedAt", ordinaryBatch, StringComparison.Ordinal);
+        Assert.DoesNotContain("Task]::WhenAll", ordinaryBatch, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -1072,6 +1183,10 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ldfMb = 72.0,
             logUsedMb = 20.0,
             logReuseWait = "NOTHING",
+            oldestActiveTransactionId = (string?)null,
+            oldestActiveTransactionAgeSeconds = 0.0,
+            oldestActiveTransactionSessionId = (string?)null,
+            oldestActiveTransactionApplicationName = (string?)null,
             tempdbUsedMb = 2.0,
             databaseVersionStoreMb = 1.0,
             tempdbVersionStoreMb = 2.0,
@@ -1096,6 +1211,17 @@ public sealed class ScaleAndQueryEvidenceGateTests
         fixture["resources"]!["hostStableGenerationSnapshotCount"] = stableGenerationSnapshotCount;
         fixture["resources"]!["ldfStableWindowSnapshotCount"] = stableGenerationSnapshotCount;
         fixture["resources"]!["ldfPostGrowthPlateauSnapshotCount"] = stableGenerationSnapshotCount;
+    }
+
+    private static void ConfigurePersistentLogReuseWait(JsonObject fixture)
+    {
+        fixture["resources"]!["resourceSnapshots"]![22]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionId"] = "201";
+        fixture["resources"]!["resourceSnapshots"]![22]!["oldestActiveTransactionAgeSeconds"] = 75.0;
+        fixture["resources"]!["resourceSnapshots"]![23]!["logReuseWait"] = "ACTIVE_TRANSACTION";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionId"] = "201";
+        fixture["resources"]!["resourceSnapshots"]![23]!["oldestActiveTransactionAgeSeconds"] = 135.0;
+        fixture["resources"]!["ldfPersistentLogReuseWaitSamples"] = 2;
     }
 
     private static object[] CreatePassingHttpOutcomes() =>

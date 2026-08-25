@@ -877,7 +877,9 @@ function Get-AcceleratedStabilityResult {
             'attributedResourceSemaphoreWaitingTasks', 'attributedResourceSemaphoreWaitMs',
             'hostWorkingSetMb', 'hostHandleCount', 'sqlWorkingSetMb',
             'logicalDatabaseUsedMb', 'physicalDataFileMb', 'ldfMb', 'logUsedMb',
-            'logReuseWait', 'tempdbUsedMb', 'databaseVersionStoreMb', 'tempdbVersionStoreMb',
+            'logReuseWait', 'oldestActiveTransactionId', 'oldestActiveTransactionAgeSeconds',
+            'oldestActiveTransactionSessionId', 'oldestActiveTransactionApplicationName',
+            'tempdbUsedMb', 'databaseVersionStoreMb', 'tempdbVersionStoreMb',
             'maximumLockWaitMs', 'blockedRequestCount', 'storagePressureStatus')
         $numericSnapshotProperties = @(
             'hostProcessGeneration', 'pendingMemoryGrants',
@@ -885,18 +887,40 @@ function Get-AcceleratedStabilityResult {
             'attributedResourceSemaphoreWaitingTasks', 'attributedResourceSemaphoreWaitMs',
             'hostWorkingSetMb', 'hostHandleCount', 'sqlWorkingSetMb',
             'logicalDatabaseUsedMb', 'physicalDataFileMb', 'ldfMb', 'logUsedMb',
-            'tempdbUsedMb', 'databaseVersionStoreMb', 'tempdbVersionStoreMb',
+            'oldestActiveTransactionAgeSeconds', 'tempdbUsedMb',
+            'databaseVersionStoreMb', 'tempdbVersionStoreMb',
             'maximumLockWaitMs', 'blockedRequestCount')
         $snapshotSchemaInvalid = $resourceSnapshots.Count -ne [int]$resources.snapshotCount -or
             @($resourceSnapshots | Where-Object {
                 $resourceSnapshot = $_
-                -not (Test-EvidenceProperties $_ $requiredSnapshotProperties) -or
-                -not (Test-EvidenceTimestamp $_.capturedAt) -or
-                [string]::IsNullOrWhiteSpace([string]$_.storagePressureStatus) -or
-                @($numericSnapshotProperties | Where-Object {
+                if (-not (Test-EvidenceProperties $_ $requiredSnapshotProperties) -or
+                    -not (Test-EvidenceTimestamp $_.capturedAt) -or
+                    [string]::IsNullOrWhiteSpace([string]$_.storagePressureStatus)) {
+                    return $true
+                }
+                if (@($numericSnapshotProperties | Where-Object {
                     -not (Test-FiniteEvidenceNumber $resourceSnapshot.$_)
-                }).Count -gt 0
+                }).Count -gt 0) { return $true }
+                if ([double]$_.oldestActiveTransactionAgeSeconds -lt 0.0) { return $true }
+                return [string]$_.logReuseWait -ceq 'ACTIVE_TRANSACTION' -and
+                    [string]::IsNullOrWhiteSpace([string]$_.oldestActiveTransactionId)
             }).Count -gt 0
+        if (-not $snapshotSchemaInvalid) {
+            $previousTransactionSnapshot = $null
+            foreach ($snapshot in $resourceSnapshots) {
+                if ($null -ne $previousTransactionSnapshot -and
+                    [string]$snapshot.logReuseWait -ceq 'ACTIVE_TRANSACTION' -and
+                    [string]$previousTransactionSnapshot.logReuseWait -ceq 'ACTIVE_TRANSACTION' -and
+                    [string]$snapshot.oldestActiveTransactionId -ceq
+                        [string]$previousTransactionSnapshot.oldestActiveTransactionId -and
+                    [double]$snapshot.oldestActiveTransactionAgeSeconds -lt
+                        [double]$previousTransactionSnapshot.oldestActiveTransactionAgeSeconds) {
+                    $snapshotSchemaInvalid = $true
+                    break
+                }
+                $previousTransactionSnapshot = $snapshot
+            }
+        }
         if ($snapshotSchemaInvalid) {
             [void]$failures.Add('STABILITY_RESOURCE_EVIDENCE_INCOMPLETE')
         } else {
@@ -2609,19 +2633,11 @@ function Get-StableLdfTrend {
     }
     $stablePhysicalGrowthCount = 0L
     $lastStableGrowthIndex = -1
-    $persistentReuseWaitSamples = 0L
-    $currentReuseWaitSamples = 0L
     for ($index = 0; $index -lt $StableSnapshots.Count; $index++) {
         if ($index -gt 0 -and
             [double]$StableSnapshots[$index].ldfMb -gt [double]$StableSnapshots[$index - 1].ldfMb) {
             $stablePhysicalGrowthCount++
             $lastStableGrowthIndex = $index
-        }
-        if ([string]$StableSnapshots[$index].logReuseWait -cne 'NOTHING') {
-            $currentReuseWaitSamples++
-            $persistentReuseWaitSamples = [Math]::Max($persistentReuseWaitSamples, $currentReuseWaitSamples)
-        } else {
-            $currentReuseWaitSamples = 0L
         }
     }
     $postGrowthPlateau = if ($lastStableGrowthIndex -lt 0) {
@@ -2631,12 +2647,36 @@ function Get-StableLdfTrend {
     }
     $persistentReuseWaitSamples = 0L
     $currentReuseWaitSamples = 0L
+    $previousReuseWait = 'NOTHING'
+    $previousTransactionId = ''
+    $previousTransactionAgeSeconds = 0.0
     foreach ($snapshot in $postGrowthPlateau) {
-        if ([string]$snapshot.logReuseWait -cne 'NOTHING') {
-            $currentReuseWaitSamples++
+        $reuseWait = [string]$snapshot.logReuseWait
+        $transactionId = [string]$snapshot.oldestActiveTransactionId
+        $transactionAgeSeconds = [double]$snapshot.oldestActiveTransactionAgeSeconds
+        if ($reuseWait -ceq 'NOTHING') {
+            $currentReuseWaitSamples = 0L
+        } elseif ($reuseWait -ceq 'ACTIVE_TRANSACTION') {
+            $sameAttributedTransaction =
+                -not [string]::IsNullOrWhiteSpace($transactionId) -and
+                $previousReuseWait -ceq 'ACTIVE_TRANSACTION' -and
+                $transactionId -ceq $previousTransactionId -and
+                $transactionAgeSeconds -ge $previousTransactionAgeSeconds
+            $currentReuseWaitSamples = if ($sameAttributedTransaction) {
+                $currentReuseWaitSamples + 1L
+            } else { 1L }
             $persistentReuseWaitSamples = [Math]::Max(
                 $persistentReuseWaitSamples, $currentReuseWaitSamples)
-        } else { $currentReuseWaitSamples = 0L }
+        } else {
+            $currentReuseWaitSamples = if ($previousReuseWait -ceq 'NOTHING') {
+                1L
+            } else { $currentReuseWaitSamples + 1L }
+            $persistentReuseWaitSamples = [Math]::Max(
+                $persistentReuseWaitSamples, $currentReuseWaitSamples)
+        }
+        $previousReuseWait = $reuseWait
+        $previousTransactionId = $transactionId
+        $previousTransactionAgeSeconds = $transactionAgeSeconds
     }
     $lateGrowthIntervalCount = if ($stablePhysicalGrowthCount -ge 2 -or
         ($stablePhysicalGrowthCount -gt 0 -and $postGrowthPlateau.Count -lt 4)) {
@@ -2822,6 +2862,29 @@ INNER JOIN sys.dm_exec_sessions AS sessionRow
 WHERE sessionRow.program_name = @applicationName
   AND waitStats.wait_type IN (N'RESOURCE_SEMAPHORE', N'RESOURCE_SEMAPHORE_QUERY_COMPILE');
 "@ @{ '@applicationName' = $ApplicationName }) | Select-Object -First 1
+    $oldestActiveTransaction = @(Invoke-SqlTable $MasterConnectionString @"
+SELECT TOP (1)
+       CONVERT(nvarchar(32), databaseTransaction.transaction_id) AS transactionId,
+       CONVERT(float, DATEDIFF_BIG(millisecond,
+           databaseTransaction.database_transaction_begin_time, SYSDATETIME())) / 1000.0
+           AS transactionAgeSeconds,
+       CONVERT(nvarchar(16), sessionTransaction.session_id) AS sessionId,
+       sessionRow.program_name AS applicationName
+FROM sys.dm_tran_database_transactions AS databaseTransaction
+OUTER APPLY (
+    SELECT TOP (1) candidate.session_id
+    FROM sys.dm_tran_session_transactions AS candidate
+    WHERE candidate.transaction_id = databaseTransaction.transaction_id
+    ORDER BY candidate.session_id
+) AS sessionTransaction
+LEFT JOIN sys.dm_exec_sessions AS sessionRow
+    ON sessionRow.session_id = sessionTransaction.session_id
+WHERE databaseTransaction.database_id = DB_ID(@databaseName)
+  AND databaseTransaction.database_transaction_begin_time IS NOT NULL
+ORDER BY databaseTransaction.database_transaction_begin_time,
+         databaseTransaction.transaction_id;
+"@ @{ '@databaseName' = $DatabaseName }) |
+        Select-Object -First 1
     $state = @(Invoke-SqlTable $DatabaseConnectionString @"
 SELECT schemaInfo.EarliestAvailableHostUtc AS earliestAvailableHostUtc,
        CONVERT(nvarchar(36), schemaInfo.HistoryEpoch) AS historyEpoch,
@@ -2854,6 +2917,18 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
         physicalDataFileMb = [double]$storage.physicalDataMb
         ldfMb = [double]$storage.ldfMb; logUsedMb = [double]$capacity.usedLogMb
         logReuseWait = [string]$capacity.logReuseWait
+        oldestActiveTransactionId = if ($null -eq $oldestActiveTransaction) {
+            $null
+        } else { [string]$oldestActiveTransaction.transactionId }
+        oldestActiveTransactionAgeSeconds = if ($null -eq $oldestActiveTransaction) {
+            0.0
+        } else { [double]$oldestActiveTransaction.transactionAgeSeconds }
+        oldestActiveTransactionSessionId = if ($null -eq $oldestActiveTransaction) {
+            $null
+        } else { [string]$oldestActiveTransaction.sessionId }
+        oldestActiveTransactionApplicationName = if ($null -eq $oldestActiveTransaction) {
+            $null
+        } else { [string]$oldestActiveTransaction.applicationName }
         databaseVersionStoreMb = [double]$capacity.databaseVersionStoreMb
         tempdbVersionStoreMb = [double]$capacity.tempdbVersionStoreMb
         tempdbUserObjectsMb = [double]$capacity.tempdbUserObjectsMb
@@ -2943,9 +3018,20 @@ function Invoke-StabilityHttpBatch {
         [void]$pending.Add([pscustomobject]@{
             spec = $spec; request = $request; startedAt = [DateTimeOffset]::UtcNow
             timer = [Diagnostics.Stopwatch]::StartNew(); task = $Client.SendAsync($request)
+            completedAt = $null
         })
     }
-    [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.task })).GetAwaiter().GetResult()
+    $incompleteRequests = $pending.Count
+    while ($incompleteRequests -gt 0) {
+        foreach ($item in $pending) {
+            if ($null -eq $item.completedAt -and $item.task.IsCompleted) {
+                $item.timer.Stop()
+                $item.completedAt = [DateTimeOffset]::UtcNow
+                $incompleteRequests--
+            }
+        }
+        if ($incompleteRequests -gt 0) { Start-Sleep -Milliseconds 1 }
+    }
     $samples = New-Object System.Collections.ArrayList
     $httpErrorCount = 0L
     $demandBody = $null
@@ -2955,14 +3041,13 @@ function Invoke-StabilityHttpBatch {
             try {
                 $body = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                 $statusCode = [int]$response.StatusCode
-                $item.timer.Stop()
                 $expectedStatus = $statusCode -eq 200 -or ($item.spec.catalog -and $statusCode -eq 304)
                 $errorCode = if ($expectedStatus) { $null } else { Get-StructuredHttpErrorCode $body }
                 [void]$samples.Add([pscustomobject][ordered]@{
                     name = [string]$item.spec.name; batch = $BatchNumber
                     hostProcessGeneration = $HostProcessGeneration; workloadStage = $WorkloadStage
                     cleanupPhase = $CleanupPhase
-                    startedAt = $item.startedAt.ToString('o'); completedAt = [DateTimeOffset]::UtcNow.ToString('o')
+                    startedAt = $item.startedAt.ToString('o'); completedAt = $item.completedAt.ToString('o')
                     statusCode = $statusCode; errorCode = $errorCode
                     classification = if ($expectedStatus) { 'SUCCESS' } else { 'UNEXPECTED_HTTP' }
                     latencyMs = $item.timer.Elapsed.TotalMilliseconds
