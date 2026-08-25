@@ -165,6 +165,7 @@ public sealed partial class SqlServerMesIngestProjection
                     PollTraceId NVARCHAR(128) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY
                 );
 
+                /* MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH */
                 ;WITH Due AS
                 (
                     SELECT TOP (@maximumPollTraces)
@@ -190,7 +191,8 @@ public sealed partial class SqlServerMesIngestProjection
                 SELECT PollTraceId
                 FROM Ranked
                 WHERE RunningRows <= @maximumRawObservationRows
-                ORDER BY CompletedAt, PollTraceId;
+                ORDER BY CompletedAt, PollTraceId
+                OPTION (MIN_GRANT_PERCENT = 1.0);
 
                 DECLARE @expiredPollTraceCount INT = @@ROWCOUNT;
 

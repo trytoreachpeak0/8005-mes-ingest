@@ -221,6 +221,27 @@ public sealed class ScaleAndQueryEvidenceGateTests
     }
 
     [Fact]
+    public void Frozen_detail_and_cleanup_queries_reserve_bounded_sort_workspace_for_the_low_memory_gate()
+    {
+        var browse = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "MesIngest.Infrastructure",
+            "SqlServer",
+            "SqlServerMesIngestProjection.Browse.cs"));
+        var retention = File.ReadAllText(Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "MesIngest.Infrastructure",
+            "SqlServer",
+            "SqlServerMesIngestProjection.Retention.cs"));
+
+        Assert.Contains("MESINGEST_QUERY:FROZEN_SERIES_STATE", browse, StringComparison.Ordinal);
+        Assert.Contains("MESINGEST_QUERY:FROZEN_DEMAND_GENERATIONS", browse, StringComparison.Ordinal);
+        Assert.Equal(2, browse.Split("OPTION (MIN_GRANT_PERCENT = 1.0)", StringSplitOptions.None).Length - 1);
+        Assert.Contains("MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH", retention, StringComparison.Ordinal);
+        Assert.Contains("OPTION (MIN_GRANT_PERCENT = 1.0)", retention, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Attributed_spill_fixture_reports_the_real_spill_without_hiding_evidence_gaps()
     {
         var fixture = JsonSerializer.SerializeToNode(CreatePassingStabilityFixture())!.AsObject();

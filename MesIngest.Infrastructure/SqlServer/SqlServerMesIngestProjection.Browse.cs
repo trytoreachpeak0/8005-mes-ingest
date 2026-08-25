@@ -950,6 +950,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            /* MESINGEST_QUERY:FROZEN_SERIES_STATE */
             WITH EligibleDemands AS
             (
                 SELECT
@@ -1099,7 +1100,8 @@ public sealed partial class SqlServerMesIngestProjection
             ) AS latest
             WHERE seriesCreated.ProjectionSequence <= @snapshotSequence
               AND s.SeriesId = @seriesId
-            ORDER BY s.StartedAt DESC, s.SeriesId;
+            ORDER BY s.StartedAt DESC, s.SeriesId
+            OPTION (MIN_GRANT_PERCENT = 1.0);
             """;
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
         AddNVarChar(command, "@seriesId", 64, seriesId);
@@ -1335,6 +1337,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            /* MESINGEST_QUERY:FROZEN_DEMAND_GENERATIONS */
             WITH Eligible AS
             (
                 SELECT d.DemandId, d.SeriesId, d.Generation, d.PredecessorDemandId,
@@ -1433,7 +1436,8 @@ public sealed partial class SqlServerMesIngestProjection
             LEFT JOIN Gone AS gone ON gone.DemandId = d.DemandId
             LEFT JOIN LatestDemandCommit AS latestDemand
                 ON latestDemand.DemandId = d.DemandId AND latestDemand.rn = 1
-            ORDER BY d.Generation;
+            ORDER BY d.Generation
+            OPTION (MIN_GRANT_PERCENT = 1.0);
             """;
         AddNVarChar(command, "@seriesId", 64, series.SeriesId);
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
