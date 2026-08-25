@@ -315,6 +315,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "SUM(CASE WHEN session_id IN",
             script,
             StringComparison.Ordinal);
+        Assert.Contains("latencySampleBuckets", script, StringComparison.Ordinal);
         Assert.Contains("--configuration Release", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("TestDefinitions.UnitTest", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("testAssemblySha256", deterministicRunner, StringComparison.Ordinal);

@@ -4332,13 +4332,44 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
 
         $latencySummary = Get-StabilityLatencySummary `
             @($stabilityLatencySamples) @($stabilityPhaseEvents)
+        $latencySampleBuckets = @{}
+        $latencySampleSurfaces = @($stabilityLatencySamples |
+            Select-Object -ExpandProperty name -Unique)
+        foreach ($latencySample in $stabilityLatencySamples) {
+            $sampleStart = [DateTimeOffset]::Parse([string]$latencySample.startedAt)
+            $sampleEnd = [DateTimeOffset]::Parse([string]$latencySample.completedAt)
+            $bucketTicks = $sampleStart.UtcTicks -
+                ($sampleStart.UtcTicks % [TimeSpan]::TicksPerSecond)
+            $lastBucketTicks = $sampleEnd.UtcTicks -
+                ($sampleEnd.UtcTicks % [TimeSpan]::TicksPerSecond)
+            while ($bucketTicks -le $lastBucketTicks) {
+                $bucketKey = '{0}|{1}' -f [string]$latencySample.name, $bucketTicks
+                if (-not $latencySampleBuckets.ContainsKey($bucketKey)) {
+                    $latencySampleBuckets[$bucketKey] = New-Object System.Collections.ArrayList
+                }
+                [void]$latencySampleBuckets[$bucketKey].Add($latencySample)
+                $bucketTicks += [TimeSpan]::TicksPerSecond
+            }
+        }
         $rawSpillCorrelations = New-Object System.Collections.ArrayList
         foreach ($spillEventDetail in $spillEventDetails) {
             $spillAt = [DateTimeOffset]::Parse([string]$spillEventDetail.capturedAt)
+            $spillBucketTicks = $spillAt.UtcTicks -
+                ($spillAt.UtcTicks % [TimeSpan]::TicksPerSecond)
             foreach ($apiSurface in @($spillEventDetail.apiSurfaces)) {
-                $sampleCandidates = @($stabilityLatencySamples | Where-Object {
-                    ([string]$apiSurface -ceq 'PollLoopOrUnmappedWorkload' -or
-                     [string]$_.name -ceq [string]$apiSurface) -and
+                $candidateSurfaces = if ([string]$apiSurface -ceq 'PollLoopOrUnmappedWorkload') {
+                    $latencySampleSurfaces
+                } else { @([string]$apiSurface) }
+                $bucketCandidates = New-Object System.Collections.ArrayList
+                foreach ($candidateSurface in $candidateSurfaces) {
+                    $bucketKey = '{0}|{1}' -f [string]$candidateSurface, $spillBucketTicks
+                    if ($latencySampleBuckets.ContainsKey($bucketKey)) {
+                        foreach ($candidate in $latencySampleBuckets[$bucketKey]) {
+                            [void]$bucketCandidates.Add($candidate)
+                        }
+                    }
+                }
+                $sampleCandidates = @($bucketCandidates | Where-Object {
                     [DateTimeOffset]::Parse([string]$_.startedAt) -le $spillAt -and
                     [DateTimeOffset]::Parse([string]$_.completedAt) -ge $spillAt
                 } | Sort-Object {
