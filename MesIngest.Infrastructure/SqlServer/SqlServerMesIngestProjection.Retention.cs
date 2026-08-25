@@ -166,34 +166,36 @@ public sealed partial class SqlServerMesIngestProjection
                 );
 
                 /* MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH */
-                ;WITH Due AS
-                (
-                    SELECT TOP (@maximumPollTraces)
-                        trace.PollTraceId,
-                        trace.CompletedAt,
-                        CONVERT(BIGINT, trace.[RowCount]) AS ObservationCount
+                DECLARE @expiredPollTraceCount INT = 0;
+                DECLARE @remainingRawObservationRows BIGINT = @maximumRawObservationRows;
+                DECLARE @nextPollTraceId NVARCHAR(128);
+                DECLARE @nextObservationCount BIGINT;
+
+                WHILE @expiredPollTraceCount < @maximumPollTraces
+                BEGIN
+                    SET @nextPollTraceId = NULL;
+                    SET @nextObservationCount = NULL;
+
+                    SELECT TOP (1)
+                        @nextPollTraceId = trace.PollTraceId,
+                        @nextObservationCount = CONVERT(BIGINT, trace.[RowCount])
                     FROM mesingest.PollTraces AS trace WITH
                         (UPDLOCK, HOLDLOCK, INDEX(IX_MesIngest_PollTraces_RawRetentionDue))
                     WHERE trace.RawObservationsExpiredAt IS NULL
                       AND trace.CompletedAt <= @cutoff
-                    ORDER BY trace.CompletedAt, trace.PollTraceId
-                ),
-                Ranked AS
-                (
-                    SELECT
-                        PollTraceId,
-                        CompletedAt,
-                        ObservationCount,
-                        SUM(ObservationCount) OVER
-                            (ORDER BY CompletedAt, PollTraceId ROWS UNBOUNDED PRECEDING) AS RunningRows
-                    FROM Due
-                )
-                INSERT INTO @expired (PollTraceId)
-                SELECT PollTraceId
-                FROM Ranked
-                WHERE RunningRows <= @maximumRawObservationRows;
+                      AND NOT EXISTS
+                          (SELECT 1 FROM @expired AS expired
+                           WHERE expired.PollTraceId = trace.PollTraceId)
+                    ORDER BY trace.CompletedAt, trace.PollTraceId;
 
-                DECLARE @expiredPollTraceCount INT = @@ROWCOUNT;
+                    IF @nextPollTraceId IS NULL
+                       OR @nextObservationCount > @remainingRawObservationRows
+                        BREAK;
+
+                    INSERT INTO @expired (PollTraceId) VALUES (@nextPollTraceId);
+                    SET @expiredPollTraceCount += 1;
+                    SET @remainingRawObservationRows -= @nextObservationCount;
+                END;
 
                 DELETE observation
                 FROM mesingest.DemandRawObservations AS observation

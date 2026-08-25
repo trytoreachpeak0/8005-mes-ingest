@@ -236,10 +236,18 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         Assert.Contains("MESINGEST_QUERY:FROZEN_SERIES_STATE", browse, StringComparison.Ordinal);
         Assert.Contains("MESINGEST_QUERY:FROZEN_DEMAND_GENERATIONS", browse, StringComparison.Ordinal);
+        Assert.Contains("MESINGEST_QUERY:FROZEN_RAW_OBSERVATIONS", browse, StringComparison.Ordinal);
         Assert.Equal(2, browse.Split("CROSS APPLY", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain(
+            "ORDER BY c.ProjectionSequence, o.PollTraceId, o.Ordinal",
+            browse,
+            StringComparison.Ordinal);
+        Assert.Contains("rows.Sort", browse, StringComparison.Ordinal);
         Assert.DoesNotContain("OPTION (MIN_GRANT_PERCENT", browse, StringComparison.Ordinal);
         Assert.Contains("MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH", retention, StringComparison.Ordinal);
         Assert.Contains("INDEX(IX_MesIngest_PollTraces_RawRetentionDue)", retention, StringComparison.Ordinal);
+        Assert.DoesNotContain("SUM(ObservationCount) OVER", retention, StringComparison.Ordinal);
+        Assert.Contains("WHILE @expiredPollTraceCount < @maximumPollTraces", retention, StringComparison.Ordinal);
         Assert.DoesNotContain("OPTION (MIN_GRANT_PERCENT", retention, StringComparison.Ordinal);
     }
 

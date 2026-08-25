@@ -1180,26 +1180,30 @@ public sealed partial class SqlServerMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            /* MESINGEST_QUERY:FROZEN_RAW_OBSERVATIONS */
             SELECT o.Ordinal, o.PollTraceId, o.ProjectionCommitId,
                 o.SeriesId, o.DemandId, o.WorkType, o.Sublot, o.Area, o.Eqp,
-                o.Step, o.MesSourceDate, o.Package, p.CompletedAt, o.MesSourceDateRaw
+                o.Step, o.MesSourceDate, o.Package, p.CompletedAt, o.MesSourceDateRaw,
+                c.ProjectionSequence
             FROM mesingest.DemandRawObservations AS o
             INNER JOIN mesingest.PollTraces AS p ON p.PollTraceId = o.PollTraceId
             INNER JOIN mesingest.ProjectionCommits AS c ON c.ProjectionCommitId = o.ProjectionCommitId
             WHERE o.SeriesId = @seriesId
               AND c.ProjectionSequence <= @snapshotSequence
-              AND p.CompletedAt > @availabilityAtSnapshot
-            ORDER BY c.ProjectionSequence, o.PollTraceId, o.Ordinal;
+              AND p.CompletedAt > @availabilityAtSnapshot;
             """;
         AddNVarChar(command, "@seriesId", 64, seriesId);
         command.Parameters.Add("@snapshotSequence", SqlDbType.BigInt).Value = snapshotSequence;
         AddDateTimeOffset(command, "@availabilityAtSnapshot", availabilityAtSnapshot);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        var items = new List<DemandRawObservationSnapshot>();
+        var rows = new List<(long ProjectionSequence, string PollTraceId, int Ordinal,
+            DemandRawObservationSnapshot Observation)>();
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            items.Add(new DemandRawObservationSnapshot(
-                reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
+            var ordinal = reader.GetInt32(0);
+            var pollTraceId = reader.GetString(1);
+            rows.Add((reader.GetInt64(14), pollTraceId, ordinal, new DemandRawObservationSnapshot(
+                ordinal, pollTraceId, reader.GetString(2),
                 reader.IsDBNull(3) && reader.IsDBNull(4)
                     ? MesObservationAssignment.Unassigned
                     : MesObservationAssignment.Assigned,
@@ -1208,9 +1212,16 @@ public sealed partial class SqlServerMesIngestProjection
                 GetNullableString(reader, 7), GetNullableString(reader, 8),
                 GetNullableString(reader, 9), GetNullableDateTimeOffset(reader, 10),
                 GetNullableString(reader, 11), reader.GetFieldValue<DateTimeOffset>(12),
-                GetNullableString(reader, 13)));
+                GetNullableString(reader, 13))));
         }
-        return items;
+        rows.Sort(static (left, right) =>
+        {
+            var sequence = left.ProjectionSequence.CompareTo(right.ProjectionSequence);
+            if (sequence != 0) return sequence;
+            var trace = StringComparer.Ordinal.Compare(left.PollTraceId, right.PollTraceId);
+            return trace != 0 ? trace : left.Ordinal.CompareTo(right.Ordinal);
+        });
+        return rows.Select(static row => row.Observation).ToArray();
     }
 
     private static async Task<IReadOnlyList<DemandSeriesEventSnapshot>> ReadEventsAsOfAsync(
