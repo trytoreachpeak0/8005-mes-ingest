@@ -98,7 +98,7 @@ public sealed class WatchErrorSearchPresentationTests
                 ActivityStates = [ErrorSearchActivityStates.Active],
                 SeriesId = "series-attempted",
             },
-            ErrorSearchWindowSelection.Last30Days,
+            ErrorSearchWindowSelection.Last15Days,
             PageSize: 200);
 
         var successful = WatchErrorSearchPresentation.Project(

@@ -505,6 +505,7 @@ public sealed class MesIngestCutoverRunTests
         Assert.Contains("post-seed high-water", cutover, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("-AfterPollTraceSequence $postSeedPollTraceHighWater", cutover, StringComparison.Ordinal);
         Assert.Contains("$finalOldIdentity", cutover, StringComparison.Ordinal);
+        Assert.Contains("ERROR_SEARCH/2.1", cutover, StringComparison.Ordinal);
         Assert.True(
             cutover.Split("Assert-OldCutoverHostStopped", StringSplitOptions.None).Length - 1 >= 3,
             "The entry point must define and invoke the old-Host gate both initially and immediately before evidence.");

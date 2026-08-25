@@ -58,7 +58,7 @@ Operators may override `HistoryCleanupCheckIntervalSeconds`,
 `HistoryCleanupMaximumRawObservationRowsPerBatch`,
 `HistoryCleanupMaximumSeriesPerBatch`, and `HistoryCleanupTimeBudgetSeconds`; startup rejects
 zero, negative, or unbounded values. These settings only control work per check and never
-change either exact 30×24-hour retention window.
+change either exact 15×24-hour retention window.
 
 `GET /api/v2/current-ingest-attention` returns the durable `historyCleanup` status with the
 last attempt/success, per-run and cumulative delete counts, earliest available Host UTC,

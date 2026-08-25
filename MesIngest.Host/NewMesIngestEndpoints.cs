@@ -788,7 +788,7 @@ internal static class NewMesIngestEndpoints
         {
             ErrorSearchWindowKinds.Last24Hours => ErrorSearchWindowSelection.Last24Hours,
             ErrorSearchWindowKinds.Last7Days => ErrorSearchWindowSelection.Last7Days,
-            ErrorSearchWindowKinds.Last30Days => ErrorSearchWindowSelection.Last30Days,
+            ErrorSearchWindowKinds.Last15Days => ErrorSearchWindowSelection.Last15Days,
             ErrorSearchWindowKinds.AllHistory => ErrorSearchWindowSelection.AllHistory,
             _ => throw new ErrorSearchException(
                 ErrorSearchErrorCodes.InvalidQuery,

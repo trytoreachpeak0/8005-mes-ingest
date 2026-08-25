@@ -24,28 +24,29 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
     }
 
     [Fact]
-    public void Retention_clocks_use_exact_thirty_day_boundaries()
+    public void Retention_clocks_use_exact_fifteen_day_boundaries()
     {
         var completedAt = new DateTimeOffset(2026, 7, 1, 8, 15, 30, TimeSpan.Zero);
-        var boundary = completedAt.AddDays(30);
+        var rawBoundary = completedAt.AddDays(15);
+        var seriesBoundary = completedAt.AddDays(15);
 
         Assert.Equal(
-            TimeSpan.FromDays(30),
+            TimeSpan.FromDays(15),
             HistoryRetentionPolicy.RawObservationAvailabilityWindow);
         Assert.Equal(
-            TimeSpan.FromDays(30),
+            TimeSpan.FromDays(15),
             HistoryRetentionPolicy.RetentionEligibleDemandSeriesWindow);
-        Assert.Equal(boundary, HistoryRetentionPolicy.RawObservationExpiresAt(completedAt));
+        Assert.Equal(rawBoundary, HistoryRetentionPolicy.RawObservationExpiresAt(completedAt));
         Assert.False(HistoryRetentionPolicy.IsRawObservationExpired(
             completedAt,
-            boundary.AddTicks(-1)));
-        Assert.True(HistoryRetentionPolicy.IsRawObservationExpired(completedAt, boundary));
+            rawBoundary.AddTicks(-1)));
+        Assert.True(HistoryRetentionPolicy.IsRawObservationExpired(completedAt, rawBoundary));
         Assert.True(HistoryRetentionPolicy.IsRawObservationExpired(
             completedAt,
-            boundary.AddTicks(1)));
+            rawBoundary.AddTicks(1)));
 
         Assert.Equal(
-            boundary,
+            seriesBoundary,
             HistoryRetentionPolicy.RetentionEligibleDemandSeriesCleanupDueAt(completedAt));
     }
 
@@ -56,7 +57,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
         var completedAt = new DateTimeOffset(2026, 7, 1, 8, 15, 30, TimeSpan.Zero);
         var retainedAt = completedAt.AddDays(1);
-        var clock = new AdjustableTimeProvider(completedAt.AddDays(30).AddTicks(-1));
+        var clock = new AdjustableTimeProvider(completedAt.AddDays(15).AddTicks(-1));
         await using var factory = CreateFactory(clock);
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
@@ -102,7 +103,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             Assert.Equal(4, body.GetProperty("observations").GetArrayLength());
         }
 
-        clock.SetUtcNow(completedAt.AddDays(30));
+        clock.SetUtcNow(completedAt.AddDays(15));
         await AssertHistoricalUnavailableAsync(
             client,
             $"/api/v2/poll-traces/{expiring.PollTraceId}",
@@ -267,7 +268,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         Assert.Equal(DemandSeriesLifecycleContract.Archived, eligible.Lifecycle);
         Assert.Equal(DemandSeriesLifecycleContract.Gone, eligible.CurrentPresence);
         Assert.Equal(archiveAt, eligible.EligibilityAt);
-        Assert.Equal(archiveAt.AddDays(30),
+        Assert.Equal(archiveAt.AddDays(15),
             HistoryRetentionPolicy.RetentionEligibleDemandSeriesCleanupDueAt(
                 eligible.EligibilityAt!.Value));
         Assert.Equal(0, eligible.CurrentConditionCount);
@@ -323,7 +324,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
         var completedAt = new DateTimeOffset(2026, 7, 2, 6, 0, 0, TimeSpan.Zero);
-        var clock = new AdjustableTimeProvider(completedAt.AddDays(30));
+        var clock = new AdjustableTimeProvider(completedAt.AddDays(15));
         await using var factory = CreateFactory(clock);
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();

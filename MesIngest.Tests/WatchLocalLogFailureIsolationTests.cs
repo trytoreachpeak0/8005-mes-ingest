@@ -31,7 +31,7 @@ public class WatchLocalLogFailureIsolationTests
 
         var enforce = Task.Run(() => WatchLocalLogRetention.Enforce(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 5_000,
             utcNow: () => DateTimeOffset.UtcNow,
             onFailure: failures.Add));
@@ -53,7 +53,7 @@ public class WatchLocalLogFailureIsolationTests
         var diagnostics = new WatchTelemetryIoDiagnosticBuffer(capacity: 20);
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 1024,
             utcNow: () => DateTimeOffset.Parse("2026-08-01T10:00:00Z"),
             onWriteFailure: ex => diagnostics.Record("watch-connection", ex));

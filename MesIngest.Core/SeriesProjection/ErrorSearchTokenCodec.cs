@@ -325,7 +325,7 @@ public static class ErrorSearchTokenCodec
         if (window.Kind is not (
                 ErrorSearchWindowKinds.Last24Hours
                 or ErrorSearchWindowKinds.Last7Days
-                or ErrorSearchWindowKinds.Last30Days
+                or ErrorSearchWindowKinds.Last15Days
                 or ErrorSearchWindowKinds.AllHistory
                 or ErrorSearchWindowKinds.Custom))
         {
@@ -351,7 +351,7 @@ public static class ErrorSearchTokenCodec
         if (window.Kind is (
                 ErrorSearchWindowKinds.Last24Hours
                 or ErrorSearchWindowKinds.Last7Days
-                or ErrorSearchWindowKinds.Last30Days)
+                or ErrorSearchWindowKinds.Last15Days)
             && window.FromUtc is null)
         {
             throw new ArgumentException(

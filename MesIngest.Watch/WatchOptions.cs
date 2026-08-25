@@ -22,9 +22,9 @@ internal sealed class WatchOptions
     public int RequestTimeoutSeconds { get; set; } = 30;
 
     /// <summary>
-    /// Local WatchConnectionEvent JSONL retention in days. Default 30.
+    /// Local WatchConnectionEvent JSONL retention in days. Default 15.
     /// </summary>
-    public int ConnectionLogRetentionDays { get; set; } = 30;
+    public int ConnectionLogRetentionDays { get; set; } = 15;
 
     /// <summary>
     /// Local WatchConnectionEvent JSONL directory size cap in MiB. Default 100.

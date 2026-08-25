@@ -882,7 +882,7 @@ public sealed class ScriptedFakeHostV2SurfaceTests
             items,
             HistoryCleanupStateSnapshot.NotRun with
             {
-                EarliestAvailableHostUtc = at.AddDays(-30),
+                EarliestAvailableHostUtc = at.AddDays(-15),
             },
             new StoragePressureStateSnapshot(
                 storageStatus,

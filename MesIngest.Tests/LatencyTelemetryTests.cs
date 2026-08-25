@@ -19,7 +19,7 @@ public class LatencyTelemetryTests
         Exception? observed = null;
         var telemetry = new WatchLatencyFileTelemetry(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 1024,
             onWriteFailure: ex => observed = ex);
 
@@ -58,7 +58,7 @@ public class LatencyTelemetryTests
 
         var telemetry = new WatchLatencyFileTelemetry(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 100 * 1024 * 1024,
             utcNow: () => now);
 

@@ -20,7 +20,7 @@ internal sealed class WatchLatencyFileTelemetry : ILatencyTelemetry
 
     public WatchLatencyFileTelemetry(
         string directory,
-        int retentionDays = 30,
+        int retentionDays = 15,
         long maxSizeBytes = 100L * 1024 * 1024,
         Func<DateTimeOffset>? utcNow = null,
         Action<Exception>? onWriteFailure = null,

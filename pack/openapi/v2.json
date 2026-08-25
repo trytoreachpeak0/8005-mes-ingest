@@ -3,7 +3,7 @@
   "info": {
     "title": "MesIngest V2 Read Contract",
     "description": "MesIngest V2 read contract. Every business operation is GET; no TransportDemand,\nerror, projection, or Watch business write is accepted by this surface.\n\nCompatibility is EXACT_VERSION_SCHEMA_AND_CAPABILITIES. A consumer must read\n/api/v2/contract and require the exact contractVersion, schemaVersion, and complete capability\nset before interpreting any business response. Missing fields, unknown states, and client-side\nsingle-page filtering are not compatibility fallbacks.\n\nHost timestamps and ProjectionCommit timestamps are ISO-8601 date-time values in UTC.\nmesSourceDate preserves its MES source offset. Snapshot references and cursors are opaque,\npurpose-bound credentials; catalog conditional reads bind HistoryEpoch plus CatalogRevision\nin a weak ETag and use 304 only when both identities match.\nList totals and facets are exact within the named snapshot. Default page size is 100 and the\nhard maximum is 200 unless an operation documents a stricter diagnostic limit.\n\nBearer SharedSecret is required for non-loopback business reads. Restricted raw evidence always\nrequires explicit Bearer authorization, including on loopback. This document is the only\npublished MesIngest read contract; no earlier surface is served or supported.",
-    "version": "2026.08.new-mes-ingest.v2.1"
+    "version": "2026.08.new-mes-ingest.v2.2"
   },
   "paths": {
     "/api/v2/contract": {
@@ -791,7 +791,7 @@
               "enum": [
                 "LAST_24_HOURS",
                 "LAST_7_DAYS",
-                "LAST_30_DAYS",
+                "LAST_15_DAYS",
                 "ALL_HISTORY"
               ],
               "type": "string",
@@ -2887,10 +2887,10 @@
           },
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           }
         },
         "additionalProperties": false
@@ -3657,10 +3657,10 @@
           },
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           }
         },
         "additionalProperties": false
@@ -3676,7 +3676,7 @@
             "enum": [
               "LAST_24_HOURS",
               "LAST_7_DAYS",
-              "LAST_30_DAYS",
+              "LAST_15_DAYS",
               "ALL_HISTORY",
               "CUSTOM"
             ],
@@ -3709,10 +3709,10 @@
         "properties": {
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           },
           "historyEpoch": {
             "type": "string",
@@ -4166,7 +4166,8 @@
           },
           "version": {
             "enum": [
-              "2.0"
+              "2.0",
+              "2.1"
             ],
             "type": "string",
             "description": "Frozen NewMesIngestCapabilityDto.version contract field."
@@ -4199,17 +4200,17 @@
         "properties": {
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           },
           "schemaVersion": {
             "enum": [
-              28
+              29
             ],
             "type": "integer",
-            "description": "Exact schema identity; must equal 28.",
+            "description": "Exact schema identity; must equal 29.",
             "format": "int32"
           },
           "compatibilityPolicy": {
@@ -4371,10 +4372,10 @@
           },
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           }
         },
         "additionalProperties": false
@@ -5133,10 +5134,10 @@
           },
           "contractVersion": {
             "enum": [
-              "2026.08.new-mes-ingest.v2.1"
+              "2026.08.new-mes-ingest.v2.2"
             ],
             "type": "string",
-            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.1."
+            "description": "Exact comparable contract identity; must equal 2026.08.new-mes-ingest.v2.2."
           }
         },
         "additionalProperties": false

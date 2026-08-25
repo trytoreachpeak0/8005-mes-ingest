@@ -7,8 +7,8 @@ public sealed class NewMesIngestContractFreezeTests
     [Fact]
     public void Contract_discovery_returns_exact_version_and_only_the_frozen_v2_capability_set()
     {
-        Assert.Equal("2026.08.new-mes-ingest.v2.1", NewMesIngestContract.Version);
-        Assert.Equal(28, NewMesIngestContract.SchemaVersion);
+        Assert.Equal("2026.08.new-mes-ingest.v2.2", NewMesIngestContract.Version);
+        Assert.Equal(29, NewMesIngestContract.SchemaVersion);
         Assert.Equal(
             "EXACT_VERSION_SCHEMA_AND_CAPABILITIES",
             NewMesIngestContract.CompatibilityPolicy);
@@ -22,7 +22,7 @@ public sealed class NewMesIngestContractFreezeTests
                 "CONTRACT_DISCOVERY|2.0|GET /api/v2/contract",
                 "CURRENT_INGEST_ATTENTION|2.0|GET /api/v2/current-ingest-attention",
                 "DEMAND_SERIES|2.0|GET /api/v2/demand-series;GET /api/v2/demand-series/by-key;GET /api/v2/demand-series/{seriesId}",
-                "ERROR_SEARCH|2.0|GET /api/v2/error-search;GET /api/v2/error-search/{seriesId};GET /api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
+                "ERROR_SEARCH|2.1|GET /api/v2/error-search;GET /api/v2/error-search/{seriesId};GET /api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations",
                 "EXTERNALLY_READABLE_DEMAND_CATALOG|2.0|GET /api/v2/externally-readable-demand-catalog",
                 "POLL_HEALTH_AND_EVIDENCE|2.0|GET /api/v2/poll-traces/{pollTraceId};GET /api/v2/absence-authority;GET /api/v2/absence-authority/{hostSessionId};GET /api/v2/task-type-protections;GET /api/v2/task-type-protections/{workType}",
                 "READABILITY_AUDIT|2.0|GET /api/v2/readability-audit;GET /api/v2/readability-audit/{demandId}",

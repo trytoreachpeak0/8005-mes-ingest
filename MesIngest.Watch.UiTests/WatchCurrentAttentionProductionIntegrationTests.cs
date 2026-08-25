@@ -483,7 +483,7 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
             CreateAttentionItems(),
             HistoryCleanupStateSnapshot.NotRun with
             {
-                EarliestAvailableHostUtc = At.AddDays(-30),
+                EarliestAvailableHostUtc = At.AddDays(-15),
             },
             new StoragePressureStateSnapshot(
                 StoragePressureStatuses.Healthy,

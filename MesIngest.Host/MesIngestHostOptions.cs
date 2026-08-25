@@ -73,7 +73,7 @@ public sealed class MesIngestHostOptions
     /// <summary>
     /// Host-owned history cleanup check interval. The production default is one
     /// hour; tests may shorten it through configuration without changing the
-    /// 30-day retention policy.
+    /// 15-day retention policy.
     /// </summary>
     public int HistoryCleanupCheckIntervalSeconds { get; set; } = 60 * 60;
 

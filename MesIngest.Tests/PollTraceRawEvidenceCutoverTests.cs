@@ -106,12 +106,12 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var earliestAvailableHostUtc = new DateTimeOffset(2026, 7, 25, 1, 0, 0, TimeSpan.Zero);
         await using var factory = CreateFactory(new AdjustableTimeProvider(
-            new DateTimeOffset(2026, 8, 23, 1, 0, 0, TimeSpan.Zero)));
+            earliestAvailableHostUtc.AddDays(15).AddTicks(-1)));
         using var client = factory.CreateClient();
         var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
         var expiredCompletedAt = new DateTimeOffset(2026, 7, 24, 1, 0, 0, TimeSpan.Zero);
-        var earliestAvailableHostUtc = new DateTimeOffset(2026, 7, 25, 1, 0, 0, TimeSpan.Zero);
         var expired = await ingestor.IngestAsync(SuccessRound(
             "poll-ticket11-expired",
             expiredCompletedAt,

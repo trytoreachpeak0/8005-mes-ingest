@@ -258,7 +258,7 @@ try {
     $contract = $contractBody | ConvertFrom-Json
     $expectedCapabilities = @(
         'CONTRACT_DISCOVERY/2.0', 'CURRENT_INGEST_ATTENTION/2.0', 'DEMAND_SERIES/2.0',
-        'ERROR_SEARCH/2.0', 'EXTERNALLY_READABLE_DEMAND_CATALOG/2.0',
+        'ERROR_SEARCH/2.1', 'EXTERNALLY_READABLE_DEMAND_CATALOG/2.0',
         'POLL_HEALTH_AND_EVIDENCE/2.0', 'READABILITY_AUDIT/2.0',
         'SERIES_ERROR_CATALOG/2.0', 'WATCH_OVERVIEW/2.0'
     ) | Sort-Object

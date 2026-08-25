@@ -154,7 +154,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
     }
 
     [Fact]
-    public void Fast_capacity_fixture_projects_thirty_days_with_margin_below_escalation_thresholds()
+    public void Fast_capacity_fixture_projects_fifteen_days_with_margin_below_escalation_thresholds()
     {
         var fixture = CreatePassingCapacityFixture();
 
@@ -165,6 +165,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("projectedLogicalUsedMb=", result.Output, StringComparison.Ordinal);
         Assert.Contains("projectedPhysicalDataMb=", result.Output, StringComparison.Ordinal);
         Assert.Contains("projectedLdfMb=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("targetDays=15", result.Output, StringComparison.Ordinal);
+        Assert.Contains("targetRawObservationRows=55542600", result.Output, StringComparison.Ordinal);
         Assert.Contains("escalationRequired=False", result.Output, StringComparison.Ordinal);
     }
 
@@ -174,7 +176,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         var cases = new (string ExpectedCode, Action<JsonObject> Mutate)[]
         {
             ("CAPACITY_LOGICAL_70_PERCENT_ESCALATION", fixture =>
-                fixture["sample"]!["storage"]!["logicalUsedMb"] = 40.0),
+                fixture["sample"]!["storage"]!["logicalUsedMb"] = 55.0),
             ("CAPACITY_PHYSICAL_70_PERCENT_ESCALATION", fixture =>
                 fixture["sample"]!["dataFileGrowthMb"] = 12_000.0),
             ("CAPACITY_LDF_70_PERCENT_ESCALATION", fixture =>
@@ -219,7 +221,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
             var result = RunCapacityFixture(fixture);
 
-            Assert.NotEqual(0, result.ExitCode);
+            Assert.True(
+                result.ExitCode != 0,
+                $"Expected {expectedCode} to fail closed, but fixture passed.{Environment.NewLine}{result.Output}");
             Assert.Contains(expectedCode, result.Output, StringComparison.Ordinal);
             Assert.Contains("escalationRequired=True", result.Output, StringComparison.Ordinal);
         }
@@ -325,7 +329,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         var gate = File.ReadAllText(gatePath);
         var tier1Runner = File.ReadAllText(Path.Combine(csharpRoot, "Invoke-RuntimeFeedbackTier1.ps1"));
         var install = File.ReadAllText(Path.Combine(csharpRoot, "pack", "INSTALL.md"));
-        foreach (var profile in new[] { "0", "7", "30" })
+        foreach (var profile in new[] { "0", "7", "15" })
         {
             Assert.Contains($"historyDays = {profile}", gate, StringComparison.Ordinal);
         }
@@ -659,7 +663,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
     [Theory]
     [InlineData("0", "1", "Representative history evidence requires BaselineEvidencePath")]
-    [InlineData("7", "0", "ProfileDays 7/30 requires ConfirmFullScaleEscalation")]
+    [InlineData("7", "0", "ProfileDays 7/15 requires ConfirmFullScaleEscalation")]
     public void Scale_gate_requires_complete_representative_or_escalated_evidence_before_opening_sql(
         string profileDays,
         string representativeRounds,

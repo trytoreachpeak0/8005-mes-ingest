@@ -289,10 +289,20 @@ $watchExecutable = Join-Path $packageRoot 'watch\MesIngest.Watch.exe'
 $releaseManifestPath = Join-Path $packageRoot 'RELEASE-MANIFEST.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
 $canonicalOpenApiPath = Join-Path $packageRoot $canonicalOpenApiRelativePath
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.1'
-$expectedContractSchemaVersion = 28
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractSchemaVersion = 29
 $expectedCompatibilityPolicy = 'EXACT_VERSION_SCHEMA_AND_CAPABILITIES'
-$expectedCapabilityVersion = '2.0'
+$expectedCapabilityVersions = [ordered]@{
+    CONTRACT_DISCOVERY = '2.0'
+    CURRENT_INGEST_ATTENTION = '2.0'
+    DEMAND_SERIES = '2.0'
+    ERROR_SEARCH = '2.1'
+    EXTERNALLY_READABLE_DEMAND_CATALOG = '2.0'
+    POLL_HEALTH_AND_EVIDENCE = '2.0'
+    READABILITY_AUDIT = '2.0'
+    SERIES_ERROR_CATALOG = '2.0'
+    WATCH_OVERVIEW = '2.0'
+}
 $expectedCapabilityOperations = [ordered]@{
     CONTRACT_DISCOVERY = @('/api/v2/contract')
     CURRENT_INGEST_ATTENTION = @('/api/v2/current-ingest-attention')
@@ -580,7 +590,7 @@ try {
         )
         if (
             $actualCapability.Count -ne 1 -or
-            [string]$actualCapability[0].version -cne $expectedCapabilityVersion
+            [string]$actualCapability[0].version -cne $expectedCapabilityVersions[$expectedCapabilityId]
         ) {
             throw "Packaged Production V2 Host capability $expectedCapabilityId has a non-frozen identity."
         }

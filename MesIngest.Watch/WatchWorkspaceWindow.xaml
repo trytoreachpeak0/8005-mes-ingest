@@ -2087,7 +2087,7 @@
                                                                   AutomationProperties.AutomationId="ErrorSearchWindowFilter">
                                                             <ComboBoxItem Content="最近 24 小时" Tag="LAST_24_HOURS" />
                                                             <ComboBoxItem Content="最近 7 天" Tag="LAST_7_DAYS" />
-                                                            <ComboBoxItem Content="最近 30 天" Tag="LAST_30_DAYS" />
+                                                            <ComboBoxItem Content="最近 15 天" Tag="LAST_15_DAYS" />
                                                             <ComboBoxItem Content="全部历史" Tag="ALL_HISTORY" />
                                                         </ComboBox>
                                                     </StackPanel>

@@ -181,7 +181,8 @@ public class InstallPackageLayoutTests
         Assert.Equal("http://127.0.0.1:5088", watch.GetProperty("BaseUrl").GetString());
         Assert.Equal("SoftwareOnly", watch.GetProperty("RenderingMode").GetString());
         Assert.Equal(30, watch.GetProperty("RequestTimeoutSeconds").GetInt32());
-        Assert.Equal(30, watch.GetProperty("ConnectionLogRetentionDays").GetInt32());
+        Assert.Equal(15, watch.GetProperty("ConnectionLogRetentionDays").GetInt32());
+        Assert.Equal(15, new MesIngest.Watch.WatchOptions().ConnectionLogRetentionDays);
         Assert.Equal(100, watch.GetProperty("ConnectionLogMaxSizeMb").GetInt32());
         Assert.Equal("", watch.GetProperty("SharedSecret").GetString());
         Assert.Contains("MesIngestWatch__RequestTimeoutSeconds", text, StringComparison.Ordinal);

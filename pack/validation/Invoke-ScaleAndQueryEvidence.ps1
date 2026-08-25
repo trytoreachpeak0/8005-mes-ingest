@@ -10,14 +10,14 @@
   its V2 HTTP API, captures actual plans and statement metrics with Extended Events, writes an
   immutable evidence bundle, and removes only the database whose ownership marker matches this run.
 
-  The 0/7/30 profiles use the calibrated 14-second round cadence and 600 observations per round.
-  Profile 0 retains one current round but no historical rounds. Profiles 7 and 30 retain the same
+  The 0/7/15 profiles use the calibrated 14-second round cadence and 600 observations per round.
+  Profile 0 retains one current round but no historical rounds. Profiles 7 and 15 retain the same
   current state and add the exact equivalent historical round count.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet(0, 7, 30)]
+    [ValidateSet(0, 7, 15)]
     [int] $ProfileDays,
 
     [Parameter(Mandatory = $true)]
@@ -93,9 +93,9 @@ if ($RepresentativeHistoryRounds -gt 0 -and [string]::IsNullOrWhiteSpace($Baseli
 if ($RepresentativeHistoryRounds -eq 0 -and -not [string]::IsNullOrWhiteSpace($BaselineEvidencePath)) {
     throw 'BaselineEvidencePath is valid only for representative history evidence.'
 }
-if ($ProfileDays -in @(7, 30) -and
+if ($ProfileDays -in @(7, 15) -and
     $ConfirmFullScaleEscalation -cne 'MESINGEST_FULL_SCALE_ESCALATION') {
-    throw 'ProfileDays 7/30 requires ConfirmFullScaleEscalation=MESINGEST_FULL_SCALE_ESCALATION.'
+    throw 'ProfileDays 7/15 requires ConfirmFullScaleEscalation=MESINGEST_FULL_SCALE_ESCALATION.'
 }
 if ($FastCapacityProjection -and $ProfileDays -ne 0) {
     throw 'FastCapacityProjection is available only with ProfileDays 0.'
@@ -118,7 +118,7 @@ if ($AcceleratedConcurrencyStability -and
 $profiles = @{
     0 = [ordered]@{ historyDays = 0; distribution = 'production-calibrated'; activeRatio = 0.70; archivedRatio = 0.30; errorRatio = 0.10 }
     7 = [ordered]@{ historyDays = 7; distribution = 'production-calibrated'; activeRatio = 0.70; archivedRatio = 0.30; errorRatio = 0.10 }
-    30 = [ordered]@{ historyDays = 30; distribution = 'production-calibrated'; activeRatio = 0.70; archivedRatio = 0.30; errorRatio = 0.10 }
+    15 = [ordered]@{ historyDays = 15; distribution = 'production-calibrated'; activeRatio = 0.70; archivedRatio = 0.30; errorRatio = 0.10 }
 }
 $profile = $profiles[$ProfileDays]
 $canonicalScaleProfile = $SeriesCount -eq 600 -and
@@ -282,7 +282,7 @@ function Get-FastCapacityProjection {
     $totalRows = [long]$sample.rawObservationCount
     $roundIntervalSeconds = [int]$sample.roundIntervalSeconds
     $observationsPerRound = [int]$sample.observationsPerRound
-    $targetRounds = [long][Math]::Floor((30.0 * 86400.0) / $roundIntervalSeconds)
+    $targetRounds = [long][Math]::Floor((15.0 * 86400.0) / $roundIntervalSeconds)
     $targetRows = $targetRounds * [long]$observationsPerRound
     $safetyMargin = 0.30
 
@@ -451,7 +451,7 @@ function Get-FastCapacityProjection {
         escalationRequired = $uniqueFailures.Count -gt 0
         failures = $uniqueFailures
         model = [ordered]@{
-            targetDays = 30; targetRounds = $targetRounds; targetRawObservationRows = $targetRows
+            targetDays = 15; targetRounds = $targetRounds; targetRawObservationRows = $targetRows
             safetyMarginFraction = $safetyMargin; escalationFraction = $escalationFraction
             historySampleRounds = $historyRounds; historySampleRows = $historyRows; totalSampleRows = $totalRows
             observedLogicalGrowthMb = $logicalGrowthMb
@@ -1397,7 +1397,7 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateCapacityFixturePath)) {
     }
     $capacityFixture = Get-Content -Raw -LiteralPath $ValidateCapacityFixturePath | ConvertFrom-Json
     $capacityResult = Get-FastCapacityProjection $capacityFixture
-    Write-Output "MESINGEST_FAST_CAPACITY_FIXTURE: passed=$($capacityResult.passed) escalationRequired=$($capacityResult.escalationRequired)"
+    Write-Output "MESINGEST_FAST_CAPACITY_FIXTURE: passed=$($capacityResult.passed) escalationRequired=$($capacityResult.escalationRequired) targetDays=$($capacityResult.model.targetDays) targetRawObservationRows=$($capacityResult.model.targetRawObservationRows)"
     Write-Output ("projectedLogicalUsedMb={0:F3} projectedPhysicalDataMb={1:F3} projectedLdfMb={2:F3}" -f `
         [double]$capacityResult.prediction.logicalUsedMb, `
         [double]$capacityResult.prediction.physicalDataMb, `
@@ -3675,7 +3675,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                     baselineLogicalUsedMb = $baselineAllocationMb
                     sampleLogicalUsedMb = [double]$sampleAllocation.logical_used_mb
                     observedGrowthMb = $observedGrowthMb
-                    projectedThirtyDayWithMarginMb = $projectedMb
+                    projectedFifteenDayWithMarginMb = $projectedMb
                 })
             }
             $capacityProjection | Add-Member -NotePropertyName allocationProjection -NotePropertyValue @($allocationProjection)
@@ -3701,7 +3701,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                 required = [bool]$capacityProjection.escalationRequired
                 releaseBlocked = [bool]$capacityProjection.escalationRequired
                 reasonCodes = @($capacityProjection.failures)
-                nextValidation = 'Invoke-ScaleAndQueryEvidence.ps1 -ProfileDays 30 -ConfirmFullScaleEscalation MESINGEST_FULL_SCALE_ESCALATION'
+                nextValidation = 'Invoke-ScaleAndQueryEvidence.ps1 -ProfileDays 15 -ConfirmFullScaleEscalation MESINGEST_FULL_SCALE_ESCALATION'
                 contentAddressingDecision = 'Re-evaluate only if full-scale validation also fails.'
             })
             @($capacityProjection.failures) | ForEach-Object { [void]$gateFailures.Add($_) }
@@ -3713,9 +3713,9 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                 failures = @('CAPACITY_MODEL_EVIDENCE_UNCERTAIN')
                 errorType = $_.Exception.GetType().Name
                 model = [pscustomobject][ordered]@{
-                    targetDays = 30
-                    targetRounds = [long][Math]::Floor((30.0 * 86400.0) / $RoundIntervalSeconds)
-                    targetRawObservationRows = [long][Math]::Floor((30.0 * 86400.0) / $RoundIntervalSeconds) * [long]$ObservationsPerRound
+                    targetDays = 15
+                    targetRounds = [long][Math]::Floor((15.0 * 86400.0) / $RoundIntervalSeconds)
+                    targetRawObservationRows = [long][Math]::Floor((15.0 * 86400.0) / $RoundIntervalSeconds) * [long]$ObservationsPerRound
                     safetyMarginFraction = 0.30
                     escalationFraction = 0.70
                 }
@@ -3839,7 +3839,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             $markdownLines += '- Fast capacity projections unavailable because model evidence was incomplete.'
         }
         $markdownLines += @(
-            "- Fast capacity 30-day rows: $($capacityProjection.model.targetRawObservationRows); safety margin: 30%; escalation threshold: 70%"
+            "- Fast capacity 15-day rows: $($capacityProjection.model.targetRawObservationRows); safety margin: 30%; escalation threshold: 70%"
             "- Fast capacity escalation required: $($capacityProjection.escalationRequired)"
         )
     }

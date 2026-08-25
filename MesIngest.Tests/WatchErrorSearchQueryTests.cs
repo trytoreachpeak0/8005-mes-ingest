@@ -55,8 +55,8 @@ public sealed class WatchErrorSearchQueryTests
             ErrorSearchWindowSelection.Last7Days,
             WatchErrorSearchQueries.StartLatest(window: ErrorSearchWindowSelection.Last7Days).Window);
         Assert.Equal(
-            ErrorSearchWindowSelection.Last30Days,
-            WatchErrorSearchQueries.StartLatest(window: ErrorSearchWindowSelection.Last30Days).Window);
+            ErrorSearchWindowSelection.Last15Days,
+            WatchErrorSearchQueries.StartLatest(window: ErrorSearchWindowSelection.Last15Days).Window);
         Assert.Equal(
             ErrorSearchWindowSelection.AllHistory,
             WatchErrorSearchQueries.StartLatest(window: ErrorSearchWindowSelection.AllHistory).Window);
@@ -79,7 +79,7 @@ public sealed class WatchErrorSearchQueryTests
                 ErrorCodes = ["REQUIRED_MES_FIELD_MISSING"],
                 SeriesId = "series-failed-draft",
             },
-            ErrorSearchWindowSelection.Last30Days,
+            ErrorSearchWindowSelection.Last15Days,
             pageSize: 200);
 
         var first = WatchErrorSearchQueries.OpenFrozenPage(snapshot, 1, cursor: null);

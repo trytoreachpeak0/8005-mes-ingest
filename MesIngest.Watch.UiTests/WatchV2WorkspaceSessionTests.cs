@@ -737,7 +737,7 @@ public sealed class WatchV2WorkspaceSessionTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var query = new ErrorSearchQuery(
             new ErrorSearchFilter(),
-            ErrorSearchWindowSelection.Last30Days);
+            ErrorSearchWindowSelection.Last15Days);
         var page = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
             query,
             "error-detail-session-22",
@@ -746,7 +746,7 @@ public sealed class WatchV2WorkspaceSessionTests
             totalSeriesCount: 1);
         var successfulDetail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
             page.Filter,
-            ErrorSearchWindowKinds.Last30Days) with
+            ErrorSearchWindowKinds.Last15Days) with
         {
             SnapshotReference = page.SnapshotReference,
             Snapshot = page.Snapshot,
@@ -820,7 +820,7 @@ public sealed class WatchV2WorkspaceSessionTests
         var testToken = TestContext.Current.CancellationToken;
         var query = new ErrorSearchQuery(
             new ErrorSearchFilter(),
-            ErrorSearchWindowSelection.Last30Days);
+            ErrorSearchWindowSelection.Last15Days);
         var page = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
             query,
             "error-detail-identity-22",
@@ -829,7 +829,7 @@ public sealed class WatchV2WorkspaceSessionTests
             totalSeriesCount: 1);
         var mismatchedDetail = WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
             page.Filter,
-            ErrorSearchWindowKinds.Last30Days) with
+            ErrorSearchWindowKinds.Last15Days) with
         {
             SnapshotReference = page.SnapshotReference,
             Snapshot = page.Snapshot,
@@ -874,7 +874,7 @@ public sealed class WatchV2WorkspaceSessionTests
         var testToken = TestContext.Current.CancellationToken;
         var query = new ErrorSearchQuery(
             new ErrorSearchFilter(),
-            ErrorSearchWindowSelection.Last30Days);
+            ErrorSearchWindowSelection.Last15Days);
         var oldPage = WatchErrorSearchProductionIntegrationTests.CreateErrorPage(
             query,
             "error-atomic-old-22",
@@ -949,7 +949,7 @@ public sealed class WatchV2WorkspaceSessionTests
         static ErrorSearchDetailSnapshot MatchingErrorDetail(ErrorSearchListSnapshot page) =>
             WatchErrorSearchProductionIntegrationTests.CreateErrorDetail(
                 page.Filter,
-                ErrorSearchWindowKinds.Last30Days) with
+                ErrorSearchWindowKinds.Last15Days) with
             {
                 SnapshotReference = page.SnapshotReference,
                 Snapshot = page.Snapshot,

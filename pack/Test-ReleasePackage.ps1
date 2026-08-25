@@ -39,8 +39,8 @@ $canonicalQueryVersion = "$canonicalQueryId/sha256:$canonicalQuerySha256"
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.1'
-$expectedContractSchemaVersion = 28
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractSchemaVersion = 29
 $expectedOpenApiPaths = @(
     '/api/v2/absence-authority',
     '/api/v2/absence-authority/{hostSessionId}',

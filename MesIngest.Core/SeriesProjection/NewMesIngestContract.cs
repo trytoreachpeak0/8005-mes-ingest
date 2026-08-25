@@ -7,9 +7,9 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.v2.1";
+    public const string Version = "2026.08.new-mes-ingest.v2.2";
 
-    public const int SchemaVersion = 28;
+    public const int SchemaVersion = 29;
 
     public const string CompatibilityPolicy = "EXACT_VERSION_SCHEMA_AND_CAPABILITIES";
 
@@ -42,7 +42,7 @@ public static class NewMesIngestContract
             ]),
         new(
             "ERROR_SEARCH",
-            "2.0",
+            "2.1",
             [
                 Get("/api/v2/error-search"),
                 Get("/api/v2/error-search/{seriesId}"),

@@ -4,7 +4,7 @@
     "RenderingMode": "SoftwareOnly",
     "RefreshSeconds": 2,
     "RequestTimeoutSeconds": 30,
-    "ConnectionLogRetentionDays": 30,
+    "ConnectionLogRetentionDays": 15,
     "ConnectionLogMaxSizeMb": 100,
     "SharedSecret": ""
   },
@@ -12,7 +12,7 @@
     "BaseUrl": "One Host only. The Settings page persists this value as a per-user preference.",
     "RenderingMode": "SoftwareOnly is the validated default; use Auto only after local display-driver validation.",
     "RequestTimeoutSeconds": "Per-request HttpClient timeout; legal range 1-300. Env: MesIngestWatch__RequestTimeoutSeconds.",
-    "ConnectionLogRetentionDays": "Local WatchConnectionEvent JSONL retention days (default 30).",
+    "ConnectionLogRetentionDays": "Local WatchConnectionEvent JSONL retention days (default 15).",
     "ConnectionLogMaxSizeMb": "Local log directory size cap in MiB (default 100). Whichever of days/size hits first wins.",
     "SharedSecret": "Leave blank in the template. Inject through MesIngestWatch__SharedSecret or a protected appsettings.Local.json external-configuration file; the per-user preference stores only the credential reference.",
     "preferences": "Approved local preferences are stored under %LocalAppData%\\MesIngest.Watch; no business rows, cursor, query, or credential value is persisted there."

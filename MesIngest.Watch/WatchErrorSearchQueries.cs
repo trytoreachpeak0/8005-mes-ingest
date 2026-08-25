@@ -85,7 +85,7 @@ internal static class WatchErrorSearchQueries
         {
             ErrorSearchWindowKinds.Last24Hours => ErrorSearchWindowSelection.Last24Hours,
             ErrorSearchWindowKinds.Last7Days => ErrorSearchWindowSelection.Last7Days,
-            ErrorSearchWindowKinds.Last30Days => ErrorSearchWindowSelection.Last30Days,
+            ErrorSearchWindowKinds.Last15Days => ErrorSearchWindowSelection.Last15Days,
             ErrorSearchWindowKinds.AllHistory => ErrorSearchWindowSelection.AllHistory,
             ErrorSearchWindowKinds.Custom =>
                 ErrorSearchWindowSelection.Custom(window.FromUtc, window.ToUtc),

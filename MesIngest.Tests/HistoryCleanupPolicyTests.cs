@@ -9,7 +9,7 @@ namespace MesIngest.Tests;
 public sealed class HistoryCleanupPolicyTests
 {
     [Fact]
-    public void Cleanup_defaults_cover_one_hour_of_baseline_rows_with_bounded_time_and_keep_thirty_day_retention()
+    public void Cleanup_defaults_cover_one_hour_of_baseline_rows_with_bounded_time_and_keep_fifteen_day_retention()
     {
         var options = new MesIngestHostOptions();
 
@@ -17,8 +17,8 @@ public sealed class HistoryCleanupPolicyTests
         Assert.Equal(210_000, options.HistoryCleanupMaximumRawObservationRowsPerBatch);
         Assert.Equal(25, options.HistoryCleanupMaximumSeriesPerBatch);
         Assert.Equal(15, options.HistoryCleanupTimeBudgetSeconds);
-        Assert.Equal(TimeSpan.FromDays(30), HistoryRetentionPolicy.RawObservationAvailabilityWindow);
-        Assert.Equal(TimeSpan.FromDays(30), HistoryRetentionPolicy.RetentionEligibleDemandSeriesWindow);
+        Assert.Equal(TimeSpan.FromDays(15), HistoryRetentionPolicy.RawObservationAvailabilityWindow);
+        Assert.Equal(TimeSpan.FromDays(15), HistoryRetentionPolicy.RetentionEligibleDemandSeriesWindow);
 
         using var appsettings = JsonDocument.Parse(File.ReadAllText(Path.Combine(
             RepositoryPaths.CSharpRoot,
@@ -342,7 +342,7 @@ public sealed class HistoryCleanupPolicyTests
                 earliestAvailableHostUtc: new DateTimeOffset(2026, 7, 25, 3, 0, 0, TimeSpan.Zero));
             return Task.FromResult(new HistoryRawCleanupBatchResult(
                 State.LastStartedAt!.Value,
-                State.LastStartedAt.Value.Subtract(TimeSpan.FromDays(30)),
+                State.LastStartedAt.Value.Subtract(HistoryRetentionPolicy.RawObservationAvailabilityWindow),
                 deleted == 0 ? 0 : 1,
                 deleted,
                 State.EarliestAvailableHostUtc!.Value,
@@ -409,7 +409,7 @@ public sealed class HistoryCleanupPolicyTests
             int maximumPollTraces,
             CancellationToken cancellationToken = default)
         {
-            var boundary = clock.GetUtcNow().Subtract(TimeSpan.FromDays(30));
+            var boundary = clock.GetUtcNow().Subtract(HistoryRetentionPolicy.RawObservationAvailabilityWindow);
             State = State.RecordRawProgress(0, 0, boundary);
             return Task.FromResult(new HistoryRawCleanupBatchResult(
                 clock.GetUtcNow(),
@@ -516,7 +516,7 @@ public sealed class HistoryCleanupPolicyTests
             try
             {
                 await ReleaseRawTransaction.Task.WaitAsync(cancellationToken);
-                var boundary = now.Subtract(TimeSpan.FromDays(30));
+                var boundary = now.Subtract(HistoryRetentionPolicy.RawObservationAvailabilityWindow);
                 State = State.RecordRawProgress(1, 1, boundary);
                 return new HistoryRawCleanupBatchResult(
                     now,

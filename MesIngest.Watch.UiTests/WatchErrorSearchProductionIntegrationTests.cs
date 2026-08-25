@@ -287,7 +287,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                     OverviewNavigationTargets.ErrorSearch,
                     PageNumber: 1,
                     ErrorActivityStates: [ErrorSearchActivityStates.Active],
-                    ErrorWindow: ErrorSearchWindowKinds.Last30Days,
+                    ErrorWindow: ErrorSearchWindowKinds.Last15Days,
                     SeriesId: " series-error-22 ",
                     Cursor: null));
 
@@ -295,7 +295,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 var overviewQuery = navigationQueries.Last();
                 Assert.Equal([ErrorSearchActivityStates.Active], overviewQuery.Filter.ActivityStates);
                 Assert.Equal(SeriesId, overviewQuery.Filter.SeriesId);
-                Assert.Equal(ErrorSearchWindowKinds.Last30Days, overviewQuery.Window.Kind);
+                Assert.Equal(ErrorSearchWindowKinds.Last15Days, overviewQuery.Window.Kind);
                 Assert.Null(overviewQuery.SnapshotReference);
                 Assert.Null(overviewQuery.Cursor);
                 Assert.Equal(WatchWorkspacePage.ErrorSearch, window.ActivePage);
@@ -317,7 +317,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Find<ComboBox>(window, "ErrorSearchActivityStateFilter").Text =
                     " ended, active, ACTIVE ";
                 Find<ComboBox>(window, "ErrorSearchWindowFilter").SelectedValue =
-                    ErrorSearchWindowKinds.Last30Days;
+                    ErrorSearchWindowKinds.Last15Days;
                 Find<TextBox>(window, "ErrorSearchSeriesIdFilter").Text =
                     " series-error-22 ";
                 Find<TextBox>(window, "ErrorSearchDemandIdFilter").Text =
@@ -342,7 +342,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Equal(SeriesId, filteredQuery.Filter.SeriesId);
                 Assert.Equal("DEMAND-ERROR-22", filteredQuery.Filter.DemandId);
                 Assert.Equal("SUBLOT-ERROR-22", filteredQuery.Filter.SublotContains);
-                Assert.Equal(ErrorSearchWindowKinds.Last30Days, filteredQuery.Window.Kind);
+                Assert.Equal(ErrorSearchWindowKinds.Last15Days, filteredQuery.Window.Kind);
                 Assert.Equal(ErrorSearchQuery.MaximumPageSize, filteredQuery.PageSize);
                 Assert.Equal(ErrorSearchOrder.Default, filteredQuery.Order);
                 Assert.Null(filteredQuery.SnapshotReference);
@@ -1028,7 +1028,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
             OverviewNavigationTargets.ErrorSearch,
             PageNumber: 1,
             ErrorActivityStates: [ErrorSearchActivityStates.Active],
-            ErrorWindow: ErrorSearchWindowKinds.Last30Days,
+            ErrorWindow: ErrorSearchWindowKinds.Last15Days,
             SeriesId: SeriesId,
             Cursor: null);
         var attention = new OverviewNavigationIntent(
@@ -1110,7 +1110,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
 
     internal static ErrorSearchDetailSnapshot CreateErrorDetail(
         ErrorSearchFilter filter,
-        string windowKind = ErrorSearchWindowKinds.Last30Days)
+        string windowKind = ErrorSearchWindowKinds.Last15Days)
     {
         var window = new ErrorSearchWindowSelection(windowKind).Resolve(ErrorSearchAsOf);
         return new ErrorSearchDetailSnapshot(

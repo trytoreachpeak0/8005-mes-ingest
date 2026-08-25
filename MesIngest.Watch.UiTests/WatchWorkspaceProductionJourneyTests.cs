@@ -1219,6 +1219,21 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 evidence,
                 process.MainWindowHandle,
                 "06-error-search-variant-a");
+            var errorWindowFilter = FindRequiredById(
+                    window,
+                    "ErrorSearchWindowFilter")
+                .AsComboBox();
+            errorWindowFilter.Expand();
+            WaitUntil(
+                () => errorWindowFilter.Items.Any(item =>
+                    item.Name.Contains("最近 15 天", StringComparison.Ordinal)),
+                "the 15-day ErrorSearch window option",
+                StepTimeout);
+            CaptureWindowIncludingPopups(
+                evidence,
+                window,
+                "06a-error-search-15-day-window");
+            errorWindowFilter.Collapse();
 
             failedStep = "current-attention";
             Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");

@@ -89,7 +89,7 @@ Remove-Item Env:MES_INGEST_LOCAL_ADMINISTRATION_CONNECTION_STRING
 
 - **Windows Service**：写入 Windows **应用程序**事件日志（来源通常为 `.NET Runtime` / 进程名）；用「事件查看器」筛选 MesIngest.Host
 - **控制台运行**：日志输出到当前终端（stdout/stderr）
-- **Watch 连接事件**：本机 `%LocalAppData%\MesIngest.Watch\logs\` 按日 JSONL（首次失败 / 每 5 分钟摘要 / 恢复）；默认保留 30 天或 100 MB（先到先清理）。可用 `Watch:ConnectionLogRetentionDays` / `Watch:ConnectionLogMaxSizeMb`（或 `MesIngestWatch__*`）调整；`MesIngestWatch__LogDirectory` 可改写日志目录
+- **Watch 连接事件**：本机 `%LocalAppData%\MesIngest.Watch\logs\` 按日 JSONL（首次失败 / 每 5 分钟摘要 / 恢复）；默认保留 15 天或 100 MB（先到先清理）。可用 `Watch:ConnectionLogRetentionDays` / `Watch:ConnectionLogMaxSizeMb`（或 `MesIngestWatch__*`）调整；`MesIngestWatch__LogDirectory` 可改写日志目录
 - **Watch 渲染**：默认 `Watch:RenderingMode=SoftwareOnly`，规避虚拟/远程显示驱动导致的空白客户区；仅在确认硬件渲染兼容时改为 `Auto`
 - ASP.NET 默认级别见 `service/appsettings.json` 的 `Logging` 节；可按现场需要调高
 
@@ -246,7 +246,7 @@ $env:MES_INGEST_SCALE_EVIDENCE_SQLSERVER = '<approved real SQL Server master con
   -OutputRoot C:\MesIngestEvidence\scale-query
 ```
 
-可选 profile 只有 0、7、30。默认分布固定为每 14 秒 600 条观测、600 个 Series、70% 活跃、
+可选 profile 只有 0、7、15。默认分布固定为每 14 秒 600 条观测、600 个 Series、70% 活跃、
 30% 归档、10% 活动错误；数据种子、锚点时间、查询参数、构建、contract/schema 和 SQL Server
 身份都会写入重放清单。工具通过包内生产 Host 的唯一 V2 API 驱动 DemandSeries、外部目录、当前关注、
 Overview、ReadabilityAudit、ErrorSearch 与原始证据，并以 Extended Events 记录每个查询面的实际计划、
@@ -259,7 +259,7 @@ SQL 实例/版本，并要求 `sourceCommit` 与 Host DLL SHA-256 精确匹配�
 
 默认成功或失败后都会验证数据库扩展属性中的精确 run ID，再删除本次创建的库；`-KeepDatabase` 只供
 人工故障调查。缺少任一查询面的实际计划/statement 指标、空数据、未知构建身份，或 Tier 1
-`Skipped` 非 0 时，仍会保存证据但门禁失败。7/30 天 profile 会写入约 2592 万/1.11 亿条原始观测，
+`Skipped` 非 0 时，仍会保存证据但门禁失败。7/15 天 profile 会写入约 2592 万/5554 万条原始观测，
 应预留足够时间与隔离磁盘；日常实现或 Tier 1 不会自动运行它们。
 
 Ticket 27 的快速容量路径复用同一入口和固定分布，不创建第二套容量工具。先以
@@ -283,12 +283,12 @@ $baseline = 'C:\MesIngestEvidence\capacity\<baseline-run>\scale-query-evidence.j
 
 容量报告按表/聚集索引/非聚集索引列出 PAGE 压缩实测，记录每轮、每行、墓碑、版本存储、tempdb、
 LDF、固定 MB 自动增长、SIMPLE recovery、`log_reuse_wait_desc`、1536 MB max server memory 和发布包
-清理默认值。30 天模型使用 `floor(30*86400/14)=185142` 轮、111,085,200 行，并对预测增加 30%
+清理默认值。15 天模型使用 `floor(15*86400/14)=92571` 轮、55,542,600 行，并对预测增加 30%
 余量；墓碑按固定归档 Series 数量计入逻辑总量，version-store/tempdb 按实测峰值加 30% 报告。
 物理文件预测保留实测起始大小，再按固定增长量向上取整。逻辑已用、物理数据文件和 LDF 分别以
 12/16/2 GiB 为最终上限；任何预测达到各自上限 70%、
 增长段速率比超过 1.20、样本不足或压缩/清理证据不完整都会保存报告、阻断发布并给出显式
-`ProfileDays 30` 升级命令。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在
+`ProfileDays 15` 升级命令。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在
 同一真实 SQL Server 上完成一次 `Failed=0 / Skipped=0` Tier 1。
 
 Ticket 28 的加速并发稳定性路径继续复用同一入口、同一固定 600 Series 分布、发布 Host、

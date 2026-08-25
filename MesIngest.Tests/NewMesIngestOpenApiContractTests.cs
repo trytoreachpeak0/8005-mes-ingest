@@ -218,7 +218,7 @@ public sealed class NewMesIngestOpenApiContractTests
             contract.GetProperty("schemaVersion").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetInt32()));
         Assert.Equal(
-            ["2.0"],
+            ["2.0", "2.1"],
             Schema(root, "NewMesIngestCapabilityDto").GetProperty("properties")
                 .GetProperty("version").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));

@@ -222,7 +222,7 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
                 == "poll-ticket13-expired-raw-open")
             .GetProperty("evidenceId").GetString()!;
 
-        clock.SetUtcNow(observedAt.AddDays(30));
+        clock.SetUtcNow(observedAt.AddDays(15));
         using var response = await SendAuthorizedAsync(
             client,
             RawUri(seriesId, evidenceId, snapshotReference, "workType,package", 20));

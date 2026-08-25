@@ -12,7 +12,7 @@ public static class ErrorSearchWindowKinds
 {
     public const string Last24Hours = "LAST_24_HOURS";
     public const string Last7Days = "LAST_7_DAYS";
-    public const string Last30Days = "LAST_30_DAYS";
+    public const string Last15Days = "LAST_15_DAYS";
     public const string AllHistory = "ALL_HISTORY";
     public const string Custom = "CUSTOM";
 }
@@ -32,8 +32,8 @@ public sealed record ErrorSearchWindowSelection(
     public static ErrorSearchWindowSelection Last7Days { get; } =
         new(ErrorSearchWindowKinds.Last7Days);
 
-    public static ErrorSearchWindowSelection Last30Days { get; } =
-        new(ErrorSearchWindowKinds.Last30Days);
+    public static ErrorSearchWindowSelection Last15Days { get; } =
+        new(ErrorSearchWindowKinds.Last15Days);
 
     public static ErrorSearchWindowSelection AllHistory { get; } =
         new(ErrorSearchWindowKinds.AllHistory);
@@ -53,8 +53,8 @@ public sealed record ErrorSearchWindowSelection(
                 new ErrorSearchResolvedWindow(normalizedKind, asOfUtc.AddHours(-24), asOfUtc),
             ErrorSearchWindowKinds.Last7Days =>
                 new ErrorSearchResolvedWindow(normalizedKind, asOfUtc.AddHours(-7 * 24), asOfUtc),
-            ErrorSearchWindowKinds.Last30Days =>
-                new ErrorSearchResolvedWindow(normalizedKind, asOfUtc.AddHours(-30 * 24), asOfUtc),
+            ErrorSearchWindowKinds.Last15Days =>
+                new ErrorSearchResolvedWindow(normalizedKind, asOfUtc.AddHours(-15 * 24), asOfUtc),
             ErrorSearchWindowKinds.AllHistory =>
                 new ErrorSearchResolvedWindow(normalizedKind, null, asOfUtc),
             ErrorSearchWindowKinds.Custom => ResolveCustom(asOfUtc),

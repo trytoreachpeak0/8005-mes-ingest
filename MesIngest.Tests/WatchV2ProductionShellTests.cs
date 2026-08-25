@@ -574,7 +574,7 @@ public sealed class WatchV2ProductionShellTests
                 [item],
                 HistoryCleanupStateSnapshot.NotRun with
                 {
-                    EarliestAvailableHostUtc = at.AddDays(-30),
+                    EarliestAvailableHostUtc = at.AddDays(-15),
                 },
                 new StoragePressureStateSnapshot(
                     StoragePressureStatuses.Paused,

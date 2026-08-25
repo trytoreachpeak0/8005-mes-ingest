@@ -7,8 +7,8 @@ namespace MesIngest.Tests;
 
 public sealed class ReleasePackageValidationTests
 {
-    private const string ContractVersion = "2026.08.new-mes-ingest.v2.1";
-    private const int ContractSchemaVersion = 28;
+    private const string ContractVersion = "2026.08.new-mes-ingest.v2.2";
+    private const int ContractSchemaVersion = 29;
     private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
     private const string CanonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
@@ -83,14 +83,15 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("/api/poll-health", smoke, StringComparison.Ordinal);
         Assert.Contains("/api/demand-changes", smoke, StringComparison.Ordinal);
         Assert.Contains("EXACT_VERSION_SCHEMA_AND_CAPABILITIES", smoke, StringComparison.Ordinal);
-        Assert.Contains("$expectedCapabilityVersion = '2.0'", smoke, StringComparison.Ordinal);
+        Assert.Contains("$expectedCapabilityVersions = [ordered]@{", smoke, StringComparison.Ordinal);
+        Assert.Contains("ERROR_SEARCH = '2.1'", smoke, StringComparison.Ordinal);
         Assert.Contains(
-            "$expectedCapabilityVersion = '2.0'",
+            "$expectedCapabilityVersions = [ordered]@{",
             File.ReadAllText(Path.Combine(CSharpRoot, "pack", "validation", "Invoke-FactoryAcceptance.ps1")),
             StringComparison.Ordinal);
         Assert.Contains("$expectedCapabilityOperations", smoke, StringComparison.Ordinal);
         Assert.Contains(
-            "[string]$actualCapability[0].version -cne $expectedCapabilityVersion",
+            "[string]$actualCapability[0].version -cne $expectedCapabilityVersions[$expectedCapabilityId]",
             smoke,
             StringComparison.Ordinal);
         Assert.Contains(CanonicalQueryRelativePath, smoke, StringComparison.Ordinal);

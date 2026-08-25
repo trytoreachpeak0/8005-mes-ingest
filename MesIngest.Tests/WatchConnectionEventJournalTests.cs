@@ -12,7 +12,7 @@ public class WatchConnectionEventJournalTests
         using var dir = new TempDirectory();
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 100 * 1024 * 1024,
             utcNow: () => DateTimeOffset.Parse("2026-07-31T10:00:00Z"));
 
@@ -49,7 +49,7 @@ public class WatchConnectionEventJournalTests
         using var dir = new TempDirectory();
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 100 * 1024 * 1024,
             utcNow: () => DateTimeOffset.Parse("2026-07-31T10:00:00Z"));
 
@@ -83,22 +83,26 @@ public class WatchConnectionEventJournalTests
     }
 
     [Fact]
-    public async Task Retention_deletes_files_older_than_retention_days()
+    public async Task Retention_uses_the_exact_fifteen_day_UTC_boundary()
     {
         using var dir = new TempDirectory();
+        var now = DateTimeOffset.Parse("2026-08-25T10:00:00Z");
         var oldFile = Path.Combine(dir.Path, "watch-connection-20260101.jsonl");
+        var boundaryFile = Path.Combine(dir.Path, "watch-connection-20260810.jsonl");
         File.WriteAllText(oldFile, "{}\n");
-        File.SetLastWriteTimeUtc(oldFile, DateTime.UtcNow.AddDays(-40));
+        File.WriteAllText(boundaryFile, "{}\n");
+        File.SetLastWriteTimeUtc(oldFile, now.UtcDateTime.AddDays(-15).AddTicks(-1));
+        File.SetLastWriteTimeUtc(boundaryFile, now.UtcDateTime.AddDays(-15));
 
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 100 * 1024 * 1024,
-            utcNow: () => DateTimeOffset.UtcNow);
+            utcNow: () => now);
 
         journal.Append(new WatchConnectionEvent(
             WatchConnectionEventKind.Failure,
-            DateTimeOffset.UtcNow,
+            now,
             "/api/v2/demand-series",
             "HTTP_CONNECT",
             100,
@@ -109,6 +113,7 @@ public class WatchConnectionEventJournalTests
         await journal.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.False(File.Exists(oldFile));
+        Assert.True(File.Exists(boundaryFile));
         Assert.NotEmpty(Directory.GetFiles(dir.Path, "*.jsonl"));
     }
 
@@ -125,7 +130,7 @@ public class WatchConnectionEventJournalTests
 
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 5_000,
             utcNow: () => DateTimeOffset.UtcNow);
 
@@ -155,7 +160,7 @@ public class WatchConnectionEventJournalTests
 
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 100 * 1024 * 1024,
             utcNow: () => DateTimeOffset.UtcNow);
 
@@ -184,7 +189,7 @@ public class WatchConnectionEventJournalTests
 
         var journal = new WatchConnectionEventJournal(
             dir.Path,
-            retentionDays: 30,
+            retentionDays: 15,
             maxSizeBytes: 5_000,
             utcNow: () => DateTimeOffset.UtcNow);
 

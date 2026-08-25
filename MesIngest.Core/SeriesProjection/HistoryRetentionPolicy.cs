@@ -9,9 +9,9 @@ public static class HistoryRetentionPolicy
 {
     public const int MaximumRawObservationsPerPollTrace = 25_000;
 
-    public static readonly TimeSpan RawObservationAvailabilityWindow = TimeSpan.FromDays(30);
+    public static readonly TimeSpan RawObservationAvailabilityWindow = TimeSpan.FromDays(15);
 
-    public static readonly TimeSpan RetentionEligibleDemandSeriesWindow = TimeSpan.FromDays(30);
+    public static readonly TimeSpan RetentionEligibleDemandSeriesWindow = TimeSpan.FromDays(15);
 
     public static DateTimeOffset RawObservationExpiresAt(DateTimeOffset completedAt) =>
         completedAt.ToUniversalTime().Add(RawObservationAvailabilityWindow);

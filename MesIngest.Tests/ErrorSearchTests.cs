@@ -63,7 +63,7 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
         Assert.Equal(asOf, defaultWindow.ToUtc);
 
         Assert.Equal(asOf.AddHours(-24), ErrorSearchWindowSelection.Last24Hours.Resolve(asOf).FromUtc);
-        Assert.Equal(asOf.AddHours(-30 * 24), ErrorSearchWindowSelection.Last30Days.Resolve(asOf).FromUtc);
+        Assert.Equal(asOf.AddHours(-15 * 24), ErrorSearchWindowSelection.Last15Days.Resolve(asOf).FromUtc);
         Assert.Null(ErrorSearchWindowSelection.AllHistory.Resolve(asOf).FromUtc);
 
         var custom = ErrorSearchWindowSelection.Custom(
@@ -397,11 +397,11 @@ public sealed class ErrorSearchTests : IClassFixture<WebApplicationFactory<Progr
             "/api/v2/error-search?window=LAST_24_HOURS&pageSize=20");
         Assert.Equal([crossesFrom], last24.GetProperty("items").EnumerateArray().Select(ReadSublot));
 
-        var last30 = await GetJsonAsync(
+        var last15 = await GetJsonAsync(
             client,
-            "/api/v2/error-search?window=LAST_30_DAYS&pageSize=20");
-        Assert.Equal(3L, last30.GetProperty("totalSeriesCount").GetInt64());
-        Assert.DoesNotContain(last30.GetProperty("items").EnumerateArray(), item => ReadSublot(item) == startsAtTo);
+            "/api/v2/error-search?window=LAST_15_DAYS&pageSize=20");
+        Assert.Equal(3L, last15.GetProperty("totalSeriesCount").GetInt64());
+        Assert.DoesNotContain(last15.GetProperty("items").EnumerateArray(), item => ReadSublot(item) == startsAtTo);
 
         var allHistory = await GetJsonAsync(
             client,

@@ -1149,7 +1149,7 @@ public sealed class WatchV2ApiClientTests
             ],
             HistoryCleanup: HistoryCleanupStateSnapshot.NotRun with
             {
-                EarliestAvailableHostUtc = at.AddDays(-30),
+                EarliestAvailableHostUtc = at.AddDays(-15),
             },
             StoragePressure: new StoragePressureStateSnapshot(
                 StoragePressureStatuses.Paused,

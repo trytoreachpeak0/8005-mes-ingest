@@ -74,20 +74,20 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'FactoryAcceptanceTools.ps1')
 
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.1'
-$expectedContractSchemaVersion = 28
-$expectedCapabilityVersion = '2.0'
-$expectedCapabilityIds = @(
-    'CONTRACT_DISCOVERY',
-    'CURRENT_INGEST_ATTENTION',
-    'DEMAND_SERIES',
-    'ERROR_SEARCH',
-    'EXTERNALLY_READABLE_DEMAND_CATALOG',
-    'POLL_HEALTH_AND_EVIDENCE',
-    'READABILITY_AUDIT',
-    'SERIES_ERROR_CATALOG',
-    'WATCH_OVERVIEW'
-)
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractSchemaVersion = 29
+$expectedCapabilityVersions = [ordered]@{
+    CONTRACT_DISCOVERY = '2.0'
+    CURRENT_INGEST_ATTENTION = '2.0'
+    DEMAND_SERIES = '2.0'
+    ERROR_SEARCH = '2.1'
+    EXTERNALLY_READABLE_DEMAND_CATALOG = '2.0'
+    POLL_HEALTH_AND_EVIDENCE = '2.0'
+    READABILITY_AUDIT = '2.0'
+    SERIES_ERROR_CATALOG = '2.0'
+    WATCH_OVERVIEW = '2.0'
+}
+$expectedCapabilityIds = @($expectedCapabilityVersions.Keys)
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
 $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
@@ -917,10 +917,11 @@ try {
                 throw 'The capability set is not the exact frozen set.'
             }
             $wrongCapabilityVersions = @($contract.capabilities | Where-Object {
-                [string]$_.version -cne $expectedCapabilityVersion
+                -not $expectedCapabilityVersions.Contains([string]$_.id) -or
+                [string]$_.version -cne $expectedCapabilityVersions[[string]$_.id]
             })
             if ($wrongCapabilityVersions.Count -gt 0) {
-                throw "The capability versions are not the exact frozen $expectedCapabilityVersion set."
+                throw 'The capability versions are not the exact frozen per-ID set.'
             }
             $nonGet = @($contract.capabilities |
                 ForEach-Object { $_.operations } |
