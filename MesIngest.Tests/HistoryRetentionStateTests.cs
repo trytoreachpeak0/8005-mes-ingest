@@ -51,6 +51,54 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
     }
 
     [Ticket01SqlServerFact]
+    public async Task Frozen_demand_detail_is_commit_consistent_while_cleanup_commits_then_expires_as_structured_410()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var completedAt = new DateTimeOffset(2026, 8, 1, 4, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(completedAt.AddHours(1));
+        var observer = new GatedDemandSeriesReadObserver();
+        await using var factory = CreateFactory(clock, readBoundaryObserver: observer);
+        var cleanupClock = new AdjustableTimeProvider(completedAt.AddDays(15));
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-ticket28-frozen-cleanup-race",
+            completedAt,
+            ValidObservation("SL-TICKET28-FROZEN-CLEANUP", completedAt.AddYears(-1))));
+        var discovery = await ReadSeriesAsync(client, "SL-TICKET28-FROZEN-CLEANUP");
+        var seriesId = discovery.GetProperty("seriesId").GetString()!;
+        var snapshotReference = discovery.GetProperty("snapshotReference").GetString()!;
+        var detailUri = $"/api/v2/demand-series/{Uri.EscapeDataString(seriesId)}?snapshot="
+            + Uri.EscapeDataString(snapshotReference);
+        await using var cleanupFactory = CreateFactory(cleanupClock);
+        var cleanupProjection = cleanupFactory.Services.GetRequiredService<IMesIngestProjection>();
+
+        var gate = observer.Arm();
+        var pendingFrozenRead = client.GetAsync(detailUri);
+        await gate.Selected.WaitAsync(TimeSpan.FromSeconds(10));
+        var cleanup = await cleanupProjection.AdvanceHistoryRetentionAsync()
+            .WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, cleanup.DeletedRawObservationCount);
+        gate.Release();
+
+        using (var frozenResponse = await pendingFrozenRead.WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            Assert.Equal(HttpStatusCode.OK, frozenResponse.StatusCode);
+            var frozen = await ReadJsonAsync(frozenResponse);
+            Assert.Single(frozen.GetProperty("rawObservations").EnumerateArray());
+        }
+
+        await AssertHistoricalUnavailableAsync(
+            client,
+            detailUri,
+            HttpStatusCode.Gone,
+            PollEvidenceErrorCodes.MesIngestHistoryExpired,
+            completedAt);
+    }
+
+    [Ticket01SqlServerFact]
     public async Task Raw_observation_multiset_expires_atomically_at_the_Host_UTC_boundary()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
@@ -348,7 +396,8 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
 
     private WebApplicationFactory<Program> CreateFactory(
         AdjustableTimeProvider clock,
-        IProjectionCommitCheckpointObserver? checkpointObserver = null) =>
+        IProjectionCommitCheckpointObserver? checkpointObserver = null,
+        IProjectionReadBoundaryObserver? readBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(Environments.Production);
@@ -360,6 +409,11 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
                 {
                     services.RemoveAll<IProjectionCommitCheckpointObserver>();
                     services.AddSingleton(checkpointObserver);
+                }
+                if (readBoundaryObserver is not null)
+                {
+                    services.RemoveAll<IProjectionReadBoundaryObserver>();
+                    services.AddSingleton(readBoundaryObserver);
                 }
             });
         });
@@ -536,6 +590,49 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         int EventCount,
         int ErrorPeriodCount,
         int CurrentConditionCount);
+
+    private sealed class GatedDemandSeriesReadObserver : IProjectionReadBoundaryObserver
+    {
+        private ReadGate? _gate;
+
+        public ReadGate Arm()
+        {
+            Assert.Null(_gate);
+            _gate = new ReadGate();
+            return _gate;
+        }
+
+        public Task OnFenceSelectedAsync(
+            ProjectionReadSurface surface,
+            ProjectionReadFence fence,
+            CancellationToken cancellationToken)
+        {
+            if (surface != ProjectionReadSurface.DemandSeries)
+            {
+                return Task.CompletedTask;
+            }
+            var gate = Interlocked.Exchange(ref _gate, null);
+            return gate is null ? Task.CompletedTask : gate.SelectAsync(cancellationToken);
+        }
+    }
+
+    private sealed class ReadGate
+    {
+        private readonly TaskCompletionSource<bool> _selected =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _released =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Selected => _selected.Task;
+
+        public async Task SelectAsync(CancellationToken cancellationToken)
+        {
+            _selected.TrySetResult(true);
+            await _released.Task.WaitAsync(cancellationToken);
+        }
+
+        public void Release() => _released.TrySetResult(true);
+    }
 
     private sealed class SeriesActivityCheckpointObserver
         : IProjectionCommitCheckpointObserver

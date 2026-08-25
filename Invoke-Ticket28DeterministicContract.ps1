@@ -44,7 +44,7 @@ if (Test-Path -LiteralPath $runDirectory) { throw "Refusing to overwrite determi
 [IO.Directory]::CreateDirectory($runDirectory) | Out-Null
 $trxName = 'ticket28-deterministic.trx'
 $trxPath = Join-Path $runDirectory $trxName
-$filter = 'FullyQualifiedName~SingleFlightPollLoopTests|FullyQualifiedName~HistoryCleanupHostedServiceTests|FullyQualifiedName~HistoryRetentionStateTests.Retention_clocks_use_exact_thirty_day_boundaries|FullyQualifiedName~WatchV2AutoRefreshTests.Settings_cover_all_five_host_data_views_and_expose_only_an_interval'
+$filter = 'FullyQualifiedName~SingleFlightPollLoopTests|FullyQualifiedName~HistoryCleanupHostedServiceTests|FullyQualifiedName~HistoryRetentionStateTests.Retention_clocks_use_exact_fifteen_day_boundaries|FullyQualifiedName~WatchV2AutoRefreshTests.Settings_cover_all_five_host_data_views_and_expose_only_an_interval'
 
 & dotnet test MesIngest.Tests `
     --configuration Release `

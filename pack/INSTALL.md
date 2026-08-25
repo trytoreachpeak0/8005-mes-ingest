@@ -286,10 +286,10 @@ LDF、固定 MB 自动增长、SIMPLE recovery、`log_reuse_wait_desc`、1536 MB
 清理默认值。15 天模型使用 `floor(15*86400/14)=92571` 轮、55,542,600 行，并对预测增加 30%
 余量；墓碑按固定归档 Series 数量计入逻辑总量，version-store/tempdb 按实测峰值加 30% 报告。
 物理文件预测保留实测起始大小，再按固定增长量向上取整。逻辑已用、物理数据文件和 LDF 分别以
-12/16/2 GiB 为最终上限；任何预测达到各自上限 70%、
-增长段速率比超过 1.20、样本不足或压缩/清理证据不完整都会保存报告、阻断发布并给出显式
-`ProfileDays 15` 升级命令。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在
-同一真实 SQL Server 上完成一次 `Failed=0 / Skipped=0` Tier 1。
+12,288/16,384/2,048 MB 为最终硬上限；达到 70% 或增长段速率比超过 1.20 会如实记录 advisory
+warning，但不阻断。只有预测达到硬上限，或样本、PAGE 压缩、清理完整性等关键证据不确定时才
+fail closed。快速容量运行只在开发期间延后最终 Tier 1 绑定；关闭 ticket 时仍必须在同一真实 SQL
+Server 上完成一次 `Failed=0 / Skipped=0` Tier 1。
 
 Ticket 28 的加速并发稳定性路径继续复用同一入口、同一固定 600 Series 分布、发布 Host、
 录制 `MES_TASK_UNION` 轮次、V2 HTTP 客户端、冻结读取、清理和 SQL 诊断，不创建第二套 soak
@@ -323,17 +323,23 @@ $baseline = 'C:\MesIngestEvidence\ticket28\<baseline-run>\scale-query-evidence.j
   -RepresentativeHistoryRounds 100 `
   -BaselineEvidencePath $baseline `
   -DeterministicContractEvidencePath $deterministicAttestation `
-  -CapacityBlockerEvidencePath C:\MesIngestEvidence\ticket27\capacity-summary.json `
+  -CapacityEvidencePath C:\MesIngestEvidence\ticket27-15-day-retention\capacity-summary.json `
   -OutputRoot C:\MesIngestEvidence\ticket28
 ```
 
 该 profile 只把轮询 start-to-start 间隔缩短到 1 秒、清理检查缩短到 60 秒并增加并发读取次数；
 发布 `appsettings.json` 仍是 60 秒 start-to-start、60/120/300 秒失败退避和每小时清理，Watch
 默认仍是 Overview/Current Attention 30 秒及 Demand Series/Readability Audit/Error Search 60 秒。
-门禁连续采集 API P95/P99、数据库/LDF/tempdb/version store、SQL/Host 内存、句柄、grant、
-RESOURCE_SEMAPHORE、锁等待、spill、Error 701、清理、earliest available、StoragePressurePause、
-重启与趋势。任一风险或缺证都会以具名 `STABILITY_*` 失败退出，并要求 4 小时或 24 小时真实
-soak；正常快速路径仍需在关闭 Ticket 时另行绑定唯一一次 Skipped=0 的真实 SQL Server Tier 1。
+门禁按 API surface、Host 进程代次和稳定阶段分别计算 P95/P99 与首尾趋势；冻结一致性读取只允许
+200，另以独立请求验证故意过期对象返回 410 `MES_INGEST_HISTORY_EXPIRED`，预期 410 不计入 HTTP
+错误。RESOURCE_SEMAPHORE 同时记录实例累计上下文和按 MesIngest application name 归因的 session
+增量/连续 active 或 pending grant；Host working set/handle 只评价同一进程代次后半程。LDF 同时记录
+physical/used、autogrowth、`log_reuse_wait_desc`，并在最后一次固定 autogrowth 后的稳定窗判定 used
+斜率与是否平台化。spill 必须包含 API surface、query hash、query-plan hash、operator/node 和内存/写盘
+计数，任何实际 spill 都失败。门禁还连续采集数据库/tempdb/version store、SQL 内存、Error 701、锁
+等待、清理、earliest available、StoragePressurePause、重启与趋势。任一真实风险或缺证都会以具名
+`STABILITY_*` 失败退出并要求 4 小时或 24 小时真实 soak；正常快速路径仍需在关闭 Ticket 时另行
+绑定唯一一次 Skipped=0 的真实 SQL Server Tier 1。
 
 ## 基本故障排查
 

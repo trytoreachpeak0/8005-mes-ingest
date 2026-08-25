@@ -188,7 +188,7 @@ public sealed partial class SqlServerMesIngestProjection
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
-            IsolationLevel.ReadCommitted,
+            IsolationLevel.Snapshot,
             cancellationToken).ConfigureAwait(false);
         try
         {
