@@ -1707,7 +1707,9 @@ function Get-EvidenceGateFailures {
     foreach ($boundedScope in $boundedScopes) {
         $failurePrefix = Get-BoundedQuerySurfaceFailurePrefix $boundedScope
         $currentSurfaces = @(if ($boundedScope -eq 'DemandSeries') {
-            $QueryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
+            $QueryEvidence | Where-Object {
+                $_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail'
+            }
         } else {
             $QueryEvidence | Where-Object { $_.name -eq $boundedScope }
         })
@@ -4726,21 +4728,25 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
             $baselineSelectedSurfaces = @(if ($QuerySurface -eq 'All') {
                 $baselineReport.queries | Where-Object {
-                    $_.name -like 'DemandSeries*' -or
+                    ($_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail') -or
                     $boundedCurrentSurfaceFailurePrefixes.ContainsKey([string]$_.name)
                 }
             } elseif ($QuerySurface -eq 'DemandSeries') {
-                $baselineReport.queries | Where-Object { $_.name -like 'DemandSeries*' }
+                $baselineReport.queries | Where-Object {
+                    $_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail'
+                }
             } else {
                 $baselineReport.queries | Where-Object { $_.name -eq $QuerySurface }
             })
             $observedSelectedSurfaces = @(if ($QuerySurface -eq 'All') {
                 $queryEvidence | Where-Object {
-                    $_.name -like 'DemandSeries*' -or
+                    ($_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail') -or
                     $boundedCurrentSurfaceFailurePrefixes.ContainsKey([string]$_.name)
                 }
             } elseif ($QuerySurface -eq 'DemandSeries') {
-                $queryEvidence | Where-Object { $_.name -like 'DemandSeries*' }
+                $queryEvidence | Where-Object {
+                    $_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail'
+                }
             } else {
                 $queryEvidence | Where-Object { $_.name -eq $QuerySurface }
             })

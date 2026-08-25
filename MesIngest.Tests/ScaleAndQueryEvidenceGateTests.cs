@@ -303,6 +303,10 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Equal(
             1,
             script.Split("identity = [pscustomobject][ordered]@{", StringSplitOptions.None).Length - 1);
+        Assert.Contains(
+            "$_.name -ne 'DemandSeriesFrozenDetail'",
+            script,
+            StringComparison.Ordinal);
         Assert.Contains("--configuration Release", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("TestDefinitions.UnitTest", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("testAssemblySha256", deterministicRunner, StringComparison.Ordinal);
