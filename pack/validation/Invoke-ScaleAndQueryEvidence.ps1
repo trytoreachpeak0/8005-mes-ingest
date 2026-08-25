@@ -2586,11 +2586,13 @@ WHERE database_id = DB_ID(@databaseName)
 "@ @{ '@databaseName' = $DatabaseName; '@applicationName' = $ApplicationName }) | Select-Object -First 1
     $pendingGrants = @(Invoke-SqlTable $MasterConnectionString @"
 SELECT COUNT_BIG(*) AS instancePendingMemoryGrants,
-       COALESCE(SUM(CASE WHEN session_id IN
-           (SELECT session_id FROM sys.dm_exec_sessions WHERE program_name = @applicationName)
-           THEN 1 ELSE 0 END), 0) AS attributedPendingMemoryGrants
-FROM sys.dm_exec_query_memory_grants
-WHERE grant_time IS NULL;
+       COALESCE(SUM(CASE WHEN sessionRow.session_id IS NOT NULL THEN 1 ELSE 0 END), 0)
+           AS attributedPendingMemoryGrants
+FROM sys.dm_exec_query_memory_grants AS memoryGrant
+LEFT JOIN sys.dm_exec_sessions AS sessionRow
+    ON sessionRow.session_id = memoryGrant.session_id
+   AND sessionRow.program_name = @applicationName
+WHERE memoryGrant.grant_time IS NULL;
 "@ @{ '@applicationName' = $ApplicationName }) | Select-Object -First 1
     $attributedWaits = @(Invoke-SqlTable $MasterConnectionString @"
 SELECT COUNT_BIG(*) AS activeWaitTaskCount,
