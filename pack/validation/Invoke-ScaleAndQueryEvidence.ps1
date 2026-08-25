@@ -1155,7 +1155,12 @@ function Stop-EvidenceHost {
     try {
         if (-not $process.HasExited) {
             $process.Kill()
-            [void]$process.WaitForExit(10000)
+            if (-not $process.WaitForExit(10000)) {
+                throw 'CLEANUP_HOST_PROCESS_REMAINS: Host did not exit after Kill within 10 seconds.'
+            }
+        }
+        if (-not $process.HasExited) {
+            throw 'CLEANUP_HOST_PROCESS_REMAINS: Host is still running after cleanup.'
         }
     } finally { $process.Dispose() }
 }
@@ -3742,7 +3747,8 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             referenceConsumerSha256 = $referenceConsumerSha256
         }
         database = [ordered]@{
-            name = $DatabaseName; ownerRunId = $runId; removedAfterEvidence = -not $KeepDatabase
+            name = $DatabaseName; ownerRunId = $runId
+            cleanupRequested = -not $KeepDatabase; removedAfterEvidence = $null
             fileRoot = $resolvedDatabaseFileRoot
         }
         sqlServer = [ordered]@{
@@ -3864,14 +3870,28 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
 }
 finally {
     $cleanupFailure = $null
-    Stop-EvidenceHost $hostRun
+    try { Stop-EvidenceHost $hostRun } catch { $cleanupFailure = $_ }
     if ($xeventStarted) {
-        try { [void](Invoke-SqlNonQuery $masterConnectionString "ALTER EVENT SESSION [$($xeventSession.Replace(']', ']]'))] ON SERVER STATE = STOP;") } catch { }
+        try {
+            [void](Invoke-SqlNonQuery $masterConnectionString `
+                "ALTER EVENT SESSION [$($xeventSession.Replace(']', ']]'))] ON SERVER STATE = STOP;")
+        } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
     }
-    try {
-        $exists = @(Invoke-SqlTable $masterConnectionString 'SELECT name FROM sys.server_event_sessions WHERE name = @name;' @{ '@name' = $xeventSession })
-        if ($exists.Count -eq 1) { [void](Invoke-SqlNonQuery $masterConnectionString "DROP EVENT SESSION [$($xeventSession.Replace(']', ']]'))] ON SERVER;") }
-    } catch { }
+    if (-not [string]::IsNullOrWhiteSpace($xeventSession)) {
+        try {
+            $exists = @(Invoke-SqlTable $masterConnectionString `
+                'SELECT name FROM sys.server_event_sessions WHERE name = @name;' `
+                @{ '@name' = $xeventSession })
+            if ($exists.Count -eq 1) {
+                [void](Invoke-SqlNonQuery $masterConnectionString `
+                    "DROP EVENT SESSION [$($xeventSession.Replace(']', ']]'))] ON SERVER;")
+            }
+            $remains = @(Invoke-SqlTable $masterConnectionString `
+                'SELECT name FROM sys.server_event_sessions WHERE name = @name;' `
+                @{ '@name' = $xeventSession })
+            if ($remains.Count -ne 0) { throw 'CLEANUP_XEVENT_SESSION_REMAINS' }
+        } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
+    }
     if (-not [string]::IsNullOrWhiteSpace($xelBase)) {
         try {
             $xelPattern = $xelBase.Substring(0, $xelBase.Length - 4) + '*.xel'
@@ -3894,7 +3914,7 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
         try {
             [void](Invoke-SqlNonQuery $masterConnectionString `
                 "ALTER EVENT SESSION [$($stabilityXEventSession.Replace(']', ']]'))] ON SERVER STATE = STOP;")
-        } catch { }
+        } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
     }
     if (-not [string]::IsNullOrWhiteSpace($stabilityXEventSession)) {
         try {
@@ -3905,7 +3925,11 @@ FROM sys.fn_xe_file_target_read_file(@xelPattern, NULL, NULL, NULL);
                 [void](Invoke-SqlNonQuery $masterConnectionString `
                     "DROP EVENT SESSION [$($stabilityXEventSession.Replace(']', ']]'))] ON SERVER;")
             }
-        } catch { }
+            $remains = @(Invoke-SqlTable $masterConnectionString `
+                'SELECT name FROM sys.server_event_sessions WHERE name = @name;' `
+                @{ '@name' = $stabilityXEventSession })
+            if ($remains.Count -ne 0) { throw 'CLEANUP_XEVENT_SESSION_REMAINS' }
+        } catch { if ($null -eq $cleanupFailure) { $cleanupFailure = $_ } }
     }
     if (-not [string]::IsNullOrWhiteSpace($stabilityXelBase)) {
         try {
@@ -3954,6 +3978,15 @@ BEGIN
     DROP DATABASE [$DatabaseName];
 END
 "@ @{ '@databaseName' = $DatabaseName })
+        $databaseRemains = @(Invoke-SqlTable $masterConnectionString `
+            'SELECT name FROM sys.databases WHERE name = @databaseName;' `
+            @{ '@databaseName' = $DatabaseName })
+        if ($databaseRemains.Count -ne 0) { throw 'CLEANUP_DATABASE_REMAINS' }
+        if ($null -ne $resolvedDatabaseFileRoot -and
+            ((Test-Path -LiteralPath $databaseDataFilePath) -or
+             (Test-Path -LiteralPath $databaseLogFilePath))) {
+            throw 'CLEANUP_DATABASE_FILE_REMAINS'
+        }
     }
     if ($null -ne $cleanupFailure) { throw $cleanupFailure }
 }
