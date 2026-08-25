@@ -273,6 +273,7 @@ function Get-FastCapacityProjection {
     param([Parameter(Mandatory = $true)][object] $Evidence)
 
     $failures = New-Object System.Collections.ArrayList
+    $warnings = New-Object System.Collections.ArrayList
     $sample = $Evidence.sample
     $baseline = $Evidence.baseline
     $environment = $Evidence.environment
@@ -299,23 +300,33 @@ function Get-FastCapacityProjection {
 
     $checkpoints = @($sample.checkpoints | Sort-Object { [long]$_.historyRoundCount })
     $segmentRates = New-Object System.Collections.ArrayList
+    $checkpointIdentityValid = $true
     for ($index = 1; $index -lt $checkpoints.Count; $index++) {
         $roundDelta = [long]$checkpoints[$index].historyRoundCount - [long]$checkpoints[$index - 1].historyRoundCount
         $usedDelta = [double]$checkpoints[$index].logicalUsedMb - [double]$checkpoints[$index - 1].logicalUsedMb
-        if ($roundDelta -le 0 -or $usedDelta -le 0) {
-            [void]$failures.Add('CAPACITY_GROWTH_NONLINEAR')
+        if ($roundDelta -le 0) {
+            $checkpointIdentityValid = $false
+            continue
+        }
+        if ($usedDelta -le 0) {
+            [void]$warnings.Add('CAPACITY_GROWTH_NONLINEAR')
             continue
         }
         [void]$segmentRates.Add($usedDelta / $roundDelta)
     }
     $linearityRatio = $null
-    if ($checkpoints.Count -lt 4 -or $segmentRates.Count -lt 3) {
+    if ($checkpoints.Count -lt 4 -or -not $checkpointIdentityValid) {
         [void]$failures.Add('CAPACITY_GROWTH_EVIDENCE_INSUFFICIENT')
     } else {
-        $minimumRate = [double](($segmentRates | Measure-Object -Minimum).Minimum)
-        $maximumRate = [double](($segmentRates | Measure-Object -Maximum).Maximum)
-        $linearityRatio = if ($minimumRate -gt 0) { $maximumRate / $minimumRate } else { [double]::PositiveInfinity }
-        if ($linearityRatio -gt 1.20) { [void]$failures.Add('CAPACITY_GROWTH_NONLINEAR') }
+        if ($segmentRates.Count -eq 0) {
+            $linearityRatio = [double]::PositiveInfinity
+            [void]$warnings.Add('CAPACITY_GROWTH_NONLINEAR')
+        } else {
+            $minimumRate = [double](($segmentRates | Measure-Object -Minimum).Minimum)
+            $maximumRate = [double](($segmentRates | Measure-Object -Maximum).Maximum)
+            $linearityRatio = $maximumRate / $minimumRate
+            if ($linearityRatio -gt 1.20) { [void]$warnings.Add('CAPACITY_GROWTH_NONLINEAR') }
+        }
     }
 
     $baselineLogicalMb = [double]$baseline.storage.logicalUsedMb
@@ -388,14 +399,17 @@ function Get-FastCapacityProjection {
     $ldfLimitMb = 2.0 * 1024.0
     $escalationFraction = 0.70
     if ($projectedLogicalUsedMb -ge ($logicalLimitMb * $escalationFraction)) {
-        [void]$failures.Add('CAPACITY_LOGICAL_70_PERCENT_ESCALATION')
+        [void]$warnings.Add('CAPACITY_LOGICAL_70_PERCENT_ESCALATION')
     }
     if ($projectedPhysicalDataMb -ge ($physicalLimitMb * $escalationFraction)) {
-        [void]$failures.Add('CAPACITY_PHYSICAL_70_PERCENT_ESCALATION')
+        [void]$warnings.Add('CAPACITY_PHYSICAL_70_PERCENT_ESCALATION')
     }
     if ($projectedLdfMb -ge ($ldfLimitMb * $escalationFraction)) {
-        [void]$failures.Add('CAPACITY_LDF_70_PERCENT_ESCALATION')
+        [void]$warnings.Add('CAPACITY_LDF_70_PERCENT_ESCALATION')
     }
+    if ($projectedLogicalUsedMb -ge $logicalLimitMb) { [void]$failures.Add('CAPACITY_LOGICAL_HARD_LIMIT') }
+    if ($projectedPhysicalDataMb -ge $physicalLimitMb) { [void]$failures.Add('CAPACITY_PHYSICAL_HARD_LIMIT') }
+    if ($projectedLdfMb -ge $ldfLimitMb) { [void]$failures.Add('CAPACITY_LDF_HARD_LIMIT') }
 
     if ([string]$environment.recoveryModel -cne 'SIMPLE') { [void]$failures.Add('CAPACITY_RECOVERY_NOT_SIMPLE') }
     if ([int]$environment.compatibilityLevel -ne 160) { [void]$failures.Add('CAPACITY_COMPATIBILITY_NOT_160') }
@@ -446,10 +460,12 @@ function Get-FastCapacityProjection {
     }
 
     $uniqueFailures = @($failures | Sort-Object -Unique)
+    $uniqueWarnings = @($warnings | Sort-Object -Unique)
     return [pscustomobject][ordered]@{
         passed = $uniqueFailures.Count -eq 0
         escalationRequired = $uniqueFailures.Count -gt 0
         failures = $uniqueFailures
+        warnings = $uniqueWarnings
         model = [ordered]@{
             targetDays = 15; targetRounds = $targetRounds; targetRawObservationRows = $targetRows
             safetyMarginFraction = $safetyMargin; escalationFraction = $escalationFraction
@@ -1398,6 +1414,7 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateCapacityFixturePath)) {
     $capacityFixture = Get-Content -Raw -LiteralPath $ValidateCapacityFixturePath | ConvertFrom-Json
     $capacityResult = Get-FastCapacityProjection $capacityFixture
     Write-Output "MESINGEST_FAST_CAPACITY_FIXTURE: passed=$($capacityResult.passed) escalationRequired=$($capacityResult.escalationRequired) targetDays=$($capacityResult.model.targetDays) targetRawObservationRows=$($capacityResult.model.targetRawObservationRows)"
+    Write-Output ("warnings={0}" -f (@($capacityResult.warnings) -join ','))
     Write-Output ("projectedLogicalUsedMb={0:F3} projectedPhysicalDataMb={1:F3} projectedLdfMb={2:F3}" -f `
         [double]$capacityResult.prediction.logicalUsedMb, `
         [double]$capacityResult.prediction.physicalDataMb, `
@@ -3701,7 +3718,10 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                 required = [bool]$capacityProjection.escalationRequired
                 releaseBlocked = [bool]$capacityProjection.escalationRequired
                 reasonCodes = @($capacityProjection.failures)
-                nextValidation = 'Invoke-ScaleAndQueryEvidence.ps1 -ProfileDays 15 -ConfirmFullScaleEscalation MESINGEST_FULL_SCALE_ESCALATION'
+                advisoryWarnings = @($capacityProjection.warnings)
+                nextValidation = if ($capacityProjection.escalationRequired) {
+                    'Invoke-ScaleAndQueryEvidence.ps1 -ProfileDays 15 -ConfirmFullScaleEscalation MESINGEST_FULL_SCALE_ESCALATION'
+                } else { 'Not required by the accepted 2026-08-25 capacity policy.' }
                 contentAddressingDecision = 'Re-evaluate only if full-scale validation also fails.'
             })
             @($capacityProjection.failures) | ForEach-Object { [void]$gateFailures.Add($_) }
@@ -3711,6 +3731,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
                 passed = $false
                 escalationRequired = $true
                 failures = @('CAPACITY_MODEL_EVIDENCE_UNCERTAIN')
+                warnings = @()
                 errorType = $_.Exception.GetType().Name
                 model = [pscustomobject][ordered]@{
                     targetDays = 15
@@ -3839,7 +3860,8 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             $markdownLines += '- Fast capacity projections unavailable because model evidence was incomplete.'
         }
         $markdownLines += @(
-            "- Fast capacity 15-day rows: $($capacityProjection.model.targetRawObservationRows); safety margin: 30%; escalation threshold: 70%"
+            "- Fast capacity 15-day rows: $($capacityProjection.model.targetRawObservationRows); safety margin: 30%; 70% threshold is advisory"
+            "- Fast capacity advisory warnings: $(@($capacityProjection.warnings) -join ', ')"
             "- Fast capacity escalation required: $($capacityProjection.escalationRequired)"
         )
     }

@@ -154,9 +154,11 @@ public sealed class ScaleAndQueryEvidenceGateTests
     }
 
     [Fact]
-    public void Fast_capacity_fixture_projects_fifteen_days_with_margin_below_escalation_thresholds()
+    public void Fast_capacity_fixture_projects_fifteen_days_with_margin_below_hard_limits_and_reports_advisories()
     {
-        var fixture = CreatePassingCapacityFixture();
+        var fixture = JsonSerializer.SerializeToNode(CreatePassingCapacityFixture())!.AsObject();
+        fixture["sample"]!["storage"]!["logicalUsedMb"] = 48.0;
+        fixture["sample"]!["checkpoints"]![4]!["logicalUsedMb"] = 22.0;
 
         var result = RunCapacityFixture(fixture);
 
@@ -168,21 +170,21 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("targetDays=15", result.Output, StringComparison.Ordinal);
         Assert.Contains("targetRawObservationRows=55542600", result.Output, StringComparison.Ordinal);
         Assert.Contains("escalationRequired=False", result.Output, StringComparison.Ordinal);
+        Assert.Contains("CAPACITY_LOGICAL_70_PERCENT_ESCALATION", result.Output, StringComparison.Ordinal);
+        Assert.Contains("CAPACITY_GROWTH_NONLINEAR", result.Output, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Fast_capacity_fixture_fails_closed_for_threshold_nonlinearity_sample_compression_or_cleanup_risk()
+    public void Fast_capacity_fixture_fails_closed_for_hard_limit_sample_compression_or_cleanup_risk()
     {
         var cases = new (string ExpectedCode, Action<JsonObject> Mutate)[]
         {
-            ("CAPACITY_LOGICAL_70_PERCENT_ESCALATION", fixture =>
-                fixture["sample"]!["storage"]!["logicalUsedMb"] = 55.0),
-            ("CAPACITY_PHYSICAL_70_PERCENT_ESCALATION", fixture =>
-                fixture["sample"]!["dataFileGrowthMb"] = 12_000.0),
-            ("CAPACITY_LDF_70_PERCENT_ESCALATION", fixture =>
-                fixture["sample"]!["storage"]!["ldfMb"] = 1_200.0),
-            ("CAPACITY_GROWTH_NONLINEAR", fixture =>
-                fixture["sample"]!["checkpoints"]![4]!["logicalUsedMb"] = 40.0),
+            ("CAPACITY_LOGICAL_HARD_LIMIT", fixture =>
+                fixture["sample"]!["storage"]!["logicalUsedMb"] = 60.0),
+            ("CAPACITY_PHYSICAL_HARD_LIMIT", fixture =>
+                fixture["sample"]!["dataFileGrowthMb"] = 17_000.0),
+            ("CAPACITY_LDF_HARD_LIMIT", fixture =>
+                fixture["sample"]!["storage"]!["ldfMb"] = 1_576.0),
             ("CAPACITY_SAMPLE_INSUFFICIENT", fixture =>
             {
                 fixture["sample"]!["rawObservationCount"] = 120_600;
@@ -307,6 +309,9 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "CAPACITY_LOGICAL_70_PERCENT_ESCALATION",
                      "CAPACITY_PHYSICAL_70_PERCENT_ESCALATION",
                      "CAPACITY_LDF_70_PERCENT_ESCALATION",
+                     "CAPACITY_LOGICAL_HARD_LIMIT",
+                     "CAPACITY_PHYSICAL_HARD_LIMIT",
+                     "CAPACITY_LDF_HARD_LIMIT",
                      "ConfirmFullScaleEscalation",
                  })
         {
