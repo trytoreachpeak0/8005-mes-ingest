@@ -1058,7 +1058,8 @@ function Get-AcceleratedStabilityResult {
         'catchUpAnalysisComplete', 'currentLogicalReadGrowthPassed',
         'httpErrorCount', 'unexpectedHttpOutcomeCount', 'expectedHistoryExpiredCount',
         'frozenConsistencyHttpErrorCount', 'httpOutcomesComplete', 'httpOutcomes',
-        'frozenCommitMismatchCount', 'projectionCommitsDuringFrozenReads',
+        'frozenCommitMismatchCount', 'frozenSnapshotCaptureCount', 'frozenSnapshotPinned',
+        'projectionCommitsDuringFrozenReads',
         'frozenWindowsWithoutProjection', 'cleanupBacklogCount',
         'earliestAvailableAdvanced', 'storagePressurePauseCount', 'retrySchedulePassed',
         'logicalDayBoundaryPassed', 'historyEpochPreservedAcrossRestart', 'restartStatePreserved')
@@ -1129,6 +1130,10 @@ function Get-AcceleratedStabilityResult {
         }
         if (-not [bool]$behavior.currentLogicalReadGrowthPassed) { [void]$failures.Add('STABILITY_CURRENT_LOGICAL_READ_GROWTH') }
         if ([long]$behavior.frozenCommitMismatchCount -ne 0) { [void]$failures.Add('STABILITY_FROZEN_COMMIT_MISMATCH') }
+        if ([long]$behavior.frozenSnapshotCaptureCount -ne 1 -or
+            -not [bool]$behavior.frozenSnapshotPinned) {
+            [void]$failures.Add('STABILITY_FROZEN_EVIDENCE_INCOMPLETE')
+        }
         if ([long]$behavior.projectionCommitsDuringFrozenReads -le 0 -or
             [long]$behavior.frozenWindowsWithoutProjection -ne 0) {
             [void]$failures.Add('STABILITY_FROZEN_READ_BLOCKED_PROJECTION')
@@ -2003,6 +2008,7 @@ function New-FailedAcceleratedStabilityValues {
         expectedHistoryExpiredCount = 0L; frozenConsistencyHttpErrorCount = 0L
         httpOutcomesComplete = $false; httpOutcomes = @()
         currentLogicalReadGrowthPassed = $false; frozenCommitMismatchCount = 0L
+        frozenSnapshotCaptureCount = 0L; frozenSnapshotPinned = $false
         projectionCommitsDuringFrozenReads = 0L; frozenWindowsWithoutProjection = 1L
         cleanupBacklogCount = 0L; earliestAvailableAdvanced = $false
         earliestAvailableBefore = $null; earliestAvailableAfter = $null
@@ -2143,6 +2149,8 @@ function New-AcceleratedStabilityEvidence {
             httpOutcomes = @($Values.httpOutcomes)
             currentLogicalReadGrowthPassed = $Values.currentLogicalReadGrowthPassed
             frozenCommitMismatchCount = $Values.frozenCommitMismatchCount
+            frozenSnapshotCaptureCount = $Values.frozenSnapshotCaptureCount
+            frozenSnapshotPinned = $Values.frozenSnapshotPinned
             projectionCommitsDuringFrozenReads = $Values.projectionCommitsDuringFrozenReads
             frozenWindowsWithoutProjection = $Values.frozenWindowsWithoutProjection
             cleanupBacklogCount = $Values.cleanupBacklogCount
@@ -2751,7 +2759,11 @@ function Invoke-StabilityHttpBatch {
         [int] $BatchNumber = 0,
         [Parameter(Mandatory = $true)][int] $HostProcessGeneration,
         [Parameter(Mandatory = $true)][string] $WorkloadStage,
-        [Parameter(Mandatory = $true)][string] $CleanupPhase
+        [Parameter(Mandatory = $true)][string] $CleanupPhase,
+        [AllowEmptyString()][string] $FrozenSeriesId = '',
+        [AllowEmptyString()][string] $FrozenSnapshotReference = '',
+        [AllowEmptyString()][string] $FrozenHistoryEpoch = '',
+        [AllowEmptyString()][string] $FrozenProjectionCommitId = ''
     )
     $specs = @(
         [pscustomobject]@{ name = 'Overview'; path = '/api/v2/watch-overview'; catalog = $false },
@@ -2812,20 +2824,31 @@ function Invoke-StabilityHttpBatch {
     $frozenMismatchCount = 0L
     $projectionCommitsDuringFrozenReads = 0L
     $frozenWindowWithoutProjection = 0L
-    if (($BatchNumber % 10) -eq 0 -and -not [string]::IsNullOrWhiteSpace($demandBody)) {
-        $list = $demandBody | ConvertFrom-Json
-        if (@($list.items).Count -gt 0 -and -not [string]::IsNullOrWhiteSpace([string]$list.snapshotReference)) {
+    $frozenSeriesIdOut = $FrozenSeriesId
+    $frozenSnapshotReferenceOut = $FrozenSnapshotReference
+    $frozenHistoryEpochOut = $FrozenHistoryEpoch
+    $frozenProjectionCommitIdOut = $FrozenProjectionCommitId
+    $frozenSnapshotCapturedOut = $false
+    if (($BatchNumber % 10) -eq 0) {
+        if ([string]::IsNullOrWhiteSpace($frozenSnapshotReferenceOut) -and
+            $CleanupPhase -ceq 'SUCCEEDED' -and
+            -not [string]::IsNullOrWhiteSpace($demandBody)) {
+            $list = $demandBody | ConvertFrom-Json
+            if (@($list.items).Count -gt 0 -and
+                -not [string]::IsNullOrWhiteSpace([string]$list.snapshotReference)) {
             $trackingItem = @($list.items | Where-Object { [string]$_.lifecycle -eq 'TRACKING' }) |
                 Select-Object -First 1
-            if ($null -eq $trackingItem) {
-                return [pscustomobject][ordered]@{
-                    samples = @($samples); catalogETag = $CatalogETag
-                    frozenReadCount = 0L; frozenMismatchCount = 0L; httpErrorCount = $httpErrorCount
-                    projectionCommitsDuringFrozenReads = 0L; frozenWindowWithoutProjection = 1L
+                if ($null -ne $trackingItem) {
+                    $frozenSeriesIdOut = [string]$trackingItem.seriesId
+                    $frozenSnapshotReferenceOut = [string]$list.snapshotReference
+                    $frozenHistoryEpochOut = [string]$list.snapshot.historyEpoch
+                    $frozenProjectionCommitIdOut = [string]$list.snapshot.projectionCommitId
+                    $frozenSnapshotCapturedOut = $true
                 }
             }
-            $seriesId = [string]$trackingItem.seriesId
-            $snapshot = [Uri]::EscapeDataString([string]$list.snapshotReference)
+        }
+        if (-not [string]::IsNullOrWhiteSpace($frozenSnapshotReferenceOut)) {
+            $snapshot = [Uri]::EscapeDataString($frozenSnapshotReferenceOut)
             $commitBefore = [long](@(Invoke-SqlTable $DatabaseConnectionString `
                 'SELECT COUNT_BIG(*) AS projectionCommitCount FROM mesingest.ProjectionCommits;' @{}) |
                 Select-Object -First 1).projectionCommitCount
@@ -2834,7 +2857,7 @@ function Invoke-StabilityHttpBatch {
                 $detailTimer = [Diagnostics.Stopwatch]::StartNew()
                 $detailTasks = @(
                     1..8 | ForEach-Object {
-                        $Client.GetAsync("$BaseUrl/api/v2/demand-series/$seriesId`?snapshot=$snapshot")
+                        $Client.GetAsync("$BaseUrl/api/v2/demand-series/$frozenSeriesIdOut`?snapshot=$snapshot")
                     })
                 [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]$detailTasks).GetAwaiter().GetResult()
                 foreach ($detailTask in $detailTasks) {
@@ -2861,9 +2884,9 @@ function Invoke-StabilityHttpBatch {
                         }
                         $detail = $detailBody | ConvertFrom-Json
                         $frozenReadCount++
-                        if ([string]$detail.snapshotReference -cne [string]$list.snapshotReference -or
-                            [string]$detail.snapshot.historyEpoch -cne [string]$list.snapshot.historyEpoch -or
-                            [string]$detail.snapshot.projectionCommitId -cne [string]$list.snapshot.projectionCommitId) {
+                        if ([string]$detail.snapshotReference -cne $frozenSnapshotReferenceOut -or
+                            [string]$detail.snapshot.historyEpoch -cne $frozenHistoryEpochOut -or
+                            [string]$detail.snapshot.projectionCommitId -cne $frozenProjectionCommitIdOut) {
                             $frozenMismatchCount++
                         }
                     } finally { $detailResponse.Dispose() }
@@ -2884,6 +2907,11 @@ function Invoke-StabilityHttpBatch {
         httpErrorCount = $httpErrorCount
         projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
         frozenWindowWithoutProjection = $frozenWindowWithoutProjection
+        frozenSeriesId = $frozenSeriesIdOut
+        frozenSnapshotReference = $frozenSnapshotReferenceOut
+        frozenHistoryEpoch = $frozenHistoryEpochOut
+        frozenProjectionCommitId = $frozenProjectionCommitIdOut
+        frozenSnapshotCaptured = $frozenSnapshotCapturedOut
     }
 }
 
@@ -3938,6 +3966,11 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         $httpErrorCount = 0L
         $expectedHistoryExpiredCount = 0L
         $frozenConsistencyHttpErrorCount = 0L
+        $frozenSeriesId = ''
+        $frozenSnapshotReference = ''
+        $frozenHistoryEpoch = ''
+        $frozenProjectionCommitId = ''
+        $frozenSnapshotCaptureCount = 0L
         $intentionalHttpOutcomes = New-Object System.Collections.ArrayList
         $catalogReads = 0L
         $watchReads = 0L
@@ -4144,8 +4177,17 @@ FROM mesingest.SchemaInfo WHERE Id = 1;
                     -DatabaseConnectionString $databaseConnectionString `
                     -CatalogETag $catalogETag -BatchNumber $batchCount `
                     -HostProcessGeneration $hostProcessGeneration -WorkloadStage $workloadStage `
-                    -CleanupPhase $cleanupPhase
+                    -CleanupPhase $cleanupPhase `
+                    -FrozenSeriesId $frozenSeriesId `
+                    -FrozenSnapshotReference $frozenSnapshotReference `
+                    -FrozenHistoryEpoch $frozenHistoryEpoch `
+                    -FrozenProjectionCommitId $frozenProjectionCommitId
                 $catalogETag = [string]$batch.catalogETag
+                $frozenSeriesId = [string]$batch.frozenSeriesId
+                $frozenSnapshotReference = [string]$batch.frozenSnapshotReference
+                $frozenHistoryEpoch = [string]$batch.frozenHistoryEpoch
+                $frozenProjectionCommitId = [string]$batch.frozenProjectionCommitId
+                if ([bool]$batch.frozenSnapshotCaptured) { $frozenSnapshotCaptureCount++ }
                 foreach ($sample in @($batch.samples)) {
                     [void]$stabilityLatencySamples.Add($sample)
                     if ([string]$sample.name -eq 'ExternallyReadableDemandCatalog') { $catalogReads++ }
@@ -4629,6 +4671,9 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             httpOutcomesComplete = $httpOutcomesComplete; httpOutcomes = $httpOutcomes
             currentLogicalReadGrowthPassed = $false
             frozenCommitMismatchCount = $frozenCommitMismatchCount
+            frozenSnapshotCaptureCount = $frozenSnapshotCaptureCount
+            frozenSnapshotPinned = $frozenSnapshotCaptureCount -eq 1 -and
+                -not [string]::IsNullOrWhiteSpace($frozenSnapshotReference)
             projectionCommitsDuringFrozenReads = $projectionCommitsDuringFrozenReads
             frozenWindowsWithoutProjection = $frozenWindowsWithoutProjection
             cleanupBacklogCount = [long]$cleanupFinal.cleanupBacklogCount

@@ -197,12 +197,18 @@ public sealed partial class SqlServerMesIngestProjection
                     SET @remainingRawObservationRows -= @nextObservationCount;
                 END;
 
-                DELETE observation
-                FROM mesingest.DemandRawObservations AS observation
-                INNER JOIN @expired AS expired
-                    ON expired.PollTraceId = observation.PollTraceId;
-
-                DECLARE @deletedRawObservationCount INT = @@ROWCOUNT;
+                DECLARE @rawDeleteChunkSize INT = 500;
+                DECLARE @deletedRawObservationCount INT = 0;
+                DECLARE @deletedRawObservationChunkCount INT = 1;
+                WHILE @deletedRawObservationChunkCount > 0
+                BEGIN
+                    DELETE TOP (@rawDeleteChunkSize) observation
+                    FROM mesingest.DemandRawObservations AS observation
+                    INNER JOIN @expired AS expired
+                        ON expired.PollTraceId = observation.PollTraceId;
+                    SET @deletedRawObservationChunkCount = @@ROWCOUNT;
+                    SET @deletedRawObservationCount += @deletedRawObservationChunkCount;
+                END;
 
                 UPDATE trace
                 SET RawObservationsExpiredAt = @advancedAt

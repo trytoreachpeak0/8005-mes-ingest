@@ -86,6 +86,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
             ("STABILITY_HISTORY_EXPIRY_CONTRACT", fixture => fixture["behavior"]!["expectedHistoryExpiredCount"] = 0),
             ("STABILITY_CURRENT_LOGICAL_READ_GROWTH", fixture => fixture["behavior"]!["currentLogicalReadGrowthPassed"] = false),
             ("STABILITY_FROZEN_COMMIT_MISMATCH", fixture => fixture["behavior"]!["frozenCommitMismatchCount"] = 1),
+            ("STABILITY_FROZEN_EVIDENCE_INCOMPLETE", fixture => fixture["behavior"]!["frozenSnapshotCaptureCount"] = 2),
+            ("STABILITY_FROZEN_EVIDENCE_INCOMPLETE", fixture => fixture["behavior"]!["frozenSnapshotPinned"] = false),
             ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["projectionCommitsDuringFrozenReads"] = 0),
             ("STABILITY_FROZEN_READ_BLOCKED_PROJECTION", fixture => fixture["behavior"]!["frozenWindowsWithoutProjection"] = 1),
             ("STABILITY_CLEANUP_BACKLOG", fixture => fixture["behavior"]!["cleanupBacklogCount"] = 1),
@@ -248,6 +250,14 @@ public sealed class ScaleAndQueryEvidenceGateTests
         Assert.Contains("INDEX(IX_MesIngest_PollTraces_RawRetentionDue)", retention, StringComparison.Ordinal);
         Assert.DoesNotContain("SUM(ObservationCount) OVER", retention, StringComparison.Ordinal);
         Assert.Contains("WHILE @expiredPollTraceCount < @maximumPollTraces", retention, StringComparison.Ordinal);
+        var cleanupMarker = retention.IndexOf(
+            "MESINGEST_QUERY:HISTORY_CLEANUP_EXPIRED_BATCH",
+            StringComparison.Ordinal);
+        var cleanupUpdate = retention.IndexOf("UPDATE trace", cleanupMarker, StringComparison.Ordinal);
+        Assert.True(cleanupMarker >= 0 && cleanupUpdate > cleanupMarker);
+        var cleanupDeleteBlock = retention[cleanupMarker..cleanupUpdate];
+        Assert.Contains("DELETE TOP (@rawDeleteChunkSize)", cleanupDeleteBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n                DELETE observation", cleanupDeleteBlock, StringComparison.Ordinal);
         Assert.DoesNotContain("OPTION (MIN_GRANT_PERCENT", retention, StringComparison.Ordinal);
     }
 
@@ -323,6 +333,10 @@ public sealed class ScaleAndQueryEvidenceGateTests
                      "watchRefreshSeconds",
                      "referenceCatalogReads",
                      "frozenDetailReads",
+                     "frozenSnapshotReference",
+                     "frozenProjectionCommitId",
+                     "frozenSnapshotCaptureCount",
+                     "frozenSnapshotPinned",
                      "logicalDayBoundaryPassed",
                      "historyEpochPreservedAcrossRestart",
                      "packagedWatchClientReads",
@@ -397,6 +411,10 @@ public sealed class ScaleAndQueryEvidenceGateTests
             script,
             StringComparison.Ordinal);
         Assert.Contains("latencySampleBuckets", script, StringComparison.Ordinal);
+        Assert.Contains(
+            "$CleanupPhase -ceq 'SUCCEEDED'",
+            script,
+            StringComparison.Ordinal);
         Assert.Contains("--configuration Release", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("TestDefinitions.UnitTest", deterministicRunner, StringComparison.Ordinal);
         Assert.Contains("testAssemblySha256", deterministicRunner, StringComparison.Ordinal);
@@ -792,6 +810,8 @@ public sealed class ScaleAndQueryEvidenceGateTests
             httpOutcomes = CreatePassingHttpOutcomes(),
             currentLogicalReadGrowthPassed = true,
             frozenCommitMismatchCount = 0,
+            frozenSnapshotCaptureCount = 1,
+            frozenSnapshotPinned = true,
             projectionCommitsDuringFrozenReads = 1_600,
             frozenWindowsWithoutProjection = 0,
             cleanupBacklogCount = 0,
