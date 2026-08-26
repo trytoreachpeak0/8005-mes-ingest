@@ -122,7 +122,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
     {
         const string credential = "demand-series-production-secret";
         const string seriesId = "series-current-area";
-        const string snapshotReference = "snapshot-demand-series-20";
+        var snapshotReference = $"snapshot-{new string('x', 1024)}";
         var listGate = new FakeHostGate();
         var listQueryReceived = new TaskCompletionSource<DemandSeriesBrowseQuery>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -328,17 +328,39 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     inspectorWindow.DataContext);
                 Assert.Equal(seriesId, inspectorPresentation.SeriesId);
                 Assert.Equal(snapshotReference, inspectorPresentation.FrozenSnapshot.SnapshotReference);
+                inspectorWindow.UpdateLayout();
+                var seriesContext = Assert.IsAssignableFrom<TextBlock>(
+                    inspectorWindow.FindName("InspectorSeriesContextText"));
+                Assert.True(seriesContext.IsVisible);
+                Assert.Contains(seriesId, seriesContext.Text, StringComparison.Ordinal);
+                var snapshotContext = Assert.IsAssignableFrom<TextBlock>(
+                    inspectorWindow.FindName("InspectorSnapshotContextText"));
+                Assert.InRange(snapshotContext.ActualWidth, 1, 520);
+                Assert.Equal(TextWrapping.NoWrap, snapshotContext.TextWrapping);
+                Assert.Equal(TextTrimming.CharacterEllipsis, snapshotContext.TextTrimming);
+                Assert.Equal(snapshotContext.Text, snapshotContext.ToolTip);
+                Assert.Equal(
+                    snapshotContext.Text,
+                    AutomationProperties.GetName(snapshotContext));
                 var tabs = Assert.IsType<TabControl>(
                     inspectorWindow.FindName("DemandSeriesInspectorTabs"));
+                Assert.True(double.IsFinite(tabs.ActualWidth) && tabs.ActualWidth > 0);
+                Assert.True(double.IsFinite(tabs.ActualHeight) && tabs.ActualHeight > 0);
                 Assert.Equal(
                     ["世代分析", "事件"],
                     tabs.Items.Cast<TabItem>()
                         .Select(item => item.Header?.ToString() ?? string.Empty)
                         .ToArray());
+                var generationList = Assert.IsType<ListBox>(
+                    inspectorWindow.FindName("DemandSeriesInspectorGenerationList"));
+                Assert.True(generationList.IsVisible);
+                Assert.NotEmpty(generationList.Items);
                 Assert.Equal(
                     "DemandSeriesInspectorGenerationList",
-                    AutomationProperties.GetAutomationId(Assert.IsType<ListBox>(
-                        inspectorWindow.FindName("DemandSeriesInspectorGenerationList"))));
+                    AutomationProperties.GetAutomationId(generationList));
+                AssertInspectorBodyIsPainted(
+                    WatchWindowNative.CaptureClientAreaAtCurrentSize(
+                        new WindowInteropHelper(inspectorWindow).Handle));
                 Assert.Equal(
                     "DemandSeriesInspectorFormationReason",
                     AutomationProperties.GetAutomationId(Assert.IsAssignableFrom<TextBlock>(
@@ -1579,6 +1601,31 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
             cancellationToken.ThrowIfCancellationRequested();
             await Dispatcher.Yield(DispatcherPriority.Background);
         }
+    }
+
+    private static void AssertInspectorBodyIsPainted(byte[] capture)
+    {
+        using var stream = new MemoryStream(capture);
+        using var bitmap = new System.Drawing.Bitmap(stream);
+        var darkBodySamples = 0;
+        for (var y = 80; y < bitmap.Height - 10; y += 8)
+        {
+            for (var x = 10; x < bitmap.Width - 10; x += 8)
+            {
+                var color = bitmap.GetPixel(x, y);
+                var luminance = (0.2126 * color.R)
+                    + (0.7152 * color.G)
+                    + (0.0722 * color.B);
+                if (luminance < 160)
+                {
+                    darkBodySamples++;
+                }
+            }
+        }
+
+        Assert.True(
+            darkBodySamples >= 25,
+            $"DemandSeries Inspector body was not painted; dark body samples: {darkBodySamples}.");
     }
 
     private static Task RunInStaDispatcherAsync(Func<Task> action)

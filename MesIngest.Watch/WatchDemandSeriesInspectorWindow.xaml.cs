@@ -107,6 +107,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             InspectorSnapshotContextText.Text =
                 $"冻结快照 {state.FrozenSnapshot.SnapshotReference} · "
                 + WatchTimeDisplay.Format(state.FrozenSnapshot.ProjectionCommittedAt);
+            InspectorSnapshotContextText.ToolTip = InspectorSnapshotContextText.Text;
             InspectorLifecycleText.Text =
                 $"{state.Lifecycle} · {state.WorkType} · {state.Sublot}";
             InspectorPresenceText.Text = state.CurrentPresence;
@@ -207,6 +208,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             InspectorTitleBar.Title = "MesIngest Watch · DemandSeries Inspector";
             InspectorSeriesContextText.Text = "尚未选择 DemandSeries";
             InspectorSnapshotContextText.Text = "尚无冻结快照";
+            InspectorSnapshotContextText.ToolTip = null;
             InspectorLifecycleText.Text = "—";
             InspectorPresenceText.Text = "—";
             UpdateContextAutomationNames();

@@ -136,10 +136,12 @@
                 </Grid>
                 <ui:TextBlock x:Name="InspectorSnapshotContextText"
                               Grid.Column="1"
+                              MaxWidth="520"
                               Style="{StaticResource CaptionText}"
                               VerticalAlignment="Center"
                               Text="尚无冻结快照"
-                              TextWrapping="Wrap"
+                              TextWrapping="NoWrap"
+                              TextTrimming="CharacterEllipsis"
                               AutomationProperties.AutomationId="DemandSeriesInspectorFrozenSnapshot" />
             </Grid>
 
