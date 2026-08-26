@@ -39,6 +39,16 @@ plus cross-page highlights, B puts attention items first, and C presents a
 compact page-status table. **Variant A was selected on 2026-08-12**; B/C remain
 rejected prototype comparisons.
 
+The notification feedback extension asks: **how should the approved overlay
+feedback contract feel inside the selected Watch shell?** Run
+`--page=feedback --variant=A|B|C`. A uses independent Fluent toast cards, B
+groups active notices into one activity surface, and C uses compact
+command-first tiles. The page directly demonstrates silent automatic refresh,
+user-operation success, first-occurrence fault contraction, repeated-fault
+coalescing, three-item priority/stacking, recovery, AREA concurrent-write
+`ContentDialog`, narrow-window reflow, timer pause, and reduced motion. This is
+throwaway presentation code; no variant is production-ready.
+
 The selected information architecture is:
 
 - `概览`
@@ -60,6 +70,7 @@ dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPro
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=overview --variant=B
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=overview --variant=C
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=series
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=stack
 ```
 
 Review pages:
@@ -76,6 +87,10 @@ dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPro
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=D
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=E
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=invalid
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=stack
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=B --scenario=fault
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=conflict
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=narrow-reduced
 ```
 
 The review bar on `--page=area-live` also carries a 切到非法态 button, so the
@@ -98,6 +113,11 @@ dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watc
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=E --scenario=invalid --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-e-invalid.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=healthy --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-f-valid.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=area-live --variant=F --scenario=invalid --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\area-live-f-invalid.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=stack --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-a-stack.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=B --scenario=fault --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-b-fault.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=stack --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-c-stack.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=conflict --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-conflict.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=narrow-reduced --width=760 --height=820 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-narrow-reduced.png
 ```
 
 Use the real navigation items to move between pages. Fake data exists only to

@@ -1,0 +1,64 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.NotificationToastVariantA"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             AutomationProperties.Name="通知方案 A：独立卡片栈">
+    <ItemsControl ItemsSource="{Binding Toasts}">
+        <ItemsControl.ItemTemplate>
+            <DataTemplate>
+                <Border x:Name="ToastCard"
+                        Margin="0,0,0,8"
+                        Padding="0"
+                        Background="{StaticResource WatchSurfaceStrongBrush}"
+                        BorderBrush="{StaticResource WatchStrokeStrongBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        AutomationProperties.Name="{Binding Title}"
+                        AutomationProperties.LiveSetting="Polite">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="4" />
+                            <ColumnDefinition Width="44" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="40" />
+                        </Grid.ColumnDefinitions>
+                        <Border x:Name="SeverityRail" CornerRadius="8,0,0,8" Background="{StaticResource WatchAccentBrush}" />
+                        <ui:SymbolIcon x:Name="SeverityIcon" Grid.Column="1" Symbol="Info24" Foreground="{StaticResource WatchAccentBrush}" VerticalAlignment="Top" Margin="0,16,0,0" />
+                        <StackPanel Grid.Column="2" Margin="0,13,8,13">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock Text="{Binding SeverityText}" Style="{StaticResource Caption}" FontWeight="SemiBold" DockPanel.Dock="Left" />
+                                <TextBlock Text="{Binding TimerText}" Style="{StaticResource Caption}" HorizontalAlignment="Right" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding Title}" Style="{StaticResource BodyStrong}" Margin="0,3,0,0" />
+                            <TextBlock Text="{Binding Message}" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                <ui:Button Content="{Binding ActionLabel}" Appearance="Transparent" Padding="0,4" MinHeight="32" />
+                                <TextBlock Text="{Binding OccurrenceText}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <ui:Button Grid.Column="3" Command="{Binding DismissCommand}" Appearance="Transparent" Width="32" Height="32" Margin="0,8,4,0" VerticalAlignment="Top" ToolTip="关闭通知" AutomationProperties.Name="关闭通知">
+                            <ui:SymbolIcon Symbol="Dismiss24" />
+                        </ui:Button>
+                    </Grid>
+                </Border>
+                <DataTemplate.Triggers>
+                    <DataTrigger Binding="{Binding Severity}" Value="Success">
+                        <Setter TargetName="SeverityRail" Property="Background" Value="{StaticResource WatchSuccessBrush}" />
+                        <Setter TargetName="SeverityIcon" Property="Symbol" Value="CheckmarkCircle24" />
+                        <Setter TargetName="SeverityIcon" Property="Foreground" Value="{StaticResource WatchSuccessBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                        <Setter TargetName="SeverityRail" Property="Background" Value="{StaticResource WatchWarningBrush}" />
+                        <Setter TargetName="SeverityIcon" Property="Symbol" Value="Warning24" />
+                        <Setter TargetName="SeverityIcon" Property="Foreground" Value="{StaticResource WatchWarningBrush}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Severity}" Value="Error">
+                        <Setter TargetName="SeverityRail" Property="Background" Value="{StaticResource WatchCriticalBrush}" />
+                        <Setter TargetName="SeverityIcon" Property="Symbol" Value="ErrorCircle24" />
+                        <Setter TargetName="SeverityIcon" Property="Foreground" Value="{StaticResource WatchCriticalBrush}" />
+                    </DataTrigger>
+                </DataTemplate.Triggers>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>

@@ -1,0 +1,185 @@
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.NotificationFeedbackPrototype"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:MesIngest.Watch.FluentPrototype"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             Focusable="True"
+             SizeChanged="OnSizeChanged">
+    <!-- PROTOTYPE: three feedback layouts on the selected Watch shell, switched by the floating review bar. -->
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </UserControl.Resources>
+
+    <Grid x:Name="PrototypeRoot">
+        <ui:NavigationView x:Name="Navigation"
+                           PaneDisplayMode="LeftMinimal"
+                           CompactPaneLength="48"
+                           OpenPaneLength="224"
+                           IsPaneOpen="False"
+                           IsBackButtonVisible="Collapsed"
+                           IsPaneToggleVisible="True"
+                           HeaderVisibility="Collapsed">
+            <ui:NavigationView.MenuItems>
+                <ui:NavigationViewItem Content="概览" IsActive="True">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="需求系列">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Timeline24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="资格审计">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="DocumentBulletList24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="错误检索">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Search24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="AREA 筛选">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Filter24" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="接入告警">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon>
+                    <ui:NavigationViewItem.InfoBadge><ui:InfoBadge Value="3" /></ui:NavigationViewItem.InfoBadge>
+                </ui:NavigationViewItem>
+            </ui:NavigationView.MenuItems>
+            <ui:NavigationView.FooterMenuItems>
+                <ui:NavigationViewItem Content="Host 已连接" ToolTip="Host 已连接 · 契约兼容 · 最近成功 12:42:16">
+                    <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" /></ui:NavigationViewItem.Icon>
+                </ui:NavigationViewItem>
+                <ui:NavigationViewItem Content="设置"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            </ui:NavigationView.FooterMenuItems>
+
+            <ui:NavigationView.ContentOverlay>
+                <Grid Margin="24,16,24,16">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="12" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="概览" Style="{StaticResource PageTitle}" />
+                                <Border Visibility="{Binding ActiveFault, Converter={StaticResource BoolToVisibility}}"
+                                        Background="{StaticResource WatchCriticalSoftBrush}"
+                                        CornerRadius="12"
+                                        Padding="9,4"
+                                        Margin="12,2,0,0"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="{Binding FaultSummary}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <ui:SymbolIcon Symbol="ErrorCircle20" Foreground="{StaticResource WatchCriticalBrush}" />
+                                        <TextBlock Text="{Binding FaultSummary}" Foreground="{StaticResource WatchCriticalBrush}" Style="{StaticResource BodyStrong}" Margin="6,0,0,0" />
+                                        <ui:Button Content="详情" Appearance="Transparent" Padding="7,0" MinHeight="28" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                                <TextBlock Text="各分页运行摘要 · " Style="{StaticResource BodySecondary}" />
+                                <TextBlock Text="{Binding FreshnessText}" Style="{StaticResource BodySecondary}" />
+                                <TextBlock Text=" · " Style="{StaticResource BodySecondary}" />
+                                <TextBlock Text="{Binding RefreshStateText}" Style="{StaticResource BodySecondary}" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <Border Style="{StaticResource StatusPill}" Background="{StaticResource WatchSuccessSoftBrush}">
+                                <StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" Margin="0,0,6,0" /><TextBlock Text="Host 已连接" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" /></StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Grid.Row="2" Background="{StaticResource WatchSurfaceStrongBrush}" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Text="原型场景" Style="{StaticResource BodyStrong}" />
+                                <TextBlock Text="只改变反馈状态，不写入真实数据" Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                            </StackPanel>
+                            <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                                <ui:Button Content="静默自动刷新" Appearance="Secondary" Click="OnSilentRefreshClick" Margin="0,0,8,4" AutomationProperties.Name="演示静默自动刷新" />
+                                <ui:Button Content="操作成功" Appearance="Secondary" Click="OnSuccessClick" Margin="0,0,8,4" />
+                                <ui:Button Content="新持续故障" Appearance="Secondary" Click="OnFaultClick" Margin="0,0,8,4" />
+                                <ui:Button Content="同故障再轮询" Appearance="Secondary" Click="OnRepeatFaultClick" Margin="0,0,8,4" />
+                                <ui:Button Content="三条堆叠 + 合并" Appearance="Secondary" Click="OnStackClick" Margin="0,0,8,4" />
+                                <ui:Button Content="恢复" Appearance="Secondary" Click="OnRecoveryClick" Margin="0,0,8,4" />
+                                <ui:Button Content="AREA 冲突" Appearance="Secondary" Click="OnConflictClick" Margin="0,0,8,4" />
+                            </WrapPanel>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <ui:ToggleSwitch Content="减少动态" IsChecked="{Binding ReducedMotion, Mode=TwoWay}" Click="OnMotionModeChanged" AutomationProperties.Name="Windows 减少动态模式" />
+                                <ui:Button x:Name="WidthToggleButton" Content="切到窄窗" Appearance="Transparent" Click="OnWidthToggleClick" Margin="12,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="4">
+                        <local:OverviewVariantA x:Name="DesktopOverview" />
+                        <ScrollViewer x:Name="NarrowOverview" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock Text="分页摘要" Style="{StaticResource Subtitle}" Margin="0,0,0,8" />
+                                <ui:Card Margin="0,0,0,8" Padding="14"><DockPanel><ui:SymbolIcon Symbol="Alert24" Foreground="{StaticResource WatchCriticalBrush}" DockPanel.Dock="Left" Margin="0,0,10,0" /><TextBlock Text="接入告警 · 3 个活动告警" Style="{StaticResource BodyStrong}" /><TextBlock Text="2 ERROR · 1 WARNING" Style="{StaticResource Caption}" HorizontalAlignment="Right" /></DockPanel></ui:Card>
+                                <ui:Card Margin="0,0,0,8" Padding="14"><DockPanel><ui:SymbolIcon Symbol="Search24" Foreground="{StaticResource WatchCriticalBrush}" DockPanel.Dock="Left" Margin="0,0,10,0" /><TextBlock Text="错误检索 · 19 个活动错误" Style="{StaticResource BodyStrong}" /><TextBlock Text="查看 →" Style="{StaticResource Caption}" HorizontalAlignment="Right" /></DockPanel></ui:Card>
+                                <ui:Card Margin="0,0,0,8" Padding="14"><DockPanel><ui:SymbolIcon Symbol="Timeline24" Foreground="{StaticResource WatchAccentBrush}" DockPanel.Dock="Left" Margin="0,0,10,0" /><TextBlock Text="需求系列 · 2,347" Style="{StaticResource BodyStrong}" /><TextBlock Text="2 GONE" Style="{StaticResource Caption}" HorizontalAlignment="Right" /></DockPanel></ui:Card>
+                                <ui:Card Padding="14"><DockPanel><ui:SymbolIcon Symbol="DocumentBulletList24" Foreground="{StaticResource WatchWarningBrush}" DockPanel.Dock="Left" Margin="0,0,10,0" /><TextBlock Text="资格审计 · 505 个不可见或阻断" Style="{StaticResource BodyStrong}" /><TextBlock Text="查看 →" Style="{StaticResource Caption}" HorizontalAlignment="Right" /></DockPanel></ui:Card>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+
+                    <Border Grid.Row="6" Background="{StaticResource WatchSubtleBrush}" BorderBrush="{StaticResource WatchStrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="12,9">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <ui:SymbolIcon Symbol="DeveloperBoard24" Foreground="{StaticResource WatchAccentBrush}" />
+                                <TextBlock Text="当前原型状态" Style="{StaticResource BodyStrong}" Margin="8,0,12,0" />
+                            </StackPanel>
+                            <WrapPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding WidthModeText}" Style="{StaticResource Caption}" Margin="0,0,16,0" />
+                                <TextBlock Text="{Binding MotionModeText}" Style="{StaticResource Caption}" Margin="0,0,16,0" />
+                                <TextBlock Text="{Binding TimerModeText}" Style="{StaticResource Caption}" Margin="0,0,16,0" />
+                                <TextBlock Text="{Binding FaultSummary}" Style="{StaticResource Caption}" Margin="0,0,16,0" />
+                                <TextBlock Text="{Binding LastEventText}" Style="{StaticResource Caption}" />
+                            </WrapPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </ui:NavigationView.ContentOverlay>
+        </ui:NavigationView>
+
+        <Grid x:Name="ToastOverlay"
+              Width="380"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Top"
+              Margin="0,92,24,0"
+              Panel.ZIndex="20"
+              MouseEnter="OnToastHostMouseEnter"
+              MouseLeave="OnToastHostMouseLeave"
+              GotKeyboardFocus="OnToastHostGotKeyboardFocus"
+              LostKeyboardFocus="OnToastHostLostKeyboardFocus">
+            <local:NotificationToastVariantA x:Name="VariantA" />
+            <local:NotificationToastVariantB x:Name="VariantB" Visibility="Collapsed" />
+            <local:NotificationToastVariantC x:Name="VariantC" Visibility="Collapsed" />
+        </Grid>
+
+        <Border x:Name="ReviewSwitcher"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Bottom"
+                Margin="0,0,0,8"
+                Padding="6"
+                CornerRadius="20"
+                Background="#EE1F1F1F"
+                BorderBrush="#55000000"
+                BorderThickness="1"
+                Panel.ZIndex="30">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="←" Click="OnPreviousVariant" Width="34" Height="30" Padding="0" AutomationProperties.Name="上一种通知方案" />
+                <TextBlock x:Name="VariantLabel" Text="A — 独立卡片栈" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0" MinWidth="190" TextAlignment="Center" />
+                <Button Content="→" Click="OnNextVariant" Width="34" Height="30" Padding="0" AutomationProperties.Name="下一种通知方案" />
+            </StackPanel>
+        </Border>
+
+        <ui:ContentDialogHost x:Name="DialogHost" Panel.ZIndex="40" IsDisableSiblingsEnabled="True" />
+    </Grid>
+</UserControl>

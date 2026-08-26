@@ -13,6 +13,16 @@ public partial class MainWindow
         InitializeComponent();
         var data = new PrototypeData();
         DataContext = data;
+        if (initialPage.Trim().Equals("feedback", StringComparison.OrdinalIgnoreCase)
+            || initialPage.Trim().Equals("notifications", StringComparison.OrdinalIgnoreCase)
+            || initialPage.Trim().Equals("toast", StringComparison.OrdinalIgnoreCase))
+        {
+            SelectedPrototype.Visibility = Visibility.Collapsed;
+            NotificationPrototype.Visibility = Visibility.Visible;
+            NotificationPrototype.Initialize(initialVariant, scenario);
+            return;
+        }
+
         SelectedPrototype.SelectAreaVariant(initialVariant);
         SelectedPrototype.SelectAreaLiveVariant(initialVariant);
         SelectedPrototype.ApplyAreaLiveScenario(scenario);

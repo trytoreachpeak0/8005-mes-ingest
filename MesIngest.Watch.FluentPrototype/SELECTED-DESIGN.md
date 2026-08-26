@@ -30,7 +30,9 @@
   shows text; compact mode retains the named icon and tooltip.
 - Endpoint, last success, and effective auto-refresh policy are secondary text
   under the current page title.
-- Actionable failures occupy an inline WPF UI `InfoBar` on the affected page.
+- New actionable failures receive one overlay toast, then remain represented by
+  stable compact fault status beside the affected page title. They do not insert
+  or remove a layout row.
 - Read-only scope is explained in Overview and Settings, not repeated in chrome.
 - Keyboard hints live in tooltips/help, not a persistent bottom strip.
 
@@ -39,6 +41,8 @@
 - Automatic refresh is always on for Overview, VISIBLE, GONE, and IngestAlert;
   Settings contains only their intervals.
 - A page header displays only the effective policy, such as `自动刷新 10 秒`.
+- Normal automatic-refresh start/success updates fixed freshness/progress context
+  without opening a toast or layout-participating message.
 - No page exposes Refresh, Cancel-refresh, or an automatic-refresh
   enable/disable switch.
 - Pagination offers Previous/Next, total pages, nearby page buttons where space
@@ -86,3 +90,35 @@ items first) and C (page-status table) remain rejected prototype comparisons.
 
 This approval selects the information hierarchy only. Production UI must be
 rewritten and receive a fresh golden-machine preview approval.
+
+## Notification feedback revision
+
+User confirmation on 2026-08-26 supersedes the earlier inline-InfoBar placement
+rule; existing page hierarchy selections remain unchanged.
+
+- The window owns a non-layout overlay toast host in the content region's upper
+  right below the title bar. It is about 380 epx wide, shows at most three items
+  newest-first, coalesces same-source events, and becomes a top single column at
+  narrow width.
+- Toasts are limited to user-operation outcomes, refresh-cleared selection, a
+  new fault's first occurrence, and recovery. Page toasts end on navigation;
+  global Host fault notices may persist across pages. Automatic refresh does not
+  repeatedly open/close a message.
+- Continuing faults contract to the page title as highest severity plus current
+  count and details. Closing the first toast does not clear the condition.
+- Success/info lasts 3 seconds, warning 5 seconds, and operation failure or a
+  new continuing fault 8 seconds. Hover/focus pauses dismissal. Error precedes
+  warning, then success/info; obsolete low-severity queued items are discarded.
+- Entry/exit uses roughly 180 ms opacity plus 8–12 epx vertical movement and
+  smooth stack changes. Reduced-motion mode removes movement.
+- Empty/unselected/detail/field-validation states replace content in stable
+  regions. AREA scope confirmation and concurrent-write conflict use overlay
+  `ContentDialog`; unresolved conflict continues to pause auto-save.
+- Toasts do not steal focus, are keyboard operable, announce a new event once,
+  use text/icon in addition to color, and honor high contrast/reduced motion.
+  Minimized/background operation raises no Windows system notification and does
+  not replay stale success/recovery notices on return.
+- A throwaway runnable prototype must demonstrate silent auto-refresh, operation
+  success, fault contraction, three-item coalescing/stacking, AREA conflict,
+  narrow layout, and reduced motion before production implementation. Production
+  XAML still requires a fresh comparable golden-machine preview and user approval.
