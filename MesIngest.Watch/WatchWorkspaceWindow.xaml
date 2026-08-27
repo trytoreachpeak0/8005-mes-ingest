@@ -451,7 +451,7 @@
                                     <Grid Grid.Row="0">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <ui:TextBlock Text="DemandSeries" Style="{StaticResource PageTitleText}" />
+                                            <ui:TextBlock x:Name="DemandSeriesPageTitleText" Text="需求系列" Style="{StaticResource PageTitleText}" />
                                              <ui:TextBlock x:Name="DemandSeriesContextText"
                                                            Text="当前 AREA：全部 AREA · 尚无 Host 冻结快照"
                                                            Style="{StaticResource SecondaryText}"
@@ -597,7 +597,7 @@
                                                 </StackPanel>
                                             </StackPanel>
                                             <StackPanel Grid.Column="4">
-                                                <ui:TextBlock Text="当前出现" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesPresenceFilterLabel" Text="当前出现" Style="{StaticResource CaptionText}" />
                                                  <ComboBox x:Name="DemandSeriesPresenceFilter"
                                                           SelectedIndex="0"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
@@ -605,14 +605,14 @@
                                                           KeyboardNavigation.TabIndex="4"
                                                            AutomationProperties.Name="当前出现状态筛选"
                                                            AutomationProperties.AutomationId="DemandSeriesPresenceFilter">
-                                                    <ComboBoxItem Content="全部出现状态" />
-                                                    <ComboBoxItem Content="VISIBLE" />
-                                                    <ComboBoxItem Content="GONE" />
-                                                    <ComboBoxItem Content="LONG_GONE_BUT_VISIBLE" />
+                                                    <ComboBoxItem Content="全部出现状态" Tag="" />
+                                                    <ComboBoxItem Content="当前可见 (VISIBLE)" Tag="VISIBLE" />
+                                                    <ComboBoxItem Content="当前消失 (GONE)" Tag="GONE" />
+                                                    <ComboBoxItem Content="长期消失但仍可见 (LONG_GONE_BUT_VISIBLE)" Tag="LONG_GONE_BUT_VISIBLE" />
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
-                                                <ui:TextBlock Text="WORKTYPE" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesWorkTypeFilterLabel" Text="WorkType" Style="{StaticResource CaptionText}" />
                                                  <ComboBox x:Name="DemandSeriesWorkTypeFilter"
                                                            SelectedIndex="0"
                                                            IsEditable="True"
@@ -621,11 +621,11 @@
                                                           KeyboardNavigation.TabIndex="3"
                                                            AutomationProperties.Name="WorkType 筛选"
                                                            AutomationProperties.AutomationId="DemandSeriesWorkTypeFilter">
-                                                    <ComboBoxItem Content="全部 WorkType" />
+                                                    <ComboBoxItem Content="全部 WorkType" Tag="" />
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="6">
-                                                <ui:TextBlock Text="SUBLOT" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesSublotFilterLabel" Text="SUBLOT" Style="{StaticResource CaptionText}" />
                                                  <TextBox x:Name="DemandSeriesSublotFilter"
                                                          Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                          KeyboardNavigation.IsTabStop="True"
@@ -634,7 +634,7 @@
                                                           AutomationProperties.AutomationId="DemandSeriesSublotFilter" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="8">
-                                                <ui:TextBlock Text="SeriesId / DemandId" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesIdentityFilterLabel" Text="SeriesId / DemandId" Style="{StaticResource CaptionText}" />
                                                 <Grid Margin="{StaticResource DemandSeriesControlTopMargin}">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*" />
@@ -655,7 +655,7 @@
                                                 </Grid>
                                             </StackPanel>
                                             <StackPanel Grid.Column="10">
-                                                <ui:TextBlock Text="AREA 筛选" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesAreaFilterLabel" Text="AREA 筛选" Style="{StaticResource CaptionText}" />
                                                 <ComboBox x:Name="DemandSeriesAreaProfileSelector"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                           KeyboardNavigation.IsTabStop="True"
@@ -804,7 +804,7 @@
                                                 <StackPanel Orientation="Horizontal"
                                                             VerticalAlignment="Center"
                                                             Margin="0,4,8,4">
-                                                    <ui:TextBlock Text="每页"
+                                                    <ui:TextBlock x:Name="DemandSeriesPerPageLabel" Text="每页"
                                                                   Style="{StaticResource CaptionText}"
                                                                   VerticalAlignment="Center" />
                                                     <ComboBox x:Name="DemandSeriesPageSizeFilter"

@@ -10,7 +10,7 @@ internal abstract class WatchEmptyTextSection(WatchDisplayLanguage language)
 internal sealed partial class WatchOverviewText(WatchDisplayLanguage language)
     : WatchTextCatalogSection(language);
 
-internal sealed class WatchDemandSeriesText(WatchDisplayLanguage language)
+internal sealed partial class WatchDemandSeriesText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
 internal sealed class WatchReadabilityAuditText(WatchDisplayLanguage language)
@@ -25,7 +25,7 @@ internal sealed partial class WatchAreaFilterText(WatchDisplayLanguage language)
 internal sealed class WatchCurrentAttentionText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
-internal sealed class WatchInspectorText(WatchDisplayLanguage language)
+internal sealed partial class WatchInspectorText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
 internal sealed partial class WatchFeedbackText(WatchDisplayLanguage language)

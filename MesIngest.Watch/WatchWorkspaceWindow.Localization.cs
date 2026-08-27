@@ -15,6 +15,8 @@ internal partial class WatchWorkspaceWindow
         var areaEditorViewState = AreaProfileEditor is null
             ? null
             : CaptureAreaProfileEditorViewState();
+        var demandSeriesVerticalOffset = DemandSeriesScrollViewer.VerticalOffset;
+        var demandSeriesHorizontalOffset = DemandSeriesScrollViewer.HorizontalOffset;
         ApplyLocalizedShellAndSettingsText();
         ApplyLocalizedAreaFilterStaticText();
         RenderAreaProfiles(editorViewState: areaEditorViewState);
@@ -22,6 +24,8 @@ internal partial class WatchWorkspaceWindow
         DisplayLanguageInput.SelectedValue = _displayLanguageState.Current;
 
         RenderWorkspace();
+        DemandSeriesScrollViewer.ScrollToVerticalOffset(demandSeriesVerticalOffset);
+        DemandSeriesScrollViewer.ScrollToHorizontalOffset(demandSeriesHorizontalOffset);
 
         if (focusedElement is System.Windows.IInputElement focusTarget
             && focusTarget.Focusable)
@@ -35,6 +39,7 @@ internal partial class WatchWorkspaceWindow
         var catalog = _displayLanguageState.Catalog;
         var shell = catalog.Shell;
         var settings = catalog.Settings;
+        ApplyLocalizedDemandSeriesText(catalog.DemandSeries);
 
         AutomationProperties.SetName(WorkspaceNavigation, shell.PrimaryNavigationName);
         ApplyNavigationText(OverviewNavigationItem, shell.Overview, shell);
@@ -149,6 +154,103 @@ internal partial class WatchWorkspaceWindow
         ApplyLocalizedAreaFilterStaticText();
         ApplyLocalizedOverviewText();
         ApplyLocalizedReadabilityAuditText();
+    }
+
+    private void ApplyLocalizedDemandSeriesText(WatchDemandSeriesText text)
+    {
+        DemandSeriesPageTitleText.Text = text.PageTitle;
+        AutomationProperties.SetName(DemandSeriesPage, text.PageAutomationName);
+        AutomationProperties.SetName(DemandSeriesScrollViewer, text.WorkspaceAutomationName);
+        AutomationProperties.SetName(DemandSeriesContextText, text.ContextAutomationName);
+        AutomationProperties.SetName(DemandSeriesFilterPanel, text.Filters);
+
+        DemandSeriesLifecycleFilterLabel.Text = text.Lifecycle;
+        DemandSeriesLifecycleAllButton.Content = text.All;
+        DemandSeriesLifecycleTrackingButton.Content = text.DescribeLifecycle("TRACKING");
+        DemandSeriesLifecycleArchivedButton.Content = text.DescribeLifecycle("ARCHIVED");
+        AutomationProperties.SetName(DemandSeriesLifecycleSegment, text.Lifecycle);
+        AutomationProperties.SetName(DemandSeriesLifecycleAllButton, text.FormatFilterChoiceName(text.Lifecycle, text.All));
+        AutomationProperties.SetName(DemandSeriesLifecycleTrackingButton, text.FormatFilterChoiceName(text.Lifecycle, text.DescribeLifecycle("TRACKING")));
+        AutomationProperties.SetName(DemandSeriesLifecycleArchivedButton, text.FormatFilterChoiceName(text.Lifecycle, text.DescribeLifecycle("ARCHIVED")));
+
+        DemandSeriesPresenceFilterLabel.Text = text.Presence;
+        LocalizeCanonicalChoices(
+            DemandSeriesPresenceFilter,
+            text.AllPresence,
+            text.DescribePresence);
+        AutomationProperties.SetName(DemandSeriesPresenceFilter, text.PresenceFilterAutomationName);
+
+        DemandSeriesWorkTypeFilterLabel.Text = text.WorkType;
+        LocalizeCanonicalChoices(
+            DemandSeriesWorkTypeFilter,
+            text.AllWorkTypes,
+            text.DescribeWorkType);
+        AutomationProperties.SetName(DemandSeriesWorkTypeFilter, text.WorkTypeFilterAutomationName);
+
+        DemandSeriesSublotFilterLabel.Text = text.Sublot;
+        DemandSeriesIdentityFilterLabel.Text = text.Identity;
+        DemandSeriesAreaFilterLabel.Text = text.AreaFilter;
+        AutomationProperties.SetName(DemandSeriesSublotFilter, text.SublotFilterAutomationName);
+        AutomationProperties.SetName(DemandSeriesSeriesIdFilter, text.SeriesIdFilterAutomationName);
+        AutomationProperties.SetName(DemandSeriesDemandIdFilter, text.DemandIdFilterAutomationName);
+        AutomationProperties.SetName(DemandSeriesAreaProfileSelector, text.AreaSelectorAutomationName);
+
+        DemandSeriesApplyFiltersButton.Content = text.ApplyFilters;
+        DemandSeriesClearFiltersButton.Content = text.ClearFilters;
+        AutomationProperties.SetName(DemandSeriesApplyFiltersButton, text.ApplyFilters);
+        AutomationProperties.SetName(DemandSeriesClearFiltersButton, text.ClearFilters);
+
+        DemandSeriesMasterHeadingText.Text = text.MasterHeading;
+        DemandSeriesOpenInspectorButton.Content = _demandSeriesInspectorCoordinator.IsOpen
+            ? text.ShowInspector
+            : text.OpenInspector;
+        AutomationProperties.SetName(DemandSeriesMasterPanel, text.MainListAutomationName);
+        AutomationProperties.SetName(DemandSeriesGrid, text.ListAutomationName);
+        AutomationProperties.SetName(DemandSeriesOpenInspectorButton, DemandSeriesOpenInspectorButton.Content.ToString()!);
+
+        DemandSeriesGrid.Columns[3].Header = text.ColumnLifecycle;
+        DemandSeriesGrid.Columns[4].Header = text.ColumnArea;
+        DemandSeriesGrid.Columns[5].Header = text.ColumnDemand;
+        DemandSeriesGrid.Columns[6].Header = text.ColumnGeneration;
+        DemandSeriesGrid.Columns[7].Header = text.ColumnEvents;
+        DemandSeriesGrid.Columns[8].Header = text.ColumnStarted;
+        DemandSeriesGrid.Columns[9].Header = text.ColumnLastSeen;
+        DemandSeriesGrid.Columns[10].Header = text.ColumnGoneSince;
+        DemandSeriesGrid.Columns[11].Header = text.ColumnArchived;
+
+        DemandSeriesEmptyState.Title = text.EmptyTitle;
+        DemandSeriesEmptyState.Message = text.EmptyMessage;
+        AutomationProperties.SetName(DemandSeriesEmptyState, text.EmptyAutomationName);
+        DemandSeriesPerPageLabel.Text = text.PerPage;
+        DemandSeriesPreviousButton.Content = text.Previous;
+        DemandSeriesGoToPageButton.Content = text.GoToPage;
+        DemandSeriesNextButton.Content = text.Next;
+        AutomationProperties.SetName(DemandSeriesPreviousButton, text.Previous);
+        AutomationProperties.SetName(DemandSeriesGoToPageButton, text.GoToPage);
+        AutomationProperties.SetName(DemandSeriesNextButton, text.Next);
+        AutomationProperties.SetName(DemandSeriesInfoBar, text.ReadStateAutomationName);
+        AutomationProperties.SetName(DemandSeriesInfoExpander, text.TopInfoAutomationName);
+        SetDemandSeriesLifecycleDraft(_demandSeriesLifecycleDraft);
+    }
+
+    private static void LocalizeCanonicalChoices(
+        System.Windows.Controls.ComboBox comboBox,
+        string allText,
+        Func<string, string> describe)
+    {
+        var selectedCode = comboBox.SelectedItem is System.Windows.Controls.ComboBoxItem selected
+            ? selected.Tag?.ToString()
+            : null;
+        foreach (var item in comboBox.Items.OfType<System.Windows.Controls.ComboBoxItem>())
+        {
+            var code = item.Tag?.ToString();
+            item.Content = string.IsNullOrWhiteSpace(code) ? allText : describe(code);
+        }
+
+        if (selectedCode is not null)
+        {
+            comboBox.SelectedValue = selectedCode;
+        }
     }
 
     private static void ApplyNavigationText(

@@ -60,7 +60,7 @@ public sealed class WatchDemandSeriesPresentationTests
             navigation: null,
             focusedDemandId: null);
 
-        Assert.Equal("精确 401 个 Series · 第 2 / 3 页", presentation.PageSummary);
+        Assert.Equal("精确 401 个需求系列 · 第 2 / 3 页", presentation.PageSummary);
         Assert.Equal("Host 固定排序：开始时间降序、SeriesId 升序", presentation.OrderSummary);
         Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
         Assert.Equal("封装车间", presentation.LocalAreaHeading);
@@ -71,10 +71,10 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.True(presentation.CanGoNext);
         Assert.Equal(
             [
-                "TRACKING · VISIBLE",
-                "TRACKING · GONE",
-                "ARCHIVED · GONE",
-                "ARCHIVED · LONG_GONE_BUT_VISIBLE",
+                "跟踪中 (TRACKING) · 当前可见 (VISIBLE)",
+                "跟踪中 (TRACKING) · 当前消失 (GONE)",
+                "已归档 (ARCHIVED) · 当前消失 (GONE)",
+                "已归档 (ARCHIVED) · 长期消失但仍可见 (LONG_GONE_BUT_VISIBLE)",
             ],
             presentation.Rows.Select(row => row.LifecycleAndPresence).ToArray());
         Assert.Equal(
@@ -132,7 +132,7 @@ public sealed class WatchDemandSeriesPresentationTests
             navigation: null,
             focusedDemandId: null);
 
-        Assert.Equal("精确 0 个 Series · 第 0 / 0 页", presentation.PageSummary);
+        Assert.Equal("精确 0 个需求系列 · 第 0 / 0 页", presentation.PageSummary);
         Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
         Assert.Equal("本机 B2 班次", presentation.LocalAreaHeading);
         Assert.Contains("本机已选择", presentation.LocalAreaDetail, StringComparison.Ordinal);

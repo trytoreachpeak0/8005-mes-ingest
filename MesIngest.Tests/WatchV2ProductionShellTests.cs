@@ -237,8 +237,8 @@ public sealed class WatchV2ProductionShellTests
             var filters = new Dictionary<string, string>
             {
                 ["DemandSeriesLifecycleAllButton"] = "生命周期：全部",
-                ["DemandSeriesLifecycleTrackingButton"] = "生命周期：Tracking",
-                ["DemandSeriesLifecycleArchivedButton"] = "生命周期：Archived",
+                ["DemandSeriesLifecycleTrackingButton"] = "生命周期：跟踪中 (TRACKING)",
+                ["DemandSeriesLifecycleArchivedButton"] = "生命周期：已归档 (ARCHIVED)",
                 ["DemandSeriesPresenceFilter"] = "当前出现状态筛选",
                 ["DemandSeriesWorkTypeFilter"] = "WorkType 筛选",
                 ["DemandSeriesSublotFilter"] = "SUBLOT 筛选",
@@ -258,7 +258,7 @@ public sealed class WatchV2ProductionShellTests
                 window.FindName("DemandSeriesApplyFiltersButton"));
             Assert.Equal(ControlAppearance.Secondary, applyFilters.Appearance);
             Assert.Equal(
-                "应用需求系列筛选",
+                "应用条件",
                 AutomationProperties.GetName(applyFilters));
 
             var masterPanel = Assert.IsType<Border>(
@@ -269,12 +269,12 @@ public sealed class WatchV2ProductionShellTests
 
             var openInspector = Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesOpenInspectorButton"));
-            Assert.Equal("打开详情窗口", openInspector.Content);
+            Assert.Equal("打开 Inspector", openInspector.Content);
             Assert.Equal(
                 "DemandSeriesOpenInspectorButton",
                 AutomationProperties.GetAutomationId(openInspector));
             Assert.Equal(
-                "打开 DemandSeries 详情窗口",
+                "打开 Inspector",
                 AutomationProperties.GetName(openInspector));
             Assert.False(openInspector.IsEnabled);
 
@@ -295,10 +295,10 @@ public sealed class WatchV2ProductionShellTests
                     "当前 Demand",
                     "世代",
                     "事件",
-                    "开始",
-                    "LAST SEEN",
-                    "GONE SINCE",
-                    "ARCHIVED",
+                    "开始时间",
+                    "最后观测",
+                    "确认消失",
+                    "归档时间",
                 },
                 seriesGrid.Columns.Select(column => column.Header?.ToString()));
 

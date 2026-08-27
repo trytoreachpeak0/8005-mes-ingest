@@ -547,6 +547,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void InitializeDemandSeriesPage()
     {
         WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
+        DemandSeriesPresenceFilter.SelectedValuePath = nameof(FrameworkElement.Tag);
+        DemandSeriesWorkTypeFilter.SelectedValuePath = nameof(FrameworkElement.Tag);
         DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
         DemandSeriesWorkTypeFilter.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(
@@ -816,12 +818,16 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private static IReadOnlyList<string> ReadDemandSeriesChoice(ComboBox comboBox)
     {
         var value = comboBox.IsEditable
-            ? comboBox.Text
+            ? comboBox.SelectedItem is ComboBoxItem editableItem
+                && editableItem.Tag is string editableCanonical
+                ? editableCanonical
+                : comboBox.Text
             : comboBox.SelectedItem is ComboBoxItem item
-            ? item.Content?.ToString()
-            : comboBox.Text;
+                && item.Tag is string canonical
+                ? canonical
+                : comboBox.Text;
         value = ReadDemandSeriesText(value);
-        return value is null || value.StartsWith("全部", StringComparison.Ordinal)
+        return value is null
             ? []
             : [value];
     }
@@ -888,7 +894,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         foreach (var candidate in comboBox.Items.OfType<ComboBoxItem>())
         {
-            if (string.Equals(candidate.Content?.ToString(), value, StringComparison.Ordinal))
+            if (string.Equals(candidate.Tag?.ToString(), value, StringComparison.Ordinal)
+                || string.Equals(candidate.Content?.ToString(), value, StringComparison.Ordinal))
             {
                 comboBox.SelectedItem = candidate;
                 return;
@@ -942,12 +949,14 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SetSegmentSelectionStatus(DemandSeriesLifecycleArchivedButton, archivedSelected);
     }
 
-    private static void SetSegmentSelectionStatus(
+    private void SetSegmentSelectionStatus(
         Wpf.Ui.Controls.Button button,
         bool isSelected) =>
         AutomationProperties.SetItemStatus(
             button,
-            isSelected ? "已选择" : "未选择");
+            isSelected
+                ? _displayLanguageState.Catalog.DemandSeries.Selected
+                : _displayLanguageState.Catalog.DemandSeries.NotSelected);
 
     private void OnDemandSeriesFilterDraftTextChanged(object sender, TextChangedEventArgs e) =>
         UpdateDemandSeriesClearFiltersState();
@@ -1180,29 +1189,31 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _demandSeriesQuery,
             _areaContext,
             _demandSeriesNavigation,
-            _focusedDemandId);
+            _focusedDemandId,
+            _displayLanguageState.Catalog.DemandSeries);
         _isRenderingDemandSeries = true;
         try
         {
+            var text = _displayLanguageState.Catalog.DemandSeries;
             var demandSeriesFullContext = string.Join(
                 " · ",
                 new[]
                 {
-                    $"本机 AREA：{presentation.LocalAreaHeading}",
+                    text.FormatLocalAreaContext(presentation.LocalAreaHeading),
                     presentation.LocalAreaDetail,
                     presentation.HostAreaScope,
                     presentation.SnapshotFacts,
                     presentation.ClientAttemptFacts,
-                    $"自动刷新 {_preferences.RefreshIntervals.DemandSeries.IntervalSeconds} 秒",
+                    text.FormatAutoRefresh(_preferences.RefreshIntervals.DemandSeries.IntervalSeconds),
                 }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            var conciseHostAreaScope = FormatConciseHostAreaScope(
+            var conciseHostAreaScope = text.FormatConciseHostScope(
                 state.DemandSeries.Snapshot?.Filter.Normalize().MesAreas,
                 presentation.HasSnapshot);
             var demandSeriesFreshness = state.DemandSeries.LastSuccessfulAt is { } lastSuccessfulAt
-                ? $"最近成功 {lastSuccessfulAt.ToLocalTime():HH:mm:ss}"
-                : "等待 Host 快照";
+                ? text.FormatLastSuccess(WatchTimeDisplay.Format(lastSuccessfulAt))
+                : text.WaitingHost;
             DemandSeriesContextText.Text =
-                $"本机 {presentation.LocalAreaHeading} · {conciseHostAreaScope} · {demandSeriesFreshness} · 自动刷新 {_preferences.RefreshIntervals.DemandSeries.IntervalSeconds} 秒";
+                $"{text.FormatLocalAreaContext(presentation.LocalAreaHeading)} · {conciseHostAreaScope} · {demandSeriesFreshness} · {text.FormatAutoRefresh(_preferences.RefreshIntervals.DemandSeries.IntervalSeconds)}";
             DemandSeriesContextText.ToolTip = demandSeriesFullContext;
             AutomationProperties.SetHelpText(
                 DemandSeriesContextText,
@@ -1210,8 +1221,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AutomationProperties.SetName(
                 DemandSeriesContextText,
                 presentation.HasSnapshot
-                    ? $"需求系列快照与 AREA 范围：{demandSeriesFullContext}"
-                    : "需求系列快照与 AREA 范围");
+                    ? text.FormatContextName(demandSeriesFullContext)
+                    : text.ContextAutomationName);
             var demandFacets = state.DemandSeries.Snapshot?.Facets;
             DemandSeriesTrackingFacetText.Text = demandFacets is null
                 ? "Tracking —"
@@ -1221,10 +1232,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 : $"Archived {demandFacets.ArchivedCount:N0}";
             AutomationProperties.SetName(
                 DemandSeriesTrackingFacetPill,
-                $"Host 精确分面：{DemandSeriesTrackingFacetText.Text}");
+                text.FormatFacetName(DemandSeriesTrackingFacetText.Text));
             AutomationProperties.SetName(
                 DemandSeriesArchivedFacetPill,
-                $"Host 精确分面：{DemandSeriesArchivedFacetText.Text}");
+                text.FormatFacetName(DemandSeriesArchivedFacetText.Text));
 
             var showSource = presentation.SourceComparison
                 != WatchDemandSeriesSourceComparison.None;
@@ -1235,7 +1246,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 : Visibility.Collapsed;
             DemandSeriesInfoBar.Severity = ToInfoBarSeverity(
                 presentation.SourceComparisonSeverity);
-            DemandSeriesInfoBar.Title = showSource ? "来源快照比较" : string.Empty;
+            DemandSeriesInfoBar.Title = showSource ? text.SourceComparison : string.Empty;
             var infoParts = new[]
             {
                 showSource ? presentation.SourceSnapshotSummary : null,
@@ -1247,21 +1258,21 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AutomationProperties.SetName(
                 DemandSeriesInfoBar,
                 DemandSeriesInfoBar.IsOpen
-                    ? $"{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}"
-                    : "需求系列读取状态");
+                    ? text.FormatInfoName(DemandSeriesInfoBar.Title, DemandSeriesInfoBar.Message)
+                    : text.ReadStateAutomationName);
             AutomationProperties.SetName(
                 DemandSeriesInfoExpander,
                 showDemandSeriesInfo
-                    ? $"需求系列顶部说明区。{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}"
-                    : "需求系列顶部说明区");
+                    ? text.FormatTopInfoName(text.FormatInfoName(DemandSeriesInfoBar.Title, DemandSeriesInfoBar.Message))
+                    : text.TopInfoAutomationName);
 
             DemandSeriesPageSummaryText.Text = presentation.PageSummary;
             DemandSeriesOrderText.Text = presentation.OrderSummary;
             AutomationProperties.SetName(
                 DemandSeriesPageSummaryText,
                 presentation.HasSnapshot
-                    ? $"需求系列精确分页摘要：{presentation.PageSummary}"
-                    : "需求系列精确分页摘要");
+                    ? text.FormatPageSummaryName(presentation.PageSummary)
+                    : text.FormatPageSummaryName(string.Empty));
             DemandSeriesPreviousButton.IsEnabled = presentation.CanGoPrevious
                 && !presentation.IsRefreshing;
             DemandSeriesNextButton.IsEnabled = presentation.CanGoNext
@@ -1297,13 +1308,13 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var inspectorPresentation = CreateDemandSeriesInspectorStatePresentation();
             DemandSeriesOpenInspectorButton.IsEnabled = inspectorPresentation is not null;
             DemandSeriesOpenInspectorButton.Content = _demandSeriesInspectorCoordinator.IsOpen
-                ? "显示详情窗口"
-                : "打开详情窗口";
+                ? _displayLanguageState.Catalog.DemandSeries.ShowInspector
+                : _displayLanguageState.Catalog.DemandSeries.OpenInspector;
             AutomationProperties.SetName(
                 DemandSeriesOpenInspectorButton,
                 _demandSeriesInspectorCoordinator.IsOpen
-                    ? "显示 DemandSeries 详情窗口"
-                    : "打开 DemandSeries 详情窗口");
+                    ? _displayLanguageState.Catalog.DemandSeries.ShowInspector
+                    : _displayLanguageState.Catalog.DemandSeries.OpenInspector);
             if (_demandSeriesInspectorCoordinator.IsOpen)
             {
                 if (inspectorPresentation is null)
@@ -1328,7 +1339,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     {
         var existing = DemandSeriesWorkTypeFilter.Items
             .OfType<ComboBoxItem>()
-            .Select(item => item.Content?.ToString())
+            .Select(item => item.Tag?.ToString())
             .Where(value => value is not null)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var value in values
@@ -1338,7 +1349,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             if (existing.Add(value))
             {
-                DemandSeriesWorkTypeFilter.Items.Add(new ComboBoxItem { Content = value });
+                DemandSeriesWorkTypeFilter.Items.Add(new ComboBoxItem
+                {
+                    Content = _displayLanguageState.Catalog.DemandSeries.DescribeWorkType(value),
+                    Tag = value,
+                });
             }
         }
     }
@@ -2214,7 +2229,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _demandSeriesQuery,
             _areaContext,
             _demandSeriesNavigation,
-            _focusedDemandId);
+            _focusedDemandId,
+            _displayLanguageState.Catalog.DemandSeries);
         var statusParts = new[]
         {
             view.DetailErrorMessage,
