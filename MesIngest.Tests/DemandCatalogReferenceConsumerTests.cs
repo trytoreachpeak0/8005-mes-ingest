@@ -33,6 +33,66 @@ public sealed class DemandCatalogReferenceConsumerTests
         Assert.Equal(new long?[] { null, 7, null }, client.KnownRevisions);
     }
 
+    [Fact]
+    public async Task Old_epoch_signal_discards_the_conditional_cache_and_retries_once_unconditionally()
+    {
+        var oldCatalog = Catalog(revision: 7, Demand("demand-old", demandRevision: 3));
+        var newEpoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var newCatalog = Catalog(revision: 1) with { HistoryEpoch = newEpoch };
+        var client = new EpochMismatchCatalogClient(
+            ExternallyReadableDemandCatalogRead.Complete(oldCatalog),
+            new HistoryEpochMismatchException(newEpoch, TestHistoryEpoch),
+            ExternallyReadableDemandCatalogRead.Complete(newCatalog));
+        var consumer = new DemandCatalogReferenceConsumer(client, new RecordingConsumerStore());
+        await consumer.RefreshAsync();
+
+        var refreshed = await consumer.RefreshAsync();
+
+        Assert.Equal(newEpoch, refreshed.HistoryEpoch);
+        Assert.Equal(1, refreshed.CatalogRevision);
+        Assert.Empty(refreshed.Items);
+        Assert.Equal(
+            new ExternallyReadableDemandCatalogIdentity?[]
+            {
+                null,
+                new(TestHistoryEpoch, 7),
+                null,
+            },
+            client.KnownIdentities);
+    }
+
+    [Fact]
+    public async Task Second_old_epoch_signal_is_not_retried_and_the_next_refresh_stays_unconditional()
+    {
+        var oldCatalog = Catalog(revision: 7, Demand("demand-old", demandRevision: 3));
+        var newEpoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var mismatch = new HistoryEpochMismatchException(newEpoch, TestHistoryEpoch);
+        var newCatalog = Catalog(revision: 1) with { HistoryEpoch = newEpoch };
+        var client = new EpochMismatchCatalogClient(
+            ExternallyReadableDemandCatalogRead.Complete(oldCatalog),
+            mismatch,
+            mismatch,
+            ExternallyReadableDemandCatalogRead.Complete(newCatalog));
+        var consumer = new DemandCatalogReferenceConsumer(client, new RecordingConsumerStore());
+        await consumer.RefreshAsync();
+
+        await Assert.ThrowsAsync<HistoryEpochMismatchException>(() => consumer.RefreshAsync());
+        var recovered = await consumer.RefreshAsync();
+
+        Assert.Equal(newEpoch, recovered.HistoryEpoch);
+        Assert.Equal(
+            new ExternallyReadableDemandCatalogIdentity?[]
+            {
+                null,
+                new(TestHistoryEpoch, 7),
+                null,
+                null,
+            },
+            client.KnownIdentities);
+    }
+
     [Theory]
     [InlineData(4, "N3-3")]
     [InlineData(3, "N3-8")]
@@ -401,6 +461,28 @@ public sealed class DemandCatalogReferenceConsumerTests
         {
             KnownIdentities.Add(knownIdentity);
             return Task.FromResult(_reads.Dequeue());
+        }
+    }
+
+    private sealed class EpochMismatchCatalogClient(params object[] responses)
+        : IExternallyReadableDemandCatalogClient
+    {
+        private readonly Queue<object> _responses = new(responses);
+
+        public List<ExternallyReadableDemandCatalogIdentity?> KnownIdentities { get; } = [];
+
+        public Task<ExternallyReadableDemandCatalogRead> ReadAsync(
+            ExternallyReadableDemandCatalogIdentity? knownIdentity,
+            CancellationToken cancellationToken = default)
+        {
+            KnownIdentities.Add(knownIdentity);
+            return _responses.Dequeue() switch
+            {
+                ExternallyReadableDemandCatalogRead read => Task.FromResult(read),
+                Exception exception => Task.FromException<ExternallyReadableDemandCatalogRead>(exception),
+                var unexpected => throw new InvalidOperationException(
+                    $"Unexpected scripted catalog response '{unexpected.GetType().Name}'."),
+            };
         }
     }
 

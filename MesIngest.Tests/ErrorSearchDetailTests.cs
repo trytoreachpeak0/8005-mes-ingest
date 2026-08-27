@@ -182,6 +182,21 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
                 .Contains("[REDACTED]", StringComparison.Ordinal));
         Assert.DoesNotContain("secret-password-ticket12", raw.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("secret-ticket12", raw.GetRawText(), StringComparison.Ordinal);
+
+        using var repeatedAndComma = await SendAuthorizedAsync(
+            client,
+            RawUri(seriesId, evidenceId, snapshotReference, "workType", 20)
+                + "&fields=package,workType");
+        var repeatedRaw = await ReadSuccessJsonAsync(repeatedAndComma);
+        Assert.Equal(
+            ["workType", "package"],
+            repeatedRaw.GetProperty("includedFields").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.All(
+            repeatedRaw.GetProperty("items").EnumerateArray(),
+            rawItem => Assert.Equal(
+                ["workType", "package"],
+                rawItem.GetProperty("fields").EnumerateObject().Select(property => property.Name)));
         AssertDatabaseEvidence(database);
     }
 
@@ -703,6 +718,7 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             builder.UseEnvironment(Environments.Production);
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveMesTaskUnionPollHostedService();
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(clock);
                 // appsettings.Local.json is intentionally loaded after the default
@@ -725,7 +741,8 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__SharedSecret"] = RawSecret,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

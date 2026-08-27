@@ -7,7 +7,7 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.v2.3";
+    public const string Version = "2026.08.new-mes-ingest.v2.4";
 
     public const int SchemaVersion = 29;
 
@@ -30,11 +30,11 @@ public static class NewMesIngestContract
             [Get("/api/v2/contract")]),
         new(
             "CURRENT_INGEST_ATTENTION",
-            "2.0",
+            "2.1",
             [Get("/api/v2/current-ingest-attention")]),
         new(
             "DEMAND_SERIES",
-            "2.0",
+            "2.1",
             [
                 Get("/api/v2/demand-series"),
                 Get("/api/v2/demand-series/by-key"),
@@ -42,7 +42,7 @@ public static class NewMesIngestContract
             ]),
         new(
             "ERROR_SEARCH",
-            "2.1",
+            "2.2",
             [
                 Get("/api/v2/error-search"),
                 Get("/api/v2/error-search/{seriesId}"),
@@ -50,7 +50,7 @@ public static class NewMesIngestContract
             ]),
         new(
             "EXTERNALLY_READABLE_DEMAND_CATALOG",
-            "2.0",
+            "2.1",
             [Get("/api/v2/externally-readable-demand-catalog")]),
         new(
             "POLL_HEALTH_AND_EVIDENCE",

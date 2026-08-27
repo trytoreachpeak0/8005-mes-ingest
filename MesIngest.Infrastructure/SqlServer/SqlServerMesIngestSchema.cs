@@ -6,7 +6,7 @@ namespace MesIngest.Infrastructure.SqlServer;
 
 internal static class SqlServerMesIngestSchema
 {
-    private const string UpgradeableContractVersion = "2026.08.new-mes-ingest.v2.2";
+    private const string UpgradeableContractVersion = "2026.08.new-mes-ingest.v2.3";
 
     public static async Task<HistoryEpoch> EnsureAsync(
         SqlConnection connection,
@@ -2075,8 +2075,8 @@ internal static class SqlServerMesIngestSchema
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
 
-        -- v2.3 adds one read-only Oracle capability without changing the SQL Server
-        -- schema. Only an otherwise exact v2.2 database may advance its identity;
+        -- v2.4 cuts over the exact read contract without changing SQL Server schema 29.
+        -- Only an otherwise exact v2.3 database may advance its identity;
         -- unknown identities and every structural drift have already failed above.
         IF EXISTS
         (
@@ -2094,7 +2094,7 @@ internal static class SqlServerMesIngestSchema
               AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2;
 
             IF @@ROWCOUNT <> 1
-                THROW 51008, 'The v2.2-to-v2.3 contract identity migration did not update exactly one row.', 1;
+                THROW 51008, 'The v2.3-to-v2.4 contract identity migration did not update exactly one row.', 1;
         END;
         """;
 }

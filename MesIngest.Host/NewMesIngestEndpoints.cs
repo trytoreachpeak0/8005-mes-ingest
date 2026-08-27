@@ -1,3 +1,4 @@
+using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -204,6 +205,12 @@ internal static class NewMesIngestEndpoints
                 new NewMesIngestErrorDto(IngestNotCurrentException.ErrorCode, exception.Message),
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
+        catch (HistoryEpochMismatchException exception)
+        {
+            return Results.Json(
+                HistoryEpochMismatchErrorDto.From(exception),
+                statusCode: StatusCodes.Status409Conflict);
+        }
         var etag = CreateCatalogEtag(read.Identity);
         response.Headers.ETag = etag;
         response.Headers.CacheControl = "private, no-cache";
@@ -266,26 +273,24 @@ internal static class NewMesIngestEndpoints
         $"W/\"{ExternallyReadableDemandCatalogEtagCodec.FormatOpaqueTag(identity)}\"";
 
     private static async Task<IResult> GetDemandSeriesByKeyAsync(
-        string workType,
-        string sublot,
         HttpRequest request,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(
-                workType,
+        if (!TryReadRequiredDemandSeriesKey(
+                request.Query,
+                "workType",
                 128,
-                nameof(workType),
-                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var workType,
                 out var workTypeError))
         {
             return Results.BadRequest(workTypeError);
         }
-        if (!TryValidateRequiredText(
-                sublot,
+        if (!TryReadRequiredDemandSeriesKey(
+                request.Query,
+                "sublot",
                 256,
-                nameof(sublot),
-                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var sublot,
                 out var sublotError))
         {
             return Results.BadRequest(sublotError);
@@ -329,6 +334,39 @@ internal static class NewMesIngestEndpoints
         {
             return ToBrowseError(exception);
         }
+    }
+
+    private static bool TryReadRequiredDemandSeriesKey(
+        IQueryCollection query,
+        string name,
+        int maximumLength,
+        out string value,
+        out NewMesIngestErrorDto error)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            value = string.Empty;
+            error = new NewMesIngestErrorDto(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} is required and may be supplied once.");
+            return false;
+        }
+        if (values.Count != 1)
+        {
+            value = string.Empty;
+            error = new NewMesIngestErrorDto(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+            return false;
+        }
+
+        value = values[0] ?? string.Empty;
+        return TryValidateRequiredText(
+            value,
+            maximumLength,
+            name,
+            DemandSeriesBrowseErrorCodes.InvalidQuery,
+            out error);
     }
 
     private static async Task<IResult> GetDemandSeriesAsync(
@@ -1024,17 +1062,18 @@ internal static class NewMesIngestEndpoints
         return snapshot;
     }
 
-    private static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
+    internal static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
         IQueryCollection query)
     {
         var allowedKeys = AllowedQueryParameters("GetErrorSearchRawEvidence");
         var snapshot = ParseRequiredErrorSearchSnapshot(query, allowedKeys);
 
-        var fieldsValue = ReadErrorSearchSingle(query, "fields");
-        IReadOnlyList<string> fields = fieldsValue is null
+        IReadOnlyList<string> fields = !query.TryGetValue("fields", out var fieldValues)
             ? ErrorSearchRawEvidenceFields.All
-            : fieldsValue
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : fieldValues
+                .SelectMany(value => (value ?? string.Empty).Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
         var unsupportedField = fields.FirstOrDefault(field => !ErrorSearchRawEvidenceFields.All.Contains(
@@ -1066,6 +1105,7 @@ internal static class NewMesIngestEndpoints
     private static async Task<IResult> ListCurrentIngestAttentionAsync(
         HttpRequest request,
         IMesIngestProjection projection,
+        PollSchedulerState pollSchedulerState,
         CancellationToken cancellationToken)
     {
         try
@@ -1074,7 +1114,9 @@ internal static class NewMesIngestEndpoints
             var snapshot = await projection.ReadCurrentIngestAttentionAsync(
                 query,
                 cancellationToken);
-            return Results.Ok(CurrentIngestAttentionDto.From(snapshot));
+            return Results.Ok(CurrentIngestAttentionOperationalDto.From(
+                snapshot,
+                pollSchedulerState.Current));
         }
         catch (CurrentIngestAttentionException exception)
         {
@@ -1358,6 +1400,20 @@ internal sealed record ParsedErrorSearchRawEvidenceRequest(
 
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
 
+internal sealed record HistoryEpochMismatchErrorDto(
+    string Code,
+    string Error,
+    string CurrentHistoryEpoch,
+    string SuppliedHistoryEpoch)
+{
+    public static HistoryEpochMismatchErrorDto From(HistoryEpochMismatchException exception) =>
+        new(
+            exception.Code,
+            exception.Message,
+            exception.CurrentHistoryEpoch.Value.ToString("D"),
+            exception.SuppliedHistoryEpoch.Value.ToString("D"));
+}
+
 internal sealed record HistoricalReadErrorDto(
     string Code,
     string Error,
@@ -1554,6 +1610,63 @@ internal sealed record CurrentIngestAttentionDto(
                 snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun),
             StoragePressureStateDto.From(snapshot.StoragePressure
                 ?? throw new InvalidOperationException("Storage pressure diagnostics are missing.")));
+}
+
+/// <summary>
+/// Current operational attention plus the process-owned poll scheduler seam.
+/// </summary>
+internal sealed record CurrentIngestAttentionOperationalDto(
+    OperationalSnapshotIdentityDto Snapshot,
+    long ExactTotalItemCount,
+    CurrentIngestAttentionFacetsDto Facets,
+    string Order,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<string> Kinds,
+    IReadOnlyList<string> Severities,
+    IReadOnlyList<CurrentIngestAttentionItemDto> Items,
+    HistoryCleanupStateDto HistoryCleanup,
+    StoragePressureStateDto StoragePressure,
+    PollSchedulerStateDto PollScheduler)
+{
+    public static CurrentIngestAttentionOperationalDto From(
+        CurrentIngestAttentionSnapshot snapshot,
+        PollSchedulerStateSnapshot pollScheduler)
+    {
+        var current = CurrentIngestAttentionDto.From(snapshot);
+        return new(
+            current.Snapshot,
+            current.ExactTotalItemCount,
+            current.Facets,
+            current.Order,
+            current.PageSize,
+            current.PageNumber,
+            current.TotalPages,
+            current.Kinds,
+            current.Severities,
+            current.Items,
+            current.HistoryCleanup,
+            current.StoragePressure,
+            PollSchedulerStateDto.From(pollScheduler));
+    }
+}
+
+/// <summary>Current process-owned poll scheduler state.</summary>
+internal sealed record PollSchedulerStateDto(
+    int ConsecutiveFailures,
+    int BackoffLevel,
+    DateTimeOffset? NextAllowedStart,
+    DateTimeOffset? LastSuccessAt,
+    string? PollTraceId)
+{
+    public static PollSchedulerStateDto From(PollSchedulerStateSnapshot snapshot) =>
+        new(
+            snapshot.ConsecutiveFailures,
+            snapshot.BackoffLevel,
+            snapshot.NextAllowedStart,
+            snapshot.LastSuccessAt,
+            snapshot.PollTraceId);
 }
 
 internal sealed record StoragePressureStateDto(
@@ -2768,46 +2881,6 @@ internal sealed record DemandSeriesErrorPeriodDto(
             snapshot.EndedAt,
             snapshot.EndReason,
             snapshot.Evidence.Select(SeriesErrorPeriodEvidenceDto.From).ToArray());
-}
-
-internal sealed record DemandSeriesDto(
-    string SeriesId,
-    string WorkType,
-    string Sublot,
-    string Lifecycle,
-    string CurrentPresence,
-    DateTimeOffset? StartedAt,
-    DateTimeOffset? ArchivedAt,
-    string CreatedPollTraceId,
-    string CreatedProjectionCommitId,
-    string LatestProjectionCommitId,
-    long LastSeriesSequence,
-    TransportDemandV2Dto CurrentDemand,
-    IReadOnlyList<TransportDemandV2Dto> Demands,
-    IReadOnlyList<DemandRawObservationDto> RawObservations,
-    IReadOnlyList<DemandSeriesEventDto> Events,
-    IReadOnlyList<DemandSeriesCurrentConditionDto> CurrentConditions,
-    IReadOnlyList<DemandSeriesErrorPeriodDto> ErrorPeriods)
-{
-    public static DemandSeriesDto From(DemandSeriesSnapshot snapshot) =>
-        new(
-            snapshot.SeriesId,
-            snapshot.WorkType,
-            snapshot.Sublot,
-            snapshot.Lifecycle,
-            snapshot.CurrentPresence,
-            snapshot.StartedAt,
-            snapshot.ArchivedAt,
-            snapshot.CreatedPollTraceId,
-            snapshot.CreatedProjectionCommitId,
-            snapshot.LatestProjectionCommitId,
-            snapshot.LastSeriesSequence,
-            TransportDemandV2Dto.From(snapshot.CurrentDemand),
-            snapshot.Demands.Select(TransportDemandV2Dto.From).ToList(),
-            snapshot.RawObservations.Select(DemandRawObservationDto.From).ToList(),
-            snapshot.Events.Select(DemandSeriesEventDto.From).ToList(),
-            snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToList(),
-            snapshot.ErrorPeriods.Select(DemandSeriesErrorPeriodDto.From).ToList());
 }
 
 internal sealed record DemandSeriesSnapshotIdentityDto(

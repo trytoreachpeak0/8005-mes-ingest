@@ -25,13 +25,15 @@ builder.Configuration.AddEnvironmentVariables();
 var configured = new MesIngestHostOptions();
 builder.Configuration.GetSection(MesIngestHostOptions.SectionName).Bind(configured);
 configured.ValidateContractShape(builder.Configuration);
-SharedSecretAuth.ValidateStartup(configured, builder.Configuration);
-if (!string.IsNullOrWhiteSpace(configured.Urls))
-{
-    builder.WebHost.UseUrls(configured.Urls);
-}
+var bindingSecurityPolicy = SharedSecretAuth.ValidateStartup(configured, builder.Configuration);
+builder.WebHost.UseUrls(bindingSecurityPolicy.Urls);
 
 var projectionEnabled = !string.IsNullOrWhiteSpace(configured.NewSqlServerConnectionString);
+ProductionHostStartupPolicy.Validate(
+    configured,
+    builder.Environment.IsDevelopment(),
+    probeOracle,
+    projectionEnabled);
 if (projectionEnabled && configured.ZeroDropEnterThreshold <= 0)
 {
     throw new InvalidOperationException(
@@ -48,20 +50,6 @@ if (projectionEnabled)
 {
     builder.Services.AddSingleton<IVolumeSpaceReader, PhysicalVolumeSpaceReader>();
     configured.ValidateHistoryCleanupPolicy();
-}
-if (!probeOracle && !builder.Environment.IsDevelopment() && !projectionEnabled)
-{
-    throw new InvalidOperationException(
-        "MesIngest:NewSqlServerConnectionString is required outside the Development environment.");
-}
-if (!probeOracle
-    && !builder.Environment.IsDevelopment()
-    && projectionEnabled
-    && (configured.ContinuousPollEnabled || configured.RunOneShotOnStartup)
-    && !configured.IsOracleSnapshotSource())
-{
-    throw new InvalidOperationException(
-        "MesIngest:SnapshotSource must be Oracle when the production projection is enabled.");
 }
 if (probeOracle)
 {
@@ -85,7 +73,11 @@ if (ReleaseSmokeRoundReplay.IsConfigured(configured) && !oracleRuntimeEnabled)
 var replayedRoundExecutor = ReleaseSmokeRoundReplay.Resolve(configured);
 
 builder.Services.AddSingleton(configured);
+builder.Services.AddSingleton(bindingSecurityPolicy);
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<PollSchedulerState>();
+builder.Services.AddSingleton<IPollSchedulerStateObserver>(sp =>
+    sp.GetRequiredService<PollSchedulerState>());
 if (projectionEnabled)
 {
     builder.Services.AddSingleton<IWatchOverviewReadBoundaryObserver>(
@@ -183,11 +175,11 @@ app.Use(async (context, next) =>
         return;
     }
 
-    var options = context.RequestServices.GetRequiredService<MesIngestHostOptions>();
-    var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
-    if (!SharedSecretAuth.IsAuthorized(context.Request, options, configuration))
+    var policy = context.RequestServices.GetRequiredService<BindingSecurityPolicy>();
+    if (!SharedSecretAuth.IsAuthorized(context.Request, policy))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.Headers.WWWAuthenticate = "Bearer";
         await context.Response.WriteAsJsonAsync(new NewMesIngestErrorDto(
             "UNAUTHORIZED",
             "Bearer SharedSecret is required."));

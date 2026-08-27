@@ -7,7 +7,7 @@ namespace MesIngest.Tests;
 /// <summary>
 /// Ticket 25: the final schema is established from an empty database only. Unknown or
 /// structurally different databases are refused rather than converted. The one bounded
-/// v2.2-to-v2.3 contract-identity transition preserves the already-qualified schema and
+/// v2.3-to-v2.4 contract-identity transition preserves the already-qualified schema and
 /// history in place.
 /// </summary>
 [Collection("Ticket01SqlServer")]
@@ -51,7 +51,7 @@ public sealed class EmptyDatabaseBootstrapTests
     }
 
     [Ticket01SqlServerFact]
-    public async Task Exact_v2_2_schema_identity_migrates_to_v2_3_without_replacing_history()
+    public async Task Exact_v2_3_schema_identity_migrates_to_v2_4_without_replacing_history()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         var projection = new SqlServerMesIngestProjection(database.ConnectionString);
@@ -61,7 +61,7 @@ public sealed class EmptyDatabaseBootstrapTests
         var tableCount = await ReadUserTableCountAsync(database.ConnectionString);
         await ExecuteAsync(
             database.ConnectionString,
-            "UPDATE mesingest.SchemaInfo SET ContractVersion = N'2026.08.new-mes-ingest.v2.2' WHERE Id = 1;");
+            "UPDATE mesingest.SchemaInfo SET ContractVersion = N'2026.08.new-mes-ingest.v2.3' WHERE Id = 1;");
 
         await new SqlServerMesIngestProjection(database.ConnectionString)
             .CommitRoundAsync(EmptySuccessRound("poll-v2-2-migration-after"));
@@ -79,7 +79,7 @@ public sealed class EmptyDatabaseBootstrapTests
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         await new SqlServerMesIngestProjection(database.ConnectionString)
             .CommitRoundAsync(EmptySuccessRound("poll-unapproved-contract-bootstrap"));
-        const string unapprovedVersion = "2026.08.new-mes-ingest.v2.1";
+        const string unapprovedVersion = "2026.08.new-mes-ingest.v2.2";
         await ExecuteAsync(
             database.ConnectionString,
             $"UPDATE mesingest.SchemaInfo SET ContractVersion = N'{unapprovedVersion}' WHERE Id = 1;");
@@ -94,7 +94,7 @@ public sealed class EmptyDatabaseBootstrapTests
     }
 
     [Ticket01SqlServerFact]
-    public async Task Structurally_drifted_v2_2_schema_is_rejected_before_identity_migration()
+    public async Task Structurally_drifted_v2_3_schema_is_rejected_before_identity_migration()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
         await new SqlServerMesIngestProjection(database.ConnectionString)
@@ -103,7 +103,7 @@ public sealed class EmptyDatabaseBootstrapTests
             database.ConnectionString,
             """
             UPDATE mesingest.SchemaInfo
-            SET ContractVersion = N'2026.08.new-mes-ingest.v2.2'
+            SET ContractVersion = N'2026.08.new-mes-ingest.v2.3'
             WHERE Id = 1;
             ALTER TABLE mesingest.CatalogItems ALTER COLUMN Area NVARCHAR(MAX) NOT NULL;
             """);
@@ -114,7 +114,7 @@ public sealed class EmptyDatabaseBootstrapTests
 
         Assert.Contains("column", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(
-            "2026.08.new-mes-ingest.v2.2",
+            "2026.08.new-mes-ingest.v2.3",
             await ReadContractVersionAsync(database.ConnectionString));
         Assert.Equal(1, await ReadPollTraceCountAsync(database.ConnectionString));
     }

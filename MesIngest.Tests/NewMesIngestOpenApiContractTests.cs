@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -12,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Primitives;
 
 namespace MesIngest.Tests;
 
@@ -218,7 +221,7 @@ public sealed class NewMesIngestOpenApiContractTests
             contract.GetProperty("schemaVersion").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetInt32()));
         Assert.Equal(
-            ["2.0", "2.1", "1.0"],
+            ["2.0", "2.1", "2.2", "1.0"],
             Schema(root, "NewMesIngestCapabilityDto").GetProperty("properties")
                 .GetProperty("version").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));
@@ -319,8 +322,46 @@ public sealed class NewMesIngestOpenApiContractTests
             "step",
             "mesSourceDate",
             "package");
+        var fieldsParameter = rawOperation.GetProperty("parameters").EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "fields");
+        Assert.Equal("form", fieldsParameter.GetProperty("style").GetString());
+        Assert.True(
+            !fieldsParameter.TryGetProperty("explode", out var explode)
+            || explode.GetBoolean());
+        Assert.Contains(
+            "repeated",
+            fieldsParameter.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "comma",
+            fieldsParameter.GetProperty("description").GetString(),
+            StringComparison.OrdinalIgnoreCase);
         Assert.True(rawOperation.GetProperty("responses").TryGetProperty("403", out _));
         Assert.True(rawOperation.GetProperty("responses").TryGetProperty("413", out _));
+
+        var attention = Schema(root, "CurrentIngestAttentionOperationalDto");
+        AssertRequired(attention, "pollScheduler");
+        var scheduler = Schema(root, "PollSchedulerStateDto");
+        AssertRequired(scheduler, "consecutiveFailures", "backoffLevel");
+        Assert.Equal(
+            0,
+            scheduler.GetProperty("properties").GetProperty("consecutiveFailures")
+                .GetProperty("minimum").GetInt32());
+        var backoffLevel = scheduler.GetProperty("properties").GetProperty("backoffLevel");
+        Assert.Equal(0, backoffLevel.GetProperty("minimum").GetInt32());
+        Assert.Equal(3, backoffLevel.GetProperty("maximum").GetInt32());
+        foreach (var nullableField in new[] { "nextAllowedStart", "lastSuccessAt", "pollTraceId" })
+        {
+            Assert.True(
+                scheduler.GetProperty("properties").GetProperty(nullableField)
+                    .GetProperty("nullable").GetBoolean(),
+                $"PollSchedulerStateDto.{nullableField} must be explicitly nullable.");
+        }
+        Assert.Equal(
+            StoragePressureStatuses.All,
+            Schema(root, "StoragePressureStateDto").GetProperty("properties")
+                .GetProperty("status").GetProperty("enum").EnumerateArray()
+                .Select(value => value.GetString()));
 
         var pollTrace = Schema(root, "PollTraceDto");
         AssertRequired(
@@ -368,6 +409,34 @@ public sealed class NewMesIngestOpenApiContractTests
             .GetProperty("get");
         Assert.True(catalogOperation.GetProperty("responses").TryGetProperty("304", out var notModified));
         Assert.True(notModified.GetProperty("headers").TryGetProperty("ETag", out _));
+        Assert.True(catalogOperation.GetProperty("responses").TryGetProperty("409", out var epochMismatch));
+        Assert.Contains(
+            HistoryEpochMismatchException.ErrorCode,
+            epochMismatch.GetProperty("description").GetString(),
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "#/components/schemas/HistoryEpochMismatchErrorDto",
+            epochMismatch.GetProperty("content").GetProperty("application/json")
+                .GetProperty("schema").GetProperty("$ref").GetString());
+        var epochMismatchSchema = Schema(root, "HistoryEpochMismatchErrorDto");
+        AssertRequired(
+            epochMismatchSchema,
+            "code",
+            "error",
+            "currentHistoryEpoch",
+            "suppliedHistoryEpoch");
+        Assert.Equal(
+            "uuid",
+            epochMismatchSchema.GetProperty("properties").GetProperty("currentHistoryEpoch")
+                .GetProperty("format").GetString());
+        Assert.Equal(
+            "uuid",
+            epochMismatchSchema.GetProperty("properties").GetProperty("suppliedHistoryEpoch")
+                .GetProperty("format").GetString());
+        var ingestNotCurrent = catalogOperation.GetProperty("responses").GetProperty("503")
+            .GetProperty("description").GetString();
+        Assert.Contains("StoragePressurePause", ingestNotCurrent, StringComparison.Ordinal);
+        Assert.Contains("HistoryReset", ingestNotCurrent, StringComparison.Ordinal);
         Assert.DoesNotContain(
             catalogOperation.GetProperty("description").GetString() ?? "",
             "cursor",
@@ -377,6 +446,95 @@ public sealed class NewMesIngestOpenApiContractTests
             "ERROR_SEARCH_CURSOR_MISMATCH",
             Schema(root, "NewMesIngestErrorDto").GetProperty("description").GetString(),
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("/api/v2/demand-series/by-key")]
+    [InlineData("/api/v2/demand-series/by-key?workType=&sublot=SL")]
+    [InlineData("/api/v2/demand-series/by-key?workType=CUT&sublot=")]
+    [InlineData("/api/v2/demand-series/by-key?workType=CUT&workType=WIRE&sublot=SL")]
+    [InlineData("/api/v2/demand-series/by-key?workType=CUT&sublot=SL&sublot=SL2")]
+    public async Task Demand_series_by_key_missing_empty_and_repeated_keys_use_the_stable_typed_error(
+        string path)
+    {
+        await using var factory = CreateV2Factory();
+        var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(path);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var error = JsonDocument.Parse(body);
+        Assert.Equal(
+            DemandSeriesBrowseErrorCodes.InvalidQuery,
+            error.RootElement.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(error.RootElement.GetProperty("error").GetString()));
+    }
+
+    [Fact]
+    public async Task Catalog_old_epoch_exception_is_a_typed_http_409_response()
+    {
+        var currentEpoch = HistoryEpoch.FromGuid(
+            Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        var suppliedEpoch = HistoryEpoch.FromGuid(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"));
+        var projection = CatalogMismatchProjection.Create(currentEpoch, suppliedEpoch);
+        await using var configuredFactory = CreateV2Factory();
+        await using var factory = configuredFactory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IMesIngestProjection>();
+                services.AddSingleton(projection);
+            }));
+        var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            "/api/v2/externally-readable-demand-catalog");
+        request.Headers.TryAddWithoutValidation(
+            "If-None-Match",
+            $"W/\"{ExternallyReadableDemandCatalogEtagCodec.FormatOpaqueTag(
+                new ExternallyReadableDemandCatalogIdentity(suppliedEpoch, 7))}\"");
+
+        using var response = await client.SendAsync(request);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(
+            HistoryEpochMismatchException.ErrorCode,
+            body.RootElement.GetProperty("code").GetString());
+        Assert.Equal(
+            currentEpoch.Value,
+            body.RootElement.GetProperty("currentHistoryEpoch").GetGuid());
+        Assert.Equal(
+            suppliedEpoch.Value,
+            body.RootElement.GetProperty("suppliedHistoryEpoch").GetGuid());
+    }
+
+    [Fact]
+    public void Raw_evidence_fields_parse_comma_repeated_and_mixed_query_forms_identically()
+    {
+        var variants = new[]
+        {
+            new StringValues("workType,package"),
+            new StringValues(["workType", "package"]),
+            new StringValues(["workType", "package,workType"]),
+        };
+
+        foreach (var fields in variants)
+        {
+            var query = new QueryCollection(new Dictionary<string, StringValues>
+            {
+                ["snapshot"] = "snapshot-ticket4",
+                ["fields"] = fields,
+                ["maxItems"] = "7",
+            });
+
+            var parsed = NewMesIngestEndpoints.ParseErrorSearchRawEvidenceRequest(query);
+
+            Assert.Equal("snapshot-ticket4", parsed.SnapshotReference);
+            Assert.Equal(["workType", "package"], parsed.Query.Fields);
+            Assert.Equal(7, parsed.Query.MaxItems);
+        }
     }
 
     [Fact]
@@ -705,15 +863,21 @@ public sealed class NewMesIngestOpenApiContractTests
         string? connectionString = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            var isolatedContractFixture = connectionString is null;
+            builder.UseEnvironment(
+                isolatedContractFixture ? Environments.Production : Environments.Development);
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 connectionString
                     ?? "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:SnapshotSource",
-                MesIngestHostOptions.NoRoundSource);
-            builder.UseSetting($"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled", "false");
+                isolatedContractFixture
+                    ? MesIngestHostOptions.OracleRoundSource
+                    : MesIngestHostOptions.NoRoundSource);
+            builder.UseSetting(
+                $"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled",
+                isolatedContractFixture ? "true" : "false");
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:RunOneShotOnStartup", "false");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:SharedSecret",
@@ -725,6 +889,8 @@ public sealed class NewMesIngestOpenApiContractTests
             {
                 builder.ConfigureTestServices(services =>
                 {
+                    // The startup configuration is a valid Production producer,
+                    // but this in-memory contract fixture must not contact SQL or Oracle.
                     services.RemoveAll<IHostedService>();
                     services.RemoveAll<MesIngestHostOptions>();
                     services.AddSingleton(new MesIngestHostOptions
@@ -840,5 +1006,37 @@ public sealed class NewMesIngestOpenApiContractTests
             expected,
             parameter.GetProperty("schema").GetProperty("items").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));
+    }
+
+    public class CatalogMismatchProjection : DispatchProxy
+    {
+        private HistoryEpoch _currentEpoch = null!;
+        private HistoryEpoch _suppliedEpoch = null!;
+
+        public static IMesIngestProjection Create(
+            HistoryEpoch currentEpoch,
+            HistoryEpoch suppliedEpoch)
+        {
+            var projection = DispatchProxy.Create<
+                IMesIngestProjection,
+                CatalogMismatchProjection>();
+            var proxy = (CatalogMismatchProjection)(object)projection;
+            proxy._currentEpoch = currentEpoch;
+            proxy._suppliedEpoch = suppliedEpoch;
+            return projection;
+        }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod?.Name == nameof(
+                    IMesIngestProjection.ReadExternallyReadableDemandCatalogAsync))
+            {
+                return Task.FromException<ExternallyReadableDemandCatalogRead>(
+                    new HistoryEpochMismatchException(_currentEpoch, _suppliedEpoch));
+            }
+
+            throw new NotSupportedException(
+                $"Unexpected projection call '{targetMethod?.Name ?? "<missing>"}'.");
+        }
     }
 }

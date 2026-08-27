@@ -130,6 +130,45 @@ public sealed class SublotBoxCountTests : IClassFixture<WebApplicationFactory<Pr
         Assert.DoesNotContain("SL-EXACT", request.Sql, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Reader_maps_canonical_query_sharing_lock_to_stable_query_invalid_result()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            "MesIngestSublotBoxCountTests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var queryPath = Path.Combine(directory, "query.sql");
+        File.Copy(Options().QuerySqlPath, queryPath);
+        var executor = new RecordingExecutor(Result(1m));
+        var options = Options();
+        options.QuerySqlPath = queryPath;
+
+        try
+        {
+            using var lockStream = new FileStream(
+                queryPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.None);
+            var reader = new OracleSublotBoxCountReader(
+                options,
+                new StubExecutorFactory(executor),
+                new FixedTimeProvider(DateTimeOffset.UtcNow),
+                NullLogger<OracleSublotBoxCountReader>.Instance);
+
+            var result = await reader.ReadAsync("SL-LOCKED");
+
+            Assert.Equal(SublotBoxCountReadOutcome.Unavailable, result.Outcome);
+            Assert.Equal("SUBLOT_BOX_COUNT_QUERY_INVALID", result.ErrorCode);
+            Assert.Null(result.MaxBoxCount);
+            Assert.Empty(executor.Requests);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     public static IEnumerable<object?[]> InvalidResults()
     {
         yield return [null];
@@ -238,7 +277,9 @@ public sealed class SublotBoxCountTests : IClassFixture<WebApplicationFactory<Pr
     private WebApplicationFactory<Program> CreateFactory(ISublotBoxCountReader reader) =>
         factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            // This is an API-surface fixture with an injected reader, not a
+            // long-lived production Host with a current MES producer.
+            builder.UseEnvironment(Environments.Development);
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false");

@@ -1,5 +1,7 @@
+using System.Text.Json;
 using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
+using MesIngest.Host;
 
 namespace MesIngest.Tests;
 
@@ -167,6 +169,197 @@ public class SingleFlightPollLoopTests
     }
 
     [Fact]
+    public async Task First_failure_publishes_level_one_next_start_and_poll_trace_identity()
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-27T01:00:00Z");
+        var now = startedAt;
+        var pollTraceId = "poll-scheduler-first-failure";
+        var observer = new RecordingPollSchedulerStateObserver();
+        using var cancellation = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ => Task.FromResult(false),
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cancellation.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                now += wait;
+                cancellation.Cancel();
+                return Task.CompletedTask;
+            },
+            roundStartedAt: null,
+            pollTraceId: () => pollTraceId,
+            stateObserver: observer);
+
+        var state = Assert.Single(observer.Snapshots);
+        Assert.Equal(1, state.ConsecutiveFailures);
+        Assert.Equal(1, state.BackoffLevel);
+        Assert.Equal(startedAt.AddSeconds(60), state.NextAllowedStart);
+        Assert.Null(state.LastSuccessAt);
+        Assert.Equal(pollTraceId, state.PollTraceId);
+    }
+
+    [Fact]
+    public async Task Consecutive_failures_publish_exact_capped_backoff_levels_without_real_waits()
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-27T02:00:00Z");
+        var now = startedAt;
+        var round = 0;
+        string? pollTraceId = null;
+        var observer = new RecordingPollSchedulerStateObserver();
+        using var cancellation = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                round++;
+                pollTraceId = $"poll-scheduler-failure-{round}";
+                return Task.FromResult(false);
+            },
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cancellation.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                now += wait;
+                if (round == 4)
+                {
+                    cancellation.Cancel();
+                }
+
+                return Task.CompletedTask;
+            },
+            roundStartedAt: null,
+            pollTraceId: () => pollTraceId,
+            stateObserver: observer);
+
+        Assert.Equal([1, 2, 3, 4], observer.Snapshots.Select(state => state.ConsecutiveFailures));
+        Assert.Equal([1, 2, 3, 3], observer.Snapshots.Select(state => state.BackoffLevel));
+        Assert.Equal(
+            [60, 180, 480, 780],
+            observer.Snapshots.Select(state =>
+                (int)(state.NextAllowedStart!.Value - startedAt).TotalSeconds));
+        Assert.Equal(
+            [
+                "poll-scheduler-failure-1",
+                "poll-scheduler-failure-2",
+                "poll-scheduler-failure-3",
+                "poll-scheduler-failure-4",
+            ],
+            observer.Snapshots.Select(state => state.PollTraceId));
+        Assert.All(observer.Snapshots, state => Assert.Null(state.LastSuccessAt));
+    }
+
+    [Fact]
+    public async Task Success_resets_failure_state_and_last_success_survives_the_next_failure()
+    {
+        var startedAt = DateTimeOffset.Parse("2026-08-27T03:00:00Z");
+        var now = startedAt;
+        var outcomes = new Queue<bool>([false, false, true, false]);
+        var round = 0;
+        string? pollTraceId = null;
+        var observer = new RecordingPollSchedulerStateObserver();
+        using var cancellation = new CancellationTokenSource();
+
+        await SingleFlightPollLoop.RunAsync(
+            runRound: _ =>
+            {
+                round++;
+                pollTraceId = $"poll-scheduler-round-{round}";
+                return Task.FromResult(outcomes.Dequeue());
+            },
+            pollStartInterval: TimeSpan.FromSeconds(60),
+            cancellationToken: cancellation.Token,
+            utcNow: () => now,
+            delay: (wait, _) =>
+            {
+                now += wait;
+                if (round == 4)
+                {
+                    cancellation.Cancel();
+                }
+
+                return Task.CompletedTask;
+            },
+            roundStartedAt: null,
+            pollTraceId: () => pollTraceId,
+            stateObserver: observer);
+
+        var success = observer.Snapshots[2];
+        Assert.Equal(0, success.ConsecutiveFailures);
+        Assert.Equal(0, success.BackoffLevel);
+        Assert.Equal(startedAt.AddMinutes(4), success.NextAllowedStart);
+        Assert.Equal(startedAt.AddMinutes(3), success.LastSuccessAt);
+        Assert.Equal("poll-scheduler-round-3", success.PollTraceId);
+
+        var failureAfterSuccess = observer.Snapshots[3];
+        Assert.Equal(1, failureAfterSuccess.ConsecutiveFailures);
+        Assert.Equal(1, failureAfterSuccess.BackoffLevel);
+        Assert.Equal(startedAt.AddMinutes(5), failureAfterSuccess.NextAllowedStart);
+        Assert.Equal(success.LastSuccessAt, failureAfterSuccess.LastSuccessAt);
+        Assert.Equal("poll-scheduler-round-4", failureAfterSuccess.PollTraceId);
+    }
+
+    [Fact]
+    public void Host_singleton_snapshot_is_exposed_as_a_minimal_serializable_attention_field()
+    {
+        var observedAt = DateTimeOffset.Parse("2026-08-27T04:00:00Z");
+        var schedulerState = new PollSchedulerState();
+        schedulerState.OnStateChanged(new PollSchedulerStateSnapshot(
+            ConsecutiveFailures: 2,
+            BackoffLevel: 2,
+            NextAllowedStart: observedAt.AddMinutes(2),
+            LastSuccessAt: observedAt.AddMinutes(-3),
+            PollTraceId: "poll-scheduler-dto"));
+        var epoch = HistoryEpoch.FromGuid(Guid.Parse("7a8bd026-c1da-4f76-aa99-0f58eed36d4d"));
+        var attention = new CurrentIngestAttentionSnapshot(
+            Snapshot: new OperationalSnapshotIdentity(
+                "commit-scheduler-dto",
+                7,
+                observedAt,
+                "poll-scheduler-dto",
+                9,
+                11,
+                observedAt,
+                HistoryEpoch: epoch),
+            ExactTotalItemCount: 0,
+            Facets: new CurrentIngestAttentionFacets([], []),
+            Order: CurrentIngestAttentionOrder.Default,
+            PageSize: 100,
+            PageNumber: 1,
+            TotalPages: 0,
+            Kinds: [],
+            Severities: [],
+            Items: [],
+            HistoryCleanup: HistoryCleanupStateSnapshot.NotRun,
+            StoragePressure: new StoragePressureStateSnapshot(
+                StoragePressureStatuses.Healthy,
+                epoch,
+                "MesIngest",
+                @"C:\MesIngest\MesIngest.mdf",
+                new VolumeSpaceSample(@"C:\", 100, 50),
+                observedAt,
+                PausedAt: null,
+                PauseId: null,
+                PauseReason: null,
+                RecoveryAuditId: null));
+
+        var dto = CurrentIngestAttentionOperationalDto.From(attention, schedulerState.Current);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(
+            dto,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+
+        var scheduler = document.RootElement.GetProperty("pollScheduler");
+        Assert.Equal(5, scheduler.EnumerateObject().Count());
+        Assert.Equal(2, scheduler.GetProperty("consecutiveFailures").GetInt32());
+        Assert.Equal(2, scheduler.GetProperty("backoffLevel").GetInt32());
+        Assert.Equal(observedAt.AddMinutes(2), scheduler.GetProperty("nextAllowedStart").GetDateTimeOffset());
+        Assert.Equal(observedAt.AddMinutes(-3), scheduler.GetProperty("lastSuccessAt").GetDateTimeOffset());
+        Assert.Equal("poll-scheduler-dto", scheduler.GetProperty("pollTraceId").GetString());
+    }
+
+    [Fact]
     public async Task Runs_rounds_sequentially_never_overlapping()
     {
         var inFlight = 0;
@@ -278,5 +471,12 @@ public class SingleFlightPollLoopTests
             cancellationToken: cts.Token);
 
         Assert.Equal(3, rounds);
+    }
+
+    private sealed class RecordingPollSchedulerStateObserver : IPollSchedulerStateObserver
+    {
+        public List<PollSchedulerStateSnapshot> Snapshots { get; } = [];
+
+        public void OnStateChanged(PollSchedulerStateSnapshot snapshot) => Snapshots.Add(snapshot);
     }
 }

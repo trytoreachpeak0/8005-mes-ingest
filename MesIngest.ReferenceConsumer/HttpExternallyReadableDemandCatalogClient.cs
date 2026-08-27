@@ -45,6 +45,28 @@ public sealed class HttpExternallyReadableDemandCatalogClient
             HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);
 
+        if (response.StatusCode == HttpStatusCode.Conflict && knownIdentity is not null)
+        {
+            var mismatch = await response.Content.ReadFromJsonAsync<HistoryEpochMismatchDto>(
+                SerializerOptions,
+                cancellationToken).ConfigureAwait(false);
+            if (mismatch is not null
+                && string.Equals(
+                    mismatch.Code,
+                    HistoryEpochMismatchException.ErrorCode,
+                    StringComparison.Ordinal)
+                && Guid.TryParse(mismatch.CurrentHistoryEpoch, out var currentEpoch)
+                && currentEpoch != Guid.Empty
+                && Guid.TryParse(mismatch.SuppliedHistoryEpoch, out var suppliedEpoch)
+                && suppliedEpoch != Guid.Empty
+                && suppliedEpoch == knownIdentity.HistoryEpoch.Value)
+            {
+                throw new HistoryEpochMismatchException(
+                    HistoryEpoch.FromGuid(currentEpoch),
+                    HistoryEpoch.FromGuid(suppliedEpoch));
+            }
+        }
+
         if (response.StatusCode != HttpStatusCode.OK
             && response.StatusCode != HttpStatusCode.NotModified)
         {
@@ -236,6 +258,12 @@ public sealed class HttpExternallyReadableDemandCatalogClient
     private sealed record CapabilityDto(
         string? Id,
         string? Version);
+
+    private sealed record HistoryEpochMismatchDto(
+        string? Code,
+        string? Error,
+        string? CurrentHistoryEpoch,
+        string? SuppliedHistoryEpoch);
 
     private sealed record CatalogItemDto(
         string? DemandId,

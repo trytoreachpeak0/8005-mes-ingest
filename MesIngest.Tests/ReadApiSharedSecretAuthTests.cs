@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -67,6 +68,24 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(ContractPath)]
+    [InlineData("/api/v2/error-search/series/evidence/evidence/raw-observations")]
+    public async Task Non_localhost_unauthorized_paths_return_bearer_challenge(string path)
+    {
+        await using var factory = CreateFactory(
+            urls: "http://0.0.0.0:5088",
+            sharedSecret: "plant-secret");
+        var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var challenge = Assert.Single(response.Headers.WwwAuthenticate);
+        Assert.Equal("Bearer", challenge.Scheme);
+        Assert.Null(challenge.Parameter);
+    }
+
     [Fact]
     public async Task Non_localhost_binding_accepts_correct_bearer_shared_secret()
     {
@@ -92,7 +111,7 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
         };
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => SharedSecretAuth.ValidateStartup(options));
+            () => SharedSecretAuth.ValidateStartup(options, EmptyConfiguration()));
         Assert.Contains("SharedSecret", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -105,33 +124,102 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
             SharedSecret = "",
         };
 
-        SharedSecretAuth.ValidateStartup(options);
+        var policy = SharedSecretAuth.ValidateStartup(options, EmptyConfiguration());
+
+        Assert.False(policy.RequiresSharedSecret);
+        Assert.Equal(options.Urls, policy.Urls);
     }
 
-    [Fact]
-    public void Empty_mesingest_urls_still_requires_secret_when_aspnetcore_urls_are_non_localhost()
+    [Theory]
+    [InlineData("urls")]
+    [InlineData("http_ports")]
+    [InlineData("https_ports")]
+    [InlineData("ASPNETCORE_URLS")]
+    [InlineData("ASPNETCORE_HTTP_PORTS")]
+    [InlineData("ASPNETCORE_HTTPS_PORTS")]
+    [InlineData("DOTNET_URLS")]
+    [InlineData("DOTNET_HTTP_PORTS")]
+    [InlineData("DOTNET_HTTPS_PORTS")]
+    public void Alternate_endpoint_authority_fails_validation(string key)
     {
         var options = new MesIngestHostOptions
         {
-            Urls = "",
-            SharedSecret = "",
+            Urls = "http://127.0.0.1:5088",
         };
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["urls"] = "http://0.0.0.0:5088",
+                [key] = "http://0.0.0.0:5089",
             })
             .Build();
 
         var ex = Assert.Throws<InvalidOperationException>(
             () => SharedSecretAuth.ValidateStartup(options, config));
-        Assert.Contains("SharedSecret", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(key, ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MesIngest:Urls", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Kestrel_endpoints_fail_validation_even_when_MesIngest_urls_are_loopback()
+    {
+        var options = new MesIngestHostOptions
+        {
+            Urls = "http://127.0.0.1:5088",
+        };
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Kestrel:Endpoints:Remote:Url"] = "http://0.0.0.0:5089",
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => SharedSecretAuth.ValidateStartup(options, config));
+        Assert.Contains("Kestrel:Endpoints", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("MesIngest:Urls", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Missing_MesIngest_urls_fails_instead_of_using_a_Kestrel_default()
+    {
+        var options = new MesIngestHostOptions
+        {
+            Urls = " ",
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => SharedSecretAuth.ValidateStartup(options, EmptyConfiguration()));
+
+        Assert.Contains("MesIngest:Urls is required", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Authorization_consumes_the_immutable_startup_policy_after_options_change()
+    {
+        var options = new MesIngestHostOptions
+        {
+            Urls = "http://0.0.0.0:5088",
+            SharedSecret = "plant-secret",
+        };
+        var policy = SharedSecretAuth.ValidateStartup(options, EmptyConfiguration());
+        options.Urls = "http://127.0.0.1:5088";
+        options.SharedSecret = "changed-after-startup";
+        var request = new DefaultHttpContext().Request;
+
+        Assert.True(policy.RequiresSharedSecret);
+        Assert.False(SharedSecretAuth.IsAuthorized(request, policy));
+
+        request.Headers.Authorization = "Bearer plant-secret";
+        Assert.True(SharedSecretAuth.IsAuthorized(request, policy));
+
+        request.Headers.Authorization = "Bearer changed-after-startup";
+        Assert.False(SharedSecretAuth.IsAuthorized(request, policy));
     }
 
     private WebApplicationFactory<Program> CreateFactory(string urls, string sharedSecret) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseEnvironment(Environments.Development);
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 "Server=auth.invalid;Database=auth;Integrated Security=true;Encrypt=false");
@@ -140,24 +228,16 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
                 MesIngestHostOptions.NoRoundSource);
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled", "false");
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:RunOneShotOnStartup", "false");
+            builder.UseSetting($"{MesIngestHostOptions.SectionName}:Urls", urls);
+            builder.UseSetting($"{MesIngestHostOptions.SectionName}:SharedSecret", sharedSecret);
             // Admission is decided before routing. Dropping the hosted services keeps
             // this fixture off a real SQL Server without weakening what it asserts.
-            // The binding and the secret are injected as the resolved options object
-            // because that is exactly what the admission middleware reads.
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IHostedService>();
-                services.RemoveAll<MesIngestHostOptions>();
-                services.AddSingleton(new MesIngestHostOptions
-                {
-                    NewSqlServerConnectionString =
-                        "Server=auth.invalid;Database=auth;Integrated Security=true;Encrypt=false",
-                    SnapshotSource = MesIngestHostOptions.NoRoundSource,
-                    ContinuousPollEnabled = false,
-                    RunOneShotOnStartup = false,
-                    Urls = urls,
-                    SharedSecret = sharedSecret,
-                });
             });
         });
+
+    private static IConfiguration EmptyConfiguration() =>
+        new ConfigurationBuilder().Build();
 }

@@ -225,13 +225,30 @@ public sealed class DemandCatalogReferenceConsumer
         // A reference consumer may call Refresh and Accept concurrently. Publish
         // only whole immutable snapshots; the local final-snapshot variable in
         // AcceptAsync remains the commit-point decision evidence.
-        var read = await _catalogClient.ReadAsync(
-            Volatile.Read(ref _cache) is { } cached
-                ? new ExternallyReadableDemandCatalogIdentity(
-                    cached.HistoryEpoch,
-                    cached.CatalogRevision)
-                : null,
-            cancellationToken).ConfigureAwait(false);
+        var cached = Volatile.Read(ref _cache);
+        ExternallyReadableDemandCatalogRead read;
+        try
+        {
+            read = await _catalogClient.ReadAsync(
+                cached is null
+                    ? null
+                    : new ExternallyReadableDemandCatalogIdentity(
+                        cached.HistoryEpoch,
+                        cached.CatalogRevision),
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch (HistoryEpochMismatchException exception) when (
+            cached is not null && exception.SuppliedHistoryEpoch == cached.HistoryEpoch)
+        {
+            // Drop only the snapshot that supplied the rejected condition. A
+            // concurrent refresh may already have published a newer epoch and
+            // must not be erased. The recovery request is deliberately issued
+            // once and unconditionally; a second mismatch escapes to the caller.
+            Interlocked.CompareExchange(ref _cache, null, cached);
+            read = await _catalogClient.ReadAsync(
+                knownIdentity: null,
+                cancellationToken).ConfigureAwait(false);
+        }
         if (read.NotModified)
         {
             return Volatile.Read(ref _cache) ?? throw new InvalidOperationException(

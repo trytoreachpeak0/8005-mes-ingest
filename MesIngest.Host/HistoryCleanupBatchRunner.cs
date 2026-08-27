@@ -90,7 +90,7 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
         var interval = TimeSpan.FromSeconds(_options.HistoryCleanupCheckIntervalSeconds);
         var nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, startedAt, interval);
         var deadline = startedAt.AddSeconds(_options.HistoryCleanupTimeBudgetSeconds);
-        var runStarted = false;
+        var beginCompleted = false;
         try
         {
             await _operations.BeginHistoryCleanupRunAsync(
@@ -98,7 +98,7 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
                 startedAt,
                 nextCheckAt,
                 cancellationToken).ConfigureAwait(false);
-            runStarted = true;
+            beginCompleted = true;
 
             var deletedRawRows = 0;
             var hasMoreRaw = true;
@@ -182,11 +182,11 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
                 state.NextCheckAt);
             return nextCheckAt;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
             var interruptedAt = _timeProvider.GetUtcNow().ToUniversalTime();
             nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, interruptedAt, interval);
-            if (runStarted)
+            if (beginCompleted)
             {
                 using var persistenceTimeout = new CancellationTokenSource(
                     TerminalStatePersistenceTimeout);
@@ -206,33 +206,25 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
                         persistenceException.GetType().Name);
                 }
             }
+            else
+            {
+                await TryPersistFailureAsync(
+                    runId,
+                    interruptedAt,
+                    nextCheckAt,
+                    exception.GetType().Name).ConfigureAwait(false);
+            }
             throw;
         }
         catch (Exception exception)
         {
             var failedAt = _timeProvider.GetUtcNow().ToUniversalTime();
             nextCheckAt = HistoryCleanupSchedule.NextCheck(scheduledAt, failedAt, interval);
-            if (runStarted)
-            {
-                using var persistenceTimeout = new CancellationTokenSource(
-                    TerminalStatePersistenceTimeout);
-                try
-                {
-                    await _operations.FailHistoryCleanupRunAsync(
-                        runId,
-                        failedAt,
-                        nextCheckAt,
-                        HistoryCleanupFailureCodes.BatchFailed,
-                        exception.GetType().Name,
-                        persistenceTimeout.Token).ConfigureAwait(false);
-                }
-                catch (Exception persistenceException)
-                {
-                    _logger.LogError(
-                        "History cleanup failure state was not persisted ({ExceptionType}).",
-                        persistenceException.GetType().Name);
-                }
-            }
+            await TryPersistFailureAsync(
+                runId,
+                failedAt,
+                nextCheckAt,
+                exception.GetType().Name).ConfigureAwait(false);
             _logger.LogError(
                 "History cleanup batch failed ({ExceptionType}); nextCheck={NextCheckAt}.",
                 exception.GetType().Name,
@@ -242,6 +234,32 @@ public sealed class HistoryCleanupBatchRunner : IHistoryCleanupBatchRunner
         finally
         {
             _singleFlight.Release();
+        }
+    }
+
+    private async Task TryPersistFailureAsync(
+        string runId,
+        DateTimeOffset failedAt,
+        DateTimeOffset nextCheckAt,
+        string failureReason)
+    {
+        using var persistenceTimeout = new CancellationTokenSource(
+            TerminalStatePersistenceTimeout);
+        try
+        {
+            await _operations.TryFailHistoryCleanupRunAsync(
+                runId,
+                failedAt,
+                nextCheckAt,
+                HistoryCleanupFailureCodes.BatchFailed,
+                failureReason,
+                persistenceTimeout.Token).ConfigureAwait(false);
+        }
+        catch (Exception persistenceException)
+        {
+            _logger.LogError(
+                "History cleanup failure state was not persisted ({ExceptionType}).",
+                persistenceException.GetType().Name);
         }
     }
 }

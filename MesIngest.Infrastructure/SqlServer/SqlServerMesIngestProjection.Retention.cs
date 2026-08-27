@@ -679,7 +679,7 @@ public sealed partial class SqlServerMesIngestProjection
             .ConfigureAwait(false);
     }
 
-    public async Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+    public async Task<bool> TryFailHistoryCleanupRunAsync(
         string runId,
         DateTimeOffset failedAt,
         DateTimeOffset nextCheckAt,
@@ -703,19 +703,16 @@ public sealed partial class SqlServerMesIngestProjection
                 HistoryCleanupLastFailureReason = @failureReason,
                 HistoryCleanupLastFailureAt = @failedAt,
                 HistoryCleanupLastFailureRunId = @runId
-            WHERE Id = 1 AND HistoryCleanupRunId = @runId;
-
-            IF @@ROWCOUNT <> 1
-                THROW 51042, 'The history cleanup run identity changed before failure recording.', 1;
-
-            """ + HistoryCleanupStateSelectSql;
+            WHERE Id = 1
+              AND HistoryCleanupRunId = @runId
+              AND HistoryCleanupStatus = N'RUNNING';
+            """;
         AddNVarChar(command, "@runId", 64, runId);
         AddDateTimeOffset(command, "@failedAt", failedAt.ToUniversalTime());
         AddDateTimeOffset(command, "@nextCheckAt", nextCheckAt.ToUniversalTime());
         AddNVarChar(command, "@failureCode", 128, failureCode);
         AddNVarChar(command, "@failureReason", 256, failureReason);
-        return await ExecuteHistoryCleanupStateReaderAsync(command, cancellationToken)
-            .ConfigureAwait(false);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
     public async Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(

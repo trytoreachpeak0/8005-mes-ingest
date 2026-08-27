@@ -12,33 +12,14 @@ public static class SharedSecretAuth
 {
     public const string BearerScheme = "Bearer";
 
-    /// <summary>
-    /// Prefer MesIngest:Urls; otherwise fall back to ASP.NET urls / ASPNETCORE_URLS
-    /// so auth cannot be bypassed by clearing only the MesIngest section.
-    /// </summary>
-    public static string ResolveEffectiveUrls(MesIngestHostOptions options, IConfiguration? configuration = null)
+    public static BindingSecurityPolicy ValidateStartup(
+        MesIngestHostOptions options,
+        IConfiguration configuration)
     {
-        if (!string.IsNullOrWhiteSpace(options.Urls))
+        var policy = ListenBindingPolicy.Create(options, configuration);
+        if (!policy.RequiresSharedSecret)
         {
-            return options.Urls;
-        }
-
-        var fromConfig = configuration?["urls"];
-        if (!string.IsNullOrWhiteSpace(fromConfig))
-        {
-            return fromConfig;
-        }
-
-        var fromEnv = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
-        return string.IsNullOrWhiteSpace(fromEnv) ? "" : fromEnv;
-    }
-
-    public static void ValidateStartup(MesIngestHostOptions options, IConfiguration? configuration = null)
-    {
-        var urls = ResolveEffectiveUrls(options, configuration);
-        if (!ListenBindingPolicy.RequiresSharedSecret(urls))
-        {
-            return;
+            return policy;
         }
 
         if (string.IsNullOrWhiteSpace(options.SharedSecret))
@@ -47,20 +28,20 @@ public static class SharedSecretAuth
                 "Listen URLs bind beyond localhost; set MesIngest:SharedSecret "
                 + "(Authorization: Bearer <secret>) or bind only 127.0.0.1/localhost.");
         }
+
+        return policy;
     }
 
     public static bool IsAuthorized(
         HttpRequest request,
-        MesIngestHostOptions options,
-        IConfiguration? configuration = null)
+        BindingSecurityPolicy policy)
     {
-        var urls = ResolveEffectiveUrls(options, configuration);
-        if (!ListenBindingPolicy.RequiresSharedSecret(urls))
+        if (!policy.RequiresSharedSecret)
         {
             return true;
         }
 
-        return IsExplicitlyAuthorized(request, options);
+        return IsExplicitlyAuthorized(request, policy.SharedSecret);
     }
 
     /// <summary>
@@ -70,9 +51,14 @@ public static class SharedSecretAuth
     /// </summary>
     public static bool IsExplicitlyAuthorized(
         HttpRequest request,
-        MesIngestHostOptions options)
+        MesIngestHostOptions options) =>
+        IsExplicitlyAuthorized(request, options.SharedSecret);
+
+    private static bool IsExplicitlyAuthorized(
+        HttpRequest request,
+        string sharedSecret)
     {
-        if (string.IsNullOrWhiteSpace(options.SharedSecret))
+        if (string.IsNullOrWhiteSpace(sharedSecret))
         {
             return false;
         }
@@ -90,7 +76,7 @@ public static class SharedSecretAuth
         }
 
         var presented = header[prefix.Length..].Trim();
-        return FixedTimeEquals(presented, options.SharedSecret);
+        return FixedTimeEquals(presented, sharedSecret);
     }
 
     private static bool FixedTimeEquals(string a, string b)

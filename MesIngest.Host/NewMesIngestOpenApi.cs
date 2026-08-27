@@ -91,7 +91,10 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
 
         foreach (var (status, description) in operation.Errors)
         {
-            responses[status] = operation.Path == "/api/v2/poll-traces/{pollTraceId}"
+            responses[status] = operation.Path == "/api/v2/externally-readable-demand-catalog"
+                && status == "409"
+                    ? JsonResponse(description, typeof(HistoryEpochMismatchErrorDto), context)
+                : operation.Path == "/api/v2/poll-traces/{pollTraceId}"
                 && status is "404" or "410"
                     ? JsonResponse(description, typeof(HistoricalReadErrorDto), context)
                     : status == "410" && operation.SupportsHistoricalExpiration
@@ -319,7 +322,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             [Header("If-None-Match", "One weak catalog ETag, for example W/\"catalog-h11111111111111111111111111111111-r42\".")],
             Errors(
                 ("400", "CATALOG_QUERY_NOT_SUPPORTED or INVALID_CATALOG_CONDITION."),
-                ("503", "INGEST_NOT_CURRENT — StoragePressurePause prevents a current external commitment.")));
+                ("409", "HISTORY_EPOCH_MISMATCH — the supplied conditional ETag belongs to a different HistoryEpoch."),
+                ("503", "INGEST_NOT_CURRENT — StoragePressurePause or an unacknowledged HistoryReset prevents a current external commitment.")));
         yield return Operation(
             "/api/v2/readability-audit",
             "ListReadabilityAudit",
@@ -387,7 +391,10 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             [
                 Path("seriesId", "Exact SeriesId."), Path("evidenceId", "Exact EvidenceId."),
                 Snapshot(required: true),
-                ArrayQuery("fields", "Requested sensitive-field allow-list.", ErrorSearchRawEvidenceFields.All),
+                ArrayQuery(
+                    "fields",
+                    "Requested sensitive-field allow-list. Repeated query keys are the canonical form; each value also accepts comma-separated fields for compatibility.",
+                    ErrorSearchRawEvidenceFields.All),
                 Query("maxItems", "Maximum returned items; hard maximum 20.", type: "integer", defaultValue: 20, minimum: 1, maximum: 20),
             ],
             Errors(
@@ -402,8 +409,8 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "ListCurrentIngestAttention",
             "CurrentIngestAttention",
             "List current operator attention items",
-            "Returns one operational snapshot with exact totals/facets, fixed severity/time/identity order, and durable bounded-history cleanup progress. This is a read model, not an alert acknowledgement channel.",
-            typeof(CurrentIngestAttentionDto),
+            "Returns one operational snapshot with exact totals/facets, fixed severity/time/identity order, durable bounded-history cleanup progress, and the coordinator-observed poll scheduler state. Host does not recalculate scheduler backoff. This is a read model, not an alert acknowledgement channel.",
+            typeof(CurrentIngestAttentionOperationalDto),
             [
                 PageSize(), PageNumber("pageNumber"),
                 ArrayQuery("kind", "Exact attention kind.", CurrentIngestAttentionKinds.All),
@@ -643,12 +650,14 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
             ["ErrorSearchDetailPeriodDto.category"] = SeriesErrorCatalog.Definitions.Select(x => x.Category).Distinct().Order().ToArray(),
             ["ErrorSearchDetailPeriodDto.severity"] = SeriesErrorCatalog.Definitions.Select(x => x.Severity).Distinct().Order().ToArray(),
             ["ErrorSearchRawEvidenceDto.includedFields"] = ErrorSearchRawEvidenceFields.All,
-            ["CurrentIngestAttentionDto.order"] = [CurrentIngestAttentionOrder.Default],
-            ["CurrentIngestAttentionDto.kinds"] = CurrentIngestAttentionKinds.All,
-            ["CurrentIngestAttentionDto.severities"] = CurrentIngestAttentionSeverities.All,
+            ["CurrentIngestAttentionOperationalDto.order"] = [CurrentIngestAttentionOrder.Default],
+            ["CurrentIngestAttentionOperationalDto.kinds"] = CurrentIngestAttentionKinds.All,
+            ["CurrentIngestAttentionOperationalDto.severities"] = CurrentIngestAttentionSeverities.All,
             ["CurrentIngestAttentionItemDto.kind"] = CurrentIngestAttentionKinds.All,
             ["CurrentIngestAttentionItemDto.severity"] = CurrentIngestAttentionSeverities.All,
             ["HistoryCleanupStateDto.status"] = HistoryCleanupRunStatuses.All,
+            ["StoragePressureStateDto.status"] = StoragePressureStatuses.All,
+            ["HistoryEpochMismatchErrorDto.code"] = [HistoryEpochMismatchException.ErrorCode],
             ["OverviewNavigationIntentDto.target"] = ["DEMAND_SERIES", "READABILITY_AUDIT", "ERROR_SEARCH", "CURRENT_INGEST_ATTENTION", "DEMAND_SERIES_DETAIL", "TASK_TYPE_PROTECTION", "POLL_TRACE"],
             ["WatchOverviewDto.recentActivityState"] = ["HAS_RECENT_HIGHLIGHTS", "NO_RECENT_HIGHLIGHTS"],
             ["AbsenceAuthorityDto.phase"] = ["BARRIER", "POST_BARRIER", "NORMAL"],
@@ -690,6 +699,23 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
             }
 
             propertySchema.Description = Describe(context.Type.Name, jsonName, property.PropertyType);
+            if (context.Type == typeof(PollSchedulerStateDto))
+            {
+                if (string.Equals(jsonName, "consecutiveFailures", StringComparison.Ordinal))
+                {
+                    propertySchema.Minimum = 0;
+                }
+                else if (string.Equals(jsonName, "backoffLevel", StringComparison.Ordinal))
+                {
+                    propertySchema.Minimum = 0;
+                    propertySchema.Maximum = 3;
+                }
+            }
+            if (context.Type == typeof(HistoryEpochMismatchErrorDto)
+                && jsonName is "currentHistoryEpoch" or "suppliedHistoryEpoch")
+            {
+                propertySchema.Format = "uuid";
+            }
             if (context.Type == typeof(NewMesIngestContractDto)
                 && string.Equals(jsonName, "schemaVersion", StringComparison.Ordinal))
             {
@@ -732,7 +758,7 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
         if (typeName is not (nameof(DemandSeriesListDto)
             or nameof(ReadabilityAuditListDto)
             or nameof(ErrorSearchListDto)
-            or nameof(CurrentIngestAttentionDto)))
+            or nameof(CurrentIngestAttentionOperationalDto)))
         {
             return;
         }
@@ -753,6 +779,35 @@ internal sealed class NewMesIngestOpenApiSchemaFilter : ISchemaFilter
 
     private static string Describe(string typeName, string propertyName, Type propertyType)
     {
+        if (typeName == nameof(PollSchedulerStateDto))
+        {
+            return propertyName switch
+            {
+                "consecutiveFailures" =>
+                    "Coordinator-observed consecutive failure count; zero before polling starts and after a successful round.",
+                "backoffLevel" =>
+                    "Coordinator-computed bounded backoff level from 0 through 3; Host never recalculates it.",
+                "nextAllowedStart" =>
+                    "Coordinator-computed next allowed Host UTC start; null before the first scheduling decision.",
+                "lastSuccessAt" =>
+                    "Last successful coordinator round completion in Host UTC; null until the first success.",
+                "pollTraceId" =>
+                    "PollTrace identity observed for the latest scheduling decision; null when no PollTrace was created.",
+                _ => $"Frozen {typeName}.{propertyName} contract field.",
+            };
+        }
+
+        if (typeName == nameof(HistoryEpochMismatchErrorDto))
+        {
+            return propertyName switch
+            {
+                "code" => $"Stable error code {HistoryEpochMismatchException.ErrorCode}.",
+                "currentHistoryEpoch" => "Current Host HistoryEpoch UUID.",
+                "suppliedHistoryEpoch" => "HistoryEpoch UUID decoded from the rejected conditional ETag.",
+                _ => $"Frozen {typeName}.{propertyName} contract field.",
+            };
+        }
+
         if (string.Equals(propertyName, "contractVersion", StringComparison.Ordinal))
         {
             return $"Exact comparable contract identity; must equal {NewMesIngestContract.Version}.";

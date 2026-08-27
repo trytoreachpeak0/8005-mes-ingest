@@ -32,7 +32,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         FailOnceHistoryCleanupOperations? failOnce = null;
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -146,7 +146,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         var clock = new ManualTimerTimeProvider(firstSeenAt);
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -216,7 +216,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         var clock = new AdjustableTimeProvider(firstSeenAt);
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -244,6 +244,46 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         Assert.True(
             stopwatch.Elapsed < TimeSpan.FromSeconds(15),
             $"The real-SQL baseline took {stopwatch.Elapsed}.");
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Try_fail_cleanup_run_is_idempotent_and_scoped_to_the_running_run_id()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        var projection = new SqlServerMesIngestProjection(database.ConnectionString);
+        var startedAt = new DateTimeOffset(2026, 8, 24, 8, 0, 0, TimeSpan.Zero);
+        var failedAt = startedAt.AddSeconds(1);
+        await projection.BeginHistoryCleanupRunAsync(
+            "uncertain-begin-run",
+            startedAt,
+            startedAt.AddHours(1));
+
+        var reconciled = await projection.TryFailHistoryCleanupRunAsync(
+            "uncertain-begin-run",
+            failedAt,
+            startedAt.AddHours(1),
+            HistoryCleanupFailureCodes.BatchFailed,
+            nameof(IOException));
+        var repeated = await projection.TryFailHistoryCleanupRunAsync(
+            "uncertain-begin-run",
+            failedAt,
+            startedAt.AddHours(1),
+            HistoryCleanupFailureCodes.BatchFailed,
+            nameof(IOException));
+        var stale = await projection.TryFailHistoryCleanupRunAsync(
+            "different-run",
+            failedAt,
+            startedAt.AddHours(1),
+            HistoryCleanupFailureCodes.BatchFailed,
+            nameof(IOException));
+        var state = await projection.ReadHistoryCleanupStateAsync();
+
+        Assert.True(reconciled);
+        Assert.False(repeated);
+        Assert.False(stale);
+        Assert.Equal(HistoryCleanupRunStatuses.Failed, state.Status);
+        Assert.Equal("uncertain-begin-run", state.LastFailureRunId);
+        Assert.Equal(nameof(IOException), state.LastFailureReason);
     }
 
     private static async Task SeedMinimumArchivedSeriesAsync(
@@ -373,8 +413,8 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
@@ -447,14 +487,14 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
                 nextCheckAt,
                 cancellationToken);
 
-        public Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+        public Task<bool> TryFailHistoryCleanupRunAsync(
             string runId,
             DateTimeOffset failedAt,
             DateTimeOffset nextCheckAt,
             string failureCode,
             string failureReason,
             CancellationToken cancellationToken = default) =>
-            inner.FailHistoryCleanupRunAsync(
+            inner.TryFailHistoryCleanupRunAsync(
                 runId,
                 failedAt,
                 nextCheckAt,

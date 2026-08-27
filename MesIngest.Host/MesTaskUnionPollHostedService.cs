@@ -13,17 +13,23 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
     private readonly MesIngestHostOptions _options;
     private readonly ILogger<MesTaskUnionPollHostedService> _logger;
     private readonly IngestWorkPriorityGate _workPriorityGate;
+    private readonly TimeProvider _timeProvider;
+    private readonly IPollSchedulerStateObserver _schedulerStateObserver;
 
     public MesTaskUnionPollHostedService(
         StoragePressureGuardedPollRunner runner,
         MesIngestHostOptions options,
         ILogger<MesTaskUnionPollHostedService> logger,
-        IngestWorkPriorityGate? workPriorityGate = null)
+        IngestWorkPriorityGate? workPriorityGate = null,
+        TimeProvider? timeProvider = null,
+        IPollSchedulerStateObserver? schedulerStateObserver = null)
     {
         _runner = runner ?? throw new ArgumentNullException(nameof(runner));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _workPriorityGate = workPriorityGate ?? new IngestWorkPriorityGate();
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _schedulerStateObserver = schedulerStateObserver ?? new PollSchedulerState();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -41,9 +47,11 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
             _options.QueryTimeoutSeconds);
 
         DateTimeOffset? roundStartedAt = null;
+        string? pollTraceId = null;
         Func<CancellationToken, Task<bool>> runRound = async cancellationToken =>
         {
             roundStartedAt = null;
+            pollTraceId = null;
             using var priorityLease = await _workPriorityGate.EnterPollAsync(cancellationToken)
                 .ConfigureAwait(false);
             try
@@ -57,6 +65,7 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
                     return true;
                 }
                 roundStartedAt = receipt.StartedAt;
+                pollTraceId = receipt.PollTraceId;
 
                 _logger.LogInformation(
                     "V2 Oracle round {PollTraceId} completed as {Outcome}; projectionCommit={ProjectionCommitId}.",
@@ -81,8 +90,10 @@ public sealed class MesTaskUnionPollHostedService : BackgroundService
             runRound: runRound,
             pollStartInterval: pollStartInterval,
             cancellationToken: stoppingToken,
-            utcNow: null,
-            delay: null,
-            roundStartedAt: () => roundStartedAt).ConfigureAwait(false);
+            utcNow: _timeProvider.GetUtcNow,
+            delay: (wait, ct) => Task.Delay(wait, _timeProvider, ct),
+            roundStartedAt: () => roundStartedAt,
+            pollTraceId: () => pollTraceId,
+            stateObserver: _schedulerStateObserver).ConfigureAwait(false);
     }
 }

@@ -919,7 +919,7 @@ public sealed class TaskTypeProtectionTests : IClassFixture<WebApplicationFactor
     }
 
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+        _factory.WithWebHostBuilder(builder => builder.UseProductionSqlApiTestHost());
 
     private void AssertDatabaseEvidence(Ticket01SqlServerDatabase database)
     {
@@ -940,8 +940,8 @@ public sealed class TaskTypeProtectionTests : IClassFixture<WebApplicationFactor
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
             [$"{MesIngestHostOptions.SectionName}__ZeroDropEnterThreshold"] = EnterThreshold.ToString(),
             [$"{MesIngestHostOptions.SectionName}__ZeroDropClearStreak"] = RequiredRecoveryStreak.ToString(),

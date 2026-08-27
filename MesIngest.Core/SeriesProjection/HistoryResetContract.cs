@@ -65,9 +65,15 @@ public sealed class HistoryEpochMismatchException : Exception
             $"The supplied HistoryEpoch '{actual}' does not match the current "
             + $"HistoryEpoch '{expected}'.")
     {
+        CurrentHistoryEpoch = expected;
+        SuppliedHistoryEpoch = actual;
     }
 
     public string Code => ErrorCode;
+
+    public HistoryEpoch CurrentHistoryEpoch { get; }
+
+    public HistoryEpoch SuppliedHistoryEpoch { get; }
 }
 
 public static class HistoryResetAcknowledgementPolicy

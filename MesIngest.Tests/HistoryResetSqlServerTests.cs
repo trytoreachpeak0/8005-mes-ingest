@@ -53,7 +53,7 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
 
         using (ConfigureProductionV2Environment(database.ConnectionString))
         await using (var factory = _factory.WithWebHostBuilder(
-            builder => builder.UseEnvironment(Environments.Production)))
+            builder => builder.UseProductionSqlApiTestHost()))
         {
             using var httpClient = factory.CreateClient();
             using var response = await httpClient.GetAsync(
@@ -203,7 +203,8 @@ public sealed class HistoryResetSqlServerTests : IClassFixture<WebApplicationFac
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

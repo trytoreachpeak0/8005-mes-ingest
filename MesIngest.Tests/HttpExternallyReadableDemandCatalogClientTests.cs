@@ -15,7 +15,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
 
     private const string CompleteCatalogBody = """
         {
-          "contractVersion": "2026.08.new-mes-ingest.v2.3",
+          "contractVersion": "2026.08.new-mes-ingest.v2.4",
           "historyEpoch": "22222222-2222-2222-2222-222222222222",
           "catalogRevision": 12,
           "projectionCommitId": "commit-12",
@@ -163,11 +163,53 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
     }
 
     [Fact]
+    public async Task Old_epoch_409_maps_the_typed_body_to_an_epoch_mismatch_signal()
+    {
+        var handler = new RecordingHttpMessageHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath == HttpExternallyReadableDemandCatalogClient.ContractPath)
+            {
+                return JsonResponse(HttpStatusCode.OK, CreateContractBody());
+            }
+
+            return JsonResponse(
+                HttpStatusCode.Conflict,
+                """
+                {
+                  "code": "HISTORY_EPOCH_MISMATCH",
+                  "error": "The supplied catalog condition belongs to an earlier HistoryEpoch.",
+                  "currentHistoryEpoch": "33333333-3333-3333-3333-333333333333",
+                  "suppliedHistoryEpoch": "22222222-2222-2222-2222-222222222222"
+                }
+                """);
+        });
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://mes.example/"),
+        };
+        var client = new HttpExternallyReadableDemandCatalogClient(httpClient);
+
+        var error = await Assert.ThrowsAsync<HistoryEpochMismatchException>(() => client.ReadAsync(
+            new ExternallyReadableDemandCatalogIdentity(TestHistoryEpoch, 11)));
+
+        Assert.Equal(
+            HistoryEpoch.FromGuid(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+            error.CurrentHistoryEpoch);
+        Assert.Equal(TestHistoryEpoch, error.SuppliedHistoryEpoch);
+        Assert.Collection(
+            handler.Requests,
+            request => Assert.Equal(HttpExternallyReadableDemandCatalogClient.ContractPath, request.PathAndQuery),
+            request => Assert.Equal(
+                ["W/\"catalog-h22222222222222222222222222222222-r11\""],
+                request.IfNoneMatch));
+    }
+
+    [Fact]
     public async Task Initial_empty_catalog_has_revision_zero_and_no_fabricated_projection_commit()
     {
         const string body = """
             {
-              "contractVersion": "2026.08.new-mes-ingest.v2.3",
+              "contractVersion": "2026.08.new-mes-ingest.v2.4",
               "historyEpoch": "22222222-2222-2222-2222-222222222222",
               "catalogRevision": 0,
               "projectionCommitId": null,
@@ -214,7 +256,7 @@ public sealed class HttpExternallyReadableDemandCatalogClientTests
     public async Task Complete_200_rejects_a_mismatched_contract_version()
     {
         var mismatchedBody = CompleteCatalogBody.Replace(
-            "2026.08.new-mes-ingest.v2.3",
+            "2026.08.new-mes-ingest.v2.4",
             "2026.08.new-mes-ingest.tracer.8",
             StringComparison.Ordinal);
         var handler = new RecordingHttpMessageHandler(request =>

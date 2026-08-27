@@ -5,6 +5,7 @@ using MesIngest.Host;
 using MesIngest.ReferenceConsumer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit.Abstractions;
@@ -118,6 +119,7 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
     public async Task Conditional_catalog_identity_from_an_old_history_epoch_is_rejected()
     {
         string oldEtag;
+        Guid oldHistoryEpoch;
         await using (var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync())
         {
             using var oldEnvironment = ConfigureProductionV2Environment(oldDatabase.ConnectionString);
@@ -126,6 +128,7 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
 
             var oldCatalog = await GetCatalogAsync(oldClient);
             oldEtag = oldCatalog.ETag;
+            oldHistoryEpoch = Guid.Parse(oldCatalog.Body.GetProperty("historyEpoch").GetString()!);
             AssertDatabaseEvidence(oldDatabase);
         }
 
@@ -133,11 +136,26 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         using var newEnvironment = ConfigureProductionV2Environment(newDatabase.ConnectionString);
         await using var newFactory = CreateFactory();
         using var newClient = newFactory.CreateClient();
+        var currentCatalog = await GetCatalogAsync(newClient);
+        var currentHistoryEpoch = Guid.Parse(
+            currentCatalog.Body.GetProperty("historyEpoch").GetString()!);
         using var request = new HttpRequestMessage(HttpMethod.Get, CatalogUri);
         request.Headers.TryAddWithoutValidation("If-None-Match", oldEtag);
 
-        await Assert.ThrowsAsync<HistoryEpochMismatchException>(
-            () => newClient.SendAsync(request));
+        using var response = await newClient.SendAsync(request);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(
+            HistoryEpochMismatchException.ErrorCode,
+            body.RootElement.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("error").GetString()));
+        Assert.Equal(
+            currentHistoryEpoch,
+            body.RootElement.GetProperty("currentHistoryEpoch").GetGuid());
+        Assert.Equal(
+            oldHistoryEpoch,
+            body.RootElement.GetProperty("suppliedHistoryEpoch").GetGuid());
         AssertDatabaseEvidence(newDatabase);
     }
 
@@ -611,7 +629,12 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
     }
 
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(Environments.Production);
+            builder.ConfigureTestServices(services =>
+                services.RemoveMesTaskUnionPollHostedService());
+        });
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
         new Ticket01ProcessEnvironmentScope(new Dictionary<string, string?>
@@ -619,7 +642,8 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

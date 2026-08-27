@@ -57,7 +57,7 @@ public sealed class WatchV2ApiClientTests
                 capabilities = NewMesIngestContract.Capabilities.Select(capability => new
                 {
                     id = capability.Id,
-                    version = capability.Id == "DEMAND_SERIES" ? "1.0" : capability.Version,
+                    version = capability.Id == "DEMAND_SERIES" ? "2.0" : capability.Version,
                 }),
             }));
         });
@@ -522,10 +522,17 @@ public sealed class WatchV2ApiClientTests
             Kinds: [" SERIES_ERROR ", "POLL_RUN_FAILURE", "SERIES_ERROR"],
             Severities: [" WARNING ", "ERROR"]);
         var expected = CurrentAttention();
+        var scheduler = new PollSchedulerStateSnapshot(
+            ConsecutiveFailures: 2,
+            BackoffLevel: 2,
+            NextAllowedStart: expected.Snapshot.SnapshotAsOf.AddMinutes(2),
+            LastSuccessAt: expected.Snapshot.SnapshotAsOf.AddMinutes(-3),
+            PollTraceId: "poll-watch-scheduler");
         using var handler = new DelegateHandler((request, _) =>
         {
             observed = request.RequestUri;
-            return Task.FromResult(JsonResponse(CurrentIngestAttentionDto.From(expected)));
+            return Task.FromResult(JsonResponse(
+                CurrentIngestAttentionOperationalDto.From(expected, scheduler)));
         });
         using var client = MesIngestV2ApiClient.CreateForHost(
             new WatchHostSettings("http://ticket18-host:5088", "secret", 30),
@@ -544,10 +551,30 @@ public sealed class WatchV2ApiClientTests
         Assert.Equal(expected.Items[0].Evidence, actual.Items[0].Evidence);
         Assert.Equal(expected.HistoryCleanup, actual.HistoryCleanup);
         Assert.Equal(expected.StoragePressure, actual.StoragePressure);
+        Assert.Equal(scheduler, actual.PollScheduler);
         Assert.Equal(expected.Items[0].Navigation.Target, actual.Items[0].Navigation.Target);
         Assert.Equal(
             expected.Items[0].Navigation.ErrorActivityStates,
             actual.Items[0].Navigation.ErrorActivityStates);
+    }
+
+    [Fact]
+    public async Task Current_attention_rejects_the_pre_v2_4_shape_without_poll_scheduler()
+    {
+        using var handler = new DelegateHandler((_, _) => Task.FromResult(
+            JsonResponse(CurrentIngestAttentionDto.From(CurrentAttention()))));
+        using var client = MesIngestV2ApiClient.CreateForHost(
+            new WatchHostSettings("http://ticket18-host:5088", "secret", 30),
+            handler: handler);
+
+        var error = await Assert.ThrowsAsync<WatchHostQueryException>(() =>
+            client.FetchCurrentAttentionAsync(
+                new CurrentIngestAttentionQuery(),
+                CancellationToken.None));
+
+        Assert.Equal(WatchHostFailureKind.Decode, error.Kind);
+        Assert.Equal(LatencyStages.HttpJson, error.Stage);
+        Assert.Contains("current-ingest-attention", error.Endpoint, StringComparison.Ordinal);
     }
 
     [Fact]

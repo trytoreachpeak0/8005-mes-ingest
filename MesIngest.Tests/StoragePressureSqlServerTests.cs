@@ -74,7 +74,7 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
 
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
         await using var factory = _factory.WithWebHostBuilder(
-            builder => builder.UseEnvironment(Environments.Production));
+            builder => builder.UseProductionSqlApiTestHost());
         using var client = factory.CreateClient();
         using var response = await client.GetAsync("/api/v2/externally-readable-demand-catalog");
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -174,7 +174,8 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

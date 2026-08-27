@@ -7,7 +7,7 @@ namespace MesIngest.Tests;
 
 public sealed class ReleasePackageValidationTests
 {
-    private const string ContractVersion = "2026.08.new-mes-ingest.v2.3";
+    private const string ContractVersion = "2026.08.new-mes-ingest.v2.4";
     private const int ContractSchemaVersion = 29;
     private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
@@ -89,7 +89,10 @@ public sealed class ReleasePackageValidationTests
         Assert.Contains("/api/demand-changes", smoke, StringComparison.Ordinal);
         Assert.Contains("EXACT_VERSION_SCHEMA_AND_CAPABILITIES", smoke, StringComparison.Ordinal);
         Assert.Contains("$expectedCapabilityVersions = [ordered]@{", smoke, StringComparison.Ordinal);
-        Assert.Contains("ERROR_SEARCH = '2.1'", smoke, StringComparison.Ordinal);
+        Assert.Contains("CURRENT_INGEST_ATTENTION = '2.1'", smoke, StringComparison.Ordinal);
+        Assert.Contains("DEMAND_SERIES = '2.1'", smoke, StringComparison.Ordinal);
+        Assert.Contains("ERROR_SEARCH = '2.2'", smoke, StringComparison.Ordinal);
+        Assert.Contains("EXTERNALLY_READABLE_DEMAND_CATALOG = '2.1'", smoke, StringComparison.Ordinal);
         Assert.Contains(
             "$expectedCapabilityVersions = [ordered]@{",
             File.ReadAllText(Path.Combine(CSharpRoot, "pack", "validation", "Invoke-FactoryAcceptance.ps1")),
