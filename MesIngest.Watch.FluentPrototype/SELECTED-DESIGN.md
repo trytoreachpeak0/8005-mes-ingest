@@ -96,6 +96,13 @@ rewritten and receive a fresh golden-machine preview approval.
 User confirmation on 2026-08-26 supersedes the earlier inline-InfoBar placement
 rule; existing page hierarchy selections remain unchanged.
 
+User selection on 2026-08-26: **Variant A — independent Fluent toast cards — is
+approved as the notification presentation direction.** Variants B (grouped
+activity surface) and C (compact command-first tiles) remain rejected prototype
+comparisons. This approval selects the structure and interaction hierarchy only;
+production UI must be rewritten and receive a fresh comparable golden-machine
+preview approval.
+
 - The window owns a non-layout overlay toast host in the content region's upper
   right below the title bar. It is about 380 epx wide, shows at most three items
   newest-first, coalesces same-source events, and becomes a top single column at

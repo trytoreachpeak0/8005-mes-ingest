@@ -516,8 +516,8 @@ public sealed class WatchAreaProfileLiveListTests
         {
             var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
             var editor = Assert.IsType<TextBox>(window.FindName("AreaProfileEditor"));
-            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                window.FindName("AreaProfileInfoBar"));
+            var notifications = Assert.IsType<ItemsControl>(
+                window.FindName("NotificationItemsControl"));
             list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
             var originalContent = editor.Text;
             using var writer = ExclusiveFileWriter.WriteUtf8AndHold(
@@ -534,15 +534,18 @@ public sealed class WatchAreaProfileLiveListTests
                 clock.Advance(WatchAreaFilterProfileStore.ExternalReadRetryDelays[index]);
                 if (index + 1 < WatchAreaFilterProfileStore.ExternalReadRetryDelays.Count)
                 {
-                    Assert.NotEqual("无法完成 AREA 配置操作", infoBar.Title);
+                    Assert.DoesNotContain(
+                        notifications.Items.Cast<object>(),
+                        item => NotificationTitle(item) == "无法完成 AREA 配置操作");
                 }
             }
 
             PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
 
             Assert.Equal(originalContent, editor.Text);
-            Assert.True(infoBar.IsOpen);
-            Assert.Equal("无法完成 AREA 配置操作", infoBar.Title);
+            Assert.Contains(
+                notifications.Items.Cast<object>(),
+                item => NotificationTitle(item) == "无法完成 AREA 配置操作");
         });
 
     [Fact]
@@ -771,6 +774,9 @@ public sealed class WatchAreaProfileLiveListTests
         task.GetAwaiter().GetResult();
         DrainDispatcher(dispatcher);
     }
+
+    private static string? NotificationTitle(object item) =>
+        item.GetType().GetProperty("Title")?.GetValue(item) as string;
 
     private static T? FindVisualDescendant<T>(DependencyObject root)
         where T : DependencyObject

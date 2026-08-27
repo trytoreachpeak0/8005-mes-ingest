@@ -409,7 +409,7 @@ internal partial class WatchWorkspaceWindow
             ReadabilityRefreshPolicyText.Text = state.ReadabilityAudit.IsRefreshing
                 ? "正在读取 · 自动刷新保持开启"
                 : $"每 {_preferences.RefreshIntervals.ReadabilityAudit.IntervalSeconds} 秒自动刷新";
-            ReadabilityAuditInfoBar.IsOpen = presentation.IsInfoOpen;
+            ReadabilityAuditInfoBar.IsOpen = false;
             ReadabilityAuditInfoBar.Severity = ToInfoBarSeverity(presentation.InfoSeverity);
             ReadabilityAuditInfoBar.Title = presentation.InfoTitle;
             ReadabilityAuditInfoBar.Message = presentation.InfoMessage;
@@ -717,13 +717,12 @@ internal partial class WatchWorkspaceWindow
             or InvalidOperationException
             or ReadabilityAuditException)
         {
-            ReadabilityAuditInfoBar.IsOpen = true;
-            ReadabilityAuditInfoBar.Severity = InfoBarSeverity.Error;
-            ReadabilityAuditInfoBar.Title = "无法执行资格审计操作";
-            ReadabilityAuditInfoBar.Message = exception.Message;
-            AutomationProperties.SetName(
-                ReadabilityAuditInfoBar,
-                $"{ReadabilityAuditInfoBar.Title}。{ReadabilityAuditInfoBar.Message}");
+            PresentOperationFailure(
+                WatchWorkspacePage.ReadabilityAudit,
+                "readability.operation",
+                "无法执行资格审计操作",
+                "请检查输入或当前快照后重试。",
+                "返回资格审计");
         }
     }
 }

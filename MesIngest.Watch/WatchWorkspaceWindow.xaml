@@ -141,6 +141,18 @@
         <wpf:GridLength x:Key="ErrorSearchDetailColumnWidth">370</wpf:GridLength>
         <wpf:GridLength x:Key="CurrentAttentionMasterColumnWidth">520</wpf:GridLength>
         <sys:Double x:Key="Ticket22ThreeCardStackBreakpoint">1072</sys:Double>
+        <Style x:Key="NotificationFocusVisual" TargetType="Control">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Control">
+                        <Border Margin="-2"
+                                BorderBrush="{DynamicResource TextFillColorPrimaryBrush}"
+                                BorderThickness="2"
+                                CornerRadius="4" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style x:Key="DemandSeriesReadOnlyGrid"
                TargetType="DataGrid"
                BasedOn="{StaticResource WatchDataGrid}">
@@ -278,19 +290,32 @@
                                                   Margin="0,3,0,0"
                                                   AutomationProperties.Name="概览快照与客户端读取时间" />
                                 </StackPanel>
-                                <Border x:Name="OverviewHostStatusPill"
-                                        Grid.Column="1"
-                                        Style="{StaticResource StatusPill}"
-                                        VerticalAlignment="Center"
-                                        AutomationProperties.Name="概览 Host 状态">
-                                    <StackPanel Orientation="Horizontal">
-                                        <ui:SymbolIcon x:Name="OverviewHostStatusIcon" Symbol="CloudOff24" />
-                                        <ui:TextBlock x:Name="OverviewHostStatusText"
-                                                      Text="Host 未连接"
-                                                      FontTypography="BodyStrong"
-                                                      Margin="6,0,0,0" />
-                                    </StackPanel>
-                                </Border>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ui:Button x:Name="OverviewFaultStatusButton"
+                                               Visibility="Collapsed"
+                                               Appearance="Transparent"
+                                               Padding="0"
+                                               MinWidth="32"
+                                               MinHeight="32"
+                                               Margin="0,0,8,0"
+                                               Click="OnFaultStatusClick">
+                                        <Border x:Name="OverviewFaultStatusPill" Style="{StaticResource StatusPillCritical}">
+                                            <ui:TextBlock x:Name="OverviewFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                        </Border>
+                                    </ui:Button>
+                                    <Border x:Name="OverviewHostStatusPill"
+                                            Style="{StaticResource StatusPill}"
+                                            VerticalAlignment="Center"
+                                            AutomationProperties.Name="概览 Host 状态">
+                                        <StackPanel Orientation="Horizontal">
+                                            <ui:SymbolIcon x:Name="OverviewHostStatusIcon" Symbol="CloudOff24" />
+                                            <ui:TextBlock x:Name="OverviewHostStatusText"
+                                                          Text="Host 未连接"
+                                                          FontTypography="BodyStrong"
+                                                          Margin="6,0,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
                             </Grid>
 
                             <ui:InfoBar x:Name="OverviewInfoBar"
@@ -438,6 +463,18 @@
                                         <StackPanel Grid.Column="1"
                                                     Orientation="Horizontal"
                                                     VerticalAlignment="Center">
+                                            <ui:Button x:Name="DemandSeriesFaultStatusButton"
+                                                       Visibility="Collapsed"
+                                                       Appearance="Transparent"
+                                                       Padding="0"
+                                                       MinWidth="32"
+                                                       MinHeight="32"
+                                                       Margin="0,0,8,0"
+                                                       Click="OnFaultStatusClick">
+                                                <Border x:Name="DemandSeriesFaultStatusPill" Style="{StaticResource StatusPillCritical}">
+                                                    <ui:TextBlock x:Name="DemandSeriesFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                                </Border>
+                                            </ui:Button>
                                             <Border x:Name="DemandSeriesTrackingFacetPill"
                                                     Style="{StaticResource StatusPillSuccess}">
                                                 <ui:TextBlock x:Name="DemandSeriesTrackingFacetText"
@@ -662,30 +699,6 @@
                                         </ScrollViewer>
                                 </Border>
 
-                                <Border x:Name="DemandSeriesAllAreasConfirmPanel"
-                                        Visibility="Collapsed"
-                                        Margin="{StaticResource DemandSeriesSectionTopMargin}"
-                                        AutomationProperties.Name="范围外对象切换确认">
-                                    <StackPanel>
-                                        <ui:InfoBar x:Name="DemandSeriesAllAreasConfirmInfo"
-                                                    IsOpen="True"
-                                                    IsClosable="False"
-                                                    Severity="Warning"
-                                                    Title="目标不在当前 AREA 范围"
-                                                    Message="切换到“全部 AREA”会重新查询第一页和详情；不会改变 Host 业务投影或 Dispatch 范围。"
-                                                    AutomationProperties.Name="范围外对象切换警告" />
-                                         <ui:Button x:Name="DemandSeriesAllAreasConfirmButton"
-                                                    Content="确认切换到全部 AREA"
-                                                    Appearance="Secondary"
-                                                    HorizontalAlignment="Left"
-                                                    Margin="{StaticResource DemandSeriesActionTopMargin}"
-                                                    Click="OnDemandSeriesAllAreasConfirmClick"
-                                                   KeyboardNavigation.IsTabStop="True"
-                                                    AutomationProperties.Name="确认切换到全部 AREA"
-                                                    AutomationProperties.AutomationId="DemandSeriesAllAreasConfirmButton" />
-                                    </StackPanel>
-                                </Border>
-
                                 </StackPanel>
 
                                 <Border x:Name="DemandSeriesMasterPanel"
@@ -893,6 +906,18 @@
                                 <StackPanel Grid.Column="1"
                                             Orientation="Horizontal"
                                             VerticalAlignment="Center">
+                                    <ui:Button x:Name="ReadabilityFaultStatusButton"
+                                               Visibility="Collapsed"
+                                               Appearance="Transparent"
+                                               Padding="0"
+                                               MinWidth="32"
+                                               MinHeight="32"
+                                               Margin="0,0,8,0"
+                                               Click="OnFaultStatusClick">
+                                        <Border x:Name="ReadabilityFaultStatusPill" Style="{StaticResource StatusPillCritical}">
+                                            <ui:TextBlock x:Name="ReadabilityFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                        </Border>
+                                    </ui:Button>
                                     <Border x:Name="ReadabilityCatalogRevisionPill"
                                             Style="{StaticResource StatusPillSuccess}">
                                         <ui:TextBlock x:Name="ReadabilityCatalogRevisionText"
@@ -1734,15 +1759,28 @@
                                               TextWrapping="Wrap"
                                               AutomationProperties.Name="错误检索 Endpoint、最近成功与自动刷新：尚未读取" />
                             </StackPanel>
-                            <Border x:Name="ErrorSearchHeaderStatusPill"
-                                    Grid.Column="1"
-                                    Style="{StaticResource StatusPill}"
-                                    VerticalAlignment="Center"
-                                    AutomationProperties.Name="错误检索状态：尚无快照">
-                                <ui:TextBlock x:Name="ErrorSearchHeaderStatusText"
-                                              Text="尚无快照"
-                                              FontTypography="BodyStrong" />
-                            </Border>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <ui:Button x:Name="ErrorSearchFaultStatusButton"
+                                           Visibility="Collapsed"
+                                           Appearance="Transparent"
+                                           Padding="0"
+                                           MinWidth="32"
+                                           MinHeight="32"
+                                           Margin="0,0,8,0"
+                                           Click="OnFaultStatusClick">
+                                    <Border x:Name="ErrorSearchFaultStatusPill" Style="{StaticResource StatusPillCritical}">
+                                        <ui:TextBlock x:Name="ErrorSearchFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                    </Border>
+                                </ui:Button>
+                                <Border x:Name="ErrorSearchHeaderStatusPill"
+                                        Style="{StaticResource StatusPill}"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="错误检索状态：尚无快照">
+                                    <ui:TextBlock x:Name="ErrorSearchHeaderStatusText"
+                                                  Text="尚无快照"
+                                                  FontTypography="BodyStrong" />
+                                </Border>
+                            </StackPanel>
                         </Grid>
                         <StackPanel x:Name="ErrorSearchContractFactsPanel"
                                     Grid.Row="2">
@@ -2834,40 +2872,6 @@
                                                      TextChanged="OnAreaProfileDraftChanged"
                                                      AutomationProperties.Name="AREA 配置名称"
                                                      AutomationProperties.AutomationId="AreaProfileNameInput" />
-                                            <Border x:Name="AreaProfileWriteConflictPanel"
-                                                    Grid.Row="2"
-                                                    Grid.ColumnSpan="2"
-                                                    Visibility="Collapsed"
-                                                    Margin="0,12,0,0"
-                                                    AutomationProperties.Name="AREA 并发写入冲突">
-                                                <StackPanel>
-                                                    <ui:InfoBar x:Name="AreaProfileWriteConflictInfo"
-                                                                IsOpen="True"
-                                                                IsClosable="False"
-                                                                Severity="Warning"
-                                                                Title="磁盘版本与你的输入都已改变"
-                                                                Message="该 AREA 配置已被其他程序修改，你的输入尚未落盘；请选择保留哪一份。自动保存在选择前暂停。"
-                                                                AutomationProperties.Name="AREA 并发写入冲突警告" />
-                                                    <StackPanel Orientation="Horizontal"
-                                                                Margin="0,12,0,0">
-                                                        <ui:Button x:Name="AreaProfileKeepLocalEditButton"
-                                                                   Content="保留我的修改"
-                                                                   Appearance="Secondary"
-                                                                   KeyboardNavigation.IsTabStop="True"
-                                                                   Click="OnAreaProfileKeepLocalEditClick"
-                                                                   AutomationProperties.Name="保留编辑器中的 AREA 修改并覆盖磁盘"
-                                                                   AutomationProperties.AutomationId="AreaProfileKeepLocalEditButton" />
-                                                        <ui:Button x:Name="AreaProfileUseDiskVersionButton"
-                                                                   Content="使用磁盘版本"
-                                                                   Appearance="Secondary"
-                                                                   Margin="8,0,0,0"
-                                                                   KeyboardNavigation.IsTabStop="True"
-                                                                   Click="OnAreaProfileUseDiskVersionClick"
-                                                                   AutomationProperties.Name="丢弃编辑器修改并加载磁盘上的 AREA 版本"
-                                                                   AutomationProperties.AutomationId="AreaProfileUseDiskVersionButton" />
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
                                         </Grid>
                                         <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
                                         <Grid x:Name="AreaProfileEditorWorkspaceGrid"
@@ -3074,15 +3078,28 @@
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                   AutomationProperties.Name="接入告警 Endpoint、最近成功与自动刷新：尚未读取" />
                                 </StackPanel>
-                                <Border x:Name="CurrentAttentionHeaderStatusPill"
-                                        Grid.Column="1"
-                                        Style="{StaticResource StatusPill}"
-                                        VerticalAlignment="Center"
-                                        AutomationProperties.Name="接入告警状态：尚无快照">
-                                    <ui:TextBlock x:Name="CurrentAttentionHeaderStatusText"
-                                                  Text="尚无快照"
-                                                  FontTypography="BodyStrong" />
-                                </Border>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ui:Button x:Name="CurrentAttentionFaultStatusButton"
+                                               Visibility="Collapsed"
+                                               Appearance="Transparent"
+                                               Padding="0"
+                                               MinWidth="32"
+                                               MinHeight="32"
+                                               Margin="0,0,8,0"
+                                               Click="OnFaultStatusClick">
+                                        <Border x:Name="CurrentAttentionFaultStatusPill" Style="{StaticResource StatusPillCritical}">
+                                            <ui:TextBlock x:Name="CurrentAttentionFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                        </Border>
+                                    </ui:Button>
+                                    <Border x:Name="CurrentAttentionHeaderStatusPill"
+                                            Style="{StaticResource StatusPill}"
+                                            VerticalAlignment="Center"
+                                            AutomationProperties.Name="接入告警状态：尚无快照">
+                                        <ui:TextBlock x:Name="CurrentAttentionHeaderStatusText"
+                                                      Text="尚无快照"
+                                                      FontTypography="BodyStrong" />
+                                    </Border>
+                                </StackPanel>
                             </Grid>
                             <StackPanel x:Name="CurrentAttentionContractFactsPanel"
                                         Grid.Row="2">
@@ -3534,8 +3551,6 @@
                                            Click="OnRestoreDefaultSettingsClick"
                                            AutomationProperties.Name="恢复 Watch 默认设置" />
                             </Grid>
-                            <ui:InfoBar x:Name="SettingsInfoBar" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Informational" AutomationProperties.Name="设置操作状态" />
-
                             <Grid x:Name="SettingsColumns" Grid.Row="4">
                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="SettingsVerticalGap" Height="0" /><RowDefinition x:Name="SettingsBottomRow" Height="0" /></Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions><ColumnDefinition x:Name="SettingsLeftColumn" Width="1*" /><ColumnDefinition x:Name="SettingsGapColumn" Width="16" /><ColumnDefinition x:Name="SettingsRightColumn" Width="1*" /></Grid.ColumnDefinitions>
@@ -3659,5 +3674,154 @@
                 </Grid>
             </ui:NavigationView.ContentOverlay>
         </ui:NavigationView>
+
+        <Grid x:Name="NotificationOverlay"
+              Grid.Row="1"
+              Width="380"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Top"
+              Margin="0,44,24,0"
+              Panel.ZIndex="20"
+              Visibility="Collapsed"
+              MouseEnter="OnNotificationHostMouseEnter"
+              MouseLeave="OnNotificationHostMouseLeave"
+              GotKeyboardFocus="OnNotificationHostGotKeyboardFocus"
+              LostKeyboardFocus="OnNotificationHostLostKeyboardFocus"
+              AutomationProperties.Name="窗口通知"
+              AutomationProperties.AutomationId="NotificationOverlay"
+              KeyboardNavigation.TabNavigation="Continue">
+            <TextBlock x:Name="NotificationLiveRegion"
+                       Width="1"
+                       Height="1"
+                       Opacity="0"
+                       Focusable="False"
+                       KeyboardNavigation.IsTabStop="False"
+                       IsHitTestVisible="False"
+                       AutomationProperties.Name="窗口通知播报"
+                       AutomationProperties.AutomationId="NotificationLiveRegion"
+                       AutomationProperties.LiveSetting="Polite" />
+            <ItemsControl x:Name="NotificationItemsControl"
+                          AutomationProperties.Name="窗口通知卡片"
+                          AutomationProperties.AutomationId="NotificationItemsControl"
+                          KeyboardNavigation.TabNavigation="Continue">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border x:Name="NotificationCard"
+                                Margin="0,0,0,8"
+                                Background="{DynamicResource SolidBackgroundFillColorQuarternaryBrush}"
+                                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                 BorderThickness="1"
+                                 CornerRadius="8"
+                                 Focusable="False"
+                                 AutomationProperties.Name="{Binding AutomationName}"
+                                 AutomationProperties.AutomationId="NotificationCard"
+                                 AutomationProperties.HelpText="{Binding AutomationHelpText}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="4" />
+                                    <ColumnDefinition Width="44" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="40" />
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="NotificationSeverityRail"
+                                        CornerRadius="8,0,0,8"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                <ui:SymbolIcon x:Name="NotificationSeverityIcon"
+                                               Grid.Column="1"
+                                               Symbol="Info24"
+                                                Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                VerticalAlignment="Top"
+                                                Margin="0,16,0,0"
+                                                Focusable="False"
+                                                AutomationProperties.Name="{Binding SeverityAutomationName}" />
+                                <StackPanel Grid.Column="2" Margin="0,13,8,13">
+                                    <DockPanel LastChildFill="True">
+                                        <ui:TextBlock x:Name="NotificationSeverityText"
+                                                      Text="{Binding SeverityText}"
+                                                      Style="{StaticResource CaptionText}"
+                                                      FontWeight="SemiBold"
+                                                      DockPanel.Dock="Left" />
+                                         <ui:TextBlock x:Name="NotificationTimerText"
+                                                       Text="{Binding TimerText}"
+                                                       Style="{StaticResource CaptionText}"
+                                                       HorizontalAlignment="Right" />
+                                    </DockPanel>
+                                    <ui:TextBlock x:Name="NotificationTitleText"
+                                                  Text="{Binding Title}"
+                                                  Style="{StaticResource BodyStrong}"
+                                                  Margin="0,3,0,0" />
+                                    <ui:TextBlock x:Name="NotificationMessageText"
+                                                   Text="{Binding Message}"
+                                                   Style="{StaticResource SecondaryText}"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,4,0,0" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,9,0,0">
+                                        <ui:Button x:Name="NotificationActionButton"
+                                                   Content="{Binding ActionLabel}"
+                                                   Command="{Binding ActionCommand}"
+                                                   Visibility="{Binding ActionVisibility}"
+                                                    Appearance="Transparent"
+                                                    Padding="0,4"
+                                                    MinWidth="32"
+                                                    MinHeight="32"
+                                                    ToolTip="{Binding ActionLabel}"
+                                                    Focusable="True"
+                                                    FocusVisualStyle="{StaticResource NotificationFocusVisual}"
+                                                    KeyboardNavigation.IsTabStop="True"
+                                                    AutomationProperties.AutomationId="NotificationActionButton"
+                                                    AutomationProperties.Name="{Binding ActionLabel}" />
+                                        <ui:TextBlock x:Name="NotificationOccurrenceText"
+                                                      Text="{Binding OccurrenceText}"
+                                                       Style="{StaticResource CaptionText}"
+                                                       VerticalAlignment="Center"
+                                                       Margin="12,0,0,0"
+                                                       AutomationProperties.Name="{Binding OccurrenceText}" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <ui:Button x:Name="NotificationDismissButton"
+                                           Grid.Column="3"
+                                           Command="{Binding DismissCommand}"
+                                           Appearance="Transparent"
+                                           Width="32"
+                                           Height="32"
+                                           Margin="0,8,4,0"
+                                           VerticalAlignment="Top"
+                                            ToolTip="关闭通知"
+                                            Focusable="True"
+                                            FocusVisualStyle="{StaticResource NotificationFocusVisual}"
+                                            KeyboardNavigation.IsTabStop="True"
+                                            AutomationProperties.AutomationId="NotificationDismissButton"
+                                            AutomationProperties.Name="关闭通知">
+                                    <ui:SymbolIcon Symbol="Dismiss24" />
+                                </ui:Button>
+                            </Grid>
+                        </Border>
+                        <DataTemplate.Triggers>
+                            <DataTrigger Binding="{Binding Severity}" Value="Success">
+                                <Setter TargetName="NotificationSeverityRail" Property="Background" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Symbol" Value="CheckmarkCircle24" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Foreground" Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Severity}" Value="Warning">
+                                <Setter TargetName="NotificationSeverityRail" Property="Background" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Symbol" Value="Warning24" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Foreground" Value="{DynamicResource SystemFillColorCautionBrush}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                <Setter TargetName="NotificationSeverityRail" Property="Background" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Symbol" Value="ErrorCircle24" />
+                                <Setter TargetName="NotificationSeverityIcon" Property="Foreground" Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                            </DataTrigger>
+                        </DataTemplate.Triggers>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Grid>
+
+        <ui:ContentDialogHost x:Name="WorkspaceDialogHost"
+                              Grid.Row="1"
+                              Panel.ZIndex="40"
+                              IsDisableSiblingsEnabled="True" />
     </Grid>
 </ui:FluentWindow>

@@ -947,21 +947,12 @@ internal partial class WatchWorkspaceWindow
                 ErrorSearchPageSummaryText.Text);
 
             var showEmpty = presentation.EmptyResultMessage.Length > 0;
-            ErrorSearchStatusInfoBar.IsOpen = presentation.IsInfoOpen || showEmpty;
-            ErrorSearchStatusInfoBar.Severity = presentation.IsInfoOpen
-                ? presentation.InfoSeverity is WatchPresentationSeverity.Warning
-                    && state.ErrorSearch.LastFailureAt is not null
-                        ? InfoBarSeverity.Error
-                        : ToInfoBarSeverity(presentation.InfoSeverity)
-                : InfoBarSeverity.Informational;
-            ErrorSearchStatusInfoBar.Title = presentation.IsInfoOpen
-                ? presentation.InfoTitle
-                : showEmpty ? "当前条件没有历史" : string.Empty;
-            ErrorSearchStatusInfoBar.Message = presentation.IsInfoOpen
-                ? presentation.InfoMessage
-                : showEmpty
-                    ? $"当前条件查询成功；没有历史。{presentation.EmptyResultMessage}"
-                    : string.Empty;
+            ErrorSearchStatusInfoBar.IsOpen = showEmpty;
+            ErrorSearchStatusInfoBar.Severity = InfoBarSeverity.Informational;
+            ErrorSearchStatusInfoBar.Title = showEmpty ? "当前条件没有历史" : string.Empty;
+            ErrorSearchStatusInfoBar.Message = showEmpty
+                ? $"当前条件查询成功；没有历史。{presentation.EmptyResultMessage}"
+                : string.Empty;
             AutomationProperties.SetName(
                 ErrorSearchStatusInfoBar,
                 ErrorSearchStatusInfoBar.IsOpen
@@ -1099,24 +1090,10 @@ internal partial class WatchWorkspaceWindow
             SetTextAutomationName(CurrentAttentionPageSummaryText, "接入告警精确总数与页码", CurrentAttentionPageSummaryText.Text);
 
             var showEmpty = presentation.EmptyResultMessage.Length > 0;
-            var showSelectionNotice = !string.IsNullOrEmpty(_currentAttentionSelectionNotice);
-            CurrentAttentionStatusInfoBar.IsOpen =
-                presentation.IsInfoOpen || showSelectionNotice || showEmpty;
-            CurrentAttentionStatusInfoBar.Severity = presentation.IsInfoOpen
-                ? ToInfoBarSeverity(presentation.InfoSeverity)
-                : showSelectionNotice
-                    ? InfoBarSeverity.Warning
-                    : InfoBarSeverity.Informational;
-            CurrentAttentionStatusInfoBar.Title = presentation.IsInfoOpen
-                ? presentation.InfoTitle
-                : showSelectionNotice
-                    ? "原关注项已不在刷新结果中"
-                    : showEmpty ? "当前没有接入告警" : string.Empty;
-            CurrentAttentionStatusInfoBar.Message = presentation.IsInfoOpen
-                ? presentation.InfoMessage
-                : showSelectionNotice
-                    ? _currentAttentionSelectionNotice ?? string.Empty
-                    : presentation.EmptyResultMessage;
+            CurrentAttentionStatusInfoBar.IsOpen = showEmpty;
+            CurrentAttentionStatusInfoBar.Severity = InfoBarSeverity.Informational;
+            CurrentAttentionStatusInfoBar.Title = showEmpty ? "当前没有接入告警" : string.Empty;
+            CurrentAttentionStatusInfoBar.Message = presentation.EmptyResultMessage;
             AutomationProperties.SetName(
                 CurrentAttentionStatusInfoBar,
                 CurrentAttentionStatusInfoBar.IsOpen
@@ -1642,13 +1619,12 @@ internal partial class WatchWorkspaceWindow
             or InvalidOperationException
             or ErrorSearchException)
         {
-            ErrorSearchStatusInfoBar.IsOpen = true;
-            ErrorSearchStatusInfoBar.Severity = InfoBarSeverity.Error;
-            ErrorSearchStatusInfoBar.Title = "无法执行错误检索操作";
-            ErrorSearchStatusInfoBar.Message = exception.Message;
-            AutomationProperties.SetName(
-                ErrorSearchStatusInfoBar,
-                $"{ErrorSearchStatusInfoBar.Title}。{ErrorSearchStatusInfoBar.Message}");
+            PresentOperationFailure(
+                WatchWorkspacePage.ErrorSearch,
+                "error-search.operation",
+                "无法执行错误检索操作",
+                "请检查输入或当前快照后重试。",
+                "返回错误检索");
         }
     }
 
@@ -1666,13 +1642,12 @@ internal partial class WatchWorkspaceWindow
             or InvalidOperationException
             or CurrentIngestAttentionException)
         {
-            CurrentAttentionStatusInfoBar.IsOpen = true;
-            CurrentAttentionStatusInfoBar.Severity = InfoBarSeverity.Error;
-            CurrentAttentionStatusInfoBar.Title = "无法执行接入告警操作";
-            CurrentAttentionStatusInfoBar.Message = exception.Message;
-            AutomationProperties.SetName(
-                CurrentAttentionStatusInfoBar,
-                $"{CurrentAttentionStatusInfoBar.Title}。{CurrentAttentionStatusInfoBar.Message}");
+            PresentOperationFailure(
+                WatchWorkspacePage.CurrentAttention,
+                "attention.operation",
+                "无法执行接入告警操作",
+                "请检查当前选择或快照后重试。",
+                "返回接入告警");
         }
     }
 

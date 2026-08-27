@@ -1248,10 +1248,8 @@ internal partial class WatchWorkspaceWindow
             // Walking away from the prompt would resolve the conflict by
             // dropping one of the two versions without saying so.
             RenderAreaProfiles();
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Warning,
-                "请先处理 AREA 写入冲突",
-                "当前配置的磁盘版本与你的输入都还在；先选择保留哪一份，再切换配置。");
+            ActiveWorkspaceDialogTask = ShowAreaProfileWriteConflictDialogAsync(
+                _areaProfileWriteConflictProfileName);
             return;
         }
 
@@ -1447,9 +1445,8 @@ internal partial class WatchWorkspaceWindow
     {
         _areaProfileWriteConflictProfileName = profileName;
         CancelAreaProfileAutoSave();
-        AreaProfileWriteConflictInfo.Title = $"{profileName}.txt 的磁盘版本与你的输入都已改变";
-        AreaProfileWriteConflictPanel.Visibility = Visibility.Visible;
         RenderAreaProfiles();
+        ActiveWorkspaceDialogTask = ShowAreaProfileWriteConflictDialogAsync(profileName);
     }
 
     private void ClearAreaProfileWriteConflict()
@@ -1460,7 +1457,11 @@ internal partial class WatchWorkspaceWindow
         }
 
         _areaProfileWriteConflictProfileName = null;
-        AreaProfileWriteConflictPanel.Visibility = Visibility.Collapsed;
+        if (_activeWorkspaceDialogKind == "area-write-conflict"
+            && _activeWorkspaceDialog is { IsVisible: true } dialog)
+        {
+            dialog.Hide(Wpf.Ui.Controls.ContentDialogResult.None);
+        }
     }
 
     /// <summary>
@@ -1548,12 +1549,8 @@ internal partial class WatchWorkspaceWindow
         e.Handled = true;
         if (_areaProfileWriteConflictProfileName is not null)
         {
-            // An explicit write that quietly does nothing is worse than one
-            // that says why it was refused.
-            ShowAreaProfileInfo(
-                InfoBarSeverity.Warning,
-                "请先处理 AREA 写入冲突",
-                "该配置的磁盘版本已被其他程序修改；先选择保留哪一份，写盘才会继续。");
+            ActiveWorkspaceDialogTask = ShowAreaProfileWriteConflictDialogAsync(
+                _areaProfileWriteConflictProfileName);
             return;
         }
 
@@ -2177,6 +2174,46 @@ internal partial class WatchWorkspaceWindow
         string title,
         string message)
     {
+        if (severity is InfoBarSeverity.Success
+            or InfoBarSeverity.Informational
+            or InfoBarSeverity.Error)
+        {
+            AreaProfileInfoBar.IsOpen = false;
+            var notificationSeverity = severity switch
+            {
+                InfoBarSeverity.Success => WatchNotificationSeverity.Success,
+                InfoBarSeverity.Error => WatchNotificationSeverity.Error,
+                _ => WatchNotificationSeverity.Information,
+            };
+            PresentNotification(new WatchNotificationEvent(
+                new WatchNotificationSource(
+                    "area.operation",
+                    WatchNotificationScope.ForPage(WatchWorkspacePage.AreaFilter),
+                    title),
+                notificationSeverity,
+                notificationSeverity switch
+                {
+                    WatchNotificationSeverity.Success => "成功",
+                    WatchNotificationSeverity.Error => "错误",
+                    _ => "信息",
+                },
+                title,
+                notificationSeverity == WatchNotificationSeverity.Error
+                    ? "操作未完成；请检查输入、文件权限或当前磁盘版本后重试。"
+                    : message,
+                notificationSeverity == WatchNotificationSeverity.Error
+                    ? "返回 AREA 配置"
+                    : null,
+                notificationSeverity == WatchNotificationSeverity.Error
+                    ? () =>
+                    {
+                        NavigateTo(WatchWorkspacePage.AreaFilter);
+                        AreaProfileEditor.Focus();
+                    }
+                    : null));
+            return;
+        }
+
         AreaProfileInfoBar.Severity = severity;
         AreaProfileInfoBar.Title = title;
         AreaProfileInfoBar.Message = message;

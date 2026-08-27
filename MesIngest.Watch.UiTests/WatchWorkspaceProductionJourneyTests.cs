@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Text;
+using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using FlaUI.Core.AutomationElements;
@@ -668,8 +669,11 @@ public sealed class WatchWorkspaceProductionJourneyTests
             journeyName,
             [Credential]);
         RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+        var visualEnvironment = WatchVisualEnvironment.Capture();
         evidence.RecordEnvironment(
-            WatchVisualEnvironmentEvidence.Format(WatchVisualEnvironment.Capture()));
+            WatchVisualEnvironmentEvidence.Format(visualEnvironment)
+            + Environment.NewLine
+            + $"clientAreaAnimation={SystemParameters.ClientAreaAnimation}");
 
         var startInfo = new ProcessStartInfo
         {
@@ -963,10 +967,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
             FindRequiredById(window, "ApplyHostButton").AsButton().Invoke();
             WaitUntil(
                 () => requestTimeoutInput.Text == "0"
-                    && TextValue(FindRequiredById(window, "SettingsHostStatusText")) is { } status
-                    && status.Contains("Host 已连接", StringComparison.Ordinal)
-                    && status.Contains("无法应用 Host 设置", StringComparison.Ordinal)
-                    && status.Contains("1–300", StringComparison.Ordinal),
+                    && TextValue(FindRequiredById(window, "SettingsHostStatusText"))
+                        .Contains("Host 已连接", StringComparison.Ordinal)
+                    && TextValue(FindRequiredById(window, "SettingsHostStateText")) is { } validation
+                    && validation.Contains("无法应用 Host 设置", StringComparison.Ordinal)
+                    && validation.Contains("1–300", StringComparison.Ordinal)
+                    && FindById(window, "NotificationItemsControl") is null,
                 "the real Settings request-timeout validation error",
                 StepTimeout);
             Assert.Equal(
@@ -981,6 +987,67 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 evidence,
                 process.MainWindowHandle,
                 "02v-settings-timeout-validation");
+
+            failedStep = "notification-three-card-stack";
+            FindRequiredById(window, "RestoreDefaultSettingsButton").AsButton().Invoke();
+            FindRequiredById(window, "RestoreDefaultLayoutButton").AsButton().Invoke();
+            FindRequiredById(window, "SaveRefreshIntervalsButton").AsButton().Invoke();
+            WaitUntil(
+                () => FindById(window, "NotificationItemsControl") is { } notifications
+                    && SubtreeText(notifications).Contains(
+                        "已恢复默认设置",
+                        StringComparison.Ordinal)
+                    && SubtreeText(notifications).Contains(
+                        "已恢复默认布局",
+                        StringComparison.Ordinal)
+                    && SubtreeText(notifications).Contains(
+                        "本机设置已保存",
+                        StringComparison.Ordinal),
+                "the real three-card Variant A notification stack",
+                StepTimeout);
+            Capture(
+                evidence,
+                process.MainWindowHandle,
+                "09-notification-stack-1440x900",
+                exact1440By900: false);
+
+            failedStep = "notification-narrow-reduced-motion";
+            var narrowNotificationHeight = visualEnvironment.Dpi >= 144 ? 600 : 820;
+            Assert.False(
+                SystemParameters.ClientAreaAnimation,
+                $"The 760x{narrowNotificationHeight} notification preview must use the real Windows reduced-motion "
+                + "SystemParameters state.");
+            WatchWindowNative.SetClientSizeInEffectivePixels(
+                process.MainWindowHandle,
+                width: 760,
+                height: narrowNotificationHeight);
+            WaitUntil(
+                () =>
+                {
+                    var notifications = FindById(window, "NotificationItemsControl");
+                    if (notifications is null)
+                    {
+                        return false;
+                    }
+
+                    var text = SubtreeText(notifications);
+                    var notificationBounds = notifications.BoundingRectangle;
+                    var windowBounds = window.BoundingRectangle;
+                    return text.Contains("已恢复默认设置", StringComparison.Ordinal)
+                        && text.Contains("已恢复默认布局", StringComparison.Ordinal)
+                        && text.Contains("本机设置已保存", StringComparison.Ordinal)
+                        && notificationBounds.Width >= 600
+                        && notificationBounds.Left >= windowBounds.Left + 48
+                        && notificationBounds.Right <= windowBounds.Right - 8;
+                },
+                $"the real 760x{narrowNotificationHeight} reduced-motion notification stack",
+                StepTimeout);
+            Capture(
+                evidence,
+                process.MainWindowHandle,
+                $"09b-notification-stack-760x{narrowNotificationHeight}-reduced-motion",
+                exact1440By900: false);
+            ApplyJourneyClientSize(process.MainWindowHandle);
 
             requestTimeoutInput.Text = "30";
             WaitUntil(
@@ -1174,6 +1241,42 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 evidence,
                 process.MainWindowHandle,
                 "05-area-filter-profile");
+
+            failedStep = "area-write-conflict-dialog";
+            var areaEditor = FindRequiredById(window, "AreaProfileEditor").AsTextBox();
+            var retainedDraft = areaEditor.Text + "Z9-9" + Environment.NewLine;
+            areaEditor.Text = retainedDraft;
+            var eastProfilePath = Path.Combine(
+                localAppData,
+                "MesIngest.Watch",
+                "area-filters",
+                "东区.txt");
+            var externalContent = "# 东区外部版本\nA1-1\nA1-2\n";
+            File.WriteAllText(
+                eastProfilePath,
+                externalContent,
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.SetLastWriteTimeUtc(eastProfilePath, DateTime.UtcNow.AddMinutes(1));
+            WaitUntil(
+                () => FindAreaWriteConflictDialog(window) is not null
+                    && TextValue(FindRequiredById(window, "AreaProfileDiskStateText"))
+                        .Contains("等待选择", StringComparison.Ordinal),
+                "the real AREA concurrent-write ContentDialog",
+                PreviewStateTimeout);
+            Assert.NotNull(FindRequiredByName(window, "覆盖并保存"));
+            Assert.NotNull(FindRequiredByName(window, "重新载入文件"));
+            Assert.NotNull(FindRequiredByName(window, "稍后处理"));
+            CaptureWindowIncludingPopups(
+                evidence,
+                window,
+                "10-area-write-conflict-dialog");
+            FindRequiredByName(window, "重新载入文件").AsButton().Invoke();
+            WaitUntil(
+                () => FindAreaWriteConflictDialog(window) is null
+                    && areaEditor.Text.Contains("东区外部版本", StringComparison.Ordinal)
+                    && !areaEditor.Text.Contains("Z9-9", StringComparison.Ordinal),
+                "the resolved AREA conflict after reloading the disk version",
+                PreviewStateTimeout);
 
             // The 24-AREA profile is the one that overflows the editor at
             // 1440x900. It is evidence only: the page must keep its own height
@@ -2862,6 +2965,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
         window.FindFirstDescendant(window.ConditionFactory.ByName(automationName))
         ?? throw new Xunit.Sdk.XunitException($"UIA element not found by name: {automationName}");
 
+    private static AutomationElement? FindAreaWriteConflictDialog(
+        FlaUI.Core.AutomationElements.Window window) =>
+        window.FindFirstDescendant(
+            window.ConditionFactory.ByControlType(ControlType.Window)
+                .And(window.ConditionFactory.ByName("AREA 文件已被其他程序修改")));
+
     private static FlaUI.Core.AutomationElements.ToggleButton FindRequiredButtonByName(
         FlaUI.Core.AutomationElements.Window window,
         string automationName) =>
@@ -2877,6 +2986,10 @@ public sealed class WatchWorkspaceProductionJourneyTests
         element.Properties.Name.ValueOrDefault ?? string.Empty,
         element.Properties.HelpText.ValueOrDefault ?? string.Empty,
         element.Properties.ItemStatus.ValueOrDefault ?? string.Empty);
+
+    private static string SubtreeText(AutomationElement element) => string.Join(
+        Environment.NewLine,
+        new[] { element }.Concat(element.FindAllDescendants()).Select(TextValue));
 
     private static string GridText(Grid grid)
     {

@@ -226,13 +226,11 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
 
     /// <summary>
     /// The gutter is a single TextBlock translated by the editor's scroll
-    /// offset, so it only shows the lines it was allowed to format. Measured
-    /// against the frame height it formats one viewport worth of them, and
-    /// scrolling then carries every one of those off the top: the gutter goes
-    /// blank exactly when the editor starts scrolling.
+    /// offset. It must retain the complete formatted line list and keep its
+    /// translated bottom edge across the editor viewport after scrolling.
     /// </summary>
     [Fact]
-    public void The_line_number_gutter_still_carries_ink_after_the_editor_scrolls() =>
+    public void The_line_number_gutter_remains_populated_and_aligned_after_the_editor_scrolls() =>
         RunWithAppliedProfile((window, _, _, _) =>
         {
             window.Width = 1440;
@@ -246,84 +244,30 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             DrainDispatcher(window.Dispatcher);
 
             var frame = Assert.IsType<Border>(window.FindName("AreaProfileEditorFrame"));
-            var beforeScroll = LineNumberInkRows(window);
+            var lineNumbers = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("AreaProfileLineNumbersText"));
+            var expectedLineNumbers = WatchWorkspaceWindow.FormatAreaProfileLineNumbers(editor.Text);
+            Assert.Equal(expectedLineNumbers, lineNumbers.Text);
             Assert.True(
-                beforeScroll.Count > 0
-                    && beforeScroll[^1] >= frame.ActualHeight - 40,
-                "The line-number gutter did not fill the editor frame before scrolling, "
-                    + "so the scrolled assertion below would prove nothing.");
+                lineNumbers.ActualHeight >= frame.ActualHeight - 1,
+                $"The {lineNumbers.ActualHeight:N1} epx line-number gutter did not cover "
+                    + $"the {frame.ActualHeight:N1} epx editor frame before scrolling.");
 
             var editorScroll = VisualDescendants<ScrollViewer>(editor).First();
             editorScroll.ScrollToEnd();
             window.UpdateLayout();
             DrainDispatcher(window.Dispatcher);
 
-            var ink = LineNumberInkRows(window);
-
+            var transform = Assert.IsType<TranslateTransform>(lineNumbers.RenderTransform);
+            Assert.Equal(-editorScroll.VerticalOffset, transform.Y, 1);
+            Assert.Equal(expectedLineNumbers, lineNumbers.Text);
+            Assert.True(editorScroll.VerticalOffset > 0);
             Assert.True(
-                ink.Count > 0,
-                "The line-number gutter was blank after the editor scrolled to its end.");
-            Assert.InRange(ink[0], 0, 40);
-            Assert.InRange(ink[^1], frame.ActualHeight - 40, frame.ActualHeight);
+                lineNumbers.ActualHeight + transform.Y >= frame.ActualHeight - 40,
+                "The translated line-number gutter no longer covered the editor frame: "
+                    + $"height={lineNumbers.ActualHeight:N1}; offset={transform.Y:N1}; "
+                    + $"frame={frame.ActualHeight:N1}.");
         });
-
-    /// <summary>
-    /// Rows of the editor frame whose line-number gutter carries ink. The
-    /// gutter background is whatever colour dominates the column, so a row
-    /// counts as inked only when it differs from that.
-    /// </summary>
-    private static IReadOnlyList<int> LineNumberInkRows(WatchWorkspaceWindow window)
-    {
-        var frame = Assert.IsType<Border>(window.FindName("AreaProfileEditorFrame"));
-        var width = (int)Math.Round(frame.ActualWidth);
-        var height = (int)Math.Round(frame.ActualHeight);
-        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
-            width,
-            height,
-            96,
-            96,
-            System.Windows.Media.PixelFormats.Pbgra32);
-        bitmap.Render(frame);
-        var stride = width * 4;
-        var pixels = new byte[stride * height];
-        bitmap.CopyPixels(pixels, stride, 0);
-
-        const int GutterLeft = 4;
-        const int GutterRight = 40;
-        var histogram = new Dictionary<int, int>();
-        for (var y = 4; y < height - 4; y++)
-        {
-            for (var x = GutterLeft; x < GutterRight; x++)
-            {
-                var offset = (y * stride) + (x * 4);
-                var colour = (pixels[offset] << 16) | (pixels[offset + 1] << 8) | pixels[offset + 2];
-                histogram[colour] = histogram.GetValueOrDefault(colour) + 1;
-            }
-        }
-
-        var background = histogram.MaxBy(entry => entry.Value).Key;
-        var backgroundRed = background & 0xFF;
-        var backgroundGreen = (background >> 8) & 0xFF;
-        var backgroundBlue = (background >> 16) & 0xFF;
-
-        var inkedRows = new List<int>();
-        for (var y = 4; y < height - 4; y++)
-        {
-            for (var x = GutterLeft; x < GutterRight; x++)
-            {
-                var offset = (y * stride) + (x * 4);
-                if (Math.Abs(pixels[offset] - backgroundBlue) > 24
-                    || Math.Abs(pixels[offset + 1] - backgroundGreen) > 24
-                    || Math.Abs(pixels[offset + 2] - backgroundRed) > 24)
-                {
-                    inkedRows.Add(y);
-                    break;
-                }
-            }
-        }
-
-        return inkedRows;
-    }
 
     /// <summary>
     /// Below the fixed-viewport height the page hands scrolling back to the

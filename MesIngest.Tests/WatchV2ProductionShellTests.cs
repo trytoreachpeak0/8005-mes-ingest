@@ -18,6 +18,10 @@ namespace MesIngest.Tests;
 [Collection("WpfDesktop")]
 public sealed class WatchV2ProductionShellTests
 {
+    private static void Click(WatchWorkspaceWindow window, string name) =>
+        Assert.IsAssignableFrom<ButtonBase>(window.FindName(name))
+            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
     [Fact]
     public void Production_app_owns_only_the_v2_composition_root()
     {
@@ -45,8 +49,8 @@ public sealed class WatchV2ProductionShellTests
 
             Assert.IsType<WatchWorkspaceWindow>(window);
             Assert.True(window.ExtendsContentIntoTitleBar);
-            Assert.Equal(1440, window.Width);
-            Assert.Equal(900, window.Height);
+            Assert.Equal(Math.Min(1440, SystemParameters.WorkArea.Width), window.Width);
+            Assert.Equal(Math.Min(900, SystemParameters.WorkArea.Height), window.Height);
             Assert.Equal(720, window.MinWidth);
             Assert.Equal(WindowCornerPreference.Round, window.WindowCornerPreference);
 
@@ -390,10 +394,13 @@ public sealed class WatchV2ProductionShellTests
                 timeProvider: clock);
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             window.InitializeAsync().GetAwaiter().GetResult();
+            var notifications = Assert.IsType<ItemsControl>(
+                window.FindName("NotificationItemsControl"));
 
             Assert.Equal(
                 "1",
                 Assert.IsAssignableFrom<TextBlock>(window.FindName("SeriesSummaryValue")).Text);
+            Assert.Empty(notifications.Items);
 
             clock.Advance(TimeSpan.FromSeconds(30));
 
@@ -402,6 +409,7 @@ public sealed class WatchV2ProductionShellTests
                 "2",
                 Assert.IsAssignableFrom<TextBlock>(window.FindName("SeriesSummaryValue")).Text);
             Assert.False(window.WorkspaceState.Overview.IsRefreshing);
+            Assert.Empty(notifications.Items);
 
             window.Dispose();
             if (Directory.Exists(root))
@@ -410,19 +418,255 @@ public sealed class WatchV2ProductionShellTests
             }
         });
 
-    private sealed class ChangingOverviewClient(bool includeProtectionState = false)
+    [Fact]
+    public void Returning_to_a_scrollable_page_starts_at_its_representative_top() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-navigation-scroll-{Guid.NewGuid():N}");
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions { BaseUrl = "http://127.0.0.1:5088" },
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"));
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            window.Show();
+            window.Width = 960;
+            window.Height = 600;
+            window.UpdateLayout();
+
+            Click(window, "CurrentAttentionNavigationItem");
+            window.UpdateLayout();
+            var viewport = Assert.IsType<ScrollViewer>(window.FindName("CurrentAttentionPage"));
+            viewport.ScrollToBottom();
+            window.UpdateLayout();
+            Assert.True(viewport.VerticalOffset > 0);
+
+            Click(window, "SettingsNavigationItem");
+            Click(window, "CurrentAttentionNavigationItem");
+            window.UpdateLayout();
+
+            Assert.Equal(0, viewport.VerticalOffset);
+
+            window.Close();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        });
+
+    [Fact]
+    public void Continuing_overview_fault_is_announced_once_stays_in_the_header_and_recovers_as_a_new_cycle() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-feedback-{Guid.NewGuid():N}");
+            var clock = new ManualTimerTimeProvider(
+                DateTimeOffset.Parse("2026-08-14T08:00:00Z"));
+            var client = new ChangingOverviewClient(
+                failedOverviewCalls: new HashSet<int> { 2, 3, 5 });
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions { BaseUrl = "http://host-a", SharedSecret = "must-not-leak" },
+                _ => client,
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"),
+                timeProvider: clock);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            var items = Assert.IsType<ItemsControl>(
+                window.FindName("NotificationItemsControl"));
+            var header = Assert.IsType<Wpf.Ui.Controls.Button>(
+                window.FindName("OverviewFaultStatusButton"));
+
+            clock.Advance(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(Visibility.Visible, header.Visibility);
+            Assert.Single(items.Items);
+            Assert.Equal("概览读取持续失败", NotificationProperty(items, "Title"));
+            Assert.DoesNotContain("must-not-leak", NotificationProperty(items, "Message"), StringComparison.Ordinal);
+            Assert.DoesNotContain("http://", NotificationProperty(items, "Message"), StringComparison.Ordinal);
+
+            clock.Advance(TimeSpan.FromSeconds(30));
+
+            Assert.Empty(items.Items);
+            Assert.Equal(Visibility.Visible, header.Visibility);
+
+            clock.Advance(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(Visibility.Collapsed, header.Visibility);
+            Assert.Single(items.Items);
+            Assert.Equal("读取已恢复", NotificationProperty(items, "Title"));
+
+            clock.Advance(TimeSpan.FromSeconds(30));
+
+            Assert.Equal(Visibility.Visible, header.Visibility);
+            Assert.Single(items.Items);
+            Assert.Equal("概览读取持续失败", NotificationProperty(items, "Title"));
+
+            window.Close();
+            Directory.Delete(root, recursive: true);
+        });
+
+    [Fact]
+    public void Host_contract_failure_is_global_controlled_and_its_action_opens_settings() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-host-feedback-{Guid.NewGuid():N}");
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions { BaseUrl = "http://host-a", SharedSecret = "must-not-leak" },
+                _ => new ChangingOverviewClient(verifyContractFailure: true),
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"));
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+
+            window.InitializeAsync().GetAwaiter().GetResult();
+            var items = Assert.IsType<ItemsControl>(
+                window.FindName("NotificationItemsControl"));
+            var item = Assert.Single(items.Items)!;
+            Assert.Equal("Host 连接持续失败", NotificationProperty(items, "Title"));
+            Assert.Equal("打开设置", NotificationProperty(items, "ActionLabel"));
+            Assert.DoesNotContain("must-not-leak", NotificationProperty(items, "Message"), StringComparison.Ordinal);
+            Assert.Equal(
+                WatchHostConnectionStatus.Failed,
+                window.WorkspaceState.ConnectionStatus);
+
+            var action = Assert.IsAssignableFrom<System.Windows.Input.ICommand>(
+                item.GetType().GetProperty("ActionCommand")!.GetValue(item));
+            action.Execute(null);
+
+            Assert.Equal(WatchWorkspacePage.Settings, window.ActivePage);
+            Assert.Single(items.Items);
+
+            window.Close();
+            Directory.Delete(root, recursive: true);
+        });
+
+    private static string NotificationProperty(ItemsControl items, string propertyName)
+    {
+        var item = Assert.Single(items.Items);
+        var property = item!.GetType().GetProperty(propertyName);
+        Assert.NotNull(property);
+        return Assert.IsType<string>(property!.GetValue(item));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Out_of_scope_DemandSeries_uses_a_modal_all_AREA_confirmation_without_changing_state_on_cancel(
+        bool confirm) =>
+        StaTestRunner.Run(() =>
+        {
+            SynchronizationContext.SetSynchronizationContext(
+                new System.Windows.Threading.DispatcherSynchronizationContext(
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-all-area-{Guid.NewGuid():N}");
+            var profiles = Path.Combine(root, "area-filters");
+            Directory.CreateDirectory(profiles);
+            File.WriteAllText(Path.Combine(profiles, "东区.txt"), "A1-1");
+            using (var store = new WatchAreaFilterProfileStore(profiles))
+            {
+                Assert.True(store.Apply("东区").Applied);
+            }
+
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions { BaseUrl = "http://host-a" },
+                _ => new ChangingOverviewClient(),
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"),
+                areaFilterProfilesDirectoryPath: profiles);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            Assert.Equal("东区", window.AreaContext.ProfileName);
+            var intent = new OverviewNavigationIntent(
+                OverviewNavigationTargets.DemandSeries,
+                PageNumber: 1,
+                MesAreas: ["A1-1"],
+                SeriesId: "missing-series");
+
+            window.NavigateFromOverview(intent);
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            DrainDispatcher(window.Dispatcher);
+
+            Assert.Equal("all-areas", window.ActiveWorkspaceDialogKind);
+            var dialog = Assert.IsType<Wpf.Ui.Controls.ContentDialog>(
+                window.ActiveWorkspaceDialog);
+            Assert.Equal("切换到全部 AREA", dialog.PrimaryButtonText);
+            Assert.Equal("取消", dialog.CloseButtonText);
+            Assert.Equal(Wpf.Ui.Controls.ContentDialogButton.Close, dialog.DefaultButton);
+
+            dialog.Hide(confirm
+                ? Wpf.Ui.Controls.ContentDialogResult.Primary
+                : Wpf.Ui.Controls.ContentDialogResult.None);
+            PumpUntilCompleted(window.Dispatcher, window.ActiveWorkspaceDialogTask);
+
+            Assert.Null(window.ActiveWorkspaceDialog);
+            Assert.Equal(confirm ? "全部 AREA" : "东区", window.AreaContext.ProfileName);
+            Assert.Same(intent, window.LastOverviewNavigationIntent);
+            Assert.Null(window.WorkspaceState.DemandSeries.SelectedId);
+
+            window.Close();
+            Directory.Delete(root, recursive: true);
+        });
+
+    private static void DrainDispatcher(System.Windows.Threading.Dispatcher dispatcher)
+    {
+        var frame = new System.Windows.Threading.DispatcherFrame();
+        dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+            () => frame.Continue = false);
+        System.Windows.Threading.Dispatcher.PushFrame(frame);
+    }
+
+    private static void PumpUntilCompleted(
+        System.Windows.Threading.Dispatcher dispatcher,
+        Task task)
+    {
+        if (!task.IsCompleted)
+        {
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            _ = task.ContinueWith(
+                _ => dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle,
+                    () => frame.Continue = false),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
+        }
+
+        task.GetAwaiter().GetResult();
+        DrainDispatcher(dispatcher);
+    }
+
+    private sealed class ChangingOverviewClient(
+        bool includeProtectionState = false,
+        IReadOnlySet<int>? failedOverviewCalls = null,
+        bool verifyContractFailure = false)
         : IWatchV2ApiClient
     {
         public int OverviewCallCount { get; private set; }
 
         public Task VerifyContractAsync(CancellationToken cancellationToken) =>
-            Task.CompletedTask;
+            verifyContractFailure
+                ? Task.FromException(new WatchHostQueryException(
+                    WatchHostFailureKind.Contract,
+                    "http://host-a/api/v2/contract?credential=must-not-leak",
+                    "contract-correlation",
+                    "must-not-leak contract detail",
+                    errorCode: "CONTRACT_MISMATCH"))
+                : Task.CompletedTask;
 
         public Task<WatchOverviewSnapshot> FetchOverviewAsync(
             WatchOverviewQuery query,
             CancellationToken cancellationToken = default)
         {
             var count = ++OverviewCallCount;
+            if (failedOverviewCalls?.Contains(count) == true)
+            {
+                throw new WatchHostQueryException(
+                    WatchHostFailureKind.Timeout,
+                    "http://host-a/api/v2/overview?credential=must-not-leak",
+                    $"correlation-{count}",
+                    "must-not-leak simulated timeout with a long internal exception detail");
+            }
+
             var at = DateTimeOffset.Parse("2026-08-14T08:00:00Z").AddSeconds(count);
             var identity = new OperationalSnapshotIdentity(
                 $"commit-{count}",
@@ -480,8 +724,28 @@ public sealed class WatchV2ProductionShellTests
 
         public Task<DemandSeriesListSnapshot> FetchDemandSeriesAsync(
             DemandSeriesBrowseQuery query,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var at = DateTimeOffset.Parse("2026-08-14T08:00:30Z");
+            return Task.FromResult(new DemandSeriesListSnapshot(
+                new DemandSeriesSnapshotIdentity(
+                    HistoryEpoch.CreateNew(),
+                    "commit-demand-empty",
+                    1,
+                    at,
+                    "poll-demand-empty"),
+                "snapshot-demand-empty",
+                query.Filter,
+                query.Order,
+                0,
+                new DemandSeriesFacets(0, 0, 0, 0, 0),
+                query.PageSize,
+                query.PageNumber,
+                0,
+                [],
+                null,
+                false));
+        }
 
         public Task<DemandSeriesDetailSnapshot> FetchDemandSeriesDetailAsync(
             string seriesId,

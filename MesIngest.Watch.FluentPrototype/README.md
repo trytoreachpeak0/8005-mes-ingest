@@ -47,7 +47,9 @@ command-first tiles. The page directly demonstrates silent automatic refresh,
 user-operation success, first-occurrence fault contraction, repeated-fault
 coalescing, three-item priority/stacking, recovery, AREA concurrent-write
 `ContentDialog`, narrow-window reflow, timer pause, and reduced motion. This is
-throwaway presentation code; no variant is production-ready.
+throwaway presentation code; no variant is production-ready. **Variant A —
+independent Fluent toast cards — was selected on 2026-08-26**; B/C remain
+rejected prototype comparisons.
 
 The selected information architecture is:
 

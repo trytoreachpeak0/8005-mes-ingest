@@ -29,9 +29,11 @@ public sealed class WatchAreaProfileWriteConflictTests
             RaiseExternalWrite(directoryPath, events, clock, "C3-3");
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
-            Assert.Equal(Visibility.Visible, ConflictPanel(window).Visibility);
-            Assert.True(KeepLocalButton(window).IsEnabled);
-            Assert.True(UseDiskButton(window).IsEnabled);
+            var dialog = ConflictDialog(window);
+            Assert.Equal("覆盖并保存", dialog.PrimaryButtonText);
+            Assert.Equal("重新载入文件", dialog.SecondaryButtonText);
+            Assert.Equal("稍后处理", dialog.CloseButtonText);
+            Assert.Equal(Wpf.Ui.Controls.ContentDialogButton.Secondary, dialog.DefaultButton);
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
             Assert.Equal("B2-2", Editor(window).Text);
         });
@@ -44,10 +46,10 @@ public sealed class WatchAreaProfileWriteConflictTests
             RaiseExternalWrite(directoryPath, events, clock, "C3-3");
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
-            KeepLocalButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            ResolveConflict(window, Wpf.Ui.Controls.ContentDialogResult.Primary);
 
             Assert.Equal("B2-2", ReadProfile(directoryPath, "西区"));
-            Assert.Equal(Visibility.Collapsed, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
             Assert.Equal("已自动保存", DiskState(window).Text);
 
             // The rebased fingerprint is what lets the next ordinary auto-save
@@ -55,7 +57,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             Editor(window).Text = "B2-2\nB2-4";
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
             Assert.Equal("B2-2\nB2-4", ReadProfile(directoryPath, "西区"));
-            Assert.Equal(Visibility.Collapsed, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
         });
 
     [Fact]
@@ -66,11 +68,11 @@ public sealed class WatchAreaProfileWriteConflictTests
             RaiseExternalWrite(directoryPath, events, clock, "C3-3");
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
-            UseDiskButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            ResolveConflict(window, Wpf.Ui.Controls.ContentDialogResult.Secondary);
 
             Assert.Equal("C3-3", Editor(window).Text);
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
-            Assert.Equal(Visibility.Collapsed, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
             Assert.Equal("已自动保存", DiskState(window).Text);
         });
 
@@ -83,11 +85,13 @@ public sealed class WatchAreaProfileWriteConflictTests
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
             Editor(window).Text = "B2-2\nB2-4";
+            ResolveConflict(window, Wpf.Ui.Controls.ContentDialogResult.None);
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
-            Assert.Equal(Visibility.Visible, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
+            Assert.Equal("B2-2\nB2-4", Editor(window).Text);
         });
 
     [Fact]
@@ -166,10 +170,10 @@ public sealed class WatchAreaProfileWriteConflictTests
             // edit must rebase onto that version, not onto the stale one the
             // conflict was raised against.
             WriteProfile(directoryPath, "西区", "D4-4");
-            KeepLocalButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            ResolveConflict(window, Wpf.Ui.Controls.ContentDialogResult.Primary);
 
             Assert.Equal("B2-2", ReadProfile(directoryPath, "西区"));
-            Assert.Equal(Visibility.Collapsed, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
         });
 
     [Fact]
@@ -190,7 +194,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             ConfirmButton(window).RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             DrainDispatcher(window.Dispatcher);
 
-            Assert.Equal(Visibility.Collapsed, ConflictPanel(window).Visibility);
+            Assert.Null(window.ActiveWorkspaceDialog);
             Assert.Equal("B2-2", ReadProfile(directoryPath, "东区"));
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
 
@@ -200,7 +204,7 @@ public sealed class WatchAreaProfileWriteConflictTests
         });
 
     [Fact]
-    public void Ctrl_S_says_why_it_refused_instead_of_doing_nothing() =>
+    public void Ctrl_S_cannot_bypass_the_modal_conflict_choice() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {
             Editor(window).Text = "B2-2";
@@ -211,10 +215,7 @@ public sealed class WatchAreaProfileWriteConflictTests
                 null,
                 Assert.IsType<ScrollViewer>(window.FindName("AreaFilterPage")));
 
-            var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
-                window.FindName("AreaProfileInfoBar"));
-            Assert.True(infoBar.IsOpen);
-            Assert.Contains("冲突", infoBar.Title, StringComparison.Ordinal);
+            Assert.NotNull(ConflictDialog(window));
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
         });
 
@@ -229,7 +230,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             NavigateTo(window, "OverviewNavigationItem");
             NavigateTo(window, "AreaFilterNavigationItem");
 
-            Assert.Equal(Visibility.Visible, ConflictPanel(window).Visibility);
+            Assert.NotNull(ConflictDialog(window));
             Assert.Equal("B2-2", Editor(window).Text);
             Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
         });
@@ -279,7 +280,7 @@ public sealed class WatchAreaProfileWriteConflictTests
                 Assert.IsType<WatchAreaFilterProfilePresentationRow>(list.SelectedItem)
                     .ProfileName);
             Assert.Equal("B2-2", Editor(window).Text);
-            Assert.Equal(Visibility.Visible, ConflictPanel(window).Visibility);
+            Assert.NotNull(ConflictDialog(window));
         });
 
     private static void RaiseExternalWrite(
@@ -303,16 +304,20 @@ public sealed class WatchAreaProfileWriteConflictTests
     private static ListBox ProfileList(WatchWorkspaceWindow window) =>
         Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
 
-    private static Border ConflictPanel(WatchWorkspaceWindow window) =>
-        Assert.IsType<Border>(window.FindName("AreaProfileWriteConflictPanel"));
+    private static Wpf.Ui.Controls.ContentDialog ConflictDialog(
+        WatchWorkspaceWindow window)
+    {
+        Assert.Equal("area-write-conflict", window.ActiveWorkspaceDialogKind);
+        return Assert.IsType<Wpf.Ui.Controls.ContentDialog>(window.ActiveWorkspaceDialog);
+    }
 
-    private static Wpf.Ui.Controls.Button KeepLocalButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(
-            window.FindName("AreaProfileKeepLocalEditButton"));
-
-    private static Wpf.Ui.Controls.Button UseDiskButton(WatchWorkspaceWindow window) =>
-        Assert.IsType<Wpf.Ui.Controls.Button>(
-            window.FindName("AreaProfileUseDiskVersionButton"));
+    private static void ResolveConflict(
+        WatchWorkspaceWindow window,
+        Wpf.Ui.Controls.ContentDialogResult result)
+    {
+        ConflictDialog(window).Hide(result);
+        PumpUntilCompleted(window.Dispatcher, window.ActiveWorkspaceDialogTask);
+    }
 
     private static Wpf.Ui.Controls.Button SaveDraftAsButton(WatchWorkspaceWindow window) =>
         Assert.IsType<Wpf.Ui.Controls.Button>(
@@ -379,6 +384,25 @@ public sealed class WatchAreaProfileWriteConflictTests
         Dispatcher.PushFrame(frame);
     }
 
+    private static void PumpUntilCompleted(Dispatcher dispatcher, Task task)
+    {
+        if (!task.IsCompleted)
+        {
+            var frame = new DispatcherFrame();
+            _ = task.ContinueWith(
+                _ => dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    () => frame.Continue = false),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            Dispatcher.PushFrame(frame);
+        }
+
+        task.GetAwaiter().GetResult();
+        DrainDispatcher(dispatcher);
+    }
+
     private static void RunWithAreaProfileWindow(
         Action<WatchWorkspaceWindow,
             string,
@@ -387,6 +411,8 @@ public sealed class WatchAreaProfileWriteConflictTests
         string selectedProfileName = "西区") =>
         StaTestRunner.Run(() =>
         {
+            SynchronizationContext.SetSynchronizationContext(
+                new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
             var root = NewRoot();
             var areaProfilesPath = Path.Combine(root, "area-filters");
             Directory.CreateDirectory(areaProfilesPath);

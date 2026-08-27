@@ -180,6 +180,13 @@ public sealed class WatchDemandSeriesInspectorShellTests
             Assert.Null(grid.SelectedItem);
             Assert.False(Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesOpenInspectorButton")).IsEnabled);
+            var notifications = Assert.IsType<ItemsControl>(
+                window.FindName("NotificationItemsControl"));
+            Assert.Single(notifications.Items);
+            Assert.Equal(
+                "原需求系列已不在刷新结果中",
+                NotificationValue(notifications, "Title"));
+            Assert.Equal("3 秒", NotificationValue(notifications, "TimerText"));
 
             window.Close();
             TryDelete(root);
@@ -787,6 +794,14 @@ public sealed class WatchDemandSeriesInspectorShellTests
         _ => client,
         initializeOnLoaded: false,
         demandSeriesInspectorCoordinator: inspector);
+
+    private static string NotificationValue(ItemsControl items, string propertyName)
+    {
+        var item = Assert.Single(items.Items)!;
+        var property = item.GetType().GetProperty(propertyName);
+        Assert.NotNull(property);
+        return Assert.IsType<string>(property!.GetValue(item));
+    }
 
     private static void RaiseKey(DataGrid grid, Key key)
     {

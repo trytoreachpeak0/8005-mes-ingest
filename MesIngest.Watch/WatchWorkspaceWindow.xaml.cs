@@ -43,6 +43,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private readonly WatchV2WorkspaceSession _session;
     private readonly WatchV2AutoRefreshCoordinator _autoRefresh;
     private readonly WatchDemandSeriesInspectorCoordinator _demandSeriesInspectorCoordinator;
+    private readonly WatchWindowNotificationCoordinator _notificationCoordinator;
     private readonly string _connectionPreferencesPath;
     private readonly string _workspacePreferencesPath;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
@@ -77,7 +78,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         string? areaFilterProfilesDirectoryPath = null,
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null,
         IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null,
-        WatchDemandSeriesInspectorCoordinator? demandSeriesInspectorCoordinator = null)
+        WatchDemandSeriesInspectorCoordinator? demandSeriesInspectorCoordinator = null,
+        Func<bool>? notificationReducedMotionProvider = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -89,6 +91,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _session,
             preferences.RefreshIntervals,
             timeProvider);
+        _notificationCoordinator = new WatchWindowNotificationCoordinator(timeProvider);
+        _notificationReducedMotionProvider = notificationReducedMotionProvider
+            ?? (static () => !System.Windows.SystemParameters.ClientAreaAnimation);
         _demandSeriesInspectorCoordinator = demandSeriesInspectorCoordinator
             ?? new WatchDemandSeriesInspectorCoordinator(
                 layoutLoader: LoadInspectorWindowLayout,
@@ -103,6 +108,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             areaProfileDirectoryEventSource);
 
         InitializeComponent();
+        InitializeNotifications();
+        InitializeFeedbackLifecycle();
         InitializeDemandSeriesPage();
         InitializeReadabilityAuditPage();
         InitializeAreaFilterProfilePage();
@@ -1027,10 +1034,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         var state = _session.State;
+        SynchronizeContinuingFeedback(state);
         var presentation = WatchOverviewPresentation.Project(state, _areaContext);
         OverviewContextText.Text =
             $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts} · 自动刷新 {_preferences.RefreshIntervals.Overview.IntervalSeconds} 秒";
-        OverviewInfoBar.IsOpen = presentation.IsInfoOpen;
+        OverviewInfoBar.IsOpen = false;
         OverviewInfoBar.Severity = ToInfoBarSeverity(presentation.InfoSeverity);
         OverviewInfoBar.Title = presentation.InfoTitle;
         OverviewInfoBar.Message = presentation.InfoMessage;
@@ -1091,6 +1099,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RenderReadabilityAudit(state);
         RenderErrorSearch(state);
         RenderCurrentAttention(state);
+        PublishSelectionFeedback(state);
     }
 
     private static void SetOverviewMetricState(TextBlock metric, bool isCritical) =>
@@ -1186,21 +1195,16 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
             var showSource = presentation.SourceComparison
                 != WatchDemandSeriesSourceComparison.None;
-            var showDemandSeriesInfo = presentation.IsInfoOpen || showSource;
+            var showDemandSeriesInfo = showSource;
             DemandSeriesInfoBar.IsOpen = showDemandSeriesInfo;
             DemandSeriesInfoExpander.Visibility = showDemandSeriesInfo
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             DemandSeriesInfoBar.Severity = ToInfoBarSeverity(
-                presentation.IsInfoOpen
-                    ? presentation.InfoSeverity
-                    : presentation.SourceComparisonSeverity);
-            DemandSeriesInfoBar.Title = presentation.IsInfoOpen
-                ? presentation.InfoTitle
-                : showSource ? "来源快照比较" : string.Empty;
+                presentation.SourceComparisonSeverity);
+            DemandSeriesInfoBar.Title = showSource ? "来源快照比较" : string.Empty;
             var infoParts = new[]
             {
-                presentation.IsInfoOpen ? presentation.InfoMessage : null,
                 showSource ? presentation.SourceSnapshotSummary : null,
                 showSource ? presentation.SourceComparisonMessage : null,
             }.Where(value => !string.IsNullOrWhiteSpace(value));
@@ -1255,12 +1259,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 StringComparison.Ordinal));
             AddObservedWorkTypes(presentation.Rows.Select(row => row.WorkType));
 
-            DemandSeriesAllAreasConfirmPanel.Visibility =
-                ShouldOfferDemandSeriesAllAreasConfirmation()
-                    ? Visibility.Visible
-                    : Visibility.Collapsed;
-            DemandSeriesAllAreasConfirmButton.IsEnabled =
-                DemandSeriesAllAreasConfirmPanel.Visibility == Visibility.Visible;
+            OfferDemandSeriesAllAreasDialogIfNeeded();
 
             var inspectorPresentation = CreateDemandSeriesInspectorStatePresentation();
             DemandSeriesOpenInspectorButton.IsEnabled = inspectorPresentation is not null;
@@ -1645,8 +1644,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchWorkspacePage page,
         bool activateRefresh = true)
     {
-        if (_activePage != page)
+        var pageChanged = _activePage != page;
+        if (pageChanged)
         {
+            _notificationCoordinator.ClearPage(_activePage);
             FlushAreaProfileAutoSave();
             CloseAreaProfileFileOperation(restoreInvokerFocus: false);
         }
@@ -1676,6 +1677,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         CurrentAttentionNavigationItem.IsActive = page == WatchWorkspacePage.CurrentAttention;
         SettingsNavigationItem.IsActive = page == WatchWorkspacePage.Settings;
         HostNavigationItem.IsActive = false;
+
+        if (pageChanged)
+        {
+            PageViewport(page).ScrollToTop();
+        }
 
         if (_demandSeriesInspectorCoordinator.IsOpen)
         {
@@ -1713,6 +1719,18 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 throw new ArgumentOutOfRangeException(nameof(page), page, null);
         }
     }
+
+    private ScrollViewer PageViewport(WatchWorkspacePage page) => page switch
+    {
+        WatchWorkspacePage.Overview => OverviewPage,
+        WatchWorkspacePage.DemandSeries => DemandSeriesScrollViewer,
+        WatchWorkspacePage.ReadabilityAudit => ReadabilityAuditPage,
+        WatchWorkspacePage.ErrorSearch => ErrorSearchBodyScrollViewer,
+        WatchWorkspacePage.AreaFilter => AreaFilterPage,
+        WatchWorkspacePage.CurrentAttention => CurrentAttentionPage,
+        WatchWorkspacePage.Settings => SettingsPage,
+        _ => throw new ArgumentOutOfRangeException(nameof(page), page, null),
+    };
 
     private void InitializeIntervalInputs()
     {
@@ -1783,34 +1801,40 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 HostBaseUrlInput.Text,
                 credential,
                 timeoutSeconds);
-            ShowSettingsInfo(
-                InfoBarSeverity.Informational,
-                "正在应用 Host 设置",
-                "旧 Host 业务状态已立即清空；正在验证新 Host 契约。");
+            SettingsHostStateText.Text = "正在验证新 Host 契约；旧 Host 业务状态已清空。";
             if (!await ApplyHostAsync(settings, _lifetimeCancellation.Token).ConfigureAwait(true))
             {
                 return;
             }
 
             PopulateSettingsInputs();
-            ShowSettingsInfo(
-                _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected
-                    ? InfoBarSeverity.Success
-                    : InfoBarSeverity.Error,
-                _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected
-                    ? "Host 设置已应用"
-                    : "Host 连接失败",
-                _session.State.ConnectionStatus == WatchHostConnectionStatus.Connected
-                    ? "契约兼容，概览已读取并恢复自动刷新。"
-                    : "旧 Host 数据不会恢复；请检查地址、凭据、超时和契约版本。");
+            if (_session.State.ConnectionStatus == WatchHostConnectionStatus.Connected)
+            {
+                PresentSettingsFeedback(
+                    WatchNotificationSeverity.Success,
+                    "host.apply",
+                    "Host 设置已应用",
+                    "契约兼容，概览已读取并恢复自动刷新。");
+            }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
         {
             // Closing the window is a neutral end to an in-flight apply.
         }
-        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        catch (ArgumentException exception)
         {
-            ShowSettingsInfo(InfoBarSeverity.Error, "无法应用 Host 设置", exception.Message);
+            var validationMessage = $"无法应用 Host 设置。{exception.Message}";
+            SettingsHostStateText.Text = validationMessage;
+            AutomationProperties.SetName(SettingsHostStateText, validationMessage);
+            AutomationProperties.SetHelpText(RequestTimeoutInput, exception.Message);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            PresentSettingsFailure(
+                "host.apply",
+                "无法应用 Host 设置",
+                "请检查地址格式、超时范围或本机设置文件后重试。",
+                ApplyHostButton);
         }
         finally
         {
@@ -1851,14 +1875,31 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 throw new InvalidOperationException("Local preferences must not replace the Host session.");
             }
 
-            ShowSettingsInfo(
-                InfoBarSeverity.Success,
+            PresentNotification(new WatchNotificationEvent(
+                new WatchNotificationSource(
+                    "settings.local-preferences",
+                    WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
+                    "workspace-preferences"),
+                WatchNotificationSeverity.Success,
+                "成功",
                 "本机设置已保存",
-                "自动刷新保持开启；当前 Host 会话未重建。");
+                "自动刷新保持开启；当前 Host 会话未重建。"));
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            ShowSettingsInfo(InfoBarSeverity.Error, "无法保存本机设置", exception.Message);
+            PresentNotification(new WatchNotificationEvent(
+                new WatchNotificationSource(
+                    "settings.local-preferences",
+                    WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
+                    "workspace-preferences"),
+                WatchNotificationSeverity.Error,
+                "错误",
+                "无法保存本机设置",
+                "本机设置文件无法写入。请检查文件权限后重试。",
+                "重试保存",
+                () => SaveRefreshIntervalsButton.RaiseEvent(
+                    new RoutedEventArgs(
+                        System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
         }
     }
 
@@ -1878,14 +1919,19 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     "Restoring the local layout must not replace the Host session.");
             }
 
-            ShowSettingsInfo(
-                InfoBarSeverity.Success,
+            PresentSettingsFeedback(
+                WatchNotificationSeverity.Success,
+                "layout.restore-default",
                 "已恢复默认布局",
                 "窗口恢复为 1440×900 和紧凑导航 rail；刷新间隔与 Host 会话保持不变。");
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            ShowSettingsInfo(InfoBarSeverity.Error, "无法恢复默认布局", exception.Message);
+            PresentSettingsFailure(
+                "layout.restore-default",
+                "无法恢复默认布局",
+                "本机布局设置无法写入；请检查文件权限后重试。",
+                RestoreDefaultLayoutButton);
         }
     }
 
@@ -1904,14 +1950,19 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 throw new InvalidOperationException("Restoring local defaults must not replace the Host session.");
             }
 
-            ShowSettingsInfo(
-                InfoBarSeverity.Success,
+            PresentSettingsFeedback(
+                WatchNotificationSeverity.Success,
+                "settings.restore-default",
                 "已恢复默认设置",
                 "窗口恢复为 1440×900、紧凑导航 rail；五个数据视图保持 10 秒自动刷新。Host 会话未重建。");
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            ShowSettingsInfo(InfoBarSeverity.Error, "无法恢复默认设置", exception.Message);
+            PresentSettingsFailure(
+                "settings.restore-default",
+                "无法恢复默认设置",
+                "本机设置无法写入；请检查文件权限后重试。",
+                RestoreDefaultSettingsButton);
         }
     }
 
@@ -1920,18 +1971,38 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ? new WatchV2AutoRefreshSetting(seconds)
             : throw new ArgumentException("请选择 10、30、60 或 300 秒。");
 
-    private void ShowSettingsInfo(
-        InfoBarSeverity severity,
+    private void PresentSettingsFeedback(
+        WatchNotificationSeverity severity,
+        string identity,
         string title,
-        string message)
-    {
-        SettingsInfoBar.Severity = severity;
-        SettingsInfoBar.Title = title;
-        SettingsInfoBar.Message = message;
-        SettingsInfoBar.IsOpen = true;
-        AutomationProperties.SetName(SettingsInfoBar, $"{title}。{message}");
-        AutomationProperties.SetHelpText(SettingsHostStatusText, $"{title}。{message}");
-    }
+        string message) =>
+        PresentNotification(new WatchNotificationEvent(
+            new WatchNotificationSource(
+                "settings.operation",
+                WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
+                identity),
+            severity,
+            severity == WatchNotificationSeverity.Success ? "成功" : "信息",
+            title,
+            message));
+
+    private void PresentSettingsFailure(
+        string identity,
+        string title,
+        string message,
+        System.Windows.Controls.Primitives.ButtonBase retryButton) =>
+        PresentNotification(new WatchNotificationEvent(
+            new WatchNotificationSource(
+                "settings.operation",
+                WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
+                identity),
+            WatchNotificationSeverity.Error,
+            "错误",
+            title,
+            message,
+            "重试",
+            () => retryButton.RaiseEvent(new RoutedEventArgs(
+                System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
 
     private void OnOverviewIntentClick(object sender, RoutedEventArgs e)
     {
@@ -2278,13 +2349,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
             or InvalidOperationException
             or DemandSeriesBrowseException)
         {
-            DemandSeriesInfoBar.IsOpen = true;
-            DemandSeriesInfoBar.Severity = InfoBarSeverity.Error;
-            DemandSeriesInfoBar.Title = "无法执行需求系列操作";
-            DemandSeriesInfoBar.Message = exception.Message;
-            AutomationProperties.SetName(
-                DemandSeriesInfoBar,
-                $"{DemandSeriesInfoBar.Title}。{DemandSeriesInfoBar.Message}");
+            PresentOperationFailure(
+                WatchWorkspacePage.DemandSeries,
+                "demand-series.operation",
+                "无法执行需求系列操作",
+                "请检查输入或当前快照后重试。",
+                "返回需求系列");
         }
     }
 
@@ -2503,6 +2573,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WorkspaceContent.Margin = contentWidth < 760
             ? new Thickness(12)
             : new Thickness(24, 16, 24, 16);
+        ReflowNotificationOverlay(contentWidth);
     }
 
     private void ReflowDemandSeries(bool useOuterScrolling) =>
@@ -2706,6 +2777,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _areaProfileStore.DirectoryWatchStateChanged -=
             OnAreaProfileDirectoryWatchStateChanged;
         DisposeAreaProfileAutoSave();
+        DisposeFeedbackLifecycle();
+        DisposeNotifications();
         _areaProfileStore.Dispose();
         _lifetimeCancellation.Cancel();
         _demandSeriesInspectorCoordinator.Dispose();
