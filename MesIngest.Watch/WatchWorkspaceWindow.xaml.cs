@@ -2617,7 +2617,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ReadabilityDetailColumn,
             ReadabilityBodyVerticalGap,
             ReadabilityBodyBottomRow,
-            (GridLength)FindResource("ReadabilityMasterColumnWidth"));
+            (GridLength)FindResource("ReadabilityMasterColumnWidth"),
+            (GridLength)FindResource("ReadabilityMasterDetailGapWidth"));
         ConfigureResponsivePageViewport(
             ReadabilityAuditLayoutGrid,
             ReadabilityAuditPage,
@@ -2633,7 +2634,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             AreaProfileEditorColumn,
             AreaProfileVerticalGap,
             AreaProfileBottomRow,
-            (GridLength)FindResource("AreaProfileMasterColumnWidth"));
+            (GridLength)FindResource("AreaProfileMasterColumnWidth"),
+            (GridLength)FindResource("WatchMasterDetailGapWidth"));
         ConfigureResponsivePageViewport(
             AreaFilterLayoutGrid,
             AreaFilterPage,
@@ -2683,10 +2685,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ColumnDefinition detailColumn,
         RowDefinition verticalGap,
         RowDefinition bottomRow,
-        GridLength expandedMasterWidth)
+        GridLength expandedMasterWidth,
+        GridLength gap)
     {
         var collapsed = (GridLength)FindResource("WatchCollapsedGridLength");
-        var gap = (GridLength)FindResource("WatchMasterDetailGapWidth");
         Grid.SetColumn(detailCard, stack ? 0 : 2);
         Grid.SetRow(detailCard, stack ? 2 : 0);
         masterColumn.Width = stack

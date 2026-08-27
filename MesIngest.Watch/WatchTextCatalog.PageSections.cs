@@ -13,8 +13,8 @@ internal sealed partial class WatchOverviewText(WatchDisplayLanguage language)
 internal sealed partial class WatchDemandSeriesText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
-internal sealed class WatchReadabilityAuditText(WatchDisplayLanguage language)
-    : WatchEmptyTextSection(language);
+internal sealed partial class WatchReadabilityAuditText(WatchDisplayLanguage language)
+    : WatchTextCatalogSection(language);
 
 internal sealed class WatchErrorSearchText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);

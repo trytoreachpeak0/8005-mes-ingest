@@ -6,6 +6,42 @@ namespace MesIngest.Tests;
 public sealed class WatchReadabilityAuditPresentationTests
 {
     [Fact]
+    public void English_catalog_and_presenter_keep_six_distinct_value_semantics_and_raw_blocker_codes()
+    {
+        var catalog = WatchTextCatalog.For(WatchDisplayLanguage.English);
+        var text = catalog.ReadabilityAudit;
+        var workspace = WatchV2WorkspaceState.Reset(
+            hostGeneration: 1,
+            baseUrl: "http://host-a",
+            WatchHostConnectionStatus.Connected);
+
+        var presentation = WatchReadabilityAuditPresentation.Project(
+            workspace,
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
+            WatchAreaDisplayContext.AllAreas,
+            catalog);
+        var blocker = text.DescribeBlocker("REQUIRED_MES_FIELD_MISSING");
+
+        Assert.Equal("Eligibility audit", text.PageTitle);
+        Assert.Equal(
+            [
+                WatchDisplayValueKind.SourceNotProvided,
+                WatchDisplayValueKind.SystemUnknown,
+                WatchDisplayValueKind.NotApplicable,
+                WatchDisplayValueKind.NotLoaded,
+                WatchDisplayValueKind.EmptyResult,
+                WatchDisplayValueKind.ReadFailed,
+            ],
+            text.ValueSemantics.Select(item => item.Kind).ToArray());
+        Assert.Equal(6, text.ValueSemantics.Select(item => item.Heading).Distinct().Count());
+        Assert.Equal("Required MES field is missing", blocker.Description);
+        Assert.Equal("REQUIRED_MES_FIELD_MISSING", blocker.RawCode);
+        Assert.Equal("No Host eligibility-audit snapshot", presentation.SnapshotFacts);
+        Assert.Equal("No eligibility-audit snapshot", presentation.PageSummary);
+        Assert.Equal("Host committed scope: no snapshot", presentation.HostAreaScope);
+    }
+
+    [Fact]
     public void No_snapshot_reports_an_unavailable_audit_without_claiming_health()
     {
         var workspace = WatchV2WorkspaceState.Reset(

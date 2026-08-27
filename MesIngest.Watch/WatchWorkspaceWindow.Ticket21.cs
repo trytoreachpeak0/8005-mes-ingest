@@ -257,11 +257,9 @@ internal partial class WatchWorkspaceWindow
 
     private static IReadOnlyList<string> ReadReadabilityChoices(ComboBox comboBox)
     {
-        var value = comboBox.IsEditable
-            ? comboBox.Text
-            : comboBox.SelectedItem is ComboBoxItem item
-                ? item.Tag?.ToString() ?? item.Content?.ToString()
-                : comboBox.Text;
+        var value = comboBox.SelectedItem is ComboBoxItem item
+            ? item.Tag?.ToString() ?? item.Content?.ToString()
+            : comboBox.Text;
         if (string.IsNullOrWhiteSpace(value)
             || value.StartsWith("全部", StringComparison.Ordinal))
         {
@@ -405,10 +403,12 @@ internal partial class WatchWorkspaceWindow
             var presentation = WatchReadabilityAuditPresentation.Project(
                 state,
                 _readabilityAuditQuery,
-                _areaContext);
-            ReadabilityRefreshPolicyText.Text = state.ReadabilityAudit.IsRefreshing
-                ? "正在读取 · 自动刷新保持开启"
-                : $"每 {_preferences.RefreshIntervals.ReadabilityAudit.IntervalSeconds} 秒自动刷新";
+                _areaContext,
+                _displayLanguageState.Catalog);
+            var text = _displayLanguageState.Catalog.ReadabilityAudit;
+            ReadabilityRefreshPolicyText.Text = text.RefreshPolicy(
+                _preferences.RefreshIntervals.ReadabilityAudit.IntervalSeconds,
+                state.ReadabilityAudit.IsRefreshing);
             ReadabilityAuditInfoBar.IsOpen = false;
             ReadabilityAuditInfoBar.Severity = ToInfoBarSeverity(presentation.InfoSeverity);
             ReadabilityAuditInfoBar.Title = presentation.InfoTitle;
@@ -444,7 +444,7 @@ internal partial class WatchWorkspaceWindow
 
             ReadabilityEmptyInfoBar.IsOpen = presentation.EmptyResultMessage.Length > 0;
             ReadabilityEmptyInfoBar.Title = presentation.EmptyResultMessage.Length > 0
-                ? "当前已提交条件没有命中"
+                ? text.ValueSemantics.Single(item => item.Kind == WatchDisplayValueKind.EmptyResult).Heading
                 : string.Empty;
             ReadabilityEmptyInfoBar.Message = presentation.EmptyResultMessage;
             AutomationProperties.SetName(
@@ -462,25 +462,28 @@ internal partial class WatchWorkspaceWindow
                 .ToString() ?? "1";
 
             var detail = presentation.Detail;
-            ReadabilityDetailHeadingText.Text = detail?.Heading ?? "选择一个 Demand 世代";
+            ReadabilityDetailHeadingText.Text = detail?.Heading ?? text.NotSelected;
             var detailEvidence = detail is null
                 ? presentation.SelectionNotice
-                    ?? "详情必须与当前列表使用同一个冻结 snapshotReference。"
+                    ?? text.SelectDemand
                 : $"{detail.Facts} · 全部阻断 {detail.AllBlockersSummary}";
             ReadabilityDetailFactsText.Text = detail?.BusinessIdentity ?? detailEvidence;
             ReadabilityDetailFactsText.ToolTip = detailEvidence;
-            ReadabilitySeriesFactsText.Text = detail?.SeriesFacts ?? "尚未选择 Series。";
+            ReadabilitySeriesFactsText.Text = detail?.SeriesFacts ?? text.NotSelected;
             ReadabilityLiveMesFactsText.Text = detail is null
-                ? "选择后显示可信 LiveMesFieldSet，或保留全部原始观测冲突证据。"
+                ? text.SelectDemand
                 : detail.LiveMesFields is null
                     ? $"{detail.LiveMesFacts} {detail.ObservationSummary}"
                     : detail.ObservationSummary;
             var liveMesFields = detail?.LiveMesFields;
-            ReadabilityLiveMesAreaText.Text = liveMesFields?.Area ?? "—";
-            ReadabilityLiveMesEqpText.Text = liveMesFields?.Eqp ?? "—";
-            ReadabilityLiveMesStepText.Text = liveMesFields?.Step ?? "—";
-            ReadabilityLiveMesDateText.Text = liveMesFields?.MesSourceDate ?? "—";
-            ReadabilityLiveMesPackageText.Text = liveMesFields?.Package ?? "—";
+            var absentLiveValue = detail is null
+                ? _displayLanguageState.Catalog.Common.NotLoaded
+                : _displayLanguageState.Catalog.Common.SystemUnknown;
+            ReadabilityLiveMesAreaText.Text = liveMesFields?.Area ?? absentLiveValue;
+            ReadabilityLiveMesEqpText.Text = liveMesFields?.Eqp ?? absentLiveValue;
+            ReadabilityLiveMesStepText.Text = liveMesFields?.Step ?? absentLiveValue;
+            ReadabilityLiveMesDateText.Text = liveMesFields?.MesSourceDate ?? absentLiveValue;
+            ReadabilityLiveMesPackageText.Text = liveMesFields?.Package ?? absentLiveValue;
             var liveMesEvidence = detail is null
                 ? ReadabilityLiveMesFactsText.Text
                 : $"{detail.LiveMesFacts} · {detail.ObservationSummary} · {detail.PollTraceFacts}";
@@ -519,8 +522,10 @@ internal partial class WatchWorkspaceWindow
             var readabilitySemanticState = detail?.SemanticState ?? "Neutral";
             ReadabilityPrimaryBlockerCard.Tag = readabilitySemanticState;
             ReadabilityPrimaryBlockerCodeText.Text = detail is null
-                ? "尚无阻断"
-                : detail.LeadReadabilityBlocker ?? "当前无阻断";
+                ? text.NoBlocker
+                : detail.LeadReadabilityBlocker is { Length: > 0 } blockerCode
+                    ? $"{text.DescribeBlocker(blockerCode).Description} · {blockerCode}"
+                    : text.NoBlocker;
             ReadabilityPrimaryBlockerEvidenceText.Text = primaryBlocker is null
                 ? detail is null
                     ? "选择后显示首要阻断证据。"
@@ -537,8 +542,9 @@ internal partial class WatchWorkspaceWindow
             ReadabilityQualificationChecklist.ItemsSource = detail?.QualificationChecks;
             ReadabilityQualificationConclusionCard.Tag = readabilitySemanticState;
             ReadabilityQualificationConclusionText.Text = detail is null
-                ? "结论：尚未选择 Demand"
-                : $"结论：{detail.ExternalReadabilityState}";
+                ? text.NotSelected
+                : text.QualificationConclusion(detail.ExternalReadabilityState);
+            ReadabilityValueSemanticsItems.ItemsSource = text.ValueSemantics;
             var revisionEvidence = detail is null
                 ? "选择 Demand 后显示完整 Catalog 修订与冻结快照链。"
                 : $"Catalog Revision {detail.CatalogRevision:N0} · Snapshot {detail.SnapshotReference} · Projection {detail.ProjectionSequence:N0} · {detail.ProjectionCommitId} · PollTrace {detail.PollTraceId}";
@@ -565,13 +571,13 @@ internal partial class WatchWorkspaceWindow
             ReadabilityDetailInfoBar.Title = presentation.SelectionNotice is not null
                 ? "原选择已清除"
                 : selectedDemandId is null
-                    ? "尚未选择 Demand"
+                    ? text.NotSelected
                     : detailReadFailed
                         ? "无法读取同快照详情"
                         : "正在读取同快照详情";
             ReadabilityDetailInfoBar.Message = presentation.SelectionNotice
                 ?? (selectedDemandId is null
-                    ? "从左侧列表选择 Demand 后读取同一审计快照的资格检查与全部证据。"
+                    ? text.SelectDemand
                     : detailReadFailed
                         ? $"Demand {selectedDemandId} 的详情读取失败；列表仍属于上方标明的冻结快照。"
                         : $"已选择 Demand {selectedDemandId}；正在读取当前 snapshotReference 的详情。");

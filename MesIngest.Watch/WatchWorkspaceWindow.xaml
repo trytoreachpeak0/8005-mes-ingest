@@ -99,7 +99,8 @@
         <sys:Double x:Key="AreaProfileMasterDetailStackBreakpoint">900</sys:Double>
         <wpf:GridLength x:Key="WatchCollapsedGridLength">0</wpf:GridLength>
         <wpf:GridLength x:Key="WatchMasterDetailGapWidth">16</wpf:GridLength>
-        <wpf:GridLength x:Key="ReadabilityMasterColumnWidth">430</wpf:GridLength>
+        <wpf:GridLength x:Key="ReadabilityMasterColumnWidth">330</wpf:GridLength>
+        <wpf:GridLength x:Key="ReadabilityMasterDetailGapWidth">12</wpf:GridLength>
         <wpf:GridLength x:Key="ReadabilityFacetGapWidth">12</wpf:GridLength>
         <wpf:GridLength x:Key="AreaProfileMasterColumnWidth">318</wpf:GridLength>
         <wpf:GridLength x:Key="AreaProfileOperationPanelGapHeight">8</wpf:GridLength>
@@ -892,7 +893,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
-                                    <ui:TextBlock Text="资格审计" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock x:Name="ReadabilityPageTitleText" Text="资格审计" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock x:Name="ReadabilityCompactFactsText"
                                                   Text="SnapshotReference 尚无快照 · Watch 尚无成功读取 · Host 固定排序 · 阻断原因精确分面：尚无快照"
                                                    Style="{StaticResource CaptionText}"
@@ -1013,7 +1014,7 @@
                                             </StackPanel>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
-                                            <ui:TextBlock Text="WORKTYPE" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilityWorkTypeFilterLabel" Text="WORKTYPE" Style="{StaticResource CaptionText}" />
                                             <ComboBox x:Name="ReadabilityWorkTypeFilter"
                                                       IsEditable="True"
                                                       SelectionChanged="OnReadabilityFilterDraftChanged"
@@ -1024,7 +1025,7 @@
                                                       AutomationProperties.AutomationId="ReadabilityWorkTypeFilter" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="4">
-                                            <ui:TextBlock Text="不可见原因" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilityBlockerFilterLabel" Text="不可见原因" Style="{StaticResource CaptionText}" />
                                             <ComboBox x:Name="ReadabilityBlockerFilter"
                                                       IsEditable="True"
                                                       SelectionChanged="OnReadabilityFilterDraftChanged"
@@ -1035,7 +1036,7 @@
                                                       AutomationProperties.AutomationId="ReadabilityBlockerFilter" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="6">
-                                            <ui:TextBlock Text="DemandId / SUBLOT" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilitySearchFilterLabel" Text="DemandId / SUBLOT" Style="{StaticResource CaptionText}" />
                                             <Grid Margin="{StaticResource DemandSeriesControlTopMargin}">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
@@ -1056,7 +1057,7 @@
                                             </Grid>
                                         </StackPanel>
                                         <StackPanel Grid.Column="8">
-                                            <ui:TextBlock Text="AREA 筛选" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilityAreaFilterLabel" Text="AREA 筛选" Style="{StaticResource CaptionText}" />
                                             <ComboBox x:Name="ReadabilityAreaProfileSelector"
                                                       Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                       KeyboardNavigation.IsTabStop="True"
@@ -1162,7 +1163,7 @@
                                     <ColumnDefinition x:Name="ReadabilityMasterColumn"
                                                       Width="{StaticResource ReadabilityMasterColumnWidth}" />
                                     <ColumnDefinition x:Name="ReadabilityBodyGapColumn"
-                                                      Width="{StaticResource WatchMasterDetailGapWidth}" />
+                                                      Width="{StaticResource ReadabilityMasterDetailGapWidth}" />
                                     <ColumnDefinition x:Name="ReadabilityDetailColumn" Width="*" />
                                 </Grid.ColumnDefinitions>
 
@@ -1271,15 +1272,15 @@
                                                                         <ColumnDefinition Width="*" />
                                                                         <ColumnDefinition Width="Auto" />
                                                                     </Grid.ColumnDefinitions>
-                                                                    <ui:TextBlock Text="{Binding DemandId}"
+                                                                    <ui:TextBlock Text="{Binding DemandIdentity}"
                                                                                   Style="{StaticResource CodeText}"
                                                                                   FontWeight="SemiBold" />
                                                                     <ui:TextBlock Grid.Column="1"
-                                                                                  Text="{Binding ExternalReadabilityState}"
+                                                                                  Text="{Binding ReadabilityDisplay}"
                                                                                   Style="{StaticResource BodyStrong}" />
                                                                 </Grid>
                                                                 <ui:TextBlock Grid.Row="1"
-                                                                              Text="{Binding WorkType}"
+                                                                              Text="{Binding WorkTypeIdentity}"
                                                                               Style="{StaticResource CodeText}"
                                                                               Margin="0,4,0,0" />
                                                                 <Grid Grid.Row="2" Margin="0,4,0,0">
@@ -1287,9 +1288,9 @@
                                                                         <ColumnDefinition Width="*" />
                                                                         <ColumnDefinition Width="220" />
                                                                     </Grid.ColumnDefinitions>
-                                                                    <ui:TextBlock Text="{Binding Sublot}" Style="{StaticResource CaptionText}" />
+                                                                    <ui:TextBlock Text="{Binding SublotIdentity}" Style="{StaticResource CaptionText}" />
                                                                     <ui:TextBlock Grid.Column="1"
-                                                                                  Text="{Binding LeadReadabilityBlocker}"
+                                                                                  Text="{Binding BlockerDisplay}"
                                                                                   Style="{StaticResource CodeText}"
                                                                                   TextTrimming="CharacterEllipsis"
                                                                                   HorizontalAlignment="Right" />
@@ -1449,7 +1450,7 @@
                                                     <ColumnDefinition Width="1*" />
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel>
-                                                    <ui:TextBlock Text="最后可信 MES 观测" Style="{StaticResource BodyStrong}" />
+                                                    <ui:TextBlock x:Name="ReadabilityCurrentObservationHeadingText" Text="当前唯一 MES 观测" Style="{StaticResource BodyStrong}" />
                                                     <Grid x:Name="ReadabilityLiveMesFieldsGrid"
                                                           Margin="0,8,12,0"
                                                           AutomationProperties.Name="资格审计最后可信 MES 字段">
@@ -1523,7 +1524,7 @@
                                                         <RowDefinition Height="Auto" />
                                                         <RowDefinition Height="*" />
                                                     </Grid.RowDefinitions>
-                                                    <ui:TextBlock Text="当前阻断条件" Style="{StaticResource BodyStrong}" />
+                                                    <ui:TextBlock x:Name="ReadabilityCurrentBlockerHeadingText" Text="当前阻断条件" Style="{StaticResource BodyStrong}" />
                                                     <Border x:Name="ReadabilityPrimaryBlockerCard"
                                                             Grid.Row="1"
                                                             Margin="0,8,0,0"
@@ -1589,7 +1590,7 @@
                                                     <RowDefinition Height="*" />
                                                     <RowDefinition Height="Auto" />
                                                 </Grid.RowDefinitions>
-                                                <ui:TextBlock Text="外部可见资格" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="ReadabilityQualificationHeadingText" Text="外部可见资格" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilitySeriesFactsText"
                                                               Grid.Row="1"
                                                               Text="尚无所属 Series 事实"
@@ -1653,7 +1654,7 @@
                                                     <RowDefinition Height="Auto" />
                                                     <RowDefinition Height="*" />
                                                 </Grid.RowDefinitions>
-                                                <ui:TextBlock Text="修订目录事实" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="ReadabilityMissingSemanticsHeadingText" Text="缺值与查询语义" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilityRevisionFactsText"
                                                               Grid.Row="1"
                                                               Text="Catalog Revision —"
@@ -1661,11 +1662,21 @@
                                                               Margin="0,5,0,4"
                                                               TextWrapping="Wrap"
                                                               AutomationProperties.Name="资格审计修订目录事实" />
-                                                <ui:TextBlock Grid.Row="2"
-                                                              Text="可信事实与原始行保持分离；AREA 只参与范围，不改写资格。"
-                                                              Style="{StaticResource SecondaryText}"
-                                                              Margin="0,0,0,8"
-                                                              TextWrapping="Wrap" />
+                                                <ItemsControl x:Name="ReadabilityValueSemanticsItems"
+                                                              Grid.Row="2"
+                                                              Margin="0,2,0,8">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate><UniformGrid Columns="3" /></ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <StackPanel Margin="0,0,8,7">
+                                                                <ui:TextBlock Text="{Binding Heading}" FontTypography="BodyStrong" />
+                                                                <ui:TextBlock Text="{Binding Help}" Style="{StaticResource CaptionText}" TextWrapping="Wrap" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
                                                 <Expander x:Name="ReadabilityDeepEvidenceExpander"
                                                           Grid.Row="3"
                                                           Header="查看完整结构化证据"

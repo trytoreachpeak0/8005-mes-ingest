@@ -266,6 +266,7 @@ internal partial class WatchWorkspaceWindow
         WatchReadabilityAuditPresentation presentation,
         WatchV2WorkspaceState state)
     {
+        var text = _displayLanguageState.Catalog.ReadabilityAudit;
         var snapshot = state.ReadabilityAudit.Snapshot;
         ReadabilityCatalogRevisionText.Text = snapshot is null
             ? "Catalog Revision —"
@@ -289,8 +290,8 @@ internal partial class WatchWorkspaceWindow
             snapshot?.Filter.Normalize().MesAreas,
             presentation.HasSnapshot);
         var readabilityFreshness = snapshot is null
-            ? "尚无更新时间"
-            : $"更新于 {snapshot.Snapshot.ProjectionCommittedAt.ToLocalTime():HH:mm:ss}";
+            ? _displayLanguageState.Catalog.Common.NotLoaded
+            : _displayLanguageState.Catalog.FormatAbsoluteTime(snapshot.Snapshot.ProjectionCommittedAt);
         ReadabilityHeaderFactsText.Text =
             $"本机 {presentation.LocalAreaHeading} · {conciseHostAreaScope} · {readabilityFreshness}";
         ReadabilityHeaderFactsText.ToolTip = readabilityHeaderFullFacts;
@@ -323,22 +324,21 @@ internal partial class WatchWorkspaceWindow
             ExternalReadabilityStates.NotReadable,
             StringComparison.Ordinal))?.DemandCount ?? 0;
         ReadabilityStateAllButton.Content = snapshot is null
-            ? "全部 —"
-            : $"全部 {snapshot.ExactTotalDemandCount:N0}";
+            ? $"{text.All} —"
+            : $"{text.All} {snapshot.ExactTotalDemandCount:N0}";
         ReadabilityStateReadableButton.Content = snapshot is null
-            ? "外部可见 —"
-            : $"外部可见 {readableCount:N0}";
+            ? $"{text.Readable} —"
+            : $"{text.Readable} {readableCount:N0}";
         ReadabilityStateNotReadableButton.Content = snapshot is null
-            ? "外部不可见 —"
-            : $"外部不可见 {notReadableCount:N0}";
+            ? $"{text.NotReadable} —"
+            : $"{text.NotReadable} {notReadableCount:N0}";
         ReadabilityNotReadableCountText.Text = snapshot is null
-            ? "— 不可见"
-            : $"{notReadableCount:N0} 不可见";
+            ? $"— {text.NotReadable}"
+            : $"{notReadableCount:N0} {text.NotReadable}";
         AutomationProperties.SetName(
             ReadabilityNotReadableCountPill,
             $"Host 精确 {ReadabilityNotReadableCountText.Text}");
-        ReadabilityMasterHeadingText.Text =
-            $"{presentation.LocalAreaHeading}范围内的 TransportDemand";
+        ReadabilityMasterHeadingText.Text = text.MasterHeading;
 
         ReadabilityBlockerFacetSummaryText.Text = snapshot is null
             ? "阻断原因精确分面：尚无快照"
@@ -386,8 +386,8 @@ internal partial class WatchWorkspaceWindow
             ? Wpf.Ui.Controls.InfoBarSeverity.Success
             : Wpf.Ui.Controls.InfoBarSeverity.Warning;
         ReadabilityDetailInfoBar.Title = isReadable
-            ? $"{detail.DemandId} 对外可见"
-            : $"{detail.DemandId} 对外不可见";
+            ? text.DetailConclusion(detail.DemandId, readable: true)
+            : text.DetailConclusion(detail.DemandId, readable: false);
         ReadabilityDetailInfoBar.Message = isReadable
             ? "当前冻结审计快照中的全部外部可见资格检查通过。"
             : $"当前冻结审计快照的阻断条件：{detail.AllBlockersSummary}。";
