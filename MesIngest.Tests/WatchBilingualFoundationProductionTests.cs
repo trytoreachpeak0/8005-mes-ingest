@@ -289,6 +289,7 @@ public sealed class WatchBilingualFoundationProductionTests
                     grid.SelectedItem).SeriesId);
                 Assert.Equal(2, grid.CurrentColumn.DisplayIndex);
                 Assert.True(grid.IsKeyboardFocusWithin);
+                System.Windows.Input.Keyboard.ClearFocus();
                 window.Close();
             }
             finally

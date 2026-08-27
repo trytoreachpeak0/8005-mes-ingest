@@ -84,7 +84,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.False(presentation.CanGoPrevious);
         Assert.False(presentation.CanGoNext);
         Assert.Equal("Loading eligibility audit", english.InfoTitle);
-        Assert.Contains("waiting for Host", english.InfoMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Waiting for the Host", english.InfoMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("正在", english.InfoTitle, StringComparison.Ordinal);
     }
 
