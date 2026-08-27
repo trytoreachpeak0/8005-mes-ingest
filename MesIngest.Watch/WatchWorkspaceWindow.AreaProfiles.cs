@@ -272,10 +272,11 @@ internal partial class WatchWorkspaceWindow
         {
             AreaProfileFileOperationPromptText.Text = confirmation.Operation switch
             {
+                AreaProfileFileOperation.Create => text.CreatePrompt,
+                AreaProfileFileOperation.SaveAs => text.SaveAsPrompt,
                 AreaProfileFileOperation.Rename => text.RenamePrompt(confirmation.SourceProfileName),
                 AreaProfileFileOperation.Delete => text.DeletePrompt(confirmation.SourceProfileName),
-                AreaProfileFileOperation.SaveAs => text.SaveAs,
-                _ => text.NewProfileTitle,
+                _ => text.Confirm,
             };
             AreaProfileFileOperationConfirmButton.Content = confirmation.Operation switch
             {
@@ -854,17 +855,17 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetName(
                 AreaProfileFileTitleText,
                 _isAllAreasSelected
-                    ? $"当前 AREA 范围：{AreaProfileFileTitleText.Text}"
-                    : $"当前 AREA TXT 文件：{AreaProfileFileTitleText.Text}");
+                    ? areaText.CurrentScopeAutomation(AreaProfileFileTitleText.Text)
+                    : areaText.CurrentFileAutomation(AreaProfileFileTitleText.Text));
             AutomationProperties.SetName(
                 AreaProfileValidCountText,
-                $"AREA 配置有效数量：{AreaProfileValidCountText.Text}");
+                areaText.ValidCountAutomation(AreaProfileValidCountText.Text));
             AutomationProperties.SetName(
                 AreaProfileValidationSummaryText,
-                $"AREA 配置校验：{AreaProfileValidationSummaryText.Text}");
+                areaText.ValidationSummaryAutomation(AreaProfileValidationSummaryText.Text));
             AutomationProperties.SetName(
                 AreaProfileDiskStateText,
-                $"AREA 配置保存状态：{AreaProfileDiskStateText.Text}");
+                areaText.DiskStateAutomation(AreaProfileDiskStateText.Text));
             RenderDataPageAreaProfileSelectors(reloadProfiles);
         }
         finally
@@ -1341,7 +1342,6 @@ internal partial class WatchWorkspaceWindow
     {
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.Create,
-            "命名新配置",
             "new-area-filter",
             sender as IInputElement);
     }
@@ -1693,7 +1693,6 @@ internal partial class WatchWorkspaceWindow
 
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.SaveAs,
-            "另存为",
             IsSelectedAreaProfileMissing()
                 ? _selectedAreaProfileName ?? string.Empty
                 : string.Empty,
@@ -1709,7 +1708,6 @@ internal partial class WatchWorkspaceWindow
 
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.Rename,
-            "重命名",
             _selectedAreaProfileName ?? string.Empty,
             invoker);
     }
@@ -1728,7 +1726,6 @@ internal partial class WatchWorkspaceWindow
 
         BeginAreaProfileFileOperation(
             AreaProfileFileOperation.Delete,
-            $"再次确认删除“{selectedName}.txt”",
             selectedName,
             invoker);
     }
@@ -1771,7 +1768,6 @@ internal partial class WatchWorkspaceWindow
 
     private void BeginAreaProfileFileOperation(
         AreaProfileFileOperation operation,
-        string prompt,
         string targetName,
         IInputElement? invoker)
     {
@@ -1853,9 +1849,11 @@ internal partial class WatchWorkspaceWindow
         var text = _displayLanguageState.Catalog.AreaFilter;
         AreaProfileFileOperationPromptText.Text = operation switch
         {
+            AreaProfileFileOperation.Create => text.CreatePrompt,
+            AreaProfileFileOperation.SaveAs => text.SaveAsPrompt,
             AreaProfileFileOperation.Rename => text.RenamePrompt(sourceProfileName),
             AreaProfileFileOperation.Delete => text.DeletePrompt(sourceProfileName),
-            _ => prompt,
+            _ => text.Confirm,
         };
         AreaProfileFileOperationConfirmButton.Content = operation switch
         {

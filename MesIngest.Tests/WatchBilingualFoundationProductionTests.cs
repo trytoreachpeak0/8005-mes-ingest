@@ -418,8 +418,44 @@ public sealed class WatchBilingualFoundationProductionTests
                 window.Show();
                 window.UpdateLayout();
 
+                var demandAreaSelector = Assert.IsType<ComboBox>(
+                    window.FindName("DemandSeriesAreaProfileSelector"));
+                var readabilityAreaSelector = Assert.IsType<ComboBox>(
+                    window.FindName("ReadabilityAreaProfileSelector"));
+                var canonicalAreaBeforeLanguageChange = Assert.IsType<WatchAreaProfileSelectorPresentation>(
+                    demandAreaSelector.SelectedItem).Option;
+
                 composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
                 window.UpdateLayout();
+
+                var demandArea = Assert.IsType<WatchAreaProfileSelectorPresentation>(
+                    demandAreaSelector.SelectedItem);
+                var readabilityArea = Assert.IsType<WatchAreaProfileSelectorPresentation>(
+                    readabilityAreaSelector.SelectedItem);
+                Assert.Equal("All AREA", demandArea.DisplayText);
+                Assert.Equal("AREA filter: All AREA", demandArea.AutomationName);
+                Assert.Equal(canonicalAreaBeforeLanguageChange, demandArea.Option);
+                Assert.Equal(demandArea.Option, readabilityArea.Option);
+                Assert.Same(demandAreaSelector.SelectedItem, readabilityAreaSelector.SelectedItem);
+                Assert.Equal(
+                    "Eligibility-audit AREA profile selector",
+                    AutomationProperties.GetName(readabilityAreaSelector));
+                Assert.False(ContainsHan(demandArea.DisplayText));
+                Assert.False(ContainsHan(demandArea.AutomationName));
+
+                Assert.Equal(
+                    "Tracking Not loaded",
+                    Assert.IsAssignableFrom<TextBlock>(
+                        window.FindName("DemandSeriesTrackingFacetText")).Text);
+                Assert.Equal(
+                    "Archived Not loaded",
+                    Assert.IsAssignableFrom<TextBlock>(
+                        window.FindName("DemandSeriesArchivedFacetText")).Text);
+                Assert.DoesNotContain(
+                    "—",
+                    Assert.IsAssignableFrom<TextBlock>(
+                        window.FindName("DemandSeriesTrackingFacetText")).Text,
+                    StringComparison.Ordinal);
 
                 var navigation = Assert.IsType<NavigationView>(
                     window.FindName("WorkspaceNavigation"));

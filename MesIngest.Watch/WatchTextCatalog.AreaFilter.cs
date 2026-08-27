@@ -113,6 +113,19 @@ internal sealed partial class WatchAreaFilterText
         new("area.operation.confirmCreateAutomation", "确认新建 AREA 配置名称", "Confirm new AREA profile name"),
         new("area.operation.confirmSaveAsAutomation", "确认另存 AREA TXT 配置", "Confirm saving the AREA TXT profile as a new file"),
         new("area.operation.confirmFileAutomation", "确认 AREA 文件操作", "Confirm AREA file operation"),
+        new("area.operation.createPrompt", "命名新 AREA 配置", "Name the new AREA profile"),
+        new("area.operation.saveAsPrompt", "将 AREA 配置另存为新文件", "Save the AREA profile as a new file"),
+        new("area.selector.all", "全部 AREA", "All AREA"),
+        new("area.selector.valid", "{0} · {1:N0}", "{0} · {1:N0}"),
+        new("area.selector.invalid", "{0} · 无效", "{0} · Invalid"),
+        new("area.selector.allAutomation", "AREA 筛选：全部 AREA", "AREA filter: All AREA"),
+        new("area.selector.validAutomation", "AREA 筛选：{0}；{1:N0} 个 AREA", "AREA filter: {0}; {1:N0} AREAs"),
+        new("area.selector.invalidAutomation", "AREA 筛选：{0}；配置无效，不能应用", "AREA filter: {0}; invalid profile cannot be applied"),
+        new("area.editor.currentScopeAutomation", "当前 AREA 范围：{0}", "Current AREA scope: {0}"),
+        new("area.editor.currentFileAutomation", "当前 AREA TXT 文件：{0}", "Current AREA TXT file: {0}"),
+        new("area.editor.validCountAutomation", "AREA 配置有效数量：{0}", "Valid AREA configuration count: {0}"),
+        new("area.editor.validationAutomation", "AREA 配置校验：{0}", "AREA profile validation: {0}"),
+        new("area.editor.diskStateAutomation", "AREA 配置保存状态：{0}", "AREA profile save state: {0}"),
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
@@ -381,6 +394,52 @@ internal sealed partial class WatchAreaFilterText
     public string ConfirmCreateAutomation => Get("area.operation.confirmCreateAutomation");
     public string ConfirmSaveAsAutomation => Get("area.operation.confirmSaveAsAutomation");
     public string ConfirmFileAutomation => Get("area.operation.confirmFileAutomation");
+    public string CreatePrompt => Get("area.operation.createPrompt");
+    public string SaveAsPrompt => Get("area.operation.saveAsPrompt");
+    public string SelectorDisplay(string? profileName, int areaCount, bool isValid) =>
+        profileName is null
+            ? Get("area.selector.all")
+            : isValid
+                ? Format(
+                    AreaEntries.Single(entry => entry.SemanticId == "area.selector.valid"),
+                    [profileName, areaCount],
+                    [profileName, areaCount])
+                : Format(
+                    AreaEntries.Single(entry => entry.SemanticId == "area.selector.invalid"),
+                    [profileName],
+                    [profileName]);
+    public string SelectorAutomation(string? profileName, int areaCount, bool isValid) =>
+        profileName is null
+            ? Get("area.selector.allAutomation")
+            : isValid
+                ? Format(
+                    AreaEntries.Single(entry => entry.SemanticId == "area.selector.validAutomation"),
+                    [profileName, areaCount],
+                    [profileName, areaCount])
+                : Format(
+                    AreaEntries.Single(entry => entry.SemanticId == "area.selector.invalidAutomation"),
+                    [profileName],
+                    [profileName]);
+    public string CurrentScopeAutomation(string value) => Format(
+        AreaEntries.Single(entry => entry.SemanticId == "area.editor.currentScopeAutomation"),
+        [value],
+        [value]);
+    public string CurrentFileAutomation(string value) => Format(
+        AreaEntries.Single(entry => entry.SemanticId == "area.editor.currentFileAutomation"),
+        [value],
+        [value]);
+    public string ValidCountAutomation(string value) => Format(
+        AreaEntries.Single(entry => entry.SemanticId == "area.editor.validCountAutomation"),
+        [value],
+        [value]);
+    public string ValidationSummaryAutomation(string value) => Format(
+        AreaEntries.Single(entry => entry.SemanticId == "area.editor.validationAutomation"),
+        [value],
+        [value]);
+    public string DiskStateAutomation(string value) => Format(
+        AreaEntries.Single(entry => entry.SemanticId == "area.editor.diskStateAutomation"),
+        [value],
+        [value]);
     public string FileNameTooltip => Select(WatchLegacyGeneratedText.AreaFilter018);
     public string SearchAutomation => Select(WatchLegacyGeneratedText.AreaFilter019);
     public string ListAutomation => Select(WatchLegacyGeneratedText.AreaFilter020);

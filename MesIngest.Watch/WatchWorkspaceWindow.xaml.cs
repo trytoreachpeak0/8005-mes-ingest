@@ -1184,6 +1184,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         try
         {
             var text = _displayLanguageState.Catalog.DemandSeries;
+            var common = _displayLanguageState.Catalog.Common;
             var demandSeriesFullContext = string.Join(
                 " · ",
                 new[]
@@ -1213,12 +1214,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     ? text.FormatContextName(demandSeriesFullContext)
                     : text.ContextAutomationName);
             var demandFacets = state.DemandSeries.Snapshot?.Facets;
-            DemandSeriesTrackingFacetText.Text = demandFacets is null
-                ? "Tracking —"
-                : $"Tracking {demandFacets.TrackingCount:N0}";
-            DemandSeriesArchivedFacetText.Text = demandFacets is null
-                ? "Archived —"
-                : $"Archived {demandFacets.ArchivedCount:N0}";
+            DemandSeriesTrackingFacetText.Text =
+                $"{text.Tracking} {(demandFacets is null ? common.NotLoaded : $"{demandFacets.TrackingCount:N0}")}";
+            DemandSeriesArchivedFacetText.Text =
+                $"{text.Archived} {(demandFacets is null ? common.NotLoaded : $"{demandFacets.ArchivedCount:N0}")}";
             AutomationProperties.SetName(
                 DemandSeriesTrackingFacetPill,
                 text.FormatFacetName(DemandSeriesTrackingFacetText.Text));

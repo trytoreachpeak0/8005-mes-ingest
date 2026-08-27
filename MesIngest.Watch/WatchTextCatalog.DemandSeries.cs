@@ -175,6 +175,8 @@ internal sealed partial class WatchDemandSeriesText
     public string Filters => Text(FiltersEntry);
     public string Lifecycle => Text(LifecycleEntry);
     public string All => Text(AllEntry);
+    public string Tracking => Text(TrackingEntry);
+    public string Archived => Text(ArchivedEntry);
     public string Presence => Text(PresenceEntry);
     public string AllPresence => Text(AllPresenceEntry);
     public string WorkType => Text(WorkTypeEntry);

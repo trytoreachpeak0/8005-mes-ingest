@@ -26,6 +26,7 @@ internal sealed partial class WatchReadabilityAuditText
     private static readonly WatchTextCatalogEntry BlockerFilterEntry = E("audit.filter.blocker", "不可读原因", "Unreadable reason");
     private static readonly WatchTextCatalogEntry SearchFilterEntry = E("audit.filter.search", "DemandId / SUBLOT", "DemandId / SUBLOT");
     private static readonly WatchTextCatalogEntry AreaFilterEntry = E("audit.filter.area", "AREA 筛选", "AREA filter");
+    private static readonly WatchTextCatalogEntry AreaSelectorAutomationEntry = E("audit.filter.areaAutomation", "资格审计 AREA 配置选择器", "Eligibility-audit AREA profile selector");
     private static readonly WatchTextCatalogEntry ApplyFiltersEntry = E("audit.filter.apply", "应用条件", "Apply filters");
     private static readonly WatchTextCatalogEntry AllWorkTypesEntry = E("audit.filter.allWorkTypes", "全部工序类型", "All work types");
     private static readonly WatchTextCatalogEntry AllBlockersEntry = E("audit.filter.allBlockers", "全部原因", "All reasons");
@@ -89,7 +90,7 @@ internal sealed partial class WatchReadabilityAuditText
         PageTitleEntry, PageSubtitleEntry, CurrentObservationEntry, CurrentBlockerEntry,
         ExternalReadabilityEntry, MissingSemanticsEntry, AllEntry, ReadableEntry,
         NotReadableEntry, BlockedEntry, StateFilterEntry, WorkTypeFilterEntry,
-        BlockerFilterEntry, SearchFilterEntry, AreaFilterEntry, ApplyFiltersEntry,
+        BlockerFilterEntry, SearchFilterEntry, AreaFilterEntry, AreaSelectorAutomationEntry, ApplyFiltersEntry,
         AllWorkTypesEntry, AllBlockersEntry, MasterHeadingEntry, DemandIdLabelEntry,
         WorkTypeLabelEntry, SublotLabelEntry, PreviousPageEntry, NextPageEntry,
         GoToPageEntry, ClearFiltersEntry, PerPageEntry, ViewSeriesEntry, DeepEvidenceEntry,
@@ -124,6 +125,7 @@ internal sealed partial class WatchReadabilityAuditText
     public string BlockerFilter => Text(BlockerFilterEntry);
     public string SearchFilter => Text(SearchFilterEntry);
     public string AreaFilter => Text(AreaFilterEntry);
+    public string AreaSelectorAutomationName => Text(AreaSelectorAutomationEntry);
     public string ApplyFilters => Text(ApplyFiltersEntry);
     public string AllWorkTypes => Text(AllWorkTypesEntry);
     public string AllBlockers => Text(AllBlockersEntry);

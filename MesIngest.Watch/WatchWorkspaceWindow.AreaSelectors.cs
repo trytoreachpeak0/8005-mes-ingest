@@ -12,19 +12,14 @@ internal sealed record WatchAreaProfileSelectorOption(
     string? ProfileName,
     int MesAreaCount,
     bool IsValid,
-    bool IsApplied)
-{
-    public string DisplayText => ProfileName is null
-        ? "全部 AREA"
-        : IsValid
-            ? $"{ProfileName} · {MesAreaCount:N0}"
-            : $"{ProfileName} · 无效";
+    bool IsApplied);
 
-    public string AutomationName => ProfileName is null
-        ? "AREA 筛选：全部 AREA"
-        : IsValid
-            ? $"AREA 筛选：{ProfileName}；{MesAreaCount:N0} 个 AREA"
-            : $"AREA 筛选：{ProfileName}；配置无效，不能应用";
+internal sealed record WatchAreaProfileSelectorPresentation(
+    WatchAreaProfileSelectorOption Option,
+    string DisplayText,
+    string AutomationName)
+{
+    public bool IsValid => Option.IsValid;
 }
 
 internal partial class WatchWorkspaceWindow
@@ -96,7 +91,7 @@ internal partial class WatchWorkspaceWindow
                     .ToArray();
             }
 
-            var selected = _dataPageAreaProfileOptions.FirstOrDefault(option =>
+            var selectedOption = _dataPageAreaProfileOptions.FirstOrDefault(option =>
                     option.ProfileName is null
                         ? _areaContext.MesAreas.Count == 0
                         : string.Equals(
@@ -104,8 +99,22 @@ internal partial class WatchWorkspaceWindow
                             _areaContext.ProfileName,
                             StringComparison.OrdinalIgnoreCase))
                 ?? _dataPageAreaProfileOptions[0];
-            DemandSeriesAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
-            ReadabilityAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
+            var text = _displayLanguageState.Catalog.AreaFilter;
+            var presentations = _dataPageAreaProfileOptions
+                .Select(option => new WatchAreaProfileSelectorPresentation(
+                    option,
+                    text.SelectorDisplay(
+                        option.ProfileName,
+                        option.MesAreaCount,
+                        option.IsValid),
+                    text.SelectorAutomation(
+                        option.ProfileName,
+                        option.MesAreaCount,
+                        option.IsValid)))
+                .ToArray();
+            var selected = presentations.Single(item => item.Option == selectedOption);
+            DemandSeriesAreaProfileSelector.ItemsSource = presentations;
+            ReadabilityAreaProfileSelector.ItemsSource = presentations;
             DemandSeriesAreaProfileSelector.SelectedItem = selected;
             ReadabilityAreaProfileSelector.SelectedItem = selected;
         }
@@ -123,8 +132,17 @@ internal partial class WatchWorkspaceWindow
                     IsValid: true,
                     IsApplied: true),
             ];
-            DemandSeriesAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
-            ReadabilityAreaProfileSelector.ItemsSource = _dataPageAreaProfileOptions;
+            var option = _dataPageAreaProfileOptions[0];
+            var text = _displayLanguageState.Catalog.AreaFilter;
+            var presentations = new[]
+            {
+                new WatchAreaProfileSelectorPresentation(
+                    option,
+                    text.SelectorDisplay(option.ProfileName, option.MesAreaCount, option.IsValid),
+                    text.SelectorAutomation(option.ProfileName, option.MesAreaCount, option.IsValid)),
+            };
+            DemandSeriesAreaProfileSelector.ItemsSource = presentations;
+            ReadabilityAreaProfileSelector.ItemsSource = presentations;
             DemandSeriesAreaProfileSelector.SelectedIndex = 0;
             ReadabilityAreaProfileSelector.SelectedIndex = 0;
             ShowAreaProfileInfo(
@@ -148,7 +166,8 @@ internal partial class WatchWorkspaceWindow
     {
         if (_isRenderingDataPageAreaProfileSelectors
             || sender is not ComboBox selector
-            || selector.SelectedItem is not WatchAreaProfileSelectorOption option
+            || selector.SelectedItem is not WatchAreaProfileSelectorPresentation presentation
+            || presentation.Option is not { } option
             || !option.IsValid
             || IsCurrentAreaProfile(option))
         {

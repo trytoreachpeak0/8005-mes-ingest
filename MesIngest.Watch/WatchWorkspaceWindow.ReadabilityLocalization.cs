@@ -19,6 +19,9 @@ internal partial class WatchWorkspaceWindow
         ReadabilityBlockerFilterLabel.Text = text.BlockerFilter;
         ReadabilitySearchFilterLabel.Text = text.SearchFilter;
         ReadabilityAreaFilterLabel.Text = text.AreaFilter;
+        AutomationProperties.SetName(
+            ReadabilityAreaProfileSelector,
+            text.AreaSelectorAutomationName);
         ReadabilityApplyFilterButton.Content = text.ApplyFilters;
         ReadabilityClearFilterButton.Content = text.ClearFilters;
         ReadabilityPreviousPageButton.Content = text.PreviousPage;

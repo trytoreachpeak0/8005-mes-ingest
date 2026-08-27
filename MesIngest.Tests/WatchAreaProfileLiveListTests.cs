@@ -226,12 +226,35 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
-    public void English_language_reprojects_area_rename_and_delete_confirmation_copy_and_uia() =>
+    public void English_language_reprojects_area_file_operations_editor_uia_and_confirmation_copy() =>
         RunWithAreaProfileWindow((window, _, _, _) =>
         {
             window.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
             window.UpdateLayout();
             var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            Assert.Equal(
+                "Current AREA scope: All AREA (no filter)",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<FrameworkElement>(
+                    window.FindName("AreaProfileFileTitleText"))));
+            Assert.Equal(
+                "Valid AREA configuration count: Display scope is unrestricted",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<FrameworkElement>(
+                    window.FindName("AreaProfileValidCountText"))));
+            Assert.Equal(
+                "AREA profile validation: Shows all AREA values; no TXT filter is applied",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<FrameworkElement>(
+                    window.FindName("AreaProfileValidationSummaryText"))));
+            Assert.Equal(
+                "AREA profile save state: No TXT file",
+                AutomationProperties.GetName(Assert.IsAssignableFrom<FrameworkElement>(
+                    window.FindName("AreaProfileDiskStateText"))));
+            var dataPageSelector = Assert.IsType<ComboBox>(
+                window.FindName("DemandSeriesAreaProfileSelector"));
+            var westAreaOption = Assert.Single(
+                dataPageSelector.Items.OfType<WatchAreaProfileSelectorPresentation>(),
+                item => item.Option.ProfileName == "西区");
+            Assert.Equal("西区 · 2", westAreaOption.DisplayText);
+            Assert.Equal("AREA filter: 西区; 2 AREAs", westAreaOption.AutomationName);
             list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
             var prompt = Assert.IsAssignableFrom<Wpf.Ui.Controls.TextBlock>(
                 window.FindName("AreaProfileFileOperationPromptText"));
@@ -241,6 +264,26 @@ public sealed class WatchAreaProfileLiveListTests
             var cancel = Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("AreaProfileFileOperationCancelButton"));
 
+            Assert.IsAssignableFrom<ButtonBase>(window.FindName("AreaProfileNewButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+            Assert.Equal("Name the new AREA profile", prompt.Text);
+            Assert.Equal("Confirm name", confirm.Content);
+            Assert.Equal("Confirm new AREA profile name", AutomationProperties.GetName(confirm));
+            Assert.DoesNotMatch("[\\u3400-\\u9fff]", prompt.Text);
+
+            cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            FileCommand(window, "西区", "AreaProfileSaveAsMenuItem")
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.Equal("Save the AREA profile as a new file", prompt.Text);
+            Assert.Equal("Save as", confirm.Content);
+            Assert.Equal(
+                "Confirm saving the AREA TXT profile as a new file",
+                AutomationProperties.GetName(confirm));
+            Assert.DoesNotMatch("[\\u3400-\\u9fff]", prompt.Text);
+
+            cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             FileCommand(window, "西区", "AreaProfileRenameMenuItem")
                 .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
 

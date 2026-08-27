@@ -200,6 +200,21 @@ public sealed partial class WatchTextCatalogContractTests
                 productionSources,
                 pair => pair.Value.Contains(forbidden, StringComparison.Ordinal)));
 
+        var runtimePresentationBypass = new Regex(
+            "(?:DisplayText|AutomationName)\\s*=>\\s*\\$?\"[^\"]*[\\p{IsCJKUnifiedIdeographs}]"
+            + "|AutomationProperties\\.SetName\\(\\s*[^,]+,\\s*\\$?\"[^\"]*[\\p{IsCJKUnifiedIdeographs}]"
+            + "|BeginAreaProfileFileOperation\\(\\s*[^,]+,\\s*\"[^\"]*[\\p{IsCJKUnifiedIdeographs}]"
+            + "|(?:Tracking|Archived)\\s+—",
+            RegexOptions.CultureInvariant);
+        var runtimePresentationFiles = productionSources.Where(pair =>
+            Path.GetFileName(pair.Key) is
+                "WatchWorkspaceWindow.AreaSelectors.cs"
+                or "WatchWorkspaceWindow.AreaProfiles.cs"
+                or "WatchWorkspaceWindow.xaml.cs");
+        Assert.DoesNotContain(
+            runtimePresentationFiles,
+            pair => runtimePresentationBypass.IsMatch(pair.Value));
+
         var inlineLocalizedLiteral = new Regex(
             "new\\s*(?:WatchLocalizedText)?\\s*\\(\\s*\"[^\"]*[\\p{IsCJKUnifiedIdeographs}][^\"]*\"\\s*,\\s*\"",
             RegexOptions.CultureInvariant);
