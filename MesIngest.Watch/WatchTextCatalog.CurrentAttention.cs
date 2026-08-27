@@ -56,7 +56,8 @@ internal sealed partial class WatchCurrentAttentionText
         UnknownSeverityEntry, UnknownStatusEntry,
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. CatalogEntries, .. WatchGeneratedText.CurrentAttentionEntries];
 
     public string PageTitle => Text(PageTitleEntry);
     public string KindFilter => Text(KindFilterEntry);
@@ -73,11 +74,6 @@ internal sealed partial class WatchCurrentAttentionText
     public string PreviousPage => Text(PreviousPageEntry);
     public string NextPage => Text(NextPageEntry);
     public string GoToPage => Text(GoToPageEntry);
-
-    // Formatting-only escape hatch for legacy projections. It is deliberately not
-    // public: new reusable UI copy must be represented by an enumerable entry.
-    internal string Pick(string simplifiedChinese, string english) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese ? simplifiedChinese : english;
 
     public WatchCodeMeaning DescribeKind(string rawCode)
     {

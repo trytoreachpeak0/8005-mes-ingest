@@ -89,7 +89,8 @@ internal sealed partial class WatchErrorSearchText
         UnknownCategoryEntry, UnknownActivityStateEntry,
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. CatalogEntries, .. WatchGeneratedText.ErrorSearchEntries];
 
     public string PageTitle => Text(PageTitleEntry);
     public string CategoryTitle => Text(CategoryTitleEntry);
@@ -114,11 +115,6 @@ internal sealed partial class WatchErrorSearchText
     public string RawEvidenceHelp => Text(RawEvidenceHelpEntry);
     public string LoadRawEvidence => Text(LoadRawEvidenceEntry);
     public string OpenSeries => Text(OpenSeriesEntry);
-
-    // Formatting-only escape hatch for legacy projections. It is deliberately not
-    // public: new reusable UI copy must be represented by an enumerable entry.
-    internal string Pick(string simplifiedChinese, string english) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese ? simplifiedChinese : english;
 
     public WatchCodeMeaning DescribeErrorCode(string rawCode)
     {

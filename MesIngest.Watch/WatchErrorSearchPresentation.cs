@@ -167,15 +167,15 @@ internal sealed record WatchErrorSearchPresentation(
                 info.Severity,
                 info.Title,
                 info.Message,
-                text.Pick("尚无 Error Search Host 快照", "No Error Search Host snapshot"),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation105),
                 ProjectClientAttempts(view, catalog),
                 view.SelectionNotice,
-                text.Pick("当前待查询条件：", "Pending query: ") + ProjectFilter(normalizedQuery.Filter, catalog) + " · " + ProjectWindowSelection(normalizedQuery.Window, catalog),
-                text.Pick("Host 已提交条件：尚无快照", "Host committed filters: no snapshot"),
-                text.Pick("UTC 半开窗口：尚无快照", "UTC half-open window: no snapshot"),
-                text.Pick("尚无错误历史快照", "No error-history snapshot"),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation106) + ProjectFilter(normalizedQuery.Filter, catalog) + " · " + ProjectWindowSelection(normalizedQuery.Window, catalog),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation107),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation108),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation109),
                 EmptyResultMessage: string.Empty,
-                text.Pick("Host 固定排序：", "Fixed Host order: ") + ErrorSearchOrder.Default,
+                text.Select(WatchGeneratedText.ErrorSearchPresentation110) + ErrorSearchOrder.Default,
                 CanGoPrevious: false,
                 CanGoNext: false,
                 CategoryFacets: [],
@@ -203,19 +203,17 @@ internal sealed record WatchErrorSearchPresentation(
             ProjectSnapshotFacts(snapshot.Snapshot, catalog),
             ProjectClientAttempts(view, catalog),
             view.SelectionNotice,
-            text.Pick("当前待查询条件：", "Pending query: ") + ProjectFilter(normalizedQuery.Filter, catalog) + " · " + ProjectWindowSelection(normalizedQuery.Window, catalog),
-            text.Pick("Host 已提交条件：", "Host committed filters: ") + ProjectFilter(snapshot.Filter, catalog),
+            text.Select(WatchGeneratedText.ErrorSearchPresentation106) + ProjectFilter(normalizedQuery.Filter, catalog) + " · " + ProjectWindowSelection(normalizedQuery.Window, catalog),
+            text.Select(WatchGeneratedText.ErrorSearchPresentation111) + ProjectFilter(snapshot.Filter, catalog),
             ProjectResolvedWindow(snapshot.Window, catalog),
-            text.Pick(
-                $"精确 {snapshot.TotalSeriesCount:N0} 个 DemandSeries · 第 {displayPage:N0} / {snapshot.TotalPages:N0} 页",
-                $"Exact {snapshot.TotalSeriesCount:N0} demand series · Page {displayPage:N0} of {snapshot.TotalPages:N0}"),
+            text.Format(WatchGeneratedText.ErrorSearchPresentation112, new object?[] { snapshot.TotalSeriesCount, displayPage, snapshot.TotalPages }, new object?[] { snapshot.TotalSeriesCount, displayPage, snapshot.TotalPages }),
             snapshot.TotalSeriesCount == 0
                 && !view.IsRefreshing
                 && !view.IsStale
                 && view.LastFailureAt is null
-                    ? text.Pick("查询成功；Host 在当前已提交条件下精确 0 个 DemandSeries 命中。", "Query succeeded; exactly 0 demand series match the committed Host filters.")
+                    ? text.Select(WatchGeneratedText.ErrorSearchPresentation113)
                     : string.Empty,
-            text.Pick("Host 固定排序：", "Fixed Host order: ") + snapshot.Order,
+            text.Select(WatchGeneratedText.ErrorSearchPresentation110) + snapshot.Order,
             snapshot.TotalPages > 0 && snapshot.PageNumber > 1,
             snapshot.HasMore && snapshot.PageNumber < snapshot.TotalPages,
             snapshot.Facets.Categories
@@ -251,8 +249,8 @@ internal sealed record WatchErrorSearchPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Error,
-                text.Pick("无法连接 Host", "Unable to connect to Host"),
-                text.Pick("新 Host 未通过契约连接；旧 Host 数据已清空。", "The new Host failed contract connection; old Host data was cleared. ") + FailureMessage(workspace.FailureCode, workspace.ErrorMessage, workspace.CorrelationId, catalog));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation114),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation115) + FailureMessage(workspace.FailureCode, workspace.ErrorMessage, workspace.CorrelationId, catalog));
         }
 
         if (workspace.ConnectionStatus == WatchHostConnectionStatus.Connecting)
@@ -260,34 +258,34 @@ internal sealed record WatchErrorSearchPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Informational,
-                text.Pick("正在连接 Host", "Connecting to Host"),
-                text.Pick("连接成功后将读取一份冻结的 Error Search 快照。", "A frozen Error Search snapshot will be read after connection succeeds."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation116),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation117));
         }
 
         if (view.IsRefreshing)
         {
             var retained = view.Snapshot is null
-                ? text.Pick("等待 Host 返回冻结快照。", "Waiting for the Host to return a frozen snapshot.")
-                : text.Pick("刷新期间继续显示冻结快照 ErrorSearchAsOf ", "The frozen snapshot remains visible during refresh: ErrorSearchAsOf ") + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Pick("。", ".");
+                ? text.Select(WatchGeneratedText.ErrorSearchPresentation118)
+                : text.Select(WatchGeneratedText.ErrorSearchPresentation119) + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Select(WatchGeneratedText.ErrorSearchPresentation120);
             return (
                 true,
                 WatchPresentationSeverity.Informational,
-                view.Snapshot is null ? text.Pick("正在读取错误历史", "Loading error history") : text.Pick("正在刷新错误历史", "Refreshing error history"),
+                view.Snapshot is null ? text.Select(WatchGeneratedText.ErrorSearchPresentation121) : text.Select(WatchGeneratedText.ErrorSearchPresentation122),
                 retained);
         }
 
         if (view.LastFailureAt is { } failedAt)
         {
             var retained = view.Snapshot is null
-                ? text.Pick("当前没有可显示的成功快照。", "There is no successful snapshot to display.")
-                : text.Pick("已保留上次快照 ErrorSearchAsOf ", "Retaining the previous snapshot ErrorSearchAsOf ") + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Pick("；其 UTC 窗口、条件、精确分面和结果不会被失败请求改写。", "; its UTC window, filters, exact facets, and results were not replaced by the failed request.");
+                ? text.Select(WatchGeneratedText.ErrorSearchPresentation123)
+                : text.Select(WatchGeneratedText.ErrorSearchPresentation124) + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Select(WatchGeneratedText.ErrorSearchPresentation125);
             return (
                 true,
                 view.Snapshot is null ? WatchPresentationSeverity.Error : WatchPresentationSeverity.Warning,
                 view.Snapshot is null
-                    ? text.Pick("错误历史读取失败", "Error-history read failed")
-                    : text.Pick("错误历史刷新失败，已保留上次快照", "Error-history refresh failed; previous snapshot retained"),
-                text.Pick("失败于 ", "Failed at ") + catalog.FormatAbsoluteTime(failedAt) + text.Pick("。", ". ") + retained + FailureMessage(view.FailureCode, view.ErrorMessage, view.CorrelationId, catalog));
+                    ? text.Select(WatchGeneratedText.ErrorSearchPresentation126)
+                    : text.Select(WatchGeneratedText.ErrorSearchPresentation127),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation128) + catalog.FormatAbsoluteTime(failedAt) + text.Select(WatchGeneratedText.ErrorSearchPresentation129) + retained + FailureMessage(view.FailureCode, view.ErrorMessage, view.CorrelationId, catalog));
         }
 
         if (string.Equals(
@@ -298,8 +296,8 @@ internal sealed record WatchErrorSearchPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Warning,
-                text.Pick("原选择已不在刷新结果中", "Previous selection is no longer in the refreshed results"),
-                text.Pick("刷新成功，但原需求系列已不在当前冻结结果中；已清除详情，请重新选择。", "Refresh succeeded, but the previous demand series is no longer in the frozen results. Details were cleared; select another series."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation130),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation131));
         }
 
         if (view.IsStale && view.Snapshot is not null)
@@ -307,8 +305,8 @@ internal sealed record WatchErrorSearchPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Warning,
-                text.Pick("刷新已取消，保留上次错误历史", "Refresh was canceled; previous error history retained"),
-                text.Pick("本次读取未提交；继续显示冻结快照 ErrorSearchAsOf ", "This read was not committed; continuing to show frozen snapshot ErrorSearchAsOf ") + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Pick("，其 UTC 窗口、条件、精确分面和结果保持不变。", "; its UTC window, filters, exact facets, and results remain unchanged."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation132),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation133) + FormatUtc(view.Snapshot.Snapshot.ErrorSearchAsOf, catalog) + text.Select(WatchGeneratedText.ErrorSearchPresentation134));
         }
 
         return (false, WatchPresentationSeverity.None, string.Empty, string.Empty);
@@ -327,8 +325,8 @@ internal sealed record WatchErrorSearchPresentation(
                 IsLoading: false,
                 HasFailure: false,
                 WatchPresentationSeverity.Informational,
-                text.Pick("尚未选择需求系列", "No demand series selected"),
-                text.Pick("选择一个需求系列，读取与当前冻结错误检索快照一致的命中期间与证据。", "Select a demand series to load matched periods and evidence from the current frozen Error Search snapshot."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation135),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation136));
         }
 
         if (view.IsDetailLoading)
@@ -337,8 +335,8 @@ internal sealed record WatchErrorSearchPresentation(
                 IsLoading: true,
                 HasFailure: false,
                 WatchPresentationSeverity.Informational,
-                text.Pick("正在读取同快照错误详情", "Loading same-snapshot error details"),
-                text.Pick("正在读取需求系列 ", "Loading demand series ") + view.SelectedId + text.Pick(" 在冻结快照 ", " from frozen snapshot ") + (snapshotReference ?? catalog.Common.NotLoaded) + text.Pick(" 中真正命中的期间与证据。", ": actually matched periods and evidence."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation137),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation138) + view.SelectedId + text.Select(WatchGeneratedText.ErrorSearchPresentation139) + (snapshotReference ?? catalog.Common.NotLoaded) + text.Select(WatchGeneratedText.ErrorSearchPresentation140));
         }
 
         if (view.DetailLastFailureAt is { } failedAt)
@@ -348,9 +346,9 @@ internal sealed record WatchErrorSearchPresentation(
                 IsLoading: false,
                 HasFailure: true,
                 canceled ? WatchPresentationSeverity.Warning : WatchPresentationSeverity.Error,
-                canceled ? text.Pick("错误详情读取已取消", "Error-detail read canceled") : text.Pick("错误详情读取失败", "Error-detail read failed"),
-                text.Pick("需求系列 ", "Demand series ") + view.SelectedId + text.Pick(" 的详情未替换列表；冻结快照、ErrorSearchAsOf、条件与分面仍保留。", " details did not replace the list; the frozen snapshot, ErrorSearchAsOf, filters, and facets remain.")
-                + text.Pick("失败于 ", "Failed at ") + catalog.FormatAbsoluteTime(failedAt) + text.Pick("。", ". ")
+                canceled ? text.Select(WatchGeneratedText.ErrorSearchPresentation141) : text.Select(WatchGeneratedText.ErrorSearchPresentation142),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation143) + view.SelectedId + text.Select(WatchGeneratedText.ErrorSearchPresentation144)
+                + text.Select(WatchGeneratedText.ErrorSearchPresentation128) + catalog.FormatAbsoluteTime(failedAt) + text.Select(WatchGeneratedText.ErrorSearchPresentation129)
                 + FailureMessage(
                     view.DetailFailureCode,
                     view.DetailErrorMessage,
@@ -363,14 +361,14 @@ internal sealed record WatchErrorSearchPresentation(
                 IsLoading: false,
                 HasFailure: false,
                 WatchPresentationSeverity.Informational,
-                text.Pick("错误详情尚不可用", "Error details are not available"),
-                text.Pick("需求系列 ", "Demand series ") + view.SelectedId + text.Pick(" 已选择，但当前没有与冻结快照一致的详情。", " is selected, but no details match the frozen snapshot."))
+                text.Select(WatchGeneratedText.ErrorSearchPresentation145),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation143) + view.SelectedId + text.Select(WatchGeneratedText.ErrorSearchPresentation146))
             : new WatchErrorSearchDetailStatusPresentation(
                 IsLoading: false,
                 HasFailure: false,
                 WatchPresentationSeverity.None,
-                text.Pick("错误详情已读取", "Error details loaded"),
-                text.Pick("需求系列 ", "Demand series ") + view.SelectedId + text.Pick(" 的详情与冻结快照 ", " details match frozen snapshot ") + (snapshotReference ?? catalog.Common.NotLoaded) + text.Pick(" 一致。", "."));
+                text.Select(WatchGeneratedText.ErrorSearchPresentation147),
+                text.Select(WatchGeneratedText.ErrorSearchPresentation143) + view.SelectedId + text.Select(WatchGeneratedText.ErrorSearchPresentation148) + (snapshotReference ?? catalog.Common.NotLoaded) + text.Select(WatchGeneratedText.ErrorSearchPresentation149));
     }
 
     private static WatchErrorSearchRowPresentation ProjectRow(
@@ -388,11 +386,11 @@ internal sealed record WatchErrorSearchPresentation(
             catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeErrorCode(value.Code)))),
         catalog.FormatAbsoluteTime(item.LatestMatchedEvidenceAt),
         item.MatchedPeriodCount,
-        catalog.ErrorSearch.Pick($"命中 {item.MatchedPeriodCount:N0} 个期间", $"{item.MatchedPeriodCount:N0} matched periods"),
+        catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation150, new object?[] { item.MatchedPeriodCount }, new object?[] { item.MatchedPeriodCount }),
         item.MatchedDemandGenerationCount,
         item.MatchedDemandGenerationCount > 1
-            ? catalog.ErrorSearch.Pick($"跨 {item.MatchedDemandGenerationCount:N0} 个需求代次", $"Across {item.MatchedDemandGenerationCount:N0} demand generations")
-            : catalog.ErrorSearch.Pick($"命中 {item.MatchedDemandGenerationCount:N0} 个需求代次", $"{item.MatchedDemandGenerationCount:N0} matched demand generation"),
+            ? catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation151, new object?[] { item.MatchedDemandGenerationCount }, new object?[] { item.MatchedDemandGenerationCount })
+            : catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation152, new object?[] { item.MatchedDemandGenerationCount }, new object?[] { item.MatchedDemandGenerationCount }),
         ProjectText(item.MesArea, catalog),
         item.MesAreaAvailability);
 
@@ -417,13 +415,13 @@ internal sealed record WatchErrorSearchPresentation(
             .ToArray();
         var generationSummary = demandIds.Length switch
         {
-            0 => catalog.ErrorSearch.Pick("未返回需求代次证据", "No demand-generation evidence returned"),
-            1 => catalog.ErrorSearch.Pick("需求代次：", "Demand generation: ") + demandIds[0],
-            _ => catalog.ErrorSearch.Pick($"跨 {demandIds.Length:N0} 个需求代次：", $"Across {demandIds.Length:N0} demand generations: ") + string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", demandIds),
+            0 => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation153),
+            1 => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation154) + demandIds[0],
+            _ => catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation155, new object?[] { demandIds.Length }, new object?[] { demandIds.Length }) + string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", demandIds),
         };
         return new WatchErrorSearchDetailPresentation(
             $"{detail.Series.SeriesId} · {catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeActivityState(detail.Series.ActivityState))}",
-            catalog.ErrorSearch.Pick("快照 ", "Snapshot ") + detail.SnapshotReference + " · " + ProjectSnapshotFacts(detail.Snapshot, catalog) + " · " + ProjectResolvedWindow(detail.Window, catalog) + catalog.ErrorSearch.Pick(" · Host 固定排序 ", " · Fixed Host order ") + detail.Order,
+            catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation156) + detail.SnapshotReference + " · " + ProjectSnapshotFacts(detail.Snapshot, catalog) + " · " + ProjectResolvedWindow(detail.Window, catalog) + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation157) + detail.Order,
             demandIds,
             generationSummary,
             periods);
@@ -471,7 +469,7 @@ internal sealed record WatchErrorSearchPresentation(
             evidence.ProjectionCommitId,
             evidence.DemandId,
             evidence.RelatedWorkTypes,
-            references.Count == 0 ? catalog.ErrorSearch.Pick("无 DemandId 或 WorkType 引用", "No DemandId or WorkType reference") : string.Join(" · ", references),
+            references.Count == 0 ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation158) : string.Join(" · ", references),
             ProjectDiagnostic(evidence, catalog),
             evidence.ExpectedRule,
             evidence.RawEvidenceAvailable);
@@ -487,7 +485,7 @@ internal sealed record WatchErrorSearchPresentation(
                     ? $"WorkType {catalog.Common.SourceNotProvided}"
                     : $"WorkType {string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", evidence.RelatedWorkTypes)}",
             ErrorSearchDiagnosticValueKinds.RawObservationSet =>
-                catalog.ErrorSearch.Pick($"{evidence.DiagnosticValue.ObservationCount.GetValueOrDefault():N0} 条原始观测 · SHA-256 ", $"{evidence.DiagnosticValue.ObservationCount.GetValueOrDefault():N0} raw observations · SHA-256 ") + ProjectText(evidence.DiagnosticValue.Sha256Digest, catalog),
+                catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation159, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }) + ProjectText(evidence.DiagnosticValue.Sha256Digest, catalog),
             _ => evidence.DiagnosticValue.Kind,
         };
 
@@ -520,8 +518,8 @@ internal sealed record WatchErrorSearchPresentation(
                 IsStale: false,
                 HasContractViolation: true,
                 WatchPresentationSeverity.Error,
-                catalog.ErrorSearch.Pick("Host 原始证据响应不符合契约", "Host raw-evidence response violates the contract"),
-                catalog.ErrorSearch.Pick("Host 返回内容超出受限原始证据契约；未呈现任何原始字段，错误详情仍保留。", "The Host response exceeded the restricted raw-evidence contract. No raw fields are shown, and the error details remain available."),
+                catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation160),
+                catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation161),
                 string.Empty,
                 [],
                 ItemCount: 0,
@@ -549,17 +547,17 @@ internal sealed record WatchErrorSearchPresentation(
                 ? WatchPresentationSeverity.Informational
                 : WatchPresentationSeverity.Success;
         var title = hasFailure
-            ? raw is null ? catalog.ErrorSearch.Pick("原始证据读取失败", "Raw-evidence read failed") : catalog.ErrorSearch.Pick("原始证据刷新失败，已保留上次结果", "Raw-evidence refresh failed; previous results retained")
+            ? raw is null ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation162) : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation163)
             : state.IsLoading
-                ? catalog.ErrorSearch.Pick("正在读取受限原始证据", "Loading restricted raw evidence")
-                : catalog.ErrorSearch.Pick("已读取受限原始证据", "Restricted raw evidence loaded");
+                ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation164)
+                : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation165);
         var message = hasFailure
-            ? catalog.ErrorSearch.Pick("失败于 ", "Failed at ") + catalog.FormatAbsoluteTime(state.LastFailureAt!.Value) + catalog.ErrorSearch.Pick("。错误详情未受影响。", ". Error details were not affected. ") + FailureMessage(state.FailureCode, state.ErrorMessage, state.CorrelationId, catalog)
+            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation128) + catalog.FormatAbsoluteTime(state.LastFailureAt!.Value) + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation166) + FailureMessage(state.FailureCode, state.ErrorMessage, state.CorrelationId, catalog)
             : state.IsLoading
                 ? raw is null
-                    ? catalog.ErrorSearch.Pick("仅在显式请求后读取；正在等待 Host 返回白名单字段。", "Loaded only after an explicit request; waiting for the Host to return allow-listed fields.")
-                    : catalog.ErrorSearch.Pick("刷新期间继续显示上次受限原始证据。", "Previous restricted raw evidence remains visible during refresh.")
-                : catalog.ErrorSearch.Pick("仅显示 Host 授权并返回的敏感字段白名单。", "Only sensitive fields authorized and returned by the Host are shown.");
+                    ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation167)
+                    : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation168)
+                : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation169);
         return new WatchErrorRawEvidencePresentation(
             IsVisible: true,
             state.IsLoading,
@@ -570,7 +568,7 @@ internal sealed record WatchErrorSearchPresentation(
             message,
             raw is null
                 ? string.Empty
-                : catalog.ErrorSearch.Pick("最多 ", "Maximum ") + FormatNumber(raw.Limits.MaxItems) + catalog.ErrorSearch.Pick(" 条 · 单条 ", " items · ") + FormatNumber(raw.Limits.MaxItemBytes) + catalog.ErrorSearch.Pick(" 字节/条 · 总计 ", " bytes/item · ") + FormatNumber(raw.Limits.MaxTotalBytes) + catalog.ErrorSearch.Pick(" 字节", " bytes total"),
+                : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation170) + FormatNumber(raw.Limits.MaxItems) + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation171) + FormatNumber(raw.Limits.MaxItemBytes) + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation172) + FormatNumber(raw.Limits.MaxTotalBytes) + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation173),
             raw?.IncludedFields ?? [],
             raw?.ItemCount ?? 0,
             raw?.PayloadBytes ?? 0,
@@ -616,23 +614,23 @@ internal sealed record WatchErrorSearchPresentation(
 
     private static string ProjectSnapshotFacts(ErrorSearchSnapshotIdentity identity, WatchTextCatalog catalog) =>
         $"ErrorSearchAsOf {FormatUtc(identity.ErrorSearchAsOf, catalog)} · "
-        + catalog.ErrorSearch.Pick("Host 投影提交 ", "Host projection committed ")
+        + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation174)
         + $"{catalog.FormatAbsoluteTime(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · "
-        + catalog.ErrorSearch.Pick("序列 ", "sequence ")
+        + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation175)
         + $"{identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId}";
 
     private static string ProjectFilter(ErrorSearchFilter filter, WatchTextCatalog catalog)
     {
         var normalized = filter.Normalize();
         var conditions = new List<string>();
-        AddMany(catalog.ErrorSearch.Pick("分类", "Categories"), normalized.Categories);
-        AddMany(catalog.ErrorSearch.Pick("错误码", "Error codes"), normalized.ErrorCodes);
-        AddMany(catalog.ErrorSearch.Pick("状态", "States"), normalized.ActivityStates);
+        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation176), normalized.Categories);
+        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation177), normalized.ErrorCodes);
+        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation178), normalized.ActivityStates);
         Add("SeriesId", normalized.SeriesId);
         Add("DemandId", normalized.DemandId);
-        Add(catalog.ErrorSearch.Pick("SUBLOT 包含", "SUBLOT contains"), normalized.SublotContains);
+        Add(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation179), normalized.SublotContains);
         return conditions.Count == 0
-            ? catalog.ErrorSearch.Pick("全部错误分类与需求系列", "All error categories and demand series")
+            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation180)
             : string.Join(" · ", conditions);
 
         void AddMany(string label, IReadOnlyList<string> values)
@@ -654,11 +652,11 @@ internal sealed record WatchErrorSearchPresentation(
 
     private static string ProjectWindowSelection(ErrorSearchWindowSelection window, WatchTextCatalog catalog) =>
         window.Kind == ErrorSearchWindowKinds.Custom
-            ? catalog.ErrorSearch.Pick("自定义 UTC ", "Custom UTC ") + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {ProjectUtcBoundary(window.ToUtc, "ErrorSearchAsOf", catalog)})"
+            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation181) + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {ProjectUtcBoundary(window.ToUtc, "ErrorSearchAsOf", catalog)})"
             : catalog.ErrorSearch.CodeWithMeaning(new WatchCodeMeaning(catalog.ErrorSearch.WindowLabel(window.Kind), window.Kind, true));
 
     private static string ProjectResolvedWindow(ErrorSearchResolvedWindow window, WatchTextCatalog catalog) =>
-        catalog.ErrorSearch.Pick("UTC 半开窗口 ", "UTC half-open window ") + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {FormatUtc(window.ToUtc, catalog)})";
+        catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation182) + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {FormatUtc(window.ToUtc, catalog)})";
 
     private static string ProjectUtcBoundary(DateTimeOffset? value, string fallback, WatchTextCatalog catalog) =>
         value is null ? fallback : FormatUtc(value.Value, catalog);
@@ -667,13 +665,13 @@ internal sealed record WatchErrorSearchPresentation(
     {
         var boundary = (period.StartsBeforeWindow, period.EndsAfterWindow) switch
         {
-            (true, true) => catalog.ErrorSearch.Pick("期间开始早于窗口，结束晚于窗口", "Period starts before and ends after the window"),
-            (true, false) => catalog.ErrorSearch.Pick("期间开始早于窗口", "Period starts before the window"),
-            (false, true) => catalog.ErrorSearch.Pick("期间延伸到窗口之后", "Period extends after the window"),
-            _ => catalog.ErrorSearch.Pick("期间边界位于窗口内", "Period boundaries are within the window"),
+            (true, true) => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation183),
+            (true, false) => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation184),
+            (false, true) => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation185),
+            _ => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation186),
         };
         return period.ActiveAtAsOf
-            ? boundary + catalog.ErrorSearch.Pick(" · ErrorSearchAsOf 时仍为 ACTIVE", " · still ACTIVE at ErrorSearchAsOf")
+            ? boundary + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation187)
             : boundary;
     }
 
@@ -682,10 +680,10 @@ internal sealed record WatchErrorSearchPresentation(
         WatchTextCatalog catalog)
     {
         var successful = view.LastSuccessfulAt is { } success
-            ? catalog.ErrorSearch.Pick("Watch 最近成功 ", "Watch last succeeded ") + catalog.FormatAbsoluteTime(success)
-            : catalog.ErrorSearch.Pick("Watch 尚无成功读取", "Watch has no successful read");
+            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation188) + catalog.FormatAbsoluteTime(success)
+            : catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation189);
         return view.LastFailureAt is { } failure
-            ? successful + catalog.ErrorSearch.Pick(" · 最近失败 ", " · last failed ") + catalog.FormatAbsoluteTime(failure)
+            ? successful + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation190) + catalog.FormatAbsoluteTime(failure)
             : successful;
     }
 
@@ -701,10 +699,10 @@ internal sealed record WatchErrorSearchPresentation(
         if (!string.IsNullOrWhiteSpace(correlationId))
         {
             detail = string.IsNullOrEmpty(detail)
-                ? catalog.ErrorSearch.Pick("关联 ID ", "Correlation ID ") + correlationId
-                : detail + catalog.ErrorSearch.Pick(" · 关联 ID ", " · Correlation ID ") + correlationId;
+                ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation191) + correlationId
+                : detail + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation192) + correlationId;
         }
-        return string.IsNullOrEmpty(detail) ? string.Empty : $" {detail}{catalog.ErrorSearch.Pick("。", ".")}";
+        return string.IsNullOrEmpty(detail) ? string.Empty : $" {detail}{catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation120)}";
     }
 
     private static string FormatUtc(DateTimeOffset value, WatchTextCatalog catalog) =>

@@ -53,6 +53,11 @@ public sealed partial class WatchTextCatalogContractTests
             method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(string))
                 && method.Name is "Get" or "Lookup" or "Resolve" or "Pick");
         Assert.DoesNotContain(
+            typeof(WatchTextCatalog).Assembly.GetTypes()
+                .SelectMany(type => type.GetMethods(
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)),
+            method => method.Name == "Pick");
+        Assert.DoesNotContain(
             publicMembers.OfType<PropertyInfo>(),
             property => property.GetIndexParameters().Any(parameter => parameter.ParameterType == typeof(string)));
         Assert.DoesNotContain(

@@ -30,6 +30,19 @@ internal abstract class WatchTextCatalogSection(WatchDisplayLanguage language)
     public abstract IReadOnlyList<WatchTextCatalogEntry> Entries { get; }
 
     protected string Text(WatchTextCatalogEntry entry) => entry.In(Language);
+
+    internal string Select(WatchTextCatalogEntry entry) => entry.In(Language);
+
+    internal string Format(
+        WatchTextCatalogEntry entry,
+        object?[] simplifiedChineseArguments,
+        object?[] englishArguments) =>
+        string.Format(
+            CultureInfo.InvariantCulture,
+            entry.In(Language),
+            Language == WatchDisplayLanguage.SimplifiedChinese
+                ? simplifiedChineseArguments
+                : englishArguments);
 }
 
 internal enum WatchDisplayValueKind

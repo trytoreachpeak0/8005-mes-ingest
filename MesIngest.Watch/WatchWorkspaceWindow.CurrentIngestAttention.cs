@@ -54,18 +54,12 @@ internal partial class WatchWorkspaceWindow
         CurrentAttentionNextPageButton.Content = text.NextPage;
         CurrentAttentionGoToPageButton.Content = text.GoToPage;
         CurrentAttentionSelectedDetailTitleText.Text = text.SelectedDetail;
-        CurrentAttentionReadOnlyHelpText.Text = text.Pick(
-            "当前页面只读呈现七类 Host 事实及本地恢复指引；不会创建 incident，也不提供确认、恢复或其它管理操作。",
-            "This read-only page presents seven types of Host facts and local recovery guidance. It does not create incidents or offer acknowledgement, recovery, or other management operations.");
+        CurrentAttentionReadOnlyHelpText.Text = text.Select(WatchGeneratedText.CurrentAttentionUi061);
         CurrentAttentionOpenDemandSeriesButton.Content = text.OpenSeries;
         CurrentAttentionOpenErrorSearchButton.Content = text.OpenErrorSearch;
         CurrentAttentionEvidenceTitleText.Text = text.Evidence;
-        CurrentAttentionEvidenceHelpText.Text = text.Pick(
-            "字段、PollTrace、WorkType 与对象标识均来自当前 Host snapshot。",
-            "Fields, PollTrace, WorkType, and object identities all come from the current Host snapshot.");
-        CurrentAttentionHistoryScopeText.Text = text.Pick(
-            "只读呈现全 Host 当前仍需关注的接入项；已结束的需求系列错误只在错误检索中保留。",
-            "Read-only current attention for the entire Host. Ended series errors are retained only in Error Search.");
+        CurrentAttentionEvidenceHelpText.Text = text.Select(WatchGeneratedText.CurrentAttentionUi062);
+        CurrentAttentionHistoryScopeText.Text = text.Select(WatchGeneratedText.CurrentAttentionUi063);
 
         CurrentAttentionKindFilter.Items.Clear();
         foreach (var kind in CurrentIngestAttentionKinds.All)
@@ -76,7 +70,7 @@ internal partial class WatchWorkspaceWindow
                 Tag = kind,
             });
         }
-        CurrentAttentionKindFilter.Tag = text.Pick("全部类型", "All types");
+        CurrentAttentionKindFilter.Tag = text.Select(WatchGeneratedText.CurrentAttentionUi064);
         SelectChoice(CurrentAttentionKindFilter, kinds);
 
         CurrentAttentionSeverityFilter.Items.Clear();
@@ -88,34 +82,34 @@ internal partial class WatchWorkspaceWindow
                 Tag = severity,
             });
         }
-        CurrentAttentionSeverityFilter.Tag = text.Pick("全部严重度", "All severities");
+        CurrentAttentionSeverityFilter.Tag = text.Select(WatchGeneratedText.CurrentAttentionUi065);
         SelectChoice(CurrentAttentionSeverityFilter, severities);
 
         CurrentAttentionKindFacetGrid.Columns[0].Header = text.KindFilter;
-        CurrentAttentionKindFacetGrid.Columns[1].Header = text.Pick("数量", "Count");
+        CurrentAttentionKindFacetGrid.Columns[1].Header = text.Select(WatchGeneratedText.CurrentAttentionUi066);
         CurrentAttentionSeverityFacetGrid.Columns[0].Header = text.SeverityFilter;
-        CurrentAttentionSeverityFacetGrid.Columns[1].Header = text.Pick("数量", "Count");
-        CurrentAttentionGrid.Columns[0].Header = text.Pick("对象", "Subject");
+        CurrentAttentionSeverityFacetGrid.Columns[1].Header = text.Select(WatchGeneratedText.CurrentAttentionUi066);
+        CurrentAttentionGrid.Columns[0].Header = text.Select(WatchGeneratedText.CurrentAttentionUi067);
         CurrentAttentionGrid.Columns[1].Header = text.KindFilter;
         CurrentAttentionGrid.Columns[2].Header = text.SeverityFilter;
-        CurrentAttentionGrid.Columns[3].Header = text.Pick("发生时间", "Occurred at");
-        CurrentAttentionGrid.Columns[4].Header = text.Pick("稳定标识", "Stable identity");
-        CurrentAttentionEvidenceGrid.Columns[0].Header = text.Pick("字段", "Field");
-        CurrentAttentionEvidenceGrid.Columns[1].Header = text.Pick("值", "Value");
+        CurrentAttentionGrid.Columns[3].Header = text.Select(WatchGeneratedText.CurrentAttentionUi068);
+        CurrentAttentionGrid.Columns[4].Header = text.Select(WatchGeneratedText.CurrentAttentionUi069);
+        CurrentAttentionEvidenceGrid.Columns[0].Header = text.Select(WatchGeneratedText.CurrentAttentionUi070);
+        CurrentAttentionEvidenceGrid.Columns[1].Header = text.Select(WatchGeneratedText.CurrentAttentionUi071);
 
-        AutomationProperties.SetName(CurrentAttentionPage, text.Pick("接入告警页面", "Current ingest attention page"));
-        AutomationProperties.SetName(CurrentAttentionKindFilter, text.Pick("接入告警类型筛选", "Attention-type filter"));
-        AutomationProperties.SetName(CurrentAttentionSeverityFilter, text.Pick("接入告警严重度筛选", "Attention-severity filter"));
-        AutomationProperties.SetName(CurrentAttentionPageSizeInput, text.Pick("接入告警每页数量", "Current-ingest-attention page size"));
+        AutomationProperties.SetName(CurrentAttentionPage, text.Select(WatchGeneratedText.CurrentAttentionUi072));
+        AutomationProperties.SetName(CurrentAttentionKindFilter, text.Select(WatchGeneratedText.CurrentAttentionUi073));
+        AutomationProperties.SetName(CurrentAttentionSeverityFilter, text.Select(WatchGeneratedText.CurrentAttentionUi074));
+        AutomationProperties.SetName(CurrentAttentionPageSizeInput, text.Select(WatchGeneratedText.CurrentAttentionUi075));
         AutomationProperties.SetName(CurrentAttentionApplyFilterButton, text.ApplyFilters);
         AutomationProperties.SetName(CurrentAttentionClearFilterButton, text.ClearFilters);
-        AutomationProperties.SetName(CurrentAttentionKindFacetGrid, text.Pick("接入告警类型 Host 精确分面", "Exact Host facets for attention type"));
-        AutomationProperties.SetName(CurrentAttentionSeverityFacetGrid, text.Pick("接入告警严重度 Host 精确分面", "Exact Host facets for attention severity"));
-        AutomationProperties.SetName(CurrentAttentionGrid, text.Pick("当前仍需关注的接入告警", "Current ingest attention items"));
-        AutomationProperties.SetName(CurrentAttentionEvidenceGrid, text.Pick("接入告警结构化证据字段", "Structured current-ingest-attention evidence fields"));
+        AutomationProperties.SetName(CurrentAttentionKindFacetGrid, text.Select(WatchGeneratedText.CurrentAttentionUi076));
+        AutomationProperties.SetName(CurrentAttentionSeverityFacetGrid, text.Select(WatchGeneratedText.CurrentAttentionUi077));
+        AutomationProperties.SetName(CurrentAttentionGrid, text.Select(WatchGeneratedText.CurrentAttentionUi078));
+        AutomationProperties.SetName(CurrentAttentionEvidenceGrid, text.Select(WatchGeneratedText.CurrentAttentionUi079));
         AutomationProperties.SetName(CurrentAttentionPreviousPageButton, text.PreviousPage);
         AutomationProperties.SetName(CurrentAttentionNextPageButton, text.NextPage);
-        AutomationProperties.SetName(CurrentAttentionPageNumberInput, text.Pick("接入告警目标页码", "Current-ingest-attention target page"));
+        AutomationProperties.SetName(CurrentAttentionPageNumberInput, text.Select(WatchGeneratedText.CurrentAttentionUi080));
         AutomationProperties.SetName(CurrentAttentionGoToPageButton, text.GoToPage);
         AutomationProperties.SetName(CurrentAttentionOpenDemandSeriesButton, text.OpenSeries);
         AutomationProperties.SetName(CurrentAttentionOpenErrorSearchButton, text.OpenErrorSearch);
@@ -244,12 +238,12 @@ internal partial class WatchWorkspaceWindow
         CurrentAttentionFreshnessText.Text =
             $"Endpoint {BuildPageEndpoint(state, "/api/v2/current-ingest-attention")} · "
             + $"{presentation.ClientAttemptFacts} · "
-            + text.Pick("自动刷新 ", "Auto-refresh ")
+            + text.Select(WatchGeneratedText.CurrentAttentionUi081)
             + $"{_preferences.RefreshIntervals.CurrentIngestAttention.IntervalSeconds} "
-            + text.Pick("秒", "seconds");
+            + text.Select(WatchGeneratedText.CurrentAttentionUi082);
         SetTextAutomationName(
             CurrentAttentionFreshnessText,
-            text.Pick("接入告警 Endpoint、最近成功与自动刷新", "Current ingest attention endpoint, last success, and auto-refresh"),
+            text.Select(WatchGeneratedText.CurrentAttentionUi083),
             CurrentAttentionFreshnessText.Text);
 
         var exactTotal = state.CurrentAttention.Snapshot?.ExactTotalItemCount ?? 0;
@@ -260,18 +254,18 @@ internal partial class WatchWorkspaceWindow
                 StringComparison.Ordinal))
             ?.ItemCount ?? 0;
         var (status, styleKey) = !presentation.HasSnapshot
-            ? (presentation.IsRefreshing ? text.Pick("正在读取", "Loading") : text.Pick("尚无快照", "No snapshot"),
+            ? (presentation.IsRefreshing ? text.Select(WatchGeneratedText.CurrentAttentionUi084) : text.Select(WatchGeneratedText.CurrentAttentionUi085),
                 "StatusPill")
             : presentation.IsStale
-                ? (text.Pick("快照已陈旧", "Snapshot is stale"), "StatusPillCaution")
+                ? (text.Select(WatchGeneratedText.CurrentAttentionUi086), "StatusPillCaution")
                 : exactTotal == 0
-                    ? (text.Pick("当前无关注", "No current attention"), "StatusPillSuccess")
-                    : (text.Pick($"当前关注 {exactTotal:N0}", $"Current attention {exactTotal:N0}"),
+                    ? (text.Select(WatchGeneratedText.CurrentAttentionUi087), "StatusPillSuccess")
+                    : (text.Format(WatchGeneratedText.CurrentAttentionUi088, new object?[] { exactTotal }, new object?[] { exactTotal }),
                         errorCount > 0 ? "StatusPillCritical" : "StatusPillCaution");
         SetHeaderStatus(
             CurrentAttentionHeaderStatusPill,
             CurrentAttentionHeaderStatusText,
-            text.Pick("接入告警状态", "Current ingest attention status"),
+            text.Select(WatchGeneratedText.CurrentAttentionUi089),
             status,
             styleKey);
     }
@@ -301,7 +295,7 @@ internal partial class WatchWorkspaceWindow
             if (selectionNoLongerMatches)
             {
                 _currentAttentionSelectionNotice =
-                    text.Pick("原关注项 ", "Previous attention item ") + _selectedCurrentAttentionIdentity + text.Pick(" 已不在最新当前关注结果中；已清除选择与结构化证据，请重新选择。", " is no longer in the latest current-attention results. Selection and structured evidence were cleared; select another item.");
+                    text.Select(WatchGeneratedText.CurrentAttentionUi090) + _selectedCurrentAttentionIdentity + text.Select(WatchGeneratedText.CurrentAttentionUi091);
                 _selectedCurrentAttentionIdentity = null;
             }
             else if (!hadSelection && string.IsNullOrEmpty(_currentAttentionSelectionNotice))
@@ -317,24 +311,24 @@ internal partial class WatchWorkspaceWindow
             CurrentAttentionEmptyResultText.Text = presentation.EmptyResultMessage;
             SetTextAutomationName(
                 CurrentAttentionEmptyResultText,
-                text.Pick("接入告警空结果说明", "Current ingest attention empty-result explanation"),
+                text.Select(WatchGeneratedText.CurrentAttentionUi092),
                 string.IsNullOrEmpty(presentation.EmptyResultMessage)
-                    ? text.Pick("当前非成功零结果", "Current state is not a successful empty result")
+                    ? text.Select(WatchGeneratedText.CurrentAttentionUi093)
                     : presentation.EmptyResultMessage);
-            SetTextAutomationName(CurrentAttentionSnapshotText, text.Pick("接入告警快照", "Current ingest attention snapshot"), CurrentAttentionSnapshotText.Text);
-            SetTextAutomationName(CurrentAttentionScopeText, text.Pick("接入告警范围与语义", "Current ingest attention scope and semantics"), CurrentAttentionScopeText.Text);
-            SetTextAutomationName(CurrentAttentionPageSummaryText, text.Pick("接入告警精确总数与页码", "Current ingest attention exact total and page"), CurrentAttentionPageSummaryText.Text);
+            SetTextAutomationName(CurrentAttentionSnapshotText, text.Select(WatchGeneratedText.CurrentAttentionUi094), CurrentAttentionSnapshotText.Text);
+            SetTextAutomationName(CurrentAttentionScopeText, text.Select(WatchGeneratedText.CurrentAttentionUi095), CurrentAttentionScopeText.Text);
+            SetTextAutomationName(CurrentAttentionPageSummaryText, text.Select(WatchGeneratedText.CurrentAttentionUi096), CurrentAttentionPageSummaryText.Text);
 
             var showEmpty = presentation.EmptyResultMessage.Length > 0;
             CurrentAttentionStatusInfoBar.IsOpen = showEmpty;
             CurrentAttentionStatusInfoBar.Severity = InfoBarSeverity.Informational;
-            CurrentAttentionStatusInfoBar.Title = showEmpty ? text.Pick("当前没有接入告警", "No current ingest attention") : string.Empty;
+            CurrentAttentionStatusInfoBar.Title = showEmpty ? text.Select(WatchGeneratedText.CurrentAttentionUi097) : string.Empty;
             CurrentAttentionStatusInfoBar.Message = presentation.EmptyResultMessage;
             AutomationProperties.SetName(
                 CurrentAttentionStatusInfoBar,
                 CurrentAttentionStatusInfoBar.IsOpen
                     ? $"{CurrentAttentionStatusInfoBar.Title}。{CurrentAttentionStatusInfoBar.Message}"
-                    : text.Pick("接入告警状态：当前无活动通知", "Current ingest attention status: no active notification"));
+                    : text.Select(WatchGeneratedText.CurrentAttentionUi098));
 
             CurrentAttentionKindFacetGrid.ItemsSource = presentation.TypeFacets;
             CurrentAttentionSeverityFacetGrid.ItemsSource = presentation.SeverityFacets;
@@ -360,11 +354,11 @@ internal partial class WatchWorkspaceWindow
     {
         var text = _displayLanguageState.Catalog.CurrentAttention;
         CurrentAttentionSelectedContextText.Text = selected is null
-            ? text.Pick("选择一项查看其稳定标识与 Host 结构化证据。", "Select an item to view its stable identity and structured Host evidence.")
-            : selected.KindLabel + text.Pick(" · 稳定标识 ", " · Stable identity ") + selected.StableIdentity + " · " + selected.SubjectSummary;
+            ? text.Select(WatchGeneratedText.CurrentAttentionUi099)
+            : selected.KindLabel + text.Select(WatchGeneratedText.CurrentAttentionUi100) + selected.StableIdentity + " · " + selected.SubjectSummary;
         SetTextAutomationName(
             CurrentAttentionSelectedContextText,
-            text.Pick("接入告警选中项上下文", "Selected current-ingest-attention context"),
+            text.Select(WatchGeneratedText.CurrentAttentionUi101),
             CurrentAttentionSelectedContextText.Text);
         CurrentAttentionEvidenceGrid.ItemsSource = selected is null
             ? []
@@ -672,9 +666,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.CurrentAttention,
                 "attention.operation",
-                text.Pick("无法执行接入告警操作", "Unable to complete the current-ingest-attention operation"),
-                text.Pick("请检查当前选择或快照后重试。", "Check the current selection or snapshot and try again."),
-                text.Pick("返回接入告警", "Return to current ingest attention"));
+                text.Select(WatchGeneratedText.CurrentAttentionUi102),
+                text.Select(WatchGeneratedText.CurrentAttentionUi103),
+                text.Select(WatchGeneratedText.CurrentAttentionUi104));
         }
     }
 

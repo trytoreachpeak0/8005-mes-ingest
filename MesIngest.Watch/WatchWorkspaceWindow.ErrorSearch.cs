@@ -71,11 +71,11 @@ internal partial class WatchWorkspaceWindow
         ErrorSearchCodeFilterLabel.Text = text.ErrorCode;
         ErrorSearchActivityFilterLabel.Text = text.ActivityState;
         ErrorSearchWindowFilterLabel.Text = text.TimeRange;
-        ErrorSearchSeriesIdFilterLabel.Text = text.Pick("SeriesId（精确）", "SeriesId (exact)");
+        ErrorSearchSeriesIdFilterLabel.Text = text.Select(WatchGeneratedText.ErrorSearchUi193);
         ErrorSearchApplyFilterButton.Content = text.ApplyFilters;
         ErrorSearchMoreFiltersExpander.Header = text.MoreFilters;
-        ErrorSearchDemandIdFilterLabel.Text = text.Pick("DemandId（精确）", "DemandId (exact)");
-        ErrorSearchSublotFilterLabel.Text = text.Pick("SUBLOT（包含）", "SUBLOT (contains)");
+        ErrorSearchDemandIdFilterLabel.Text = text.Select(WatchGeneratedText.ErrorSearchUi194);
+        ErrorSearchSublotFilterLabel.Text = text.Select(WatchGeneratedText.ErrorSearchUi195);
         ErrorSearchPageSizeLabel.Text = text.PerPage;
         ErrorSearchPreviousPageButton.Content = text.PreviousPage;
         ErrorSearchNextPageButton.Content = text.NextPage;
@@ -87,9 +87,7 @@ internal partial class WatchWorkspaceWindow
         ErrorSearchRawEvidenceHelpText.Text = text.RawEvidenceHelp;
         ErrorSearchLoadRawEvidenceButton.Content = text.LoadRawEvidence;
         ErrorSearchOpenSeriesButton.Content = text.OpenSeries;
-        ErrorSearchScopeText.Text = text.Pick(
-            "按 Host 冻结快照检索真正命中的错误期间；本机 AREA 配置不参与条件、分面或分页。",
-            "Search actually matched error periods in a frozen Host snapshot. Local AREA configuration does not affect filters, facets, or paging.");
+        ErrorSearchScopeText.Text = text.Select(WatchGeneratedText.ErrorSearchUi196);
         ErrorSearchHistoryInitialText(text);
 
         PopulateErrorSearchCatalogChoices();
@@ -102,7 +100,7 @@ internal partial class WatchWorkspaceWindow
                 Tag = state,
             });
         }
-        ErrorSearchActivityStateFilter.Tag = text.Pick("全部状态", "All states");
+        ErrorSearchActivityStateFilter.Tag = text.Select(WatchGeneratedText.ErrorSearchUi197);
         SelectChoice(ErrorSearchActivityStateFilter, activityValues);
 
         foreach (var item in ErrorSearchWindowFilter.Items.OfType<ComboBoxItem>())
@@ -114,25 +112,25 @@ internal partial class WatchWorkspaceWindow
             }
         }
         SelectChoice(ErrorSearchWindowFilter, [windowValue]);
-        ErrorSearchCodeFilter.Tag = text.Pick("全部错误码", "All error codes");
+        ErrorSearchCodeFilter.Tag = text.Select(WatchGeneratedText.ErrorSearchUi198);
         if (ReadChoiceValues(ErrorSearchCodeFilter).Count == 0)
         {
             SelectChoice(ErrorSearchCodeFilter, []);
         }
 
         ErrorSearchActivityFacetStateColumn.Header = text.ActivityState;
-        ErrorSearchActivityFacetCountColumn.Header = text.Pick("需求系列", "Demand series");
+        ErrorSearchActivityFacetCountColumn.Header = text.Select(WatchGeneratedText.ErrorSearchUi199);
         ErrorSearchMatchedErrorsColumn.Header = text.ErrorCode;
         ErrorSearchActivityColumn.Header = text.ActivityState;
-        ErrorSearchMatchedPeriodsColumn.Header = text.Pick("命中期间", "Matched periods");
-        ErrorSearchDemandGenerationsColumn.Header = text.Pick("需求代次", "Demand generations");
-        ErrorSearchLatestEvidenceColumn.Header = text.Pick("最新证据", "Latest evidence");
+        ErrorSearchMatchedPeriodsColumn.Header = text.Select(WatchGeneratedText.ErrorSearchUi200);
+        ErrorSearchDemandGenerationsColumn.Header = text.Select(WatchGeneratedText.ErrorSearchUi201);
+        ErrorSearchLatestEvidenceColumn.Header = text.Select(WatchGeneratedText.ErrorSearchUi202);
 
         var periodHeaders = new[]
         {
-            text.ErrorCode, text.Pick("分类", "Category"), text.Pick("状态边界", "State boundary"),
-            text.Pick("开始", "Started"), text.Pick("结束", "Ended"), text.Pick("结束原因", "End reason"),
-            text.Pick("主体种类", "Subject kind"), "Target",
+            text.ErrorCode, text.Select(WatchGeneratedText.ErrorSearchUi203), text.Select(WatchGeneratedText.ErrorSearchUi204),
+            text.Select(WatchGeneratedText.ErrorSearchUi205), text.Select(WatchGeneratedText.ErrorSearchUi206), text.Select(WatchGeneratedText.ErrorSearchUi207),
+            text.Select(WatchGeneratedText.ErrorSearchUi208), "Target",
         };
         for (var index = 0; index < periodHeaders.Length; index++)
         {
@@ -140,36 +138,36 @@ internal partial class WatchWorkspaceWindow
         }
         var evidenceHeaders = new[]
         {
-            text.Pick("证据", "Evidence"), text.Pick("证据类型", "Evidence kind"),
-            text.Pick("字段 / 主体", "Field / subject"), text.Pick("观测值", "Observed value"),
-            text.Pick("规则", "Rule"), "DemandId / WorkType", text.Pick("时间", "Time"), "PollTrace",
+            text.Select(WatchGeneratedText.ErrorSearchUi209), text.Select(WatchGeneratedText.ErrorSearchUi210),
+            text.Select(WatchGeneratedText.ErrorSearchUi211), text.Select(WatchGeneratedText.ErrorSearchUi212),
+            text.Select(WatchGeneratedText.ErrorSearchUi213), "DemandId / WorkType", text.Select(WatchGeneratedText.ErrorSearchUi214), "PollTrace",
         };
         for (var index = 0; index < evidenceHeaders.Length; index++)
         {
             ErrorSearchEvidenceGrid.Columns[index].Header = evidenceHeaders[index];
         }
-        ErrorSearchRawEvidenceGrid.Columns[2].Header = text.Pick("时间", "Time");
-        ErrorSearchRawEvidenceGrid.Columns[4].Header = text.Pick("白名单字段与值", "Allow-listed fields and values");
+        ErrorSearchRawEvidenceGrid.Columns[2].Header = text.Select(WatchGeneratedText.ErrorSearchUi214);
+        ErrorSearchRawEvidenceGrid.Columns[4].Header = text.Select(WatchGeneratedText.ErrorSearchUi215);
 
-        AutomationProperties.SetName(ErrorSearchPage, text.Pick("错误检索页面", "Error search page"));
-        AutomationProperties.SetName(ErrorSearchBodyScrollViewer, text.Pick("错误检索三列工作区滚动区域", "Error-search three-column workspace scroller"));
-        AutomationProperties.SetName(ErrorSearchCategorySearchInput, text.Pick("错误分类搜索", "Error-category search"));
-        AutomationProperties.SetHelpText(ErrorSearchCategorySearchInput, text.Pick("输入分类或错误码的一部分；搜索只缩小左侧导航，不会清除已选择分类。", "Enter part of a category or error code. Search narrows the left navigation without clearing selected categories."));
-        AutomationProperties.SetName(ErrorSearchCategoryList, text.Pick("错误分类导航（可多选）", "Error-category navigation (multi-select)"));
+        AutomationProperties.SetName(ErrorSearchPage, text.Select(WatchGeneratedText.ErrorSearchUi216));
+        AutomationProperties.SetName(ErrorSearchBodyScrollViewer, text.Select(WatchGeneratedText.ErrorSearchUi217));
+        AutomationProperties.SetName(ErrorSearchCategorySearchInput, text.Select(WatchGeneratedText.ErrorSearchUi218));
+        AutomationProperties.SetHelpText(ErrorSearchCategorySearchInput, text.Select(WatchGeneratedText.ErrorSearchUi219));
+        AutomationProperties.SetName(ErrorSearchCategoryList, text.Select(WatchGeneratedText.ErrorSearchUi220));
         AutomationProperties.SetHelpText(ErrorSearchCategoryList, text.CategoryHelp);
-        AutomationProperties.SetName(ErrorSearchActivityStateFacetGrid, text.Pick("错误活动状态 Host 精确分面", "Exact Host facets for error activity state"));
-        AutomationProperties.SetName(ErrorSearchSeriesGrid, text.Pick("错误检索去重需求系列结果", "Distinct demand-series Error Search results"));
-        AutomationProperties.SetName(ErrorSearchPeriodGrid, text.Pick("错误检索真正命中期间", "Actually matched Error Search periods"));
-        AutomationProperties.SetName(ErrorSearchEvidenceGrid, text.Pick("错误检索可解释证据", "Diagnostic Error Search evidence"));
-        AutomationProperties.SetName(ErrorSearchRawEvidenceGrid, text.Pick("错误检索受限原始证据", "Restricted Error Search raw evidence"));
-        AutomationProperties.SetName(ErrorSearchCodeFilter, text.Pick("错误码筛选", "Error-code filter"));
-        AutomationProperties.SetName(ErrorSearchActivityStateFilter, text.Pick("错误活动状态筛选", "Error activity-state filter"));
-        AutomationProperties.SetName(ErrorSearchWindowFilter, text.Pick("错误检索时间范围", "Error Search time range"));
-        AutomationProperties.SetName(ErrorSearchSeriesIdFilter, text.Pick("错误检索 SeriesId 精确筛选", "Exact SeriesId filter for Error Search"));
-        AutomationProperties.SetName(ErrorSearchDemandIdFilter, text.Pick("错误检索 DemandId 精确筛选", "Exact DemandId filter for Error Search"));
-        AutomationProperties.SetName(ErrorSearchSublotFilter, text.Pick("错误检索 SUBLOT 包含筛选", "SUBLOT-contains filter for Error Search"));
-        AutomationProperties.SetName(ErrorSearchPageSizeInput, text.Pick("错误检索每页数量", "Error Search page size"));
-        AutomationProperties.SetName(ErrorSearchPageNumberInput, text.Pick("错误检索目标页码", "Error Search target page"));
+        AutomationProperties.SetName(ErrorSearchActivityStateFacetGrid, text.Select(WatchGeneratedText.ErrorSearchUi221));
+        AutomationProperties.SetName(ErrorSearchSeriesGrid, text.Select(WatchGeneratedText.ErrorSearchUi222));
+        AutomationProperties.SetName(ErrorSearchPeriodGrid, text.Select(WatchGeneratedText.ErrorSearchUi223));
+        AutomationProperties.SetName(ErrorSearchEvidenceGrid, text.Select(WatchGeneratedText.ErrorSearchUi224));
+        AutomationProperties.SetName(ErrorSearchRawEvidenceGrid, text.Select(WatchGeneratedText.ErrorSearchUi225));
+        AutomationProperties.SetName(ErrorSearchCodeFilter, text.Select(WatchGeneratedText.ErrorSearchUi226));
+        AutomationProperties.SetName(ErrorSearchActivityStateFilter, text.Select(WatchGeneratedText.ErrorSearchUi227));
+        AutomationProperties.SetName(ErrorSearchWindowFilter, text.Select(WatchGeneratedText.ErrorSearchUi228));
+        AutomationProperties.SetName(ErrorSearchSeriesIdFilter, text.Select(WatchGeneratedText.ErrorSearchUi229));
+        AutomationProperties.SetName(ErrorSearchDemandIdFilter, text.Select(WatchGeneratedText.ErrorSearchUi230));
+        AutomationProperties.SetName(ErrorSearchSublotFilter, text.Select(WatchGeneratedText.ErrorSearchUi231));
+        AutomationProperties.SetName(ErrorSearchPageSizeInput, text.Select(WatchGeneratedText.ErrorSearchUi232));
+        AutomationProperties.SetName(ErrorSearchPageNumberInput, text.Select(WatchGeneratedText.ErrorSearchUi233));
         AutomationProperties.SetName(ErrorSearchApplyFilterButton, text.ApplyFilters);
         AutomationProperties.SetName(ErrorSearchClearFilterButton, text.ClearFilters);
         AutomationProperties.SetName(ErrorSearchPreviousPageButton, text.PreviousPage);
@@ -233,10 +231,10 @@ internal partial class WatchWorkspaceWindow
                         ? CultureInfo.GetCultureInfo("zh-CN")
                         : CultureInfo.GetCultureInfo("en-US"))
                     : _displayLanguageState.Catalog.Common.NotLoaded,
-                counts.ContainsKey(group.Key) ? text.Pick("个需求系列", "demand series") : text.Pick("尚无快照", "No snapshot"),
+                counts.ContainsKey(group.Key) ? text.Select(WatchGeneratedText.ErrorSearchUi234) : text.Select(WatchGeneratedText.ErrorSearchUi235),
                 counts.TryGetValue(group.Key, out count)
-                    ? text.Pick($"错误分类 {group.Key}，Host 精确 {count:N0} 个需求系列，可多选", $"Error category {group.Key}; exact Host count {count:N0} demand series; multi-select")
-                    : text.Pick($"错误分类 {group.Key}，尚无 Host 快照计数，可多选", $"Error category {group.Key}; no Host snapshot count; multi-select")))
+                    ? text.Format(WatchGeneratedText.ErrorSearchUi236, new object?[] { group.Key, count }, new object?[] { group.Key, count })
+                    : text.Format(WatchGeneratedText.ErrorSearchUi237, new object?[] { group.Key }, new object?[] { group.Key })))
             .ToArray();
         RefreshErrorSearchCategoryNavigation();
     }
@@ -758,12 +756,12 @@ internal partial class WatchWorkspaceWindow
         ErrorSearchFreshnessText.Text =
             $"Endpoint {BuildPageEndpoint(state, "/api/v2/error-search")} · "
             + $"{presentation.ClientAttemptFacts} · "
-            + text.Pick("自动刷新 ", "Auto-refresh ")
+            + text.Select(WatchGeneratedText.ErrorSearchUi238)
             + $"{_preferences.RefreshIntervals.ErrorSearch.IntervalSeconds} "
-            + text.Pick("秒", "seconds");
+            + text.Select(WatchGeneratedText.ErrorSearchUi239);
         SetTextAutomationName(
             ErrorSearchFreshnessText,
-            text.Pick("错误检索 Endpoint、最近成功与自动刷新", "Error Search endpoint, last success, and auto-refresh"),
+            text.Select(WatchGeneratedText.ErrorSearchUi240),
             ErrorSearchFreshnessText.Text);
 
         var activeCount = presentation.ActivityFacets
@@ -773,17 +771,17 @@ internal partial class WatchWorkspaceWindow
                 StringComparison.Ordinal))
             ?.SeriesCount ?? 0;
         var (status, styleKey) = !presentation.HasSnapshot
-            ? (presentation.IsRefreshing ? text.Pick("正在读取", "Loading") : text.Pick("尚无快照", "No snapshot"),
+            ? (presentation.IsRefreshing ? text.Select(WatchGeneratedText.ErrorSearchUi241) : text.Select(WatchGeneratedText.ErrorSearchUi235),
                 "StatusPill")
             : presentation.IsStale
-                ? (text.Pick("快照已陈旧", "Snapshot is stale"), "StatusPillCaution")
+                ? (text.Select(WatchGeneratedText.ErrorSearchUi242), "StatusPillCaution")
                 : activeCount > 0
-                    ? (text.Pick($"活动错误 {activeCount:N0}", $"Active errors {activeCount:N0}"), "StatusPillCritical")
-                    : (text.Pick("无活动错误", "No active errors"), "StatusPillSuccess");
+                    ? (text.Format(WatchGeneratedText.ErrorSearchUi243, new object?[] { activeCount }, new object?[] { activeCount }), "StatusPillCritical")
+                    : (text.Select(WatchGeneratedText.ErrorSearchUi244), "StatusPillSuccess");
         SetHeaderStatus(
             ErrorSearchHeaderStatusPill,
             ErrorSearchHeaderStatusText,
-            text.Pick("错误检索状态", "Error Search status"),
+            text.Select(WatchGeneratedText.ErrorSearchUi245),
             status,
             styleKey);
     }
@@ -811,12 +809,12 @@ internal partial class WatchWorkspaceWindow
                 presentation.CommittedWindow,
                 presentation.CommittedConditions);
             ErrorSearchCompactFactsText.Text = presentation.HasSnapshot
-                ? text.Pick("Host 冻结快照 · ", "Frozen Host snapshot · ") + presentation.SnapshotFacts
-                : text.Pick("Host 尚无冻结快照 · 条件待提交", "No frozen Host snapshot · filters not committed");
+                ? text.Select(WatchGeneratedText.ErrorSearchUi246) + presentation.SnapshotFacts
+                : text.Select(WatchGeneratedText.ErrorSearchUi247);
             ErrorSearchCompactFactsText.ToolTip = fullContractFacts;
             SetTextAutomationName(
                 ErrorSearchCompactFactsText,
-                text.Pick("错误检索 Host 冻结快照、窗口与已提交条件", "Error Search frozen Host snapshot, window, and committed filters"),
+                text.Select(WatchGeneratedText.ErrorSearchUi248),
                 fullContractFacts);
             AutomationProperties.SetHelpText(ErrorSearchCompactFactsText, fullContractFacts);
             ErrorSearchPageSummaryText.Text =
@@ -824,30 +822,30 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchEmptyResultText.Text = presentation.EmptyResultMessage;
             SetTextAutomationName(
                 ErrorSearchEmptyResultText,
-                text.Pick("错误检索空结果说明", "Error Search empty-result explanation"),
+                text.Select(WatchGeneratedText.ErrorSearchUi249),
                 string.IsNullOrEmpty(presentation.EmptyResultMessage)
-                    ? text.Pick("当前非成功零结果", "Current state is not a successful empty result")
+                    ? text.Select(WatchGeneratedText.ErrorSearchUi250)
                     : presentation.EmptyResultMessage);
-            SetTextAutomationName(ErrorSearchSnapshotText, text.Pick("错误检索快照", "Error Search snapshot"), presentation.SnapshotFacts);
-            SetTextAutomationName(ErrorSearchWindowText, text.Pick("错误检索窗口", "Error Search window"), presentation.CommittedWindow);
-            SetTextAutomationName(ErrorSearchNormalizedFilterText, text.Pick("错误检索规范化条件", "Normalized Error Search filters"), presentation.CommittedConditions);
+            SetTextAutomationName(ErrorSearchSnapshotText, text.Select(WatchGeneratedText.ErrorSearchUi251), presentation.SnapshotFacts);
+            SetTextAutomationName(ErrorSearchWindowText, text.Select(WatchGeneratedText.ErrorSearchUi252), presentation.CommittedWindow);
+            SetTextAutomationName(ErrorSearchNormalizedFilterText, text.Select(WatchGeneratedText.ErrorSearchUi253), presentation.CommittedConditions);
             SetTextAutomationName(
                 ErrorSearchPageSummaryText,
-                text.Pick("错误检索精确总数、页码与排序", "Error Search exact total, page, and order"),
+                text.Select(WatchGeneratedText.ErrorSearchUi254),
                 ErrorSearchPageSummaryText.Text);
 
             var showEmpty = presentation.EmptyResultMessage.Length > 0;
             ErrorSearchStatusInfoBar.IsOpen = showEmpty;
             ErrorSearchStatusInfoBar.Severity = InfoBarSeverity.Informational;
-            ErrorSearchStatusInfoBar.Title = showEmpty ? text.Pick("当前条件没有历史", "No history for current filters") : string.Empty;
+            ErrorSearchStatusInfoBar.Title = showEmpty ? text.Select(WatchGeneratedText.ErrorSearchUi255) : string.Empty;
             ErrorSearchStatusInfoBar.Message = showEmpty
-                ? text.Pick("当前条件查询成功；没有历史。", "The current query succeeded with no history. ") + presentation.EmptyResultMessage
+                ? text.Select(WatchGeneratedText.ErrorSearchUi256) + presentation.EmptyResultMessage
                 : string.Empty;
             AutomationProperties.SetName(
                 ErrorSearchStatusInfoBar,
                 ErrorSearchStatusInfoBar.IsOpen
                     ? $"{ErrorSearchStatusInfoBar.Title}。{ErrorSearchStatusInfoBar.Message}"
-                    : text.Pick("错误检索状态：当前无活动通知", "Error Search status: no active notification"));
+                    : text.Select(WatchGeneratedText.ErrorSearchUi257));
 
             UpdateErrorSearchCategoryNavigation(presentation.CategoryFacets);
             ErrorSearchActivityStateFacetGrid.ItemsSource = presentation.ActivityFacets;
@@ -888,10 +886,10 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchEvidenceGrid.SelectedItem = selectedEvidence;
             ErrorSearchDetailContextText.Text = detail is null
                 ? $"{presentation.DetailStatus.Title}：{presentation.DetailStatus.Message}"
-                : detail.Heading + text.Pick(" · 窗口命中边界：", " · Window match boundaries: ") + string.Join(text.Pick("；", "; "), detail.Periods.Select(period => period.BoundarySummary).Distinct(StringComparer.Ordinal)) + " · " + detail.GenerationSummary;
+                : detail.Heading + text.Select(WatchGeneratedText.ErrorSearchUi258) + string.Join(text.Select(WatchGeneratedText.ErrorSearchUi259), detail.Periods.Select(period => period.BoundarySummary).Distinct(StringComparer.Ordinal)) + " · " + detail.GenerationSummary;
             SetTextAutomationName(
                 ErrorSearchDetailContextText,
-                text.Pick("错误检索窗口边界与需求代次语义", "Error Search window-boundary and demand-generation semantics"),
+                text.Select(WatchGeneratedText.ErrorSearchUi260),
                 ErrorSearchDetailContextText.Text);
 
             var raw = _selectedErrorPeriodId is null || _selectedErrorEvidenceId is null
@@ -908,14 +906,14 @@ internal partial class WatchWorkspaceWindow
                 ErrorSearchRawEvidenceInfoBar,
                 raw.IsVisible
                     ? $"{raw.StatusTitle}。{raw.StatusMessage}"
-                    : text.Pick("原始证据状态：尚未显式请求", "Raw-evidence status: not explicitly requested"));
+                    : text.Select(WatchGeneratedText.ErrorSearchUi261));
             ErrorSearchRawEvidenceGrid.ItemsSource = raw.Items;
             ErrorSearchRawEvidenceLimitsText.Text = raw.IsVisible && raw.IncludedFields.Count > 0
-                ? text.Pick("白名单字段 ", "Allow-listed fields ") + string.Join(", ", raw.IncludedFields) + " · " + raw.LimitsSummary + text.Pick(" · 已返回 ", " · returned ") + $"{raw.ItemCount:N0}" + text.Pick(" 条 / ", " items / ") + $"{raw.PayloadBytes:N0}" + text.Pick(" 字节", " bytes")
+                ? text.Select(WatchGeneratedText.ErrorSearchUi262) + string.Join(", ", raw.IncludedFields) + " · " + raw.LimitsSummary + text.Select(WatchGeneratedText.ErrorSearchUi263) + $"{raw.ItemCount:N0}" + text.Select(WatchGeneratedText.ErrorSearchUi264) + $"{raw.PayloadBytes:N0}" + text.Select(WatchGeneratedText.ErrorSearchUi265)
                 : BuildErrorRawEvidenceLimitsText(text);
             SetTextAutomationName(
                 ErrorSearchRawEvidenceLimitsText,
-                text.Pick("错误检索原始证据白名单与上限", "Error Search raw-evidence allow-list and limits"),
+                text.Select(WatchGeneratedText.ErrorSearchUi266),
                 ErrorSearchRawEvidenceLimitsText.Text);
             ErrorSearchLoadRawEvidenceButton.IsEnabled =
                 ErrorSearchEvidenceGrid.SelectedItem is WatchErrorSearchEvidencePresentation evidence
@@ -1095,25 +1093,25 @@ internal partial class WatchWorkspaceWindow
         ErrorSearchRawEvidenceInfoBar.IsOpen = false;
         AutomationProperties.SetName(
             ErrorSearchRawEvidenceInfoBar,
-            text.Pick("原始证据状态：尚未显式请求", "Raw-evidence status: not explicitly requested"));
+            text.Select(WatchGeneratedText.ErrorSearchUi261));
         ErrorSearchRawEvidenceGrid.ItemsSource = Array.Empty<WatchErrorRawItemPresentation>();
         ErrorSearchRawEvidenceLimitsText.Text = BuildErrorRawEvidenceLimitsText(text);
         SetTextAutomationName(
             ErrorSearchRawEvidenceLimitsText,
-            text.Pick("错误检索原始证据白名单与上限", "Error Search raw-evidence allow-list and limits"),
+            text.Select(WatchGeneratedText.ErrorSearchUi266),
             ErrorSearchRawEvidenceLimitsText.Text);
     }
 
     private static string BuildErrorRawEvidenceLimitsText(WatchErrorSearchText text) =>
-        text.Pick("显式按需；允许字段 ", "Explicit on demand; allowed fields ")
+        text.Select(WatchGeneratedText.ErrorSearchUi267)
         + string.Join(", ", ErrorSearchRawEvidenceFields.All)
-        + text.Pick(" · 最多 ", " · maximum ")
+        + text.Select(WatchGeneratedText.ErrorSearchUi268)
         + ErrorSearchRawEvidenceLimits.MaximumItems
-        + text.Pick(" 条 · 单条 ", " items · ")
+        + text.Select(WatchGeneratedText.ErrorSearchUi269)
         + ErrorSearchRawEvidenceLimits.MaximumItemBytes
-        + text.Pick(" 字节/条 · 总计 ", " bytes/item · ")
+        + text.Select(WatchGeneratedText.ErrorSearchUi270)
         + ErrorSearchRawEvidenceLimits.MaximumTotalBytes
-        + text.Pick(" 字节", " bytes total");
+        + text.Select(WatchGeneratedText.ErrorSearchUi271);
 
     private void OnErrorSearchLoadRawEvidenceClick(object sender, RoutedEventArgs e)
     {
@@ -1166,9 +1164,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.ErrorSearch,
                 "error-search.operation",
-                text.Pick("无法执行错误检索操作", "Unable to complete the Error Search operation"),
-                text.Pick("请检查输入或当前快照后重试。", "Check the input or current snapshot and try again."),
-                text.Pick("返回错误检索", "Return to Error Search"));
+                text.Select(WatchGeneratedText.ErrorSearchUi272),
+                text.Select(WatchGeneratedText.ErrorSearchUi273),
+                text.Select(WatchGeneratedText.ErrorSearchUi274));
         }
     }
 
