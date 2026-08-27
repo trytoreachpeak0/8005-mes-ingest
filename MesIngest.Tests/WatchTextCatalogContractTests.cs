@@ -51,7 +51,7 @@ public sealed partial class WatchTextCatalogContractTests
         Assert.DoesNotContain(
             publicMembers.OfType<MethodInfo>(),
             method => method.GetParameters().Any(parameter => parameter.ParameterType == typeof(string))
-                && method.Name is "Get" or "Lookup" or "Resolve");
+                && method.Name is "Get" or "Lookup" or "Resolve" or "Pick");
         Assert.DoesNotContain(
             publicMembers.OfType<PropertyInfo>(),
             property => property.GetIndexParameters().Any(parameter => parameter.ParameterType == typeof(string)));

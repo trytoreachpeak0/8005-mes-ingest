@@ -53,6 +53,25 @@ internal sealed partial class WatchErrorSearchText
         Entry("load-raw-evidence", "加载原始证据", "Load raw evidence");
     private static readonly WatchTextCatalogEntry OpenSeriesEntry =
         Entry("open-series", "在需求系列中打开", "Open in demand series");
+    private static readonly WatchTextCatalogEntry RequiredFieldMissingEntry = Entry("code-required-field-missing", "必填 MES 字段缺失", "Required MES field is missing");
+    private static readonly WatchTextCatalogEntry InvalidFieldFormatEntry = Entry("code-invalid-field-format", "MES 字段格式无效", "MES field does not match its domain format");
+    private static readonly WatchTextCatalogEntry DuplicateDemandKeyEntry = Entry("code-duplicate-demand-key", "运输需求业务键重复", "Duplicate transport-demand business key");
+    private static readonly WatchTextCatalogEntry MultipleWorkTypesEntry = Entry("code-multiple-work-types", "SUBLOT 同时属于多个 WorkType", "SUBLOT appears in multiple WorkTypes");
+    private static readonly WatchTextCatalogEntry LongGoneVisibleEntry = Entry("code-long-gone-visible", "已归档需求系列再次出现在 MES", "Archived demand series became visible in MES again");
+    private static readonly WatchTextCatalogEntry DataCompletenessEntry = Entry("category-data-completeness", "数据完整性", "Data completeness");
+    private static readonly WatchTextCatalogEntry DataFormatEntry = Entry("category-data-format", "数据格式", "Data format");
+    private static readonly WatchTextCatalogEntry ObservationConflictEntry = Entry("category-observation-conflict", "观测冲突", "Observation conflict");
+    private static readonly WatchTextCatalogEntry LifecycleConflictEntry = Entry("category-lifecycle-conflict", "生命周期冲突", "Lifecycle conflict");
+    private static readonly WatchTextCatalogEntry ActiveEntry = Entry("activity-active", "活动中", "Active");
+    private static readonly WatchTextCatalogEntry EndedEntry = Entry("activity-ended", "已结束", "Ended");
+    private static readonly WatchTextCatalogEntry Last24HoursEntry = Entry("window-last-24-hours", "最近 24 小时", "Last 24 hours");
+    private static readonly WatchTextCatalogEntry Last7DaysEntry = Entry("window-last-7-days", "最近 7 天", "Last 7 days");
+    private static readonly WatchTextCatalogEntry Last15DaysEntry = Entry("window-last-15-days", "最近 15 天", "Last 15 days");
+    private static readonly WatchTextCatalogEntry AllHistoryEntry = Entry("window-all-history", "全部历史", "All history");
+    private static readonly WatchTextCatalogEntry CustomWindowEntry = Entry("window-custom", "自定义窗口", "Custom window");
+    private static readonly WatchTextCatalogEntry UnknownErrorCodeEntry = Entry("unknown-error-code", "未知错误码：{0}", "Unknown error code: {0}");
+    private static readonly WatchTextCatalogEntry UnknownCategoryEntry = Entry("unknown-category", "未知分类：{0}", "Unknown category: {0}");
+    private static readonly WatchTextCatalogEntry UnknownActivityStateEntry = Entry("unknown-activity-state", "未知状态：{0}", "Unknown state: {0}");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -62,6 +81,12 @@ internal sealed partial class WatchErrorSearchText
         PerPageEntry, PreviousPageEntry, NextPageEntry, GoToPageEntry, DetailTitleEntry,
         PeriodsTitleEntry, EvidenceTitleEntry, RawEvidenceTitleEntry, RawEvidenceHelpEntry,
         LoadRawEvidenceEntry, OpenSeriesEntry,
+        RequiredFieldMissingEntry, InvalidFieldFormatEntry, DuplicateDemandKeyEntry,
+        MultipleWorkTypesEntry, LongGoneVisibleEntry, DataCompletenessEntry,
+        DataFormatEntry, ObservationConflictEntry, LifecycleConflictEntry,
+        ActiveEntry, EndedEntry, Last24HoursEntry, Last7DaysEntry, Last15DaysEntry,
+        AllHistoryEntry, CustomWindowEntry, UnknownErrorCodeEntry,
+        UnknownCategoryEntry, UnknownActivityStateEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -90,7 +115,9 @@ internal sealed partial class WatchErrorSearchText
     public string LoadRawEvidence => Text(LoadRawEvidenceEntry);
     public string OpenSeries => Text(OpenSeriesEntry);
 
-    public string Pick(string simplifiedChinese, string english) =>
+    // Formatting-only escape hatch for legacy projections. It is deliberately not
+    // public: new reusable UI copy must be represented by an enumerable entry.
+    internal string Pick(string simplifiedChinese, string english) =>
         Language == WatchDisplayLanguage.SimplifiedChinese ? simplifiedChinese : english;
 
     public WatchCodeMeaning DescribeErrorCode(string rawCode)
@@ -98,16 +125,16 @@ internal sealed partial class WatchErrorSearchText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            "REQUIRED_MES_FIELD_MISSING" => Pick("必填 MES 字段缺失", "Required MES field is missing"),
-            "INVALID_MES_FIELD_FORMAT" => Pick("MES 字段格式无效", "MES field does not match its domain format"),
-            "DUPLICATE_TRANSPORT_DEMAND_KEY" => Pick("运输需求业务键重复", "Duplicate transport-demand business key"),
-            "SUBLOT_MULTIPLE_WORK_TYPES" => Pick("SUBLOT 同时属于多个 WorkType", "SUBLOT appears in multiple WorkTypes"),
-            "LONG_GONE_BUT_VISIBLE" => Pick("已归档需求系列再次出现在 MES", "Archived demand series became visible in MES again"),
+            "REQUIRED_MES_FIELD_MISSING" => Text(RequiredFieldMissingEntry),
+            "INVALID_MES_FIELD_FORMAT" => Text(InvalidFieldFormatEntry),
+            "DUPLICATE_TRANSPORT_DEMAND_KEY" => Text(DuplicateDemandKeyEntry),
+            "SUBLOT_MULTIPLE_WORK_TYPES" => Text(MultipleWorkTypesEntry),
+            "LONG_GONE_BUT_VISIBLE" => Text(LongGoneVisibleEntry),
             _ => null,
         };
         return description is null
             ? new WatchCodeMeaning(
-                Pick($"未知错误码：{rawCode}", $"Unknown error code: {rawCode}"),
+                string.Format(Text(UnknownErrorCodeEntry), rawCode),
                 rawCode,
                 IsKnown: false)
             : new WatchCodeMeaning(description, rawCode, IsKnown: true);
@@ -118,14 +145,14 @@ internal sealed partial class WatchErrorSearchText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            "DATA_COMPLETENESS" => Pick("数据完整性", "Data completeness"),
-            "DATA_FORMAT" => Pick("数据格式", "Data format"),
-            "OBSERVATION_CONFLICT" => Pick("观测冲突", "Observation conflict"),
-            "LIFECYCLE_CONFLICT" => Pick("生命周期冲突", "Lifecycle conflict"),
+            "DATA_COMPLETENESS" => Text(DataCompletenessEntry),
+            "DATA_FORMAT" => Text(DataFormatEntry),
+            "OBSERVATION_CONFLICT" => Text(ObservationConflictEntry),
+            "LIFECYCLE_CONFLICT" => Text(LifecycleConflictEntry),
             _ => null,
         };
         return description is null
-            ? new WatchCodeMeaning(Pick($"未知分类：{rawCode}", $"Unknown category: {rawCode}"), rawCode, false)
+            ? new WatchCodeMeaning(string.Format(Text(UnknownCategoryEntry), rawCode), rawCode, false)
             : new WatchCodeMeaning(description, rawCode, true);
     }
 
@@ -134,12 +161,12 @@ internal sealed partial class WatchErrorSearchText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            ErrorSearchActivityStates.Active => Pick("活动中", "Active"),
-            ErrorSearchActivityStates.Ended => Pick("已结束", "Ended"),
+            ErrorSearchActivityStates.Active => Text(ActiveEntry),
+            ErrorSearchActivityStates.Ended => Text(EndedEntry),
             _ => null,
         };
         return description is null
-            ? new WatchCodeMeaning(Pick($"未知状态：{rawCode}", $"Unknown state: {rawCode}"), rawCode, false)
+            ? new WatchCodeMeaning(string.Format(Text(UnknownActivityStateEntry), rawCode), rawCode, false)
             : new WatchCodeMeaning(description, rawCode, true);
     }
 
@@ -148,10 +175,10 @@ internal sealed partial class WatchErrorSearchText
 
     public string WindowLabel(string rawCode) => rawCode switch
     {
-        ErrorSearchWindowKinds.Last24Hours => Pick("最近 24 小时", "Last 24 hours"),
-        ErrorSearchWindowKinds.Last7Days => Pick("最近 7 天", "Last 7 days"),
-        ErrorSearchWindowKinds.Last15Days => Pick("最近 15 天", "Last 15 days"),
-        ErrorSearchWindowKinds.AllHistory => Pick("全部历史", "All history"),
-        _ => CodeWithMeaning(new WatchCodeMeaning(Pick("自定义窗口", "Custom window"), rawCode, true)),
+        ErrorSearchWindowKinds.Last24Hours => Text(Last24HoursEntry),
+        ErrorSearchWindowKinds.Last7Days => Text(Last7DaysEntry),
+        ErrorSearchWindowKinds.Last15Days => Text(Last15DaysEntry),
+        ErrorSearchWindowKinds.AllHistory => Text(AllHistoryEntry),
+        _ => CodeWithMeaning(new WatchCodeMeaning(Text(CustomWindowEntry), rawCode, true)),
     };
 }

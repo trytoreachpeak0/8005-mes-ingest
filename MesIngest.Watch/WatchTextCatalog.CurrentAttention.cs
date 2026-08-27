@@ -22,6 +22,25 @@ internal sealed partial class WatchCurrentAttentionText
     private static readonly WatchTextCatalogEntry PreviousPageEntry = Entry("previous-page", "上一页", "Previous");
     private static readonly WatchTextCatalogEntry NextPageEntry = Entry("next-page", "下一页", "Next");
     private static readonly WatchTextCatalogEntry GoToPageEntry = Entry("go-to-page", "跳转", "Go");
+    private static readonly WatchTextCatalogEntry SeriesErrorEntry = Entry("kind-series-error", "活动需求系列错误", "Active series error");
+    private static readonly WatchTextCatalogEntry PollRunFailureEntry = Entry("kind-poll-run-failure", "轮询运行失败", "Poll run failure");
+    private static readonly WatchTextCatalogEntry TaskTypeProtectionEntry = Entry("kind-task-type-protection", "任务类型保护", "Task-type protection");
+    private static readonly WatchTextCatalogEntry UnassignedObservationEntry = Entry("kind-unassigned-observation", "未归属 MES 观测", "Unassigned MES observation");
+    private static readonly WatchTextCatalogEntry HistoryCleanupFailureEntry = Entry("kind-history-cleanup-failure", "历史清理失败", "History-cleanup failure");
+    private static readonly WatchTextCatalogEntry StoragePressureEntry = Entry("kind-storage-pressure", "存储压力", "Storage pressure");
+    private static readonly WatchTextCatalogEntry HistoryResetEntry = Entry("kind-history-reset", "历史重置", "History reset");
+    private static readonly WatchTextCatalogEntry ErrorSeverityEntry = Entry("severity-error", "错误", "Error");
+    private static readonly WatchTextCatalogEntry WarningSeverityEntry = Entry("severity-warning", "警告", "Warning");
+    private static readonly WatchTextCatalogEntry PausedEntry = Entry("protection-paused", "已暂停接入", "Ingest paused");
+    private static readonly WatchTextCatalogEntry CriticalWarningEntry = Entry("protection-critical-warning", "存储空间严重告警", "Critical storage warning");
+    private static readonly WatchTextCatalogEntry AcknowledgementRequiredEntry = Entry("protection-acknowledgement-required", "需要人工确认", "Acknowledgement required");
+    private static readonly WatchTextCatalogEntry RecoveringEntry = Entry("protection-recovering", "正在恢复", "Recovering");
+    private static readonly WatchTextCatalogEntry FailedEntry = Entry("protection-failed", "失败", "Failed");
+    private static readonly WatchTextCatalogEntry IncompleteEntry = Entry("protection-incomplete", "未完成", "Incomplete");
+    private static readonly WatchTextCatalogEntry SucceededEntry = Entry("protection-succeeded", "成功", "Succeeded");
+    private static readonly WatchTextCatalogEntry UnknownKindEntry = Entry("unknown-kind", "未知关注类型：{0}", "Unknown attention type: {0}");
+    private static readonly WatchTextCatalogEntry UnknownSeverityEntry = Entry("unknown-severity", "未知严重度：{0}", "Unknown severity: {0}");
+    private static readonly WatchTextCatalogEntry UnknownStatusEntry = Entry("unknown-status", "未知状态：{0}", "Unknown status: {0}");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -29,6 +48,12 @@ internal sealed partial class WatchCurrentAttentionText
         ApplyFiltersEntry, ClearFiltersEntry, FacetsEntry, ResultsEntry,
         SelectedDetailEntry, EvidenceEntry, OpenSeriesEntry, OpenErrorSearchEntry,
         PreviousPageEntry, NextPageEntry, GoToPageEntry,
+        SeriesErrorEntry, PollRunFailureEntry, TaskTypeProtectionEntry,
+        UnassignedObservationEntry, HistoryCleanupFailureEntry, StoragePressureEntry,
+        HistoryResetEntry, ErrorSeverityEntry, WarningSeverityEntry, PausedEntry,
+        CriticalWarningEntry, AcknowledgementRequiredEntry, RecoveringEntry,
+        FailedEntry, IncompleteEntry, SucceededEntry, UnknownKindEntry,
+        UnknownSeverityEntry, UnknownStatusEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -49,7 +74,9 @@ internal sealed partial class WatchCurrentAttentionText
     public string NextPage => Text(NextPageEntry);
     public string GoToPage => Text(GoToPageEntry);
 
-    public string Pick(string simplifiedChinese, string english) =>
+    // Formatting-only escape hatch for legacy projections. It is deliberately not
+    // public: new reusable UI copy must be represented by an enumerable entry.
+    internal string Pick(string simplifiedChinese, string english) =>
         Language == WatchDisplayLanguage.SimplifiedChinese ? simplifiedChinese : english;
 
     public WatchCodeMeaning DescribeKind(string rawCode)
@@ -57,17 +84,17 @@ internal sealed partial class WatchCurrentAttentionText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            CurrentIngestAttentionKinds.SeriesError => Pick("活动需求系列错误", "Active series error"),
-            CurrentIngestAttentionKinds.PollRunFailure => Pick("轮询运行失败", "Poll run failure"),
-            CurrentIngestAttentionKinds.TaskTypeProtection => Pick("任务类型保护", "Task-type protection"),
-            CurrentIngestAttentionKinds.UnassignedMesObservation => Pick("未归属 MES 观测", "Unassigned MES observation"),
-            CurrentIngestAttentionKinds.HistoryCleanupFailure => Pick("历史清理失败", "History-cleanup failure"),
-            CurrentIngestAttentionKinds.StoragePressure => Pick("存储压力", "Storage pressure"),
-            CurrentIngestAttentionKinds.HistoryReset => Pick("历史重置", "History reset"),
+            CurrentIngestAttentionKinds.SeriesError => Text(SeriesErrorEntry),
+            CurrentIngestAttentionKinds.PollRunFailure => Text(PollRunFailureEntry),
+            CurrentIngestAttentionKinds.TaskTypeProtection => Text(TaskTypeProtectionEntry),
+            CurrentIngestAttentionKinds.UnassignedMesObservation => Text(UnassignedObservationEntry),
+            CurrentIngestAttentionKinds.HistoryCleanupFailure => Text(HistoryCleanupFailureEntry),
+            CurrentIngestAttentionKinds.StoragePressure => Text(StoragePressureEntry),
+            CurrentIngestAttentionKinds.HistoryReset => Text(HistoryResetEntry),
             _ => null,
         };
         return description is null
-            ? new WatchCodeMeaning(Pick($"未知关注类型：{rawCode}", $"Unknown attention type: {rawCode}"), rawCode, false)
+            ? new WatchCodeMeaning(string.Format(Text(UnknownKindEntry), rawCode), rawCode, false)
             : new WatchCodeMeaning(description, rawCode, true);
     }
 
@@ -76,12 +103,12 @@ internal sealed partial class WatchCurrentAttentionText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            CurrentIngestAttentionSeverities.Error => Pick("错误", "Error"),
-            CurrentIngestAttentionSeverities.Warning => Pick("警告", "Warning"),
+            CurrentIngestAttentionSeverities.Error => Text(ErrorSeverityEntry),
+            CurrentIngestAttentionSeverities.Warning => Text(WarningSeverityEntry),
             _ => null,
         };
         return description is null
-            ? new WatchCodeMeaning(Pick($"未知严重度：{rawCode}", $"Unknown severity: {rawCode}"), rawCode, false)
+            ? new WatchCodeMeaning(string.Format(Text(UnknownSeverityEntry), rawCode), rawCode, false)
             : new WatchCodeMeaning(description, rawCode, true);
     }
 
@@ -90,17 +117,17 @@ internal sealed partial class WatchCurrentAttentionText
         ArgumentException.ThrowIfNullOrWhiteSpace(rawCode);
         var description = rawCode switch
         {
-            "PAUSED" => Pick("已暂停接入", "Ingest paused"),
-            "CRITICAL_WARNING" => Pick("存储空间严重告警", "Critical storage warning"),
-            "ACKNOWLEDGEMENT_REQUIRED" => Pick("需要人工确认", "Acknowledgement required"),
-            "RECOVERING" => Pick("正在恢复", "Recovering"),
-            "FAILED" => Pick("失败", "Failed"),
-            "INCOMPLETE" => Pick("未完成", "Incomplete"),
-            "SUCCEEDED" => Pick("成功", "Succeeded"),
+            "PAUSED" => Text(PausedEntry),
+            "CRITICAL_WARNING" => Text(CriticalWarningEntry),
+            "ACKNOWLEDGEMENT_REQUIRED" => Text(AcknowledgementRequiredEntry),
+            "RECOVERING" => Text(RecoveringEntry),
+            "FAILED" => Text(FailedEntry),
+            "INCOMPLETE" => Text(IncompleteEntry),
+            "SUCCEEDED" => Text(SucceededEntry),
             _ => null,
         };
         return description is null
-            ? new WatchCodeMeaning(Pick($"未知状态：{rawCode}", $"Unknown status: {rawCode}"), rawCode, false)
+            ? new WatchCodeMeaning(string.Format(Text(UnknownStatusEntry), rawCode), rawCode, false)
             : new WatchCodeMeaning(description, rawCode, true);
     }
 

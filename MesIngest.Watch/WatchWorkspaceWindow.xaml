@@ -738,7 +738,7 @@
                                                        IsEnabled="False"
                                                        Click="OnDemandSeriesOpenInspectorClick"
                                                        KeyboardNavigation.IsTabStop="True"
-                                                       AutomationProperties.Name="打开 DemandSeries 详情窗口"
+                                                       AutomationProperties.Name="打开需求系列详情窗口"
                                                        AutomationProperties.AutomationId="DemandSeriesOpenInspectorButton">
                                                 <ui:Button.Icon>
                                                     <ui:SymbolIcon Symbol="Open24" />
@@ -1219,7 +1219,7 @@
                                                 </DataGrid.Columns>
                                             </DataGrid>
                                         </Grid>
-                                        <ui:TextBlock Text="原因分面可重叠；NOT_READABLE 总数按 Demand 世代去重，不能相加原因数量。"
+                                        <ui:TextBlock Text="原因分面可重叠；NOT_READABLE 总数按运输需求代次去重，不能相加原因数量。"
                                                       Style="{StaticResource SecondaryText}"
                                                       Visibility="Collapsed" />
 
@@ -1255,7 +1255,7 @@
                                                   KeyboardNavigation.IsTabStop="True"
                                                   SelectionChanged="OnReadabilitySelectionChanged"
                                                   Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                  AutomationProperties.Name="资格审计 Demand 世代列表"
+                                                  AutomationProperties.Name="资格审计运输需求代次列表"
                                                   AutomationProperties.AutomationId="ReadabilityAuditGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTemplateColumn Width="*">
@@ -1307,7 +1307,7 @@
                                                     IsClosable="False"
                                                     Severity="Informational"
                                                     Title="当前条件零命中"
-                                                    Message="Host 已成功返回精确 0 个 Demand 世代；这不代表接入系统整体健康。"
+                                                    Message="Host 已成功返回精确 0 个运输需求代次；这不代表接入系统整体健康。"
                                                     Margin="12"
                                                     VerticalAlignment="Top"
                                                     AutomationProperties.Name="资格审计成功零结果" />
@@ -1420,7 +1420,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel>
                                                     <ui:TextBlock x:Name="ReadabilityDetailHeadingText"
-                                                                  Text="选择一个 Demand 世代查看资格证据"
+                                                                  Text="选择一个运输需求代次查看资格证据"
                                                                   Style="{StaticResource SectionTitleText}"
                                                                   AutomationProperties.Name="资格审计详情标题" />
                                                     <ui:TextBlock x:Name="ReadabilityDetailFactsText"
@@ -1747,7 +1747,7 @@
                     <Grid x:Name="ErrorSearchPage"
                           Margin="0"
                           Visibility="Collapsed"
-                          AutomationProperties.Name="错误检索页面"
+                          AutomationProperties.Name=""
                           AutomationProperties.AutomationId="ErrorSearchPage">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -1762,13 +1762,13 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <ui:TextBlock x:Name="ErrorSearchPageTitleText" Text="错误检索" Style="{StaticResource PageTitleText}" />
+                                <ui:TextBlock x:Name="ErrorSearchPageTitleText" Text="" Style="{StaticResource PageTitleText}" />
                                 <ui:TextBlock x:Name="ErrorSearchFreshnessText"
-                                              Text="Endpoint 尚未配置 · Watch 尚无成功读取 · 自动刷新等待偏好"
+                                              Text=""
                                               Style="{StaticResource SecondaryText}"
                                               Margin="0,3,12,0"
                                               TextWrapping="Wrap"
-                                              AutomationProperties.Name="错误检索 Endpoint、最近成功与自动刷新：尚未读取" />
+                                              AutomationProperties.Name="" />
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                 <ui:Button x:Name="ErrorSearchFaultStatusButton"
@@ -1780,15 +1780,15 @@
                                            Margin="0,0,8,0"
                                            Click="OnFaultStatusClick">
                                     <Border x:Name="ErrorSearchFaultStatusPill" Style="{StaticResource StatusPillCritical}">
-                                        <ui:TextBlock x:Name="ErrorSearchFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                        <ui:TextBlock x:Name="ErrorSearchFaultStatusText" Text="" FontTypography="BodyStrong" />
                                     </Border>
                                 </ui:Button>
                                 <Border x:Name="ErrorSearchHeaderStatusPill"
                                         Style="{StaticResource StatusPill}"
                                         VerticalAlignment="Center"
-                                        AutomationProperties.Name="错误检索状态：尚无快照">
+                                        AutomationProperties.Name="">
                                     <ui:TextBlock x:Name="ErrorSearchHeaderStatusText"
-                                                  Text="尚无快照"
+                                                  Text=""
                                                   FontTypography="BodyStrong" />
                                 </Border>
                             </StackPanel>
@@ -1798,47 +1798,47 @@
                             <Border Padding="10,6"
                                     CornerRadius="4"
                                     Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                    AutomationProperties.Name="错误检索 Host 冻结快照、窗口与已提交条件">
+                                    AutomationProperties.Name="">
                                 <StackPanel>
                                     <ui:TextBlock x:Name="ErrorSearchCompactFactsText"
-                                                  Text="Host 尚无冻结快照 · 条件待提交"
+                                                  Text=""
                                                   Style="{StaticResource CaptionText}"
                                                   TextWrapping="NoWrap"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="错误检索 Host 冻结快照、窗口与已提交条件"
-                                                  AutomationProperties.HelpText="尚无 Error Search Host 快照&#xA;UTC 半开窗口：尚无快照&#xA;Host 已提交条件：尚无快照" />
+                                                  AutomationProperties.Name=""
+                                                  AutomationProperties.HelpText="" />
                                     <ui:TextBlock x:Name="ErrorSearchScopeText"
-                                                  Text="按 Host 冻结快照检索真正命中的错误期间；本机 AREA 配置不参与条件、分面或分页。"
+                                                  Text=""
                                                   Style="{StaticResource CaptionText}"
                                                   Visibility="Collapsed"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="错误检索范围：按 Host 冻结快照检索真正命中的错误期间；本机 AREA 配置不参与条件、分面或分页。" />
+                                                  AutomationProperties.Name="" />
                                     <ui:TextBlock x:Name="ErrorSearchSnapshotText"
-                                                  Text="尚无 Error Search Host 快照"
+                                                  Text=""
                                                   Style="{StaticResource CaptionText}"
                                                   Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="错误检索快照：尚无 Error Search Host 快照" />
+                                                  AutomationProperties.Name="" />
                                     <ui:TextBlock x:Name="ErrorSearchWindowText"
-                                                  Text="UTC 半开窗口：尚无快照"
+                                                  Text=""
                                                   Style="{StaticResource CaptionText}"
                                                   Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="错误检索窗口：UTC 半开窗口：尚无快照" />
+                                                  AutomationProperties.Name="" />
                                     <ui:TextBlock x:Name="ErrorSearchNormalizedFilterText"
-                                                  Text="Host 已提交条件：尚无快照"
+                                                  Text=""
                                                   Style="{StaticResource CaptionText}"
                                                   Visibility="Collapsed"
                                                   Margin="0,2,0,0"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="错误检索已提交条件：Host 已提交条件：尚无快照" />
+                                                  AutomationProperties.Name="" />
                                 </StackPanel>
                             </Border>
                             <ui:InfoBar x:Name="ErrorSearchStatusInfoBar"
@@ -1846,7 +1846,7 @@
                                         IsClosable="False"
                                         Severity="Informational"
                                         Margin="0,8,0,0"
-                                        AutomationProperties.Name="错误检索读取状态" />
+                                        AutomationProperties.Name="" />
                         </StackPanel>
 
                         <ScrollViewer x:Name="ErrorSearchBodyScrollViewer"
@@ -1854,7 +1854,7 @@
                                       Margin="0"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
-                                      AutomationProperties.Name="错误检索三列工作区滚动区域"
+                                      AutomationProperties.Name=""
                                       AutomationProperties.AutomationId="ErrorSearchBodyScrollViewer">
                             <Grid x:Name="ErrorSearchBodyGrid"
                                   Height="{Binding ActualHeight, ElementName=ErrorSearchBodyScrollViewer}">
@@ -1887,7 +1887,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="错误分类与精确分面"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="ErrorSearchCategoryCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -1898,14 +1898,14 @@
                                             <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
                                         <StackPanel>
-                                            <ui:TextBlock x:Name="ErrorSearchCategoryTitleText" Text="错误分类" Style="{StaticResource SectionTitleText}" />
-                                            <ui:TextBlock x:Name="ErrorSearchCategoryHelpText" Text="选择一个或多个分类，再应用条件缩小中间结果；计数来自 Host 冻结快照。"
+                                            <ui:TextBlock x:Name="ErrorSearchCategoryTitleText" Text="" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="ErrorSearchCategoryHelpText" Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlToGroupMargin}" />
                                         </StackPanel>
 
                                         <StackPanel Grid.Row="1">
-                                            <ui:TextBlock x:Name="ErrorSearchCategorySearchLabel" Text="搜索分类或错误码" Style="{StaticResource FieldLabel}" />
+                                            <ui:TextBlock x:Name="ErrorSearchCategorySearchLabel" Text="" Style="{StaticResource FieldLabel}" />
                                             <TextBox x:Name="ErrorSearchCategorySearchInput"
                                                      MinHeight="34"
                                                      Padding="8,5"
@@ -1913,8 +1913,8 @@
                                                      Focusable="True"
                                                      KeyboardNavigation.IsTabStop="True"
                                                      TextChanged="OnErrorSearchCategorySearchTextChanged"
-                                                     AutomationProperties.Name="错误分类搜索"
-                                                     AutomationProperties.HelpText="输入分类或错误码的一部分；搜索只缩小左侧导航，不会清除已选择分类。"
+                                                     AutomationProperties.Name=""
+                                                     AutomationProperties.HelpText=""
                                                      AutomationProperties.AutomationId="ErrorSearchCategorySearchInput" />
                                         </StackPanel>
 
@@ -1931,8 +1931,8 @@
                                                  Focusable="True"
                                                  KeyboardNavigation.IsTabStop="True"
                                                  SelectionChanged="OnErrorSearchCategorySelectionChanged"
-                                                 AutomationProperties.Name="错误分类导航（可多选）"
-                                                 AutomationProperties.HelpText="选择一个或多个分类后使用应用条件；每项数量来自当前保留的 Host 冻结快照。"
+                                                 AutomationProperties.Name=""
+                                                 AutomationProperties.HelpText=""
                                                  AutomationProperties.AutomationId="ErrorSearchCategoryList">
                                             <ListBox.ItemContainerStyle>
                                                 <Style TargetType="{x:Type ListBoxItem}">
@@ -2015,7 +2015,7 @@
                                         </ListBox>
 
                                         <ui:TextBlock x:Name="ErrorSearchActivityFacetTitleText" Grid.Row="3"
-                                                      Text="活动状态精确分面" Style="{StaticResource SectionTitleText}"
+                                                      Text="" Style="{StaticResource SectionTitleText}"
                                                       Margin="{StaticResource DemandSeriesSubsectionHeadingMargin}" />
                                         <DataGrid x:Name="ErrorSearchActivityStateFacetGrid"
                                                   Grid.Row="4"
@@ -2023,11 +2023,11 @@
                                                   Style="{StaticResource DemandSeriesReadOnlyGrid}"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="错误活动状态 Host 精确分面"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchActivityStateFacetGrid">
                                             <DataGrid.Columns>
-                                                <DataGridTextColumn x:Name="ErrorSearchActivityFacetStateColumn" Header="状态" Binding="{Binding State}" Width="*" />
-                                                <DataGridTextColumn x:Name="ErrorSearchActivityFacetCountColumn" Header="Series" Binding="{Binding SeriesCount}" Width="{StaticResource DemandSeriesColumn65}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchActivityFacetStateColumn" Header="" Binding="{Binding State}" Width="*" />
+                                                <DataGridTextColumn x:Name="ErrorSearchActivityFacetCountColumn" Header="" Binding="{Binding SeriesCount}" Width="{StaticResource DemandSeriesColumn65}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
                                     </Grid>
@@ -2040,7 +2040,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="错误检索 Series 结果"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="ErrorSearchResultsCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -2050,20 +2050,20 @@
                                             <RowDefinition Height="40" />
                                         </Grid.RowDefinitions>
                                         <StackPanel Margin="16,12,16,10">
-                                            <ui:TextBlock x:Name="ErrorSearchResultsTitleText" Text="去重 DemandSeries" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="ErrorSearchResultsTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                             <ui:TextBlock x:Name="ErrorSearchPageSummaryText"
-                                                          Text="尚无错误历史快照"
+                                                          Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                          AutomationProperties.Name="错误检索分页摘要：尚无错误历史快照" />
+                                                          AutomationProperties.Name="" />
                                             <ui:TextBlock x:Name="ErrorSearchEmptyResultText"
                                                           Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                          AutomationProperties.Name="错误检索空结果说明" />
+                                                          AutomationProperties.Name="" />
                                         </StackPanel>
                                         <ui:Button x:Name="ErrorSearchClearFilterButton"
-                                                   Content="清除条件"
+                                                   Content=""
                                                    Appearance="Transparent"
                                                    Margin="0,10,12,0"
                                                    HorizontalAlignment="Right"
@@ -2071,7 +2071,7 @@
                                                    Focusable="True"
                                                    KeyboardNavigation.IsTabStop="True"
                                                    Click="OnErrorSearchClearFiltersClick"
-                                                   AutomationProperties.Name="清除错误检索条件"
+                                                   AutomationProperties.Name=""
                                                    AutomationProperties.AutomationId="ErrorSearchClearFilterButton" />
                                         <Border Grid.Row="1"
                                                 Padding="12"
@@ -2098,101 +2098,101 @@
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
                                                     <StackPanel>
-                                                        <ui:TextBlock x:Name="ErrorSearchCodeFilterLabel" Text="错误码" Style="{StaticResource FieldLabel}" />
+                                                        <ui:TextBlock x:Name="ErrorSearchCodeFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                         <ComboBox x:Name="ErrorSearchCodeFilter"
                                                                   IsEditable="True"
                                                                   IsTextSearchEnabled="False"
-                                                                  Tag="全部错误码"
+                                                                  Tag=""
                                                                   Margin="0,5,0,0"
                                                                   Focusable="True"
                                                                   KeyboardNavigation.IsTabStop="True"
-                                                                  AutomationProperties.Name="错误码筛选"
+                                                                  AutomationProperties.Name=""
                                                                   AutomationProperties.AutomationId="ErrorSearchCodeFilter" />
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="2">
-                                                        <ui:TextBlock x:Name="ErrorSearchActivityFilterLabel" Text="活动状态" Style="{StaticResource FieldLabel}" />
+                                                        <ui:TextBlock x:Name="ErrorSearchActivityFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                         <ComboBox x:Name="ErrorSearchActivityStateFilter"
                                                                   IsEditable="True"
                                                                   IsTextSearchEnabled="False"
-                                                                  Tag="全部状态"
+                                                                  Tag=""
                                                                   Margin="0,5,0,0"
                                                                   Focusable="True"
                                                                   KeyboardNavigation.IsTabStop="True"
-                                                                  AutomationProperties.Name="错误活动状态筛选"
+                                                                  AutomationProperties.Name=""
                                                                   AutomationProperties.AutomationId="ErrorSearchActivityStateFilter">
-                                                            <ComboBoxItem Content="ACTIVE" />
-                                                            <ComboBoxItem Content="ENDED" />
+                                                            <ComboBoxItem Content="" />
+                                                            <ComboBoxItem Content="" />
                                                         </ComboBox>
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="4">
-                                                        <ui:TextBlock x:Name="ErrorSearchWindowFilterLabel" Text="时间范围" Style="{StaticResource FieldLabel}" />
+                                                        <ui:TextBlock x:Name="ErrorSearchWindowFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                         <ComboBox x:Name="ErrorSearchWindowFilter"
                                                                   SelectedValuePath="Tag"
                                                                   SelectedIndex="1"
                                                                   Margin="0,5,0,0"
                                                                   Focusable="True"
                                                                   KeyboardNavigation.IsTabStop="True"
-                                                                  AutomationProperties.Name="错误检索时间范围"
+                                                                  AutomationProperties.Name=""
                                                                   AutomationProperties.AutomationId="ErrorSearchWindowFilter">
-                                                            <ComboBoxItem Content="最近 24 小时" Tag="LAST_24_HOURS" />
-                                                            <ComboBoxItem Content="最近 7 天" Tag="LAST_7_DAYS" />
-                                                            <ComboBoxItem Content="最近 15 天" Tag="LAST_15_DAYS" />
-                                                            <ComboBoxItem Content="全部历史" Tag="ALL_HISTORY" />
+                                                            <ComboBoxItem Content="" Tag="LAST_24_HOURS" />
+                                                            <ComboBoxItem Content="" Tag="LAST_7_DAYS" />
+                                                            <ComboBoxItem Content="" Tag="LAST_15_DAYS" />
+                                                            <ComboBoxItem Content="" Tag="ALL_HISTORY" />
                                                         </ComboBox>
                                                     </StackPanel>
                                                     <StackPanel x:Name="ErrorSearchSeriesIdFilterField"
                                                                 Grid.Column="6">
-                                                        <ui:TextBlock x:Name="ErrorSearchSeriesIdFilterLabel" Text="SeriesId（精确）" Style="{StaticResource FieldLabel}" />
+                                                        <ui:TextBlock x:Name="ErrorSearchSeriesIdFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                         <TextBox x:Name="ErrorSearchSeriesIdFilter"
                                                                  Margin="0,5,0,0"
                                                                  Focusable="True"
                                                                  KeyboardNavigation.IsTabStop="True"
-                                                                 AutomationProperties.Name="错误检索 SeriesId 精确筛选"
+                                                                 AutomationProperties.Name=""
                                                                  AutomationProperties.AutomationId="ErrorSearchSeriesIdFilter" />
                                                     </StackPanel>
                                                     <ui:Button x:Name="ErrorSearchApplyFilterButton"
                                                                Grid.Column="8"
-                                                               Content="应用条件"
+                                                               Content=""
                                                                Appearance="Secondary"
                                                                Padding="14,6"
                                                                VerticalAlignment="Bottom"
                                                                Focusable="True"
                                                                KeyboardNavigation.IsTabStop="True"
                                                                Click="OnErrorSearchApplyFiltersClick"
-                                                               AutomationProperties.Name="应用错误检索条件"
+                                                               AutomationProperties.Name=""
                                                                AutomationProperties.AutomationId="ErrorSearchApplyFilterButton" />
                                                 </Grid>
-                                                <Expander x:Name="ErrorSearchMoreFiltersExpander" Header="更多条件"
+                                                <Expander x:Name="ErrorSearchMoreFiltersExpander" Header=""
                                                           Margin="0,8,0,0"
                                                           HorizontalAlignment="Stretch">
                                                     <WrapPanel Margin="0,8,0,0">
                                                         <StackPanel Width="180" Margin="0,0,10,0">
-                                                            <ui:TextBlock x:Name="ErrorSearchDemandIdFilterLabel" Text="DemandId（精确）" Style="{StaticResource FieldLabel}" />
+                                                            <ui:TextBlock x:Name="ErrorSearchDemandIdFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                             <TextBox x:Name="ErrorSearchDemandIdFilter"
                                                                      Margin="0,5,0,0"
                                                                      Focusable="True"
                                                                      KeyboardNavigation.IsTabStop="True"
-                                                                     AutomationProperties.Name="错误检索 DemandId 精确筛选"
+                                                                     AutomationProperties.Name=""
                                                                      AutomationProperties.AutomationId="ErrorSearchDemandIdFilter" />
                                                         </StackPanel>
                                                         <StackPanel Width="170" Margin="0,0,10,0">
-                                                            <ui:TextBlock x:Name="ErrorSearchSublotFilterLabel" Text="SUBLOT（包含）" Style="{StaticResource FieldLabel}" />
+                                                            <ui:TextBlock x:Name="ErrorSearchSublotFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                             <TextBox x:Name="ErrorSearchSublotFilter"
                                                                      Margin="0,5,0,0"
                                                                      Focusable="True"
                                                                      KeyboardNavigation.IsTabStop="True"
-                                                                     AutomationProperties.Name="错误检索 SUBLOT 包含筛选"
+                                                                     AutomationProperties.Name=""
                                                                      AutomationProperties.AutomationId="ErrorSearchSublotFilter" />
                                                         </StackPanel>
                                                         <StackPanel Width="80" Margin="0,0,10,0">
-                                                            <ui:TextBlock x:Name="ErrorSearchPageSizeLabel" Text="每页" Style="{StaticResource FieldLabel}" />
+                                                            <ui:TextBlock x:Name="ErrorSearchPageSizeLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                             <ComboBox x:Name="ErrorSearchPageSizeInput"
                                                                       SelectedValuePath="Tag"
                                                                       SelectedIndex="1"
                                                                       Margin="0,5,0,0"
                                                                       Focusable="True"
                                                                       KeyboardNavigation.IsTabStop="True"
-                                                                      AutomationProperties.Name="错误检索每页数量"
+                                                                      AutomationProperties.Name=""
                                                                       AutomationProperties.AutomationId="ErrorSearchPageSizeInput">
                                                                 <ComboBoxItem Content="25"><ComboBoxItem.Tag><sys:Int32>25</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
                                                                 <ComboBoxItem Content="50"><ComboBoxItem.Tag><sys:Int32>50</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
@@ -2210,14 +2210,14 @@
                                                   SelectionChanged="OnErrorSearchSelectionChanged"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="错误检索去重 Series 结果"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchSeriesGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTextColumn x:Name="ErrorSearchSeriesIdColumn" Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumn180}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchWorkTypeColumn" Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumn130}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchSublotColumn" Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumn130}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchMatchedErrorsColumn" Header="错误码" Binding="{Binding MatchedErrorSummary}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                <DataGridTemplateColumn x:Name="ErrorSearchActivityColumn" Header="状态" Width="{StaticResource DemandSeriesColumn130}">
+                                                <DataGridTextColumn x:Name="ErrorSearchMatchedErrorsColumn" Header="" Binding="{Binding MatchedErrorSummary}" Width="{StaticResource DemandSeriesColumn230}" />
+                                                <DataGridTemplateColumn x:Name="ErrorSearchActivityColumn" Header="" Width="{StaticResource DemandSeriesColumn130}">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <Border Margin="2,0"
@@ -2246,9 +2246,9 @@
                                                         </DataTemplate>
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
-                                                <DataGridTextColumn x:Name="ErrorSearchMatchedPeriodsColumn" Header="命中期间" Binding="{Binding MatchedPeriodSummary}" Width="{StaticResource DemandSeriesColumn130}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchDemandGenerationsColumn" Header="Demand 世代" Binding="{Binding MatchedDemandGenerationSummary}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchLatestEvidenceColumn" Header="最新证据" Binding="{Binding LatestMatchedEvidenceAt}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchMatchedPeriodsColumn" Header="" Binding="{Binding MatchedPeriodSummary}" Width="{StaticResource DemandSeriesColumn130}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchDemandGenerationsColumn" Header="" Binding="{Binding MatchedDemandGenerationSummary}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchLatestEvidenceColumn" Header="" Binding="{Binding LatestMatchedEvidenceAt}" Width="{StaticResource DemandSeriesColumn170}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchMesAreaColumn" Header="MES AREA" Binding="{Binding MesArea}" Width="{StaticResource DemandSeriesColumn120}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
@@ -2258,22 +2258,22 @@
                                                 Padding="12,0">
                                         <WrapPanel VerticalAlignment="Center">
                                             <ui:Button x:Name="ErrorSearchPreviousPageButton"
-                                                       Content="上一页"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnErrorSearchPreviousPageClick"
-                                                       AutomationProperties.Name="错误检索上一页"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="ErrorSearchPreviousPageButton" />
                                             <ui:Button x:Name="ErrorSearchNextPageButton"
-                                                       Content="下一页"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnErrorSearchNextPageClick"
-                                                       AutomationProperties.Name="错误检索下一页"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="ErrorSearchNextPageButton" />
                                             <TextBox x:Name="ErrorSearchPageNumberInput"
                                                      Width="{StaticResource DemandSeriesPageNumberWidth}"
@@ -2281,16 +2281,16 @@
                                                      VerticalContentAlignment="Center"
                                                      Focusable="True"
                                                      KeyboardNavigation.IsTabStop="True"
-                                                     AutomationProperties.Name="错误检索目标页码"
+                                                     AutomationProperties.Name=""
                                                      AutomationProperties.AutomationId="ErrorSearchPageNumberInput" />
                                             <ui:Button x:Name="ErrorSearchGoToPageButton"
-                                                       Content="跳转"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandLastMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnErrorSearchGoToPageClick"
-                                                       AutomationProperties.Name="错误检索直接页码跳转"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="ErrorSearchGoToPageButton" />
                                         </WrapPanel>
                                         </Border>
@@ -2304,7 +2304,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="错误检索命中证据详情"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="ErrorSearchDetailCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -2318,15 +2318,15 @@
                                             <RowDefinition Height="40" />
                                         </Grid.RowDefinitions>
                                         <StackPanel Margin="16,12,16,10">
-                                        <ui:TextBlock x:Name="ErrorSearchDetailTitleText" Text="命中证据详情" Style="{StaticResource SectionTitleText}" />
+                                        <ui:TextBlock x:Name="ErrorSearchDetailTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                         <ui:TextBlock x:Name="ErrorSearchDetailContextText"
-                                                      Text="请选择一个 DemandSeries 查看窗口边界、Demand 世代与证据。"
+                                                      Text=""
                                                       Style="{StaticResource SecondaryText}"
                                                       Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                      AutomationProperties.Name="错误检索详情上下文" />
+                                                      AutomationProperties.Name="" />
                                         </StackPanel>
                                         <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
-                                        <ui:TextBlock x:Name="ErrorSearchPeriodsTitleText" Grid.Row="2" Text="真正命中的期间" Style="{StaticResource BodyStrong}"
+                                        <ui:TextBlock x:Name="ErrorSearchPeriodsTitleText" Grid.Row="2" Text="" Style="{StaticResource BodyStrong}"
                                                       Margin="16,10,16,8" />
                                         <DataGrid x:Name="ErrorSearchPeriodGrid"
                                                   Grid.Row="3"
@@ -2334,21 +2334,21 @@
                                                   SelectionChanged="OnErrorSearchPeriodSelectionChanged"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="错误检索真正命中期间"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchPeriodGrid">
                                             <DataGrid.Columns>
-                                                <DataGridTextColumn Header="错误码" Binding="{Binding Code}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                <DataGridTextColumn Header="分类" Binding="{Binding Category}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                 <DataGridTextColumn Header="状态边界" Binding="{Binding BoundarySummary}" Width="{StaticResource DemandSeriesColumn260}" />
-                                                 <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                 <DataGridTextColumn Header="结束" Binding="{Binding EndedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                 <DataGridTextColumn Header="结束原因" Binding="{Binding EndReason}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                 <DataGridTextColumn Header="主体种类" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
+                                                <DataGridTextColumn Header="" Binding="{Binding Code}" Width="{StaticResource DemandSeriesColumn180}" />
+                                                <DataGridTextColumn Header="" Binding="{Binding Category}" Width="{StaticResource DemandSeriesColumn150}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding BoundarySummary}" Width="{StaticResource DemandSeriesColumn260}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding EndedAt}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding EndReason}" Width="{StaticResource DemandSeriesColumn150}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
                                                  <DataGridTextColumn Header="Target" Binding="{Binding Target}" Width="{StaticResource DemandSeriesColumn130}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
 
-                                        <ui:TextBlock x:Name="ErrorSearchEvidenceTitleText" Grid.Row="4" Text="可解释证据" Style="{StaticResource BodyStrong}"
+                                        <ui:TextBlock x:Name="ErrorSearchEvidenceTitleText" Grid.Row="4" Text="" Style="{StaticResource BodyStrong}"
                                                       Margin="16,10,16,8" />
                                         <DataGrid x:Name="ErrorSearchEvidenceGrid"
                                                   Grid.Row="5"
@@ -2356,16 +2356,16 @@
                                                   SelectionChanged="OnErrorSearchEvidenceSelectionChanged"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="错误检索可解释证据"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchEvidenceGrid">
                                              <DataGrid.Columns>
-                                                 <DataGridTextColumn Header="证据" Binding="{Binding EvidenceId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                 <DataGridTextColumn Header="证据类型" Binding="{Binding EvidenceKind}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                 <DataGridTextColumn Header="字段 / 主体" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
-                                                 <DataGridTextColumn Header="观测值" Binding="{Binding DiagnosticSummary}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                <DataGridTextColumn Header="规则" Binding="{Binding ExpectedRule}" Width="{StaticResource DemandSeriesColumn230}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding EvidenceId}" Width="{StaticResource DemandSeriesColumn180}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding EvidenceKind}" Width="{StaticResource DemandSeriesColumn150}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
+                                                 <DataGridTextColumn Header="" Binding="{Binding DiagnosticSummary}" Width="{StaticResource DemandSeriesColumn230}" />
+                                                <DataGridTextColumn Header="" Binding="{Binding ExpectedRule}" Width="{StaticResource DemandSeriesColumn230}" />
                                                 <DataGridTextColumn Header="Demand / WorkType" Binding="{Binding SubjectReference}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                <DataGridTextColumn Header="时间" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn Header="" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
                                                 <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
@@ -2380,29 +2380,29 @@
                                                         <ColumnDefinition Width="Auto" />
                                                     </Grid.ColumnDefinitions>
                                                     <StackPanel>
-                                                        <ui:TextBlock x:Name="ErrorSearchRawEvidenceTitleText" Text="受限原始证据（显式按需）"
+                                                        <ui:TextBlock x:Name="ErrorSearchRawEvidenceTitleText" Text=""
                                                                       Style="{StaticResource BodyStrong}" />
                                                         <ui:TextBlock x:Name="ErrorSearchRawEvidenceLimitsText"
-                                                                      Text="尚未请求原始证据；上限 20 条、单条 2048 字节、总计 65536 字节。"
+                                                                      Text=""
                                                                       Style="{StaticResource CaptionText}"
                                                                       Margin="0,3,12,0"
                                                                       TextWrapping="Wrap"
-                                                                      AutomationProperties.Name="原始证据字段与边界" />
+                                                                      AutomationProperties.Name="" />
                                                     </StackPanel>
                                                     <ui:Button x:Name="ErrorSearchLoadRawEvidenceButton"
                                                                Grid.Column="1"
-                                                               Content="加载原始证据"
+                                                               Content=""
                                                                Appearance="Secondary"
                                                                VerticalAlignment="Center"
                                                                Focusable="True"
                                                                KeyboardNavigation.IsTabStop="True"
                                                                Click="OnErrorSearchLoadRawEvidenceClick"
-                                                               AutomationProperties.Name="按需加载受限原始证据"
+                                                               AutomationProperties.Name=""
                                                                AutomationProperties.AutomationId="ErrorSearchLoadRawEvidenceButton" />
                                                 </Grid>
                                             </Expander.Header>
                                             <StackPanel Margin="4,8,4,8">
-                                        <ui:TextBlock x:Name="ErrorSearchRawEvidenceHelpText" Text="仅请求白名单字段；默认不加载，失败不会替换错误历史或详情快照。"
+                                        <ui:TextBlock x:Name="ErrorSearchRawEvidenceHelpText" Text=""
                                                       Style="{StaticResource SecondaryText}"
                                                       Margin="{StaticResource DemandSeriesRelatedBottomMargin}" />
                                         <ui:InfoBar x:Name="ErrorSearchRawEvidenceInfoBar"
@@ -2410,21 +2410,21 @@
                                                     IsClosable="False"
                                                     Severity="Informational"
                                                     Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                    AutomationProperties.Name="受限原始证据读取状态" />
+                                                    AutomationProperties.Name="" />
                                         <DataGrid x:Name="ErrorSearchRawEvidenceGrid"
                                                   Height="{StaticResource Ticket22RawGridHeight}"
                                                   Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                   Style="{StaticResource DemandSeriesReadOnlyGrid}"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="错误检索受限原始证据"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchRawEvidenceGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource DemandSeriesColumn45}" />
                                                 <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn160}" />
-                                                <DataGridTextColumn Header="时间" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn Header="" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
                                                 <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                <DataGridTemplateColumn Header="白名单字段与值" Width="*">
+                                                <DataGridTemplateColumn Header="" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
                                                             <ItemsControl ItemsSource="{Binding Fields}">
@@ -2447,12 +2447,12 @@
                                         </Expander>
                                         <ui:Button x:Name="ErrorSearchOpenSeriesButton"
                                                    Grid.Row="7"
-                                                   Content="在 DemandSeries 中打开"
+                                                   Content=""
                                                    Appearance="Secondary"
                                                    Margin="12,4"
                                                    IsEnabled="False"
                                                    Click="OnErrorSearchOpenSeriesClick"
-                                                   AutomationProperties.Name="在 DemandSeries 中打开当前错误 Series"
+                                                   AutomationProperties.Name=""
                                                    AutomationProperties.AutomationId="ErrorSearchOpenSeriesButton" />
                                     </Grid>
                                 </ui:Card>
@@ -3063,7 +3063,7 @@
                                   Visibility="Collapsed"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
-                                  AutomationProperties.Name="接入告警页面"
+                                  AutomationProperties.Name=""
                                   AutomationProperties.AutomationId="CurrentAttentionPage">
                         <Grid x:Name="CurrentAttentionLayoutGrid"
                               MinHeight="{Binding ActualHeight, ElementName=CurrentAttentionPage}"
@@ -3081,15 +3081,15 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
-                                    <ui:TextBlock x:Name="CurrentAttentionPageTitleText" Text="接入告警" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock x:Name="CurrentAttentionPageTitleText" Text="" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock x:Name="CurrentAttentionFreshnessText"
-                                                  Text="Endpoint 尚未配置 · Watch 尚无成功读取 · 自动刷新等待偏好"
+                                                  Text=""
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="0,3,12,0"
                                                   TextWrapping="NoWrap"
                                                   TextTrimming="CharacterEllipsis"
                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                  AutomationProperties.Name="接入告警 Endpoint、最近成功与自动刷新：尚未读取" />
+                                                  AutomationProperties.Name="" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                     <ui:Button x:Name="CurrentAttentionFaultStatusButton"
@@ -3101,15 +3101,15 @@
                                                Margin="0,0,8,0"
                                                Click="OnFaultStatusClick">
                                         <Border x:Name="CurrentAttentionFaultStatusPill" Style="{StaticResource StatusPillCritical}">
-                                            <ui:TextBlock x:Name="CurrentAttentionFaultStatusText" Text="错误 · 1 个故障" FontTypography="BodyStrong" />
+                                            <ui:TextBlock x:Name="CurrentAttentionFaultStatusText" Text="" FontTypography="BodyStrong" />
                                         </Border>
                                     </ui:Button>
                                     <Border x:Name="CurrentAttentionHeaderStatusPill"
                                             Style="{StaticResource StatusPill}"
                                             VerticalAlignment="Center"
-                                            AutomationProperties.Name="接入告警状态：尚无快照">
+                                            AutomationProperties.Name="">
                                         <ui:TextBlock x:Name="CurrentAttentionHeaderStatusText"
-                                                      Text="尚无快照"
+                                                      Text=""
                                                       FontTypography="BodyStrong" />
                                     </Border>
                                 </StackPanel>
@@ -3119,31 +3119,31 @@
                                 <Border Padding="10,6"
                                         CornerRadius="4"
                                         Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                        AutomationProperties.Name="接入告警 Host 快照、范围与语义">
+                                        AutomationProperties.Name="">
                                     <StackPanel>
                                         <ui:TextBlock x:Name="CurrentAttentionHistoryScopeText"
-                                                      Text="只读呈现全 Host 当前仍需关注的接入项；已结束的 Series 错误只在错误检索中保留。"
+                                                      Text=""
                                                       Style="{StaticResource CaptionText}"
                                                       TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                      AutomationProperties.Name="接入告警历史范围：只读呈现全 Host 当前仍需关注的接入项；已结束的 Series 错误只在错误检索中保留。" />
+                                                      AutomationProperties.Name="" />
                                         <ui:TextBlock x:Name="CurrentAttentionSnapshotText"
-                                                      Text="尚无 Host 当前接入关注快照"
+                                                      Text=""
                                                       Style="{StaticResource CaptionText}"
                                                       Margin="0,2,0,0"
                                                       TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                      AutomationProperties.Name="接入告警快照：尚无 Host 当前接入关注快照" />
+                                                      AutomationProperties.Name="" />
                                         <ui:TextBlock x:Name="CurrentAttentionScopeText"
-                                                      Text="全 Host 当前关注；本机 AREA 配置不参与筛选、计数或分页。"
+                                                      Text=""
                                                       Style="{StaticResource CaptionText}"
                                                       Margin="0,2,0,0"
                                                       TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                      AutomationProperties.Name="接入告警范围：全 Host 当前关注；本机 AREA 配置不参与筛选、计数或分页。" />
+                                                      AutomationProperties.Name="" />
                                     </StackPanel>
                                 </Border>
                                 <ui:InfoBar x:Name="CurrentAttentionStatusInfoBar"
@@ -3151,7 +3151,7 @@
                                             IsClosable="False"
                                             Severity="Informational"
                                             Margin="0,8,0,0"
-                                            AutomationProperties.Name="接入告警读取状态" />
+                                            AutomationProperties.Name="" />
                             </StackPanel>
 
                             <Grid x:Name="CurrentAttentionBodyGrid"
@@ -3182,7 +3182,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="接入告警精确分面"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="CurrentAttentionFacetCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -3202,47 +3202,47 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
-                                                <ui:TextBlock x:Name="CurrentAttentionKindFilterLabel" Text="关注类型" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionKindFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionKindFilter"
                                                           IsEditable="True"
                                                           IsTextSearchEnabled="False"
                                                           SelectedValuePath="Tag"
-                                                          Tag="全部类型"
+                                                          Tag=""
                                                           Margin="0,5,0,0"
                                                           Focusable="True"
                                                           KeyboardNavigation.IsTabStop="True"
-                                                          AutomationProperties.Name="接入告警类型筛选"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="CurrentAttentionKindFilter">
-                                                    <ComboBoxItem Content="Series 错误" Tag="SERIES_ERROR" />
-                                                    <ComboBoxItem Content="轮询失败" Tag="POLL_RUN_FAILURE" />
-                                                    <ComboBoxItem Content="任务类型保护" Tag="TASK_TYPE_PROTECTION" />
-                                                    <ComboBoxItem Content="未分配观测" Tag="UNASSIGNED_MES_OBSERVATION" />
+                                                    <ComboBoxItem Content="" Tag="SERIES_ERROR" />
+                                                    <ComboBoxItem Content="" Tag="POLL_RUN_FAILURE" />
+                                                    <ComboBoxItem Content="" Tag="TASK_TYPE_PROTECTION" />
+                                                    <ComboBoxItem Content="" Tag="UNASSIGNED_MES_OBSERVATION" />
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
-                                                <ui:TextBlock x:Name="CurrentAttentionSeverityFilterLabel" Text="严重度" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionSeverityFilterLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionSeverityFilter"
                                                           IsEditable="True"
                                                           IsTextSearchEnabled="False"
-                                                          Tag="全部严重度"
+                                                          Tag=""
                                                           Margin="0,5,0,0"
                                                           Focusable="True"
                                                           KeyboardNavigation.IsTabStop="True"
-                                                          AutomationProperties.Name="接入告警严重度筛选"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="CurrentAttentionSeverityFilter">
-                                                    <ComboBoxItem Content="ERROR" />
-                                                    <ComboBoxItem Content="WARNING" />
+                                                    <ComboBoxItem Content="" />
+                                                    <ComboBoxItem Content="" />
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="4">
-                                                <ui:TextBlock x:Name="CurrentAttentionPageSizeLabel" Text="每页" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionPageSizeLabel" Text="" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionPageSizeInput"
                                                           SelectedValuePath="Tag"
                                                           SelectedIndex="1"
                                                           Margin="0,5,0,0"
                                                           Focusable="True"
                                                           KeyboardNavigation.IsTabStop="True"
-                                                          AutomationProperties.Name="接入告警每页数量"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="CurrentAttentionPageSizeInput">
                                                     <ComboBoxItem Content="25"><ComboBoxItem.Tag><sys:Int32>25</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
                                                     <ComboBoxItem Content="50"><ComboBoxItem.Tag><sys:Int32>50</sys:Int32></ComboBoxItem.Tag></ComboBoxItem>
@@ -3252,29 +3252,29 @@
                                             </StackPanel>
                                             <ui:Button x:Name="CurrentAttentionApplyFilterButton"
                                                        Grid.Column="6"
-                                                       Content="应用条件"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Padding="14,6"
                                                        VerticalAlignment="Bottom"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnCurrentAttentionApplyFiltersClick"
-                                                       AutomationProperties.Name="应用接入告警条件"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="CurrentAttentionApplyFilterButton" />
                                             <ui:Button x:Name="CurrentAttentionClearFilterButton"
                                                        Grid.Column="8"
-                                                       Content="清除"
+                                                       Content=""
                                                        Appearance="Transparent"
                                                        VerticalAlignment="Bottom"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnCurrentAttentionClearFiltersClick"
-                                                       AutomationProperties.Name="清除接入告警条件"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="CurrentAttentionClearFilterButton" />
                                         </Grid>
                                         <Expander x:Name="CurrentAttentionFacetExpander"
                                                   Grid.Row="1"
-                                                  Header="Host 精确分面"
+                                                  Header=""
                                                   Margin="0,8,0,0">
                                             <Grid Margin="0,8,0,0">
                                                 <Grid.ColumnDefinitions>
@@ -3287,11 +3287,11 @@
                                                           Style="{StaticResource DemandSeriesReadOnlyGrid}"
                                                           Focusable="True"
                                                           KeyboardNavigation.IsTabStop="True"
-                                                          AutomationProperties.Name="接入告警类型 Host 精确分面"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="CurrentAttentionKindFacetGrid">
                                                     <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="类型" Binding="{Binding DisplayValue}" Width="*" />
-                                                        <DataGridTextColumn Header="数量" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
+                                                        <DataGridTextColumn Header="" Binding="{Binding DisplayValue}" Width="*" />
+                                                        <DataGridTextColumn Header="" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
                                                     </DataGrid.Columns>
                                                 </DataGrid>
                                                 <DataGrid x:Name="CurrentAttentionSeverityFacetGrid"
@@ -3300,11 +3300,11 @@
                                                           Style="{StaticResource DemandSeriesReadOnlyGrid}"
                                                           Focusable="True"
                                                           KeyboardNavigation.IsTabStop="True"
-                                                          AutomationProperties.Name="接入告警严重度 Host 精确分面"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="CurrentAttentionSeverityFacetGrid">
                                                     <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="严重度" Binding="{Binding DisplayValue}" Width="*" />
-                                                        <DataGridTextColumn Header="数量" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
+                                                        <DataGridTextColumn Header="" Binding="{Binding DisplayValue}" Width="*" />
+                                                        <DataGridTextColumn Header="" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
                                                     </DataGrid.Columns>
                                                 </DataGrid>
                                             </Grid>
@@ -3320,7 +3320,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="当前接入告警结果"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="CurrentAttentionResultsCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -3329,20 +3329,20 @@
                                             <RowDefinition Height="42" />
                                         </Grid.RowDefinitions>
                                         <StackPanel Margin="16,13,16,10">
-                                            <ui:TextBlock x:Name="CurrentAttentionResultsTitleText" Text="当前仍需关注" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionResultsTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                             <ui:TextBlock x:Name="CurrentAttentionPageSummaryText"
-                                                          Text="尚无当前接入关注快照"
+                                                          Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                           TextWrapping="NoWrap"
                                                           TextTrimming="CharacterEllipsis"
                                                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                          AutomationProperties.Name="接入告警分页摘要：尚无当前接入关注快照" />
+                                                          AutomationProperties.Name="" />
                                             <ui:TextBlock x:Name="CurrentAttentionEmptyResultText"
                                                           Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                          AutomationProperties.Name="接入告警空结果说明" />
+                                                          AutomationProperties.Name="" />
                                         </StackPanel>
                                         <DataGrid x:Name="CurrentAttentionGrid"
                                                   Grid.Row="1"
@@ -3350,18 +3350,18 @@
                                                   SelectionChanged="OnCurrentAttentionSelectionChanged"
                                                   Focusable="True"
                                                   KeyboardNavigation.IsTabStop="True"
-                                                  AutomationProperties.Name="当前仍需关注的接入告警"
+                                                  AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="CurrentAttentionGrid">
                                             <DataGrid.Columns>
-                                                <DataGridTextColumn Header="对象"
+                                                <DataGridTextColumn Header=""
                                                                     Binding="{Binding SubjectSummary}"
                                                                     Width="{StaticResource DemandSeriesColumn190}"
                                                                     ElementStyle="{StaticResource DataGridTextCell}" />
-                                                <DataGridTextColumn Header="类型"
+                                                <DataGridTextColumn Header=""
                                                                     Binding="{Binding KindLabel}"
                                                                     Width="{StaticResource DemandSeriesColumn190}"
                                                                     ElementStyle="{StaticResource DataGridTextCell}" />
-                                                <DataGridTemplateColumn Header="严重度"
+                                                <DataGridTemplateColumn Header=""
                                                                         SortMemberPath="Severity"
                                                                         Width="{StaticResource DemandSeriesColumn100}">
                                                     <DataGridTemplateColumn.CellTemplate>
@@ -3393,11 +3393,11 @@
                                                         </DataTemplate>
                                                     </DataGridTemplateColumn.CellTemplate>
                                                 </DataGridTemplateColumn>
-                                                <DataGridTextColumn Header="发生时间"
+                                                <DataGridTextColumn Header=""
                                                                     Binding="{Binding OccurredAt}"
                                                                     Width="{StaticResource DemandSeriesColumn170}"
                                                                     ElementStyle="{StaticResource DataGridTextCell}" />
-                                                <DataGridTextColumn Header="稳定标识"
+                                                <DataGridTextColumn Header=""
                                                                     Binding="{Binding StableIdentity}"
                                                                     Width="{StaticResource DemandSeriesColumn240}"
                                                                     ElementStyle="{StaticResource DataGridTextCell}" />
@@ -3409,22 +3409,22 @@
                                                 Padding="12,0">
                                         <WrapPanel VerticalAlignment="Center">
                                             <ui:Button x:Name="CurrentAttentionPreviousPageButton"
-                                                       Content="上一页"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnCurrentAttentionPreviousPageClick"
-                                                       AutomationProperties.Name="接入告警上一页"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="CurrentAttentionPreviousPageButton" />
                                             <ui:Button x:Name="CurrentAttentionNextPageButton"
-                                                       Content="下一页"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnCurrentAttentionNextPageClick"
-                                                       AutomationProperties.Name="接入告警下一页"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="CurrentAttentionNextPageButton" />
                                             <TextBox x:Name="CurrentAttentionPageNumberInput"
                                                      Width="{StaticResource DemandSeriesPageNumberWidth}"
@@ -3432,16 +3432,16 @@
                                                      VerticalContentAlignment="Center"
                                                      Focusable="True"
                                                      KeyboardNavigation.IsTabStop="True"
-                                                     AutomationProperties.Name="接入告警目标页码"
+                                                     AutomationProperties.Name=""
                                                      AutomationProperties.AutomationId="CurrentAttentionPageNumberInput" />
                                             <ui:Button x:Name="CurrentAttentionGoToPageButton"
-                                                       Content="跳转"
+                                                       Content=""
                                                        Appearance="Secondary"
                                                        Margin="{StaticResource DemandSeriesCompactCommandLastMargin}"
                                                        Focusable="True"
                                                        KeyboardNavigation.IsTabStop="True"
                                                        Click="OnCurrentAttentionGoToPageClick"
-                                                       AutomationProperties.Name="接入告警直接页码跳转"
+                                                       AutomationProperties.Name=""
                                                        AutomationProperties.AutomationId="CurrentAttentionGoToPageButton" />
                                         </WrapPanel>
                                         </Border>
@@ -3456,7 +3456,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="接入告警结构化证据"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="CurrentAttentionEvidenceCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -3471,41 +3471,41 @@
                                                 <RowDefinition Height="*" />
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
-                                            <ui:TextBlock x:Name="CurrentAttentionSelectedDetailTitleText" Text="选中项详情" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionSelectedDetailTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                             <Border Grid.Row="1"
                                                     Margin="0,10,0,12"
                                                     Padding="12,10"
                                                     Background="{DynamicResource ControlFillColorSecondaryBrush}"
                                                     CornerRadius="4">
                                                 <ui:TextBlock x:Name="CurrentAttentionSelectedContextText"
-                                                              Text="选择一项查看其稳定标识与 Host 结构化证据。"
+                                                              Text=""
                                                               Style="{StaticResource SecondaryText}"
                                                               TextWrapping="NoWrap"
                                                               TextTrimming="CharacterEllipsis"
                                                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                              AutomationProperties.Name="接入告警选中项上下文" />
+                                                              AutomationProperties.Name="" />
                                             </Border>
                                             <ui:TextBlock x:Name="CurrentAttentionReadOnlyHelpText" Grid.Row="2"
-                                                          Text="当前页面只读呈现七类 Host 事实及本地恢复指引；不会创建 incident，也不提供确认、恢复或其它管理操作。"
+                                                          Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           TextWrapping="Wrap" />
                                             <StackPanel Grid.Row="3" Orientation="Horizontal">
                                                 <ui:Button x:Name="CurrentAttentionOpenDemandSeriesButton"
-                                                           Content="打开 Series 详情"
+                                                           Content=""
                                                            Appearance="Secondary"
                                                            Focusable="True"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnCurrentAttentionOpenDemandSeriesClick"
-                                                           AutomationProperties.Name="从当前关注项精确打开 DemandSeries Inspector"
+                                                           AutomationProperties.Name=""
                                                            AutomationProperties.AutomationId="CurrentAttentionOpenDemandSeriesButton" />
                                                 <ui:Button x:Name="CurrentAttentionOpenErrorSearchButton"
                                                            Margin="8,0,0,0"
-                                                           Content="在错误检索中打开"
+                                                           Content=""
                                                            Appearance="Secondary"
                                                            Focusable="True"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnCurrentAttentionOpenErrorSearchClick"
-                                                           AutomationProperties.Name="从当前 Series 错误下钻错误检索"
+                                                           AutomationProperties.Name=""
                                                            AutomationProperties.AutomationId="CurrentAttentionOpenErrorSearchButton" />
                                             </StackPanel>
                                         </Grid>
@@ -3516,9 +3516,9 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="*" />
                                             </Grid.RowDefinitions>
-                                            <ui:TextBlock x:Name="CurrentAttentionEvidenceTitleText" Text="结构化证据与关联对象" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionEvidenceTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                             <ui:TextBlock x:Name="CurrentAttentionEvidenceHelpText" Grid.Row="1"
-                                                          Text="字段、PollTrace、WorkType 与对象标识均来自当前 Host snapshot。"
+                                                          Text=""
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="0,3,0,10" />
                                             <DataGrid x:Name="CurrentAttentionEvidenceGrid"
@@ -3526,11 +3526,11 @@
                                                       Style="{StaticResource DemandSeriesReadOnlyGrid}"
                                                       Focusable="True"
                                                       KeyboardNavigation.IsTabStop="True"
-                                                      AutomationProperties.Name="接入告警结构化证据字段"
+                                                      AutomationProperties.Name=""
                                                       AutomationProperties.AutomationId="CurrentAttentionEvidenceGrid">
                                                 <DataGrid.Columns>
-                                                    <DataGridTextColumn Header="字段" Binding="{Binding Name}" Width="{StaticResource DemandSeriesColumn150}" />
-                                                    <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="*" />
+                                                    <DataGridTextColumn Header="" Binding="{Binding Name}" Width="{StaticResource DemandSeriesColumn150}" />
+                                                    <DataGridTextColumn Header="" Binding="{Binding Value}" Width="*" />
                                                 </DataGrid.Columns>
                                             </DataGrid>
                                         </Grid>

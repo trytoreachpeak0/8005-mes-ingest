@@ -774,7 +774,7 @@ internal partial class WatchWorkspaceWindow
             ?.SeriesCount ?? 0;
         var (status, styleKey) = !presentation.HasSnapshot
             ? (presentation.IsRefreshing ? text.Pick("正在读取", "Loading") : text.Pick("尚无快照", "No snapshot"),
-                presentation.IsRefreshing ? "StatusPillAccent" : "StatusPill")
+                "StatusPill")
             : presentation.IsStale
                 ? (text.Pick("快照已陈旧", "Snapshot is stale"), "StatusPillCaution")
                 : activeCount > 0
