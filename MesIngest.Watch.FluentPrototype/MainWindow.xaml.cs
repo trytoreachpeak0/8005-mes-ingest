@@ -13,6 +13,16 @@ public partial class MainWindow
         InitializeComponent();
         var data = new PrototypeData();
         DataContext = data;
+        if (initialPage.Trim().Equals("bilingual", StringComparison.OrdinalIgnoreCase)
+            || initialPage.Trim().Equals("localization", StringComparison.OrdinalIgnoreCase)
+            || initialPage.Trim().Equals("i18n", StringComparison.OrdinalIgnoreCase))
+        {
+            SelectedPrototype.Visibility = Visibility.Collapsed;
+            BilingualPrototype.Visibility = Visibility.Visible;
+            BilingualPrototype.Initialize(initialVariant, scenario);
+            return;
+        }
+
         if (initialPage.Trim().Equals("feedback", StringComparison.OrdinalIgnoreCase)
             || initialPage.Trim().Equals("notifications", StringComparison.OrdinalIgnoreCase)
             || initialPage.Trim().Equals("toast", StringComparison.OrdinalIgnoreCase))

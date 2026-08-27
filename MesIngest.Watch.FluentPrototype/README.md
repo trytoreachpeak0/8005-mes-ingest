@@ -51,6 +51,17 @@ throwaway presentation code; no variant is production-ready. **Variant A —
 independent Fluent toast cards — was selected on 2026-08-26**; B/C remain
 rejected prototype comparisons.
 
+The bilingual semantics extension asks: **without changing the selected
+eligibility-audit master-detail hierarchy, how should localized meaning, raw
+protocol codes, field identities, absolute time, units, and six distinct
+missing/query states be arranged?** Run `--page=bilingual --variant=A|B|C`.
+A is a localized semantic workbench, B is a header-led field semantics ledger,
+and C is a grouped master list plus evidence narrative. The floating review bar
+switches variants and preview language in memory; arrow keys also cycle variants.
+This is a review-only implementation of ADR-0031, not the production resource
+architecture. **Variant A — semantic workbench — was selected on 2026-08-27**;
+B/C remain rejected prototype comparisons.
+
 The selected information architecture is:
 
 - `概览`
@@ -73,6 +84,8 @@ dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPro
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=overview --variant=C
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=series
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=stack
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=A
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=A --scenario=english
 ```
 
 Review pages:
@@ -93,6 +106,9 @@ dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPro
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=B --scenario=fault
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=conflict
 dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=narrow-reduced
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=A
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=B
+dotnet run --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=C
 ```
 
 The review bar on `--page=area-live` also carries a 切到非法态 button, so the
@@ -120,6 +136,10 @@ dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watc
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=stack --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-c-stack.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=C --scenario=conflict --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-conflict.png
 dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=feedback --variant=A --scenario=narrow-reduced --width=760 --height=820 --capture=.\MesIngest.Watch.FluentPrototype\review\feedback-narrow-reduced.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=A --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\bilingual-a-zh.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=B --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\bilingual-b-zh.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=C --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\bilingual-c-zh.png
+dotnet run -c Release --project .\MesIngest.Watch.FluentPrototype\MesIngest.Watch.FluentPrototype.csproj -- --page=bilingual --variant=A --scenario=english --width=1440 --height=900 --capture=.\MesIngest.Watch.FluentPrototype\review\bilingual-a-en.png
 ```
 
 Use the real navigation items to move between pages. Fake data exists only to

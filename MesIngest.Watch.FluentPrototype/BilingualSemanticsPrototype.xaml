@@ -1,0 +1,247 @@
+<!--
+PROTOTYPE — throw away after review. Do not promote this XAML to production.
+Three variants of the existing eligibility-audit page, switchable via the variant startup argument
+and the floating review bar, on the existing selected Watch shell.
+-->
+<UserControl x:Class="MesIngest.Watch.FluentPrototype.BilingualSemanticsPrototype"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             Focusable="True"
+             PreviewKeyDown="OnPreviewKeyDown">
+    <UserControl.Resources>
+        <Style x:Key="InlineLabel" TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="TinyCode" TargetType="TextBlock" BasedOn="{StaticResource CodeText}">
+            <Setter Property="Foreground" Value="{StaticResource WatchTextSecondaryBrush}" />
+        </Style>
+        <Style x:Key="SemanticHelp" TargetType="TextBlock" BasedOn="{StaticResource Caption}">
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="ListRow" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource WatchStrokeBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style x:Key="SelectedListRow" TargetType="Border" BasedOn="{StaticResource ListRow}">
+            <Setter Property="Background" Value="{StaticResource WatchAccentSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource WatchAccentBrush}" />
+            <Setter Property="BorderThickness" Value="3,0,0,1" />
+            <Setter Property="Padding" Value="9,10,12,10" />
+        </Style>
+        <Style x:Key="SectionCard" TargetType="Border" BasedOn="{StaticResource SurfaceBorder}">
+            <Setter Property="Padding" Value="14" />
+        </Style>
+        <Style x:Key="LedgerCell" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{StaticResource WatchStrokeBrush}" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="Padding" Value="10,7" />
+        </Style>
+    </UserControl.Resources>
+
+    <ui:NavigationView x:Name="Navigation"
+                       PaneDisplayMode="LeftMinimal"
+                       CompactPaneLength="48"
+                       OpenPaneLength="224"
+                       IsPaneOpen="True"
+                       IsBackButtonVisible="Collapsed"
+                       IsPaneToggleVisible="True"
+                       HeaderVisibility="Collapsed">
+        <ui:NavigationView.MenuItems>
+            <ui:NavigationViewItem Tag="i18n:Nav.Overview"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Home24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Series"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Timeline24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Audit" IsActive="True"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="DocumentBulletList24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Errors"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Search24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Area"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Filter24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Alerts"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Alert24" /></ui:NavigationViewItem.Icon><ui:NavigationViewItem.InfoBadge><ui:InfoBadge Value="3" /></ui:NavigationViewItem.InfoBadge></ui:NavigationViewItem>
+        </ui:NavigationView.MenuItems>
+        <ui:NavigationView.FooterMenuItems>
+            <ui:NavigationViewItem Tag="i18n:Nav.Host" ToolTip="Host · http://127.0.0.1:49837"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="CloudCheckmark24" Foreground="{StaticResource WatchSuccessBrush}" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+            <ui:NavigationViewItem Tag="i18n:Nav.Settings"><ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Settings24" /></ui:NavigationViewItem.Icon></ui:NavigationViewItem>
+        </ui:NavigationView.FooterMenuItems>
+
+        <ui:NavigationView.ContentOverlay>
+            <Grid Margin="24,16,24,18">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="12" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="12" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Tag="i18n:Page.Title" Style="{StaticResource PageTitle}" />
+                        <TextBlock Tag="i18n:Page.Subtitle" Style="{StaticResource BodySecondary}" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                        <Border Style="{StaticResource StatusPill}" Background="{StaticResource WatchSuccessSoftBrush}" HorizontalAlignment="Right">
+                            <TextBlock Tag="i18n:Page.Revision" Foreground="{StaticResource WatchSuccessBrush}" Style="{StaticResource BodyStrong}" />
+                        </Border>
+                        <TextBlock Tag="i18n:Page.Updated" Style="{StaticResource Caption}" Margin="0,4,0,0" HorizontalAlignment="Right" />
+                    </StackPanel>
+                </Grid>
+
+                <Border Grid.Row="2" Style="{StaticResource SurfaceBorder}" Padding="12">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="370" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="155" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="155" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="12" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Tag="i18n:Filter.Outcome" Style="{StaticResource Caption}" Margin="2,0,0,4" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button Tag="i18n:Filter.All" Appearance="Primary" Padding="11,6" />
+                                <ui:Button Tag="i18n:Filter.Readable" Appearance="Secondary" Padding="11,6" Margin="6,0,0,0" />
+                                <ui:Button Tag="i18n:Filter.NotReadable" Appearance="Secondary" Padding="11,6" Margin="6,0,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2"><TextBlock Tag="i18n:Filter.WorkType" Style="{StaticResource Caption}" Margin="2,0,0,4" /><ComboBox SelectedIndex="0"><ComboBoxItem Tag="i18n:Filter.AllWorkTypes" /></ComboBox></StackPanel>
+                        <StackPanel Grid.Column="4"><TextBlock Tag="i18n:Filter.Reason" Style="{StaticResource Caption}" Margin="2,0,0,4" /><ComboBox SelectedIndex="0"><ComboBoxItem Tag="i18n:Filter.AllReasons" /></ComboBox></StackPanel>
+                        <StackPanel Grid.Column="6"><TextBlock Tag="i18n:Filter.Search" Style="{StaticResource Caption}" Margin="2,0,0,4" /><TextBox Text="D-001846" Padding="8,6" /></StackPanel>
+                        <ui:Button Grid.Column="8" Tag="i18n:Filter.Apply" Appearance="Secondary" Padding="14,7" VerticalAlignment="Bottom" />
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Row="4">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                    <Border Background="{StaticResource WatchSubtleBrush}" CornerRadius="4" Padding="10,5">
+                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="StateSummary" Tag="i18n:State.SummaryZh" Style="{StaticResource Caption}" />
+                            <TextBlock x:Name="VariantIntent" Grid.Column="1" Style="{StaticResource Caption}" FontWeight="SemiBold" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="2">
+                        <Grid x:Name="VariantA" Margin="0,0,0,52">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="330" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource SurfaceBorder}" Padding="0">
+                                <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <StackPanel Margin="14,12,14,10"><TextBlock Tag="i18n:Master.All" Style="{StaticResource Subtitle}" /><TextBlock Tag="i18n:A.MasterHint" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"><StackPanel>
+                                        <Border Style="{StaticResource ListRow}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Label.DemandId" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-001842" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.WorkType" Style="{StaticResource InlineLabel}" /><TextBlock Text="WIRE_TO_GATE" Style="{StaticResource TinyCode}" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,2,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="SLOT-LOT-001" Style="{StaticResource TinyCode}" /></StackPanel></StackPanel><StackPanel Grid.Column="1" HorizontalAlignment="Right"><TextBlock Tag="i18n:Status.Readable" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" /><TextBlock Text="—" Style="{StaticResource TinyCode}" HorizontalAlignment="Right" Margin="0,5,0,0" /></StackPanel></Grid></Border>
+                                        <Border Style="{StaticResource ListRow}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Label.DemandId" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-001844" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.WorkType" Style="{StaticResource InlineLabel}" /><TextBlock Text="STAGING_TO_WIRE" Style="{StaticResource TinyCode}" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,2,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="B240811-07" Style="{StaticResource TinyCode}" /></StackPanel></StackPanel><StackPanel Grid.Column="1"><TextBlock Tag="i18n:Status.Invisible" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" /><TextBlock Text="DEMAND_GONE" Style="{StaticResource TinyCode}" Margin="0,5,0,0" /></StackPanel></Grid></Border>
+                                        <Border Style="{StaticResource SelectedListRow}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Label.DemandId" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-001846" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.WorkType" Style="{StaticResource InlineLabel}" /><TextBlock Text="DIE_TO_OVEN" Style="{StaticResource TinyCode}" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,2,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="B240811-19" Style="{StaticResource TinyCode}" /></StackPanel></StackPanel><StackPanel Grid.Column="1"><TextBlock Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" /><TextBlock Text="EMPTY_MES_FIELD" Style="{StaticResource TinyCode}" Margin="0,5,0,0" /><TextBlock Text="AREA" Style="{StaticResource TinyCode}" HorizontalAlignment="Right" /></StackPanel></Grid></Border>
+                                        <Border Style="{StaticResource ListRow}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Label.DemandId" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-001847" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.WorkType" Style="{StaticResource InlineLabel}" /><TextBlock Text="WIRE_TO_GATE" Style="{StaticResource TinyCode}" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,2,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="B240811-22" Style="{StaticResource TinyCode}" /></StackPanel></StackPanel><StackPanel Grid.Column="1"><TextBlock Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" /><TextBlock Text="DUPLICATE_KEY" Style="{StaticResource TinyCode}" Margin="0,5,0,0" /></StackPanel></Grid></Border>
+                                        <Border Style="{StaticResource ListRow}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Label.DemandId" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-002151" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.WorkType" Style="{StaticResource InlineLabel}" /><TextBlock Text="WIRE_TO_NITROGEN" Style="{StaticResource TinyCode}" /></StackPanel><StackPanel Orientation="Horizontal" Margin="0,2,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="B240810-09" Style="{StaticResource TinyCode}" /></StackPanel></StackPanel><StackPanel Grid.Column="1"><TextBlock Tag="i18n:Status.Invisible" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" /><TextBlock Text="SERIES_ARCHIVED" Style="{StaticResource TinyCode}" Margin="0,5,0,0" /></StackPanel></Grid></Border>
+                                    </StackPanel></ScrollViewer>
+                                    <Grid Grid.Row="2" Margin="12,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="6 / 2,852" Style="{StaticResource Caption}" /><StackPanel Grid.Column="1" Orientation="Horizontal"><ui:Button Content="‹" Appearance="Secondary" Padding="10,3" /><ui:Button Content="›" Appearance="Secondary" Padding="10,3" Margin="5,0,0,0" /></StackPanel></Grid>
+                                </Grid>
+                            </Border>
+                            <Grid Grid.Column="2"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <Border Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="8" Padding="14,10"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><ui:SymbolIcon Symbol="Warning24" Foreground="{StaticResource WatchWarningBrush}" /><StackPanel Grid.Column="1"><TextBlock Tag="i18n:Alert.Title" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Alert.Body" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,3,0,0" /></StackPanel><TextBlock Grid.Column="2" Text="EMPTY_MES_FIELD · AREA" Style="{StaticResource TinyCode}" Margin="12,2,0,0" /></Grid></Border>
+                                <Grid Grid.Row="2"><Grid.RowDefinitions><RowDefinition Height="1.1*" /><RowDefinition Height="10" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="1.35*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Border Style="{StaticResource SectionCard}"><StackPanel><TextBlock Tag="i18n:Detail.Observation" Style="{StaticResource Subtitle}" Margin="0,0,0,10" /><UniformGrid x:Name="ObservationGridA" Columns="3">
+                                            <StackPanel Margin="0,0,12,10"><TextBlock Tag="i18n:Label.Area" Style="{StaticResource Caption}" /><TextBlock Text="&lt;NULL&gt;" Style="{StaticResource CodeText}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Tag="i18n:Missing.NotProvided" Style="{StaticResource Caption}" Foreground="{StaticResource WatchCriticalBrush}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,10"><TextBlock Tag="i18n:Label.Eqp" Style="{StaticResource Caption}" /><TextBlock Text="DA-02" Style="{StaticResource CodeText}" /></StackPanel>
+                                            <StackPanel Margin="0,0,0,10"><TextBlock Tag="i18n:Label.Step" Style="{StaticResource Caption}" /><TextBlock Text="烘箱" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,0"><TextBlock Tag="i18n:Label.Dates" Style="{StaticResource Caption}" /><TextBlock Text="2026-08-27 12:31:08 +08:00" Style="{StaticResource CodeText}" /></StackPanel>
+                                            <StackPanel Margin="0,0,12,0"><TextBlock Tag="i18n:Label.Package" Style="{StaticResource Caption}" /><TextBlock Text="QFN48" Style="{StaticResource CodeText}" /></StackPanel>
+                                            <StackPanel><TextBlock Tag="i18n:Label.LastSeen" Style="{StaticResource Caption}" /><TextBlock Text="2026-08-27 12:42:12 +08:00" Style="{StaticResource CodeText}" /></StackPanel>
+                                        </UniformGrid></StackPanel></Border>
+                                        <Border Grid.Column="2" Style="{StaticResource SectionCard}"><StackPanel><TextBlock Tag="i18n:Detail.Blocker" Style="{StaticResource Subtitle}" /><Border Background="{StaticResource WatchCriticalSoftBrush}" CornerRadius="6" Padding="12" Margin="0,10,0,0"><StackPanel><TextBlock Tag="i18n:Reason.MissingArea" Foreground="{StaticResource WatchCriticalBrush}" Style="{StaticResource BodyStrong}" /><TextBlock Text="EMPTY_MES_FIELD" Style="{StaticResource CodeText}" Margin="0,4,0,0" /><StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Tag="i18n:Label.RawField" Style="{StaticResource InlineLabel}" /><TextBlock Text="AREA" Style="{StaticResource CodeText}" /></StackPanel></StackPanel></Border></StackPanel></Border>
+                                    </Grid>
+                                    <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="1.05*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="1.3*" /></Grid.ColumnDefinitions>
+                                        <Border Style="{StaticResource SectionCard}"><StackPanel><TextBlock Tag="i18n:Detail.Scope" Style="{StaticResource Subtitle}" /><StackPanel Margin="0,10,0,0"><TextBlock Tag="i18n:Check.Presence" Margin="0,3" /><TextBlock Tag="i18n:Check.Unique" Margin="0,3" /><TextBlock Tag="i18n:Check.Area" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" Margin="0,3" /><TextBlock Tag="i18n:Check.Other" Margin="0,3" /><Border Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="4" Padding="10,6" Margin="0,9,0,0"><TextBlock Tag="i18n:Check.Conclusion" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" /></Border></StackPanel></StackPanel></Border>
+                                        <Border Grid.Column="2" Style="{StaticResource SectionCard}"><StackPanel><TextBlock Tag="i18n:Detail.Semantics" Style="{StaticResource Subtitle}" /><UniformGrid x:Name="MissingGridA" Columns="3" Margin="0,9,0,0">
+                                            <StackPanel Margin="0,0,10,8"><TextBlock Tag="i18n:Missing.NotProvided" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotProvidedHelp" Style="{StaticResource SemanticHelp}" /></StackPanel><StackPanel Margin="0,0,10,8"><TextBlock Tag="i18n:Missing.Unknown" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.UnknownHelp" Style="{StaticResource SemanticHelp}" /></StackPanel><StackPanel Margin="0,0,0,8"><TextBlock Tag="i18n:Missing.NotApplicable" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotApplicableHelp" Style="{StaticResource SemanticHelp}" /></StackPanel><StackPanel Margin="0,0,10,0"><TextBlock Tag="i18n:Missing.NotLoaded" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotLoadedHelp" Style="{StaticResource SemanticHelp}" /></StackPanel><StackPanel Margin="0,0,10,0"><TextBlock Tag="i18n:Missing.Empty" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.EmptyHelp" Style="{StaticResource SemanticHelp}" /></StackPanel><StackPanel><TextBlock Tag="i18n:Missing.Failed" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Tag="i18n:Missing.FailedHelp" Style="{StaticResource SemanticHelp}" /></StackPanel>
+                                        </UniformGrid></StackPanel></Border>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+
+                        <Grid x:Name="VariantB" Visibility="Collapsed" Margin="0,0,0,52">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="455" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource SurfaceBorder}" Padding="0"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <StackPanel Margin="14,12,14,9"><TextBlock Tag="i18n:Master.All" Style="{StaticResource Subtitle}" /><TextBlock Tag="i18n:B.MasterHint" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel>
+                                <Grid Grid.Row="1" Background="{StaticResource WatchSubtleBrush}"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="DemandId" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Outcome" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="WorkType" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Reason" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border></Grid>
+                                <StackPanel Grid.Row="2">
+                                    <Grid Height="56"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="D-001842" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Readable" Foreground="{StaticResource WatchSuccessBrush}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="WIRE_TO_GATE" Style="{StaticResource TinyCode}" TextTrimming="CharacterEllipsis" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Reason.None" Style="{StaticResource Caption}" /></Border></Grid>
+                                    <Grid Height="56"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="D-001844" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Invisible" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="STAGING_TO_WIRE" Style="{StaticResource TinyCode}" TextTrimming="CharacterEllipsis" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><StackPanel><TextBlock Tag="i18n:Reason.Gone" Style="{StaticResource Caption}" /><TextBlock Text="DEMAND_GONE" Style="{StaticResource TinyCode}" /></StackPanel></Border></Grid>
+                                    <Grid Height="66" Background="{StaticResource WatchAccentSoftBrush}"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}" BorderBrush="{StaticResource WatchAccentBrush}" BorderThickness="3,0,0,1"><TextBlock Text="D-001846" Style="{StaticResource CodeText}" FontWeight="SemiBold" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="DIE_TO_OVEN" Style="{StaticResource TinyCode}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><StackPanel><TextBlock Tag="i18n:Reason.MissingArea" Style="{StaticResource Caption}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Text="EMPTY_MES_FIELD" Style="{StaticResource TinyCode}" /></StackPanel></Border></Grid>
+                                    <Grid Height="56"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="D-001847" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="WIRE_TO_GATE" Style="{StaticResource TinyCode}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><StackPanel><TextBlock Tag="i18n:Reason.Duplicate" Style="{StaticResource Caption}" /><TextBlock Text="DUPLICATE_KEY" Style="{StaticResource TinyCode}" /></StackPanel></Border></Grid>
+                                    <Grid Height="56"><Grid.ColumnDefinitions><ColumnDefinition Width="100" /><ColumnDefinition Width="105" /><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="D-002151" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Invisible" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="WIRE_TO_NITROGEN" Style="{StaticResource TinyCode}" TextTrimming="CharacterEllipsis" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><StackPanel><TextBlock Tag="i18n:Reason.Archived" Style="{StaticResource Caption}" /><TextBlock Text="SERIES_ARCHIVED" Style="{StaticResource TinyCode}" /></StackPanel></Border></Grid>
+                                </StackPanel>
+                                <Grid Grid.Row="3" Margin="12,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="6 / 2,852" Style="{StaticResource Caption}" /><TextBlock Text="1  2  3  …  20" Style="{StaticResource Caption}" Grid.Column="1" /></Grid>
+                            </Grid></Border>
+                            <Grid Grid.Column="2"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="*" /><RowDefinition Height="10" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                <Border Style="{StaticResource SectionCard}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Text="D-001846 · DIE_TO_OVEN" FontSize="20" FontWeight="SemiBold" /><StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Tag="i18n:Label.Sublot" Style="{StaticResource InlineLabel}" /><TextBlock Text="B240811-19" Style="{StaticResource CodeText}" /><TextBlock Text=" · " /><TextBlock Tag="i18n:Label.LastSeen" Style="{StaticResource InlineLabel}" Margin="12,0,6,0" /><TextBlock Text="2026-08-27 12:42:12 +08:00" Style="{StaticResource CodeText}" /></StackPanel></StackPanel><ui:Button Grid.Column="1" Tag="i18n:Detail.ViewSeries" Appearance="Secondary" Padding="12,6" /></Grid></Border>
+                                <Border Grid.Row="2" Style="{StaticResource SectionCard}" Padding="0"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions><TextBlock Tag="i18n:Detail.FieldLedger" Style="{StaticResource Subtitle}" Margin="14,12" />
+                                    <Grid Grid.Row="1" Background="{StaticResource WatchSubtleBrush}"><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.RawField" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Meaning" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Value" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.SourceState" Style="{StaticResource Caption}" FontWeight="SemiBold" /></Border></Grid>
+                                    <StackPanel Grid.Row="2">
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="AREA" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Area" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="&lt;NULL&gt;" Style="{StaticResource CodeText}" Foreground="{StaticResource WatchCriticalBrush}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Missing.NotProvided" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Border></Grid>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="EQP" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Eqp" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="DA-02" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Active" /></Border></Grid>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="STEP" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Step" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="烘箱" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Active" /></Border></Grid>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="DATES" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Dates" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="2026-08-27 12:31:08 +08:00" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Active" /></Border></Grid>
+                                        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="130" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /><ColumnDefinition Width="150" /></Grid.ColumnDefinitions><Border Style="{StaticResource LedgerCell}"><TextBlock Text="PACKAGE" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="1" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Label.Package" /></Border><Border Grid.Column="2" Style="{StaticResource LedgerCell}"><TextBlock Text="QFN48" Style="{StaticResource CodeText}" /></Border><Border Grid.Column="3" Style="{StaticResource LedgerCell}"><TextBlock Tag="i18n:Status.Active" /></Border></Grid>
+                                    </StackPanel>
+                                </Grid></Border>
+                                <Border Grid.Row="4" Background="{StaticResource WatchCriticalSoftBrush}" CornerRadius="8" Padding="14"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="220" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions><StackPanel><TextBlock Tag="i18n:B.CodeAnalysis" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Text="EMPTY_MES_FIELD · AREA" Style="{StaticResource CodeText}" Margin="0,4,0,0" /></StackPanel><TextBlock Grid.Column="1" Tag="i18n:B.CodeBody" TextWrapping="Wrap" Style="{StaticResource BodySecondary}" VerticalAlignment="Center" /></Grid></Border>
+                            </Grid>
+                        </Grid>
+
+                        <Grid x:Name="VariantC" Visibility="Collapsed" Margin="0,0,0,52">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="300" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource SurfaceBorder}" Padding="0"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
+                                <StackPanel Margin="14,12,14,9"><TextBlock Tag="i18n:Master.All" Style="{StaticResource Subtitle}" /><TextBlock Tag="i18n:C.MasterHint" Style="{StaticResource Caption}" Margin="0,3,0,0" /></StackPanel>
+                                <TextBlock Tag="i18n:Group.Blocked" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchCriticalBrush}" Margin="14,8,14,6" />
+                                <Border Style="{StaticResource SelectedListRow}"><StackPanel><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><TextBlock Text="D-001846" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Grid.Column="1" Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /></Grid><TextBlock Tag="i18n:Reason.MissingArea" Margin="0,5,0,0" /><TextBlock Text="EMPTY_MES_FIELD · AREA" Style="{StaticResource TinyCode}" Margin="0,3,0,0" /></StackPanel></Border>
+                                <Border Style="{StaticResource ListRow}"><StackPanel><TextBlock Text="D-001847" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Tag="i18n:Reason.Duplicate" Margin="0,5,0,0" /><TextBlock Text="DUPLICATE_KEY" Style="{StaticResource TinyCode}" Margin="0,3,0,0" /></StackPanel></Border>
+                                <TextBlock Tag="i18n:Group.Invisible" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchWarningBrush}" Margin="14,14,14,6" />
+                                <Border Style="{StaticResource ListRow}"><StackPanel><TextBlock Text="D-001844" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Tag="i18n:Reason.Gone" Margin="0,5,0,0" /><TextBlock Text="DEMAND_GONE" Style="{StaticResource TinyCode}" Margin="0,3,0,0" /></StackPanel></Border>
+                                <Border Style="{StaticResource ListRow}"><StackPanel><TextBlock Text="D-002151" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Tag="i18n:Reason.Archived" Margin="0,5,0,0" /><TextBlock Text="SERIES_ARCHIVED" Style="{StaticResource TinyCode}" Margin="0,3,0,0" /></StackPanel></Border>
+                                <TextBlock Tag="i18n:Group.Readable" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchSuccessBrush}" Margin="14,14,14,6" />
+                                <Border Style="{StaticResource ListRow}"><StackPanel><TextBlock Text="D-001842" Style="{StaticResource CodeText}" FontWeight="SemiBold" /><TextBlock Tag="i18n:Reason.None" Margin="0,5,0,0" /></StackPanel></Border>
+                            </StackPanel></ScrollViewer></Border>
+                            <Grid Grid.Column="2"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="10" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                                <Border Style="{StaticResource SectionCard}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><TextBlock Tag="i18n:Detail.Evidence" Style="{StaticResource Subtitle}" /><StackPanel Orientation="Horizontal" Margin="0,5,0,0"><TextBlock Tag="i18n:Detail.Selected" Style="{StaticResource InlineLabel}" /><TextBlock Text="D-001846 · DIE_TO_OVEN · B240811-19" Style="{StaticResource CodeText}" /></StackPanel></StackPanel><Border Grid.Column="1" Background="{StaticResource WatchCriticalSoftBrush}" CornerRadius="12" Padding="10,4"><StackPanel Orientation="Horizontal"><TextBlock Tag="i18n:Status.Blocked" Foreground="{StaticResource WatchCriticalBrush}" FontWeight="SemiBold" /><TextBlock Text=" · EMPTY_MES_FIELD" Style="{StaticResource TinyCode}" Margin="5,0,0,0" /></StackPanel></Border></Grid></Border>
+                                <Grid Grid.Row="2"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="10" /><ColumnDefinition Width="300" /></Grid.ColumnDefinitions>
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel>
+                                        <Border Style="{StaticResource SectionCard}" BorderBrush="{StaticResource WatchAccentBrush}" BorderThickness="3,1,1,1"><StackPanel><TextBlock Tag="i18n:C.Step1" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:C.Step1Body" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,5,0,0" /><Grid Margin="0,9,0,0"><Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /><ColumnDefinition Width="120" /></Grid.ColumnDefinitions><TextBlock Text="AREA" Style="{StaticResource CodeText}" /><TextBlock Grid.Column="1" Text="&lt;NULL&gt;" Style="{StaticResource CodeText}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Grid.Column="2" Tag="i18n:Missing.NotProvided" Foreground="{StaticResource WatchCriticalBrush}" HorizontalAlignment="Right" /></Grid></StackPanel></Border>
+                                        <Border Style="{StaticResource SectionCard}" Margin="0,9,0,0"><StackPanel><TextBlock Tag="i18n:C.Step2" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:C.Step2Body" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,5,0,0" /><StackPanel Orientation="Horizontal" Margin="0,8,0,0"><Border Background="{StaticResource WatchCriticalSoftBrush}" CornerRadius="4" Padding="8,4"><TextBlock Tag="i18n:Missing.NotProvided" /></Border><Border Background="{StaticResource WatchSubtleBrush}" CornerRadius="4" Padding="8,4" Margin="6,0,0,0"><TextBlock Tag="i18n:Missing.Unknown" Style="{StaticResource Caption}" /></Border><Border Background="{StaticResource WatchSubtleBrush}" CornerRadius="4" Padding="8,4" Margin="6,0,0,0"><TextBlock Tag="i18n:Missing.NotLoaded" Style="{StaticResource Caption}" /></Border></StackPanel></StackPanel></Border>
+                                        <Border Style="{StaticResource SectionCard}" Margin="0,9,0,0"><StackPanel><TextBlock Tag="i18n:C.Step3" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:C.Step3Body" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,5,0,0" /><TextBlock Text="EMPTY_MES_FIELD · AREA" Style="{StaticResource CodeText}" Foreground="{StaticResource WatchCriticalBrush}" Margin="0,7,0,0" /></StackPanel></Border>
+                                        <Border Style="{StaticResource SectionCard}" Margin="0,9,0,0"><StackPanel><TextBlock Tag="i18n:C.Step4" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:C.Step4Body" Style="{StaticResource BodySecondary}" TextWrapping="Wrap" Margin="0,5,0,0" /><Border Background="{StaticResource WatchWarningSoftBrush}" CornerRadius="4" Padding="10,6" Margin="0,8,0,0"><TextBlock Tag="i18n:Check.Conclusion" Foreground="{StaticResource WatchWarningBrush}" FontWeight="SemiBold" /></Border></StackPanel></Border>
+                                    </StackPanel></ScrollViewer>
+                                    <Border Grid.Column="2" Style="{StaticResource SectionCard}"><StackPanel><TextBlock Tag="i18n:Detail.Semantics" Style="{StaticResource Subtitle}" /><TextBlock Tag="i18n:Master.Help" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,10" />
+                                        <TextBlock Tag="i18n:Missing.NotProvided" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotProvidedHelp" Style="{StaticResource Caption}" Margin="0,2,0,9" />
+                                        <TextBlock Tag="i18n:Missing.Unknown" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.UnknownHelp" Style="{StaticResource Caption}" Margin="0,2,0,9" />
+                                        <TextBlock Tag="i18n:Missing.NotApplicable" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotApplicableHelp" Style="{StaticResource Caption}" Margin="0,2,0,9" />
+                                        <TextBlock Tag="i18n:Missing.NotLoaded" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.NotLoadedHelp" Style="{StaticResource Caption}" Margin="0,2,0,9" />
+                                        <TextBlock Tag="i18n:Missing.Empty" Style="{StaticResource BodyStrong}" /><TextBlock Tag="i18n:Missing.EmptyHelp" Style="{StaticResource Caption}" Margin="0,2,0,9" />
+                                        <TextBlock Tag="i18n:Missing.Failed" Style="{StaticResource BodyStrong}" Foreground="{StaticResource WatchCriticalBrush}" /><TextBlock Tag="i18n:Missing.FailedHelp" Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                                    </StackPanel></Border>
+                                    <Border Grid.ColumnSpan="3" VerticalAlignment="Bottom" Background="{StaticResource WatchAccentSoftBrush}" CornerRadius="6" Padding="12,8" Margin="0,10,0,0"><TextBlock Tag="i18n:C.Next" Foreground="{StaticResource WatchAccentBrush}" FontWeight="SemiBold" TextWrapping="Wrap" /></Border>
+                                </Grid>
+                            </Grid>
+                        </Grid>
+
+                        <Border x:Name="ReviewBar" Panel.ZIndex="20" VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,4" Background="#E6222222" CornerRadius="24" Padding="8,6">
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="←" Click="OnPreviousVariant" Background="Transparent" Foreground="White" BorderThickness="0" Padding="12,5" FontSize="16" />
+                                <TextBlock x:Name="ReviewVariantLabel" Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center" MinWidth="205" TextAlignment="Center" />
+                                <Button Content="→" Click="OnNextVariant" Background="Transparent" Foreground="White" BorderThickness="0" Padding="12,5" FontSize="16" />
+                                <Border Width="1" Background="#66FFFFFF" Margin="8,2" />
+                                <TextBlock x:Name="ReviewLanguageLabel" Foreground="#CCFFFFFF" VerticalAlignment="Center" Margin="8,0" />
+                                <Button x:Name="LanguageButton" Click="OnToggleLanguage" Background="Transparent" Foreground="White" BorderBrush="#88FFFFFF" BorderThickness="1" Padding="10,4" Margin="4,0,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </ui:NavigationView.ContentOverlay>
+    </ui:NavigationView>
+</UserControl>

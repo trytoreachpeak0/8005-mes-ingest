@@ -37,6 +37,7 @@
 
         <Grid Grid.Row="1">
             <local:CatalogEmbeddedVariant x:Name="SelectedPrototype" />
+            <local:BilingualSemanticsPrototype x:Name="BilingualPrototype" Visibility="Collapsed" />
             <local:NotificationFeedbackPrototype x:Name="NotificationPrototype" Visibility="Collapsed" />
         </Grid>
 

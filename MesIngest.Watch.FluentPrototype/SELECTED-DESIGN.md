@@ -129,3 +129,23 @@ preview approval.
   success, fault contraction, three-item coalescing/stacking, AREA conflict,
   narrow layout, and reduced motion before production implementation. Production
   XAML still requires a fresh comparable golden-machine preview and user approval.
+
+## Bilingual semantics prototype verdict
+
+User selection on 2026-08-27: **Variant A — semantic workbench — is approved as
+the bilingual and value-semantics presentation direction.** Variants B (field
+semantics ledger) and C (evidence narrative) remain rejected prototype
+comparisons.
+
+The selection preserves the existing eligibility-audit master-detail hierarchy.
+Localized meaning is the primary reading layer; canonical field names, protocol
+codes, identifiers, and raw values remain visible as secondary technical facts.
+Every value receives a visible semantic anchor, absolute timestamps retain their
+offset, and source-not-provided, unknown, not-applicable, not-loaded, successful
+empty result, and read-failure states remain visually distinct. Switching between
+Simplified Chinese and English must retain filters, selection, scroll position,
+and investigation context.
+
+This approval selects presentation structure only. Production localization must
+still be rewritten against the centralized strongly typed resource catalog from
+ADR-0031 and receive a fresh comparable golden-machine preview approval.
