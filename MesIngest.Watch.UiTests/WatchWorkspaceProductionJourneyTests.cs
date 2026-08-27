@@ -1033,40 +1033,43 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
             failedStep = "notification-narrow-reduced-motion";
             var narrowNotificationHeight = visualEnvironment.Dpi >= 144 ? 600 : 820;
-            Assert.False(
-                SystemParameters.ClientAreaAnimation,
-                $"The 760x{narrowNotificationHeight} notification preview must use the real Windows reduced-motion "
-                + "SystemParameters state.");
-            WatchWindowNative.SetClientSizeInEffectivePixels(
-                process.MainWindowHandle,
-                width: 760,
-                height: narrowNotificationHeight);
-            WaitUntil(
-                () =>
-                {
-                    var notifications = FindById(window, "NotificationItemsControl");
-                    if (notifications is null)
+            using (WatchWindowNative.OverrideClientAreaAnimation(enabled: false))
+            {
+                WaitUntil(
+                    () => !WatchWindowNative.GetClientAreaAnimation(),
+                    "the real Windows reduced-motion client-area animation state",
+                    StepTimeout);
+                WatchWindowNative.SetClientSizeInEffectivePixels(
+                    process.MainWindowHandle,
+                    width: 760,
+                    height: narrowNotificationHeight);
+                WaitUntil(
+                    () =>
                     {
-                        return false;
-                    }
+                        var notifications = FindById(window, "NotificationItemsControl");
+                        if (notifications is null)
+                        {
+                            return false;
+                        }
 
-                    var text = SubtreeText(notifications);
-                    var notificationBounds = notifications.BoundingRectangle;
-                    var windowBounds = window.BoundingRectangle;
-                    return text.Contains("已恢复默认设置", StringComparison.Ordinal)
-                        && text.Contains("已恢复默认布局", StringComparison.Ordinal)
-                        && text.Contains("本机设置已保存", StringComparison.Ordinal)
-                        && notificationBounds.Width >= 600
-                        && notificationBounds.Left >= windowBounds.Left + 48
-                        && notificationBounds.Right <= windowBounds.Right - 8;
-                },
-                $"the real 760x{narrowNotificationHeight} reduced-motion notification stack",
-                StepTimeout);
-            Capture(
-                evidence,
-                process.MainWindowHandle,
-                $"09b-notification-stack-760x{narrowNotificationHeight}-reduced-motion",
-                exact1440By900: false);
+                        var text = SubtreeText(notifications);
+                        var notificationBounds = notifications.BoundingRectangle;
+                        var windowBounds = window.BoundingRectangle;
+                        return text.Contains("已恢复默认设置", StringComparison.Ordinal)
+                            && text.Contains("已恢复默认布局", StringComparison.Ordinal)
+                            && text.Contains("本机设置已保存", StringComparison.Ordinal)
+                            && notificationBounds.Width >= 600
+                            && notificationBounds.Left >= windowBounds.Left + 48
+                            && notificationBounds.Right <= windowBounds.Right - 8;
+                    },
+                    $"the real 760x{narrowNotificationHeight} reduced-motion notification stack",
+                    StepTimeout);
+                Capture(
+                    evidence,
+                    process.MainWindowHandle,
+                    $"09b-notification-stack-760x{narrowNotificationHeight}-reduced-motion",
+                    exact1440By900: false);
+            }
             ApplyJourneyClientSize(process.MainWindowHandle);
 
             requestTimeoutInput.Text = "30";
@@ -1178,6 +1181,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 eventGrid.FindAllDescendants(
                         eventGrid.Automation.ConditionFactory.ByControlType(
                             ControlType.HeaderItem))
+                    .Where(header => !string.IsNullOrEmpty(header.Name))
                     .Select(header => header.Name)
                     .ToArray());
             Capture(
@@ -3261,7 +3265,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
         Assert.Contains(BilingualPreviewDemandId, GridText(auditGrid), StringComparison.Ordinal);
         auditGrid.Select(0);
         WaitUntil(
-            () => SubtreeText(FindRequiredById(window, "ReadabilityDetailRegion"))
+            () => TextValue(FindRequiredById(window, "ReadabilityDetailFactsText"))
                 .Contains(BilingualPreviewDemandId, StringComparison.Ordinal),
             $"Ticket 12 {languageTag} {BilingualPreviewDemandId} detail",
             StepTimeout);
@@ -3322,7 +3326,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             item => TextValue(item).Contains("东区", StringComparison.Ordinal));
         eastProfile.Select();
         WaitUntil(
-            () => TextValue(FindRequiredById(window, "AreaProfileEditor"))
+            () => FindRequiredById(window, "AreaProfileEditor").AsTextBox().Text
                 .Contains("A1-1", StringComparison.Ordinal),
             $"Ticket 12 {languageTag} AREA editor selection",
             StepTimeout);

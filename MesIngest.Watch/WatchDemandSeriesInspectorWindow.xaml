@@ -310,6 +310,7 @@
                                 <Grid>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="8" />
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
@@ -369,11 +370,13 @@
                                         </StackPanel>
                                     </Grid>
                                     <ui:TextBlock x:Name="DemandSeriesInspectorFormationReasonCodeText"
+                                                  Grid.Row="1"
+                                                  Margin="0,6,0,0"
                                                   Visibility="Visible"
                                                   Style="{StaticResource CodeText}"
                                                   AutomationProperties.Name="Demand 形成原因原始码" />
                                     <ItemsControl x:Name="DemandSeriesInspectorFormationFacts"
-                                                  Grid.Row="2"
+                                                  Grid.Row="3"
                                                   AutomationProperties.Name="Demand 形成事实"
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorFormationFacts">
                                         <ItemsControl.ItemsPanel>

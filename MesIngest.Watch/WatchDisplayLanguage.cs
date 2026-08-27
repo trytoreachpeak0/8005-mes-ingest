@@ -8,7 +8,10 @@ internal enum WatchDisplayLanguage
 
 internal sealed record WatchDisplayLanguageChoice(
     WatchDisplayLanguage Language,
-    string Label);
+    string Label)
+{
+    public override string ToString() => Label;
+}
 
 internal sealed class WatchDisplayLanguageState
 {
@@ -36,4 +39,3 @@ internal sealed class WatchDisplayLanguageState
         Changed?.Invoke(this, EventArgs.Empty);
     }
 }
-
