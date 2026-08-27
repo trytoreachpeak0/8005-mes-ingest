@@ -267,6 +267,85 @@ internal sealed partial class WatchReadabilityAuditText
             ? $"结论：{DescribeReadability(rawState)}"
             : $"Conclusion: {DescribeReadability(rawState)}";
 
+    public string BusinessIdentity(
+        string sublot,
+        string seriesId,
+        int generation,
+        string lastSeen) => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? $"{sublot} · {seriesId} · Demand Generation {generation:N0} · 最后看见 {lastSeen}"
+        : $"{sublot} · {seriesId} · Demand Generation {generation:N0} · Last seen {lastSeen}";
+
+    public string DetailFacts(
+        string snapshotReference,
+        DateTimeOffset committedAt,
+        string commitId,
+        long sequence,
+        string pollTraceId,
+        long catalogRevision,
+        string observationPollTraceId,
+        string observationCommitId) => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? $"审计快照 {snapshotReference} · Host 投影提交 {WatchTimeDisplay.Format(committedAt)} · {commitId} · 序列 {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0} · Demand 最新观测 PollTrace {observationPollTraceId} · ProjectionCommit {observationCommitId}"
+        : $"Audit snapshot {snapshotReference} · Host projection committed {WatchTimeDisplay.Format(committedAt)} · {commitId} · sequence {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0} · Demand latest observation PollTrace {observationPollTraceId} · ProjectionCommit {observationCommitId}";
+
+    public string SeriesFacts(
+        string seriesId,
+        string workType,
+        string sublot,
+        string lifecycle,
+        string presence,
+        string currentDemandId,
+        string startedAt,
+        string archivedAt) => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? $"Series {seriesId} · {workType} · SUBLOT {sublot} · {lifecycle} · {presence} · 当前 Demand {currentDemandId} · 开始 {startedAt} · 归档 {archivedAt}"
+        : $"Series {seriesId} · {workType} · SUBLOT {sublot} · {lifecycle} · {presence} · current Demand {currentDemandId} · started {startedAt} · archived {archivedAt}";
+
+    public string NoTrustedLiveMes => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "无可信 LiveMesFieldSet；请核对下方原始观测。"
+        : "No trusted LiveMesFieldSet; inspect the raw observations below.";
+
+    public string TrustedLiveMes(WatchReadabilityLiveMesFieldSetPresentation fields) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"可信 LiveMesFieldSet · AREA {fields.Area} · EQP {fields.Eqp} · STEP {fields.Step} · MesSourceDate {fields.MesSourceDate} · PACKAGE {fields.Package}"
+            : $"Trusted LiveMesFieldSet · AREA {fields.Area} · EQP {fields.Eqp} · STEP {fields.Step} · MesSourceDate {fields.MesSourceDate} · PACKAGE {fields.Package}";
+
+    public string ObservationSummary(int count, bool trusted, bool conflicting) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? trusted
+                ? $"{count:N0} 条原始观测 · 当前可信 LiveMesFieldSet 可用"
+                : conflicting
+                    ? $"{count:N0} 条原始观测 · 无可信单值；保留原始观测冲突证据"
+                    : $"{count:N0} 条原始观测 · 无可信 LiveMesFieldSet"
+            : trusted
+                ? $"{count:N0} raw observations · trusted LiveMesFieldSet available"
+                : conflicting
+                    ? $"{count:N0} raw observations · no trusted single value; raw conflict evidence retained"
+                    : $"{count:N0} raw observations · no trusted LiveMesFieldSet";
+
+    public string PollTraceFacts(
+        string pollTraceId,
+        string queryVersion,
+        string outcome,
+        string startedAt,
+        string completedAt,
+        long rowCount,
+        string digest,
+        string commitId,
+        long sequence) => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? $"PollTrace {pollTraceId} · {queryVersion} · {outcome} · {startedAt} → {completedAt} · {rowCount:N0} 行 · Digest {digest} · ProjectionCommit {commitId} · 序列 {sequence:N0}"
+        : $"PollTrace {pollTraceId} · {queryVersion} · {outcome} · {startedAt} → {completedAt} · {rowCount:N0} rows · Digest {digest} · ProjectionCommit {commitId} · sequence {sequence:N0}";
+
+    public string QualificationMeaning(string code, string fallbackEnglish) => (Language, code) switch
+    {
+        (WatchDisplayLanguage.SimplifiedChinese, "DEMAND_VISIBLE") => "Demand 在当前完整源投影中可见",
+        (WatchDisplayLanguage.SimplifiedChinese, "SERIES_TRACKING") => "所属需求系列尚未归档",
+        (WatchDisplayLanguage.SimplifiedChinese, "NOT_LONG_GONE_BUT_VISIBLE") => "Demand 不是归档后再次出现",
+        (WatchDisplayLanguage.SimplifiedChinese, "UNIQUE_RAW_OBSERVATION") => "当前轮次中该 Demand 业务键只有一条原始观测",
+        (WatchDisplayLanguage.SimplifiedChinese, "ONE_WORK_TYPE_PER_SUBLOT") => "当前轮次中 SUBLOT 只对应一个 WorkType",
+        (WatchDisplayLanguage.SimplifiedChinese, "REQUIRED_MES_FIELDS_PRESENT") => "全部必需 MES 字段均已提供且非空白",
+        (WatchDisplayLanguage.SimplifiedChinese, "MES_FIELD_FORMAT_VALID") => "全部已提供 MES 字段符合领域格式",
+        _ => fallbackEnglish,
+    };
+
     private string TextFor(WatchDisplayValueKind kind) => kind switch
     {
         WatchDisplayValueKind.SourceNotProvided => WatchTextCatalog.For(Language).Common.SourceNotProvided,

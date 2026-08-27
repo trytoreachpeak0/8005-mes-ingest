@@ -330,6 +330,7 @@ internal sealed record WatchReadabilityAuditPresentation(
 
         var demand = detail.Demand;
         var identity = detail.Snapshot;
+        var text = catalog.ReadabilityAudit;
         var liveMes = ProjectLiveMesFields(demand.LiveMesFields, catalog);
         var rawObservations = detail.LatestRawObservations
             .OrderBy(observation => observation.Ordinal)
@@ -350,11 +351,10 @@ internal sealed record WatchReadabilityAuditPresentation(
                 ProjectTime(observation.ObservedAt),
                 ProjectText(observation.MesSourceDateRaw)))
             .ToArray();
-        var observationSummary = liveMes is not null
-            ? $"{rawObservations.Length:N0} 条原始观测 · 当前可信 LiveMesFieldSet 可用"
-            : rawObservations.Length > 1
-                ? $"{rawObservations.Length:N0} 条原始观测 · 无可信单值；保留原始观测冲突证据"
-                : $"{rawObservations.Length:N0} 条原始观测 · 无可信 LiveMesFieldSet";
+        var observationSummary = text.ObservationSummary(
+            rawObservations.Length,
+            trusted: liveMes is not null,
+            conflicting: liveMes is null && rawObservations.Length > 1);
 
         var pollTrace = detail.LatestObservationPollTrace;
         return new WatchReadabilityAuditDetailPresentation(
@@ -362,16 +362,38 @@ internal sealed record WatchReadabilityAuditPresentation(
             demand.ExternalReadabilityState,
             demand.LeadReadabilityBlocker,
             $"{demand.DemandId} · {demand.WorkType}",
-            $"{ProjectText(demand.Sublot)} · {ProjectText(demand.SeriesId)} · Demand Generation {demand.Generation:N0} · 最后看见 {ProjectTime(demand.DemandLastSeenAt)}",
-            $"审计快照 {detail.SnapshotReference} · Host 投影提交 {WatchTimeDisplay.Format(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · 序列 {identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId} · CatalogRevision {identity.CatalogRevision:N0} · Demand 最新观测 PollTrace {demand.LatestObservationPollTraceId} · ProjectionCommit {demand.LatestObservationProjectionCommitId}",
-            $"Series {detail.Series.SeriesId} · {detail.Series.WorkType} · SUBLOT {detail.Series.Sublot} · {detail.Series.Lifecycle} · {detail.Series.CurrentPresence} · 当前 Demand {detail.Series.CurrentDemandId} · 开始 {ProjectTime(detail.Series.StartedAt)} · 归档 {ProjectTime(detail.Series.ArchivedAt)}",
+            text.BusinessIdentity(
+                ProjectText(demand.Sublot),
+                ProjectText(demand.SeriesId),
+                demand.Generation,
+                ProjectTime(demand.DemandLastSeenAt)),
+            text.DetailFacts(
+                detail.SnapshotReference,
+                identity.ProjectionCommittedAt,
+                identity.ProjectionCommitId,
+                identity.ProjectionSequence,
+                identity.PollTraceId,
+                identity.CatalogRevision,
+                demand.LatestObservationPollTraceId,
+                demand.LatestObservationProjectionCommitId),
+            text.SeriesFacts(
+                detail.Series.SeriesId,
+                detail.Series.WorkType,
+                detail.Series.Sublot,
+                detail.Series.Lifecycle,
+                detail.Series.CurrentPresence,
+                detail.Series.CurrentDemandId,
+                ProjectTime(detail.Series.StartedAt),
+                detail.Series.ArchivedAt is null
+                    ? catalog.Common.NotApplicable
+                    : ProjectTime(detail.Series.ArchivedAt)),
             liveMes is null
-                ? "无可信 LiveMesFieldSet；请核对下方原始观测。"
-                : $"可信 LiveMesFieldSet · AREA {liveMes.Area} · EQP {liveMes.Eqp} · STEP {liveMes.Step} · MesSourceDate {liveMes.MesSourceDate} · PACKAGE {liveMes.Package}",
+                ? text.NoTrustedLiveMes
+                : text.TrustedLiveMes(liveMes),
             observationSummary,
             detail.Blockers.Count == 0
-                ? "无"
-                : string.Join('、', detail.Blockers
+                ? text.NoBlocker
+                : string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", detail.Blockers
                     .OrderBy(blocker => blocker.Priority)
                     .Select(blocker => blocker.Code)),
             liveMes,
@@ -380,12 +402,14 @@ internal sealed record WatchReadabilityAuditPresentation(
                     check.Code,
                     check.BlockingCode,
                     check.Result,
-                    ReadabilityQualificationCheckCatalog.Definitions
+                    text.QualificationMeaning(
+                        check.Code,
+                        ReadabilityQualificationCheckCatalog.Definitions
                         .FirstOrDefault(definition => string.Equals(
                             definition.Code,
                             check.Code,
                             StringComparison.Ordinal))?.Meaning
-                        ?? "Host 资格检查"))
+                        ?? "Host qualification check")))
                 .ToArray(),
             detail.Blockers
                 .SelectMany(blocker => blocker.Evidence.Select((evidence, index) =>
@@ -401,7 +425,16 @@ internal sealed record WatchReadabilityAuditPresentation(
                         evidence.ProjectionCommitId)))
                 .ToArray(),
             rawObservations,
-            $"PollTrace {pollTrace.PollTraceId} · {pollTrace.QueryVersion} · {pollTrace.Outcome} · {ProjectTime(pollTrace.StartedAt)} → {ProjectTime(pollTrace.CompletedAt)} · {pollTrace.RowCount:N0} 行 · Digest {pollTrace.ContentDigest} · ProjectionCommit {pollTrace.ProjectionCommitId} · 序列 {pollTrace.ProjectionSequence:N0}",
+            text.PollTraceFacts(
+                pollTrace.PollTraceId,
+                pollTrace.QueryVersion,
+                pollTrace.Outcome,
+                ProjectTime(pollTrace.StartedAt),
+                ProjectTime(pollTrace.CompletedAt),
+                pollTrace.RowCount,
+                pollTrace.ContentDigest,
+                pollTrace.ProjectionCommitId,
+                pollTrace.ProjectionSequence),
             detail.SnapshotReference,
             identity.ProjectionCommitId,
             identity.ProjectionSequence,

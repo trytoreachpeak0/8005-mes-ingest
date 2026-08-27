@@ -366,6 +366,20 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Equal(snapshot.Snapshot.PollTraceId, selected.PollTraceId);
         Assert.Equal(snapshot.Snapshot.CatalogRevision, selected.CatalogRevision);
 
+        var english = WatchReadabilityAuditPresentation.Project(
+            Workspace(snapshot, at, detail),
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
+            WatchAreaDisplayContext.AllAreas,
+            WatchTextCatalog.For(WatchDisplayLanguage.English));
+        var englishDetail = Assert.IsType<WatchReadabilityAuditDetailPresentation>(english.Detail);
+        Assert.Contains("Last seen", englishDetail.BusinessIdentity, StringComparison.Ordinal);
+        Assert.Contains("Audit snapshot", englishDetail.Facts, StringComparison.Ordinal);
+        Assert.Contains("No trusted LiveMesFieldSet", englishDetail.LiveMesFacts, StringComparison.Ordinal);
+        Assert.Contains("raw observations", englishDetail.ObservationSummary, StringComparison.Ordinal);
+        Assert.Contains("rows", englishDetail.PollTraceFacts, StringComparison.Ordinal);
+        Assert.DoesNotContain('最', englishDetail.BusinessIdentity);
+        Assert.DoesNotContain('审', englishDetail.Facts);
+
         var withoutEvidence = WatchReadabilityAuditPresentation.Project(
             Workspace(snapshot, at, detail with { Blockers = [] }),
             new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
