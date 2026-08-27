@@ -42,12 +42,12 @@ public sealed class WatchErrorSearchPresentationTests
                 SnapshotReference: snapshot.SnapshotReference));
 
         Assert.True(presentation.HasSnapshot);
-        Assert.Contains("ErrorSearchAsOf 2026-08-14 05:06:07 UTC", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("ErrorSearchAsOf 2026-08-14 05:06:07 +00:00", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("commit-error-22", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("序列 220", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("PollTrace poll-error-22", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Equal(
-            "UTC 半开窗口 [2026-08-07 05:06:07 UTC, 2026-08-14 05:06:07 UTC)",
+            "UTC 半开窗口 [2026-08-07 05:06:07 +00:00, 2026-08-14 05:06:07 +00:00)",
             presentation.CommittedWindow);
         Assert.Contains("分类 DATA_FORMAT", presentation.CommittedConditions, StringComparison.Ordinal);
         Assert.Contains("错误码 INVALID_MES_FIELD_FORMAT", presentation.CommittedConditions, StringComparison.Ordinal);
@@ -65,15 +65,15 @@ public sealed class WatchErrorSearchPresentationTests
             [("OBSERVATION_CONFLICT", 19L), ("DATA_FORMAT", 23L)],
             presentation.CategoryFacets.Select(value => (value.Category, value.SeriesCount)).ToArray());
         Assert.Equal(
-            [(ErrorSearchActivityStates.Ended, 31L), (ErrorSearchActivityStates.Active, 11L)],
+            [("已结束 · ENDED", 31L), ("活动中 · ACTIVE", 11L)],
             presentation.ActivityFacets.Select(value => (value.State, value.SeriesCount)).ToArray());
         Assert.Equal(
             ["series-host-first", "series-host-second"],
             presentation.Rows.Select(row => row.SeriesId).ToArray());
-        Assert.Equal(ErrorSearchActivityStates.Ended, presentation.Rows[0].ActivityState);
-        Assert.Equal(ErrorSearchActivityStates.Active, presentation.Rows[1].ActivityState);
+        Assert.Equal("已结束 · ENDED", presentation.Rows[0].ActivityState);
+        Assert.Equal("活动中 · ACTIVE", presentation.Rows[1].ActivityState);
         Assert.Equal("命中 2 个期间", presentation.Rows[0].MatchedPeriodSummary);
-        Assert.Equal("跨 2 个 Demand 世代", presentation.Rows[0].MatchedDemandGenerationSummary);
+        Assert.Equal("跨 2 个需求代次", presentation.Rows[0].MatchedDemandGenerationSummary);
     }
 
     [Fact]
@@ -214,10 +214,10 @@ public sealed class WatchErrorSearchPresentationTests
             new ErrorSearchQuery(snapshot.Filter, ErrorSearchWindowSelection.Last7Days));
 
         var selected = Assert.IsType<WatchErrorSearchDetailPresentation>(presentation.Detail);
-        Assert.Equal("series-detail-22 · ACTIVE", selected.Heading);
+        Assert.Equal("series-detail-22 · 活动中 · ACTIVE", selected.Heading);
         Assert.Equal(["demand-generation-1", "demand-generation-2"], selected.MatchedDemandIds);
         Assert.Equal(
-            "跨 2 个 Demand 世代：demand-generation-1、demand-generation-2",
+            "跨 2 个需求代次：demand-generation-1、demand-generation-2",
             selected.GenerationSummary);
         Assert.Equal(["period-before-after", "period-active"], selected.Periods.Select(period => period.PeriodId));
 
@@ -405,7 +405,7 @@ public sealed class WatchErrorSearchPresentationTests
         Assert.Equal(
             [ErrorSearchRawEvidenceFields.WorkType, ErrorSearchRawEvidenceFields.Package],
             rawPresentation.IncludedFields);
-        Assert.Equal("最多 20 条 · 单条 2,048 字节 · 总计 65,536 字节", rawPresentation.LimitsSummary);
+        Assert.Equal("最多 20 条 · 单条 2,048 字节/条 · 总计 65,536 字节", rawPresentation.LimitsSummary);
         Assert.Equal(1, rawPresentation.ItemCount);
         Assert.Equal(raw.PayloadBytes, rawPresentation.PayloadBytes);
         var row = Assert.Single(rawPresentation.Items);
@@ -660,6 +660,60 @@ public sealed class WatchErrorSearchPresentationTests
 
         Assert.True(presentation.RawEvidence.HasContractViolation);
         Assert.Empty(presentation.RawEvidence.Items);
+    }
+
+    [Fact]
+    public void English_projection_localizes_error_search_semantics_while_preserving_codes_filters_and_offset_times()
+    {
+        var snapshot = Snapshot(
+            FullFilter(),
+            total: 1,
+            pageNumber: 1,
+            totalPages: 1,
+            items: [Item("series-bilingual-06", ErrorSearchActivityStates.Active, AsOf)],
+            facets: new ErrorSearchFacets(
+                [new ErrorSearchCategoryFacetSnapshot("DATA_FORMAT", 1)],
+                [new ErrorSearchActivityStateFacetSnapshot(ErrorSearchActivityStates.Active, 1)]));
+
+        var chinese = WatchErrorSearchPresentation.Project(
+            Workspace(snapshot),
+            new ErrorSearchQuery(snapshot.Filter, ErrorSearchWindowSelection.Last7Days),
+            catalog: WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese));
+        var english = WatchErrorSearchPresentation.Project(
+            Workspace(snapshot),
+            new ErrorSearchQuery(snapshot.Filter, ErrorSearchWindowSelection.Last7Days),
+            catalog: WatchTextCatalog.For(WatchDisplayLanguage.English));
+
+        Assert.NotEqual(chinese.PageSummary, english.PageSummary);
+        Assert.Contains("Exact", english.PageSummary, StringComparison.Ordinal);
+        Assert.Contains("DATA_FORMAT", english.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("INVALID_MES_FIELD_FORMAT", english.CommittedConditions, StringComparison.Ordinal);
+        Assert.Equal("series-bilingual-06", Assert.Single(english.Rows).SeriesId);
+        Assert.Contains("INVALID_MES_FIELD_FORMAT", english.Rows[0].MatchedErrorSummary, StringComparison.Ordinal);
+        Assert.Contains("does not match", english.Rows[0].MatchedErrorSummary, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("2026-08-14 05:06:07 +00:00", english.Rows[0].LatestMatchedEvidenceAt, StringComparison.Ordinal);
+        Assert.Equal(chinese.Rows[0].SeriesId, english.Rows[0].SeriesId);
+        Assert.Equal(chinese.Rows[0].WorkType, english.Rows[0].WorkType);
+        Assert.Equal(chinese.Rows[0].Sublot, english.Rows[0].Sublot);
+    }
+
+    [Fact]
+    public void Unknown_error_code_uses_a_neutral_localized_meaning_and_keeps_the_raw_code()
+    {
+        const string rawCode = "FUTURE_ERROR_CODE_06";
+
+        var chinese = WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese)
+            .ErrorSearch.DescribeErrorCode(rawCode);
+        var english = WatchTextCatalog.For(WatchDisplayLanguage.English)
+            .ErrorSearch.DescribeErrorCode(rawCode);
+
+        Assert.False(chinese.IsKnown);
+        Assert.False(english.IsKnown);
+        Assert.Equal(rawCode, chinese.RawCode);
+        Assert.Equal(rawCode, english.RawCode);
+        Assert.Contains("未知", chinese.Description, StringComparison.Ordinal);
+        Assert.Contains("unknown", english.Description, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("format", english.Description, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ErrorSearchFilter FullFilter() => new()

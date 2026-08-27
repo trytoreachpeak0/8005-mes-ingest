@@ -36,7 +36,7 @@ internal partial class WatchWorkspaceWindow
                         ?? comboBox.Text
                     : comboBox.Text;
         if (string.IsNullOrWhiteSpace(value)
-            || value.StartsWith("全部", StringComparison.Ordinal))
+            || string.Equals(value, comboBox.Tag?.ToString(), StringComparison.Ordinal))
         {
             return [];
         }
