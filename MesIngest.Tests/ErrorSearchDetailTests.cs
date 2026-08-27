@@ -718,6 +718,7 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             builder.UseEnvironment(Environments.Production);
             builder.ConfigureTestServices(services =>
             {
+                services.RemoveMesTaskUnionPollHostedService();
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(clock);
                 // appsettings.Local.json is intentionally loaded after the default
@@ -740,7 +741,8 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
             [$"{MesIngestHostOptions.SectionName}__SharedSecret"] = RawSecret,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

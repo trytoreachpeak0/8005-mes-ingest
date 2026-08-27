@@ -5,6 +5,7 @@ using MesIngest.Host;
 using MesIngest.ReferenceConsumer;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit.Abstractions;
@@ -628,7 +629,12 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
     }
 
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseEnvironment(Environments.Production);
+            builder.ConfigureTestServices(services =>
+                services.RemoveMesTaskUnionPollHostedService());
+        });
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
         new Ticket01ProcessEnvironmentScope(new Dictionary<string, string?>
@@ -636,7 +642,8 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
