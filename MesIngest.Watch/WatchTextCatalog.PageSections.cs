@@ -22,7 +22,7 @@ internal sealed partial class WatchErrorSearchText(WatchDisplayLanguage language
 internal sealed partial class WatchAreaFilterText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
-internal sealed class WatchCurrentAttentionText(WatchDisplayLanguage language)
+internal sealed partial class WatchCurrentAttentionText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
 internal sealed partial class WatchInspectorText(WatchDisplayLanguage language)

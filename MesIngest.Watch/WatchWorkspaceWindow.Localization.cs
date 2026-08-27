@@ -155,6 +155,7 @@ internal partial class WatchWorkspaceWindow
         ApplyLocalizedOverviewText();
         ApplyLocalizedReadabilityAuditText();
         ApplyLocalizedErrorSearchText();
+        ApplyLocalizedCurrentAttentionText();
     }
 
     private void ApplyLocalizedDemandSeriesText(WatchDemandSeriesText text)

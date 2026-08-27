@@ -3081,7 +3081,7 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
-                                    <ui:TextBlock Text="接入告警" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock x:Name="CurrentAttentionPageTitleText" Text="接入告警" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock x:Name="CurrentAttentionFreshnessText"
                                                   Text="Endpoint 尚未配置 · Watch 尚无成功读取 · 自动刷新等待偏好"
                                                   Style="{StaticResource SecondaryText}"
@@ -3202,7 +3202,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
-                                                <ui:TextBlock Text="关注类型" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionKindFilterLabel" Text="关注类型" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionKindFilter"
                                                           IsEditable="True"
                                                           IsTextSearchEnabled="False"
@@ -3220,7 +3220,7 @@
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
-                                                <ui:TextBlock Text="严重度" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionSeverityFilterLabel" Text="严重度" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionSeverityFilter"
                                                           IsEditable="True"
                                                           IsTextSearchEnabled="False"
@@ -3235,7 +3235,7 @@
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="4">
-                                                <ui:TextBlock Text="每页" Style="{StaticResource FieldLabel}" />
+                                                <ui:TextBlock x:Name="CurrentAttentionPageSizeLabel" Text="每页" Style="{StaticResource FieldLabel}" />
                                                 <ComboBox x:Name="CurrentAttentionPageSizeInput"
                                                           SelectedValuePath="Tag"
                                                           SelectedIndex="1"
@@ -3290,7 +3290,7 @@
                                                           AutomationProperties.Name="接入告警类型 Host 精确分面"
                                                           AutomationProperties.AutomationId="CurrentAttentionKindFacetGrid">
                                                     <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="类型" Binding="{Binding Value}" Width="*" />
+                                                        <DataGridTextColumn Header="类型" Binding="{Binding DisplayValue}" Width="*" />
                                                         <DataGridTextColumn Header="数量" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
                                                     </DataGrid.Columns>
                                                 </DataGrid>
@@ -3303,7 +3303,7 @@
                                                           AutomationProperties.Name="接入告警严重度 Host 精确分面"
                                                           AutomationProperties.AutomationId="CurrentAttentionSeverityFacetGrid">
                                                     <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="严重度" Binding="{Binding Value}" Width="*" />
+                                                        <DataGridTextColumn Header="严重度" Binding="{Binding DisplayValue}" Width="*" />
                                                         <DataGridTextColumn Header="数量" Binding="{Binding ItemCount}" Width="{StaticResource DemandSeriesColumn65}" />
                                                     </DataGrid.Columns>
                                                 </DataGrid>
@@ -3329,7 +3329,7 @@
                                             <RowDefinition Height="42" />
                                         </Grid.RowDefinitions>
                                         <StackPanel Margin="16,13,16,10">
-                                            <ui:TextBlock Text="当前仍需关注" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionResultsTitleText" Text="当前仍需关注" Style="{StaticResource SectionTitleText}" />
                                             <ui:TextBlock x:Name="CurrentAttentionPageSummaryText"
                                                           Text="尚无当前接入关注快照"
                                                           Style="{StaticResource SecondaryText}"
@@ -3384,7 +3384,7 @@
                                                                         </Style.Triggers>
                                                                     </Style>
                                                                 </Border.Style>
-                                                                <ui:TextBlock Text="{Binding Severity}"
+                                                                <ui:TextBlock Text="{Binding SeverityLabel}"
                                                                               FontTypography="Caption"
                                                                               FontWeight="SemiBold"
                                                                               Appearance="{x:Null}"
@@ -3471,7 +3471,7 @@
                                                 <RowDefinition Height="*" />
                                                 <RowDefinition Height="Auto" />
                                             </Grid.RowDefinitions>
-                                            <ui:TextBlock Text="选中项详情" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionSelectedDetailTitleText" Text="选中项详情" Style="{StaticResource SectionTitleText}" />
                                             <Border Grid.Row="1"
                                                     Margin="0,10,0,12"
                                                     Padding="12,10"
@@ -3485,7 +3485,7 @@
                                                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                               AutomationProperties.Name="接入告警选中项上下文" />
                                             </Border>
-                                            <ui:TextBlock Grid.Row="2"
+                                            <ui:TextBlock x:Name="CurrentAttentionReadOnlyHelpText" Grid.Row="2"
                                                           Text="当前页面只读呈现七类 Host 事实及本地恢复指引；不会创建 incident，也不提供确认、恢复或其它管理操作。"
                                                           Style="{StaticResource SecondaryText}"
                                                           TextWrapping="Wrap" />
@@ -3516,8 +3516,8 @@
                                                 <RowDefinition Height="Auto" />
                                                 <RowDefinition Height="*" />
                                             </Grid.RowDefinitions>
-                                            <ui:TextBlock Text="结构化证据与关联对象" Style="{StaticResource SectionTitleText}" />
-                                            <ui:TextBlock Grid.Row="1"
+                                            <ui:TextBlock x:Name="CurrentAttentionEvidenceTitleText" Text="结构化证据与关联对象" Style="{StaticResource SectionTitleText}" />
+                                            <ui:TextBlock x:Name="CurrentAttentionEvidenceHelpText" Grid.Row="1"
                                                           Text="字段、PollTrace、WorkType 与对象标识均来自当前 Host snapshot。"
                                                           Style="{StaticResource SecondaryText}"
                                                           Margin="0,3,0,10" />

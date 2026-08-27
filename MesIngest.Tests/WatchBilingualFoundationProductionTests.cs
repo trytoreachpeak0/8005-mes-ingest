@@ -340,6 +340,51 @@ public sealed class WatchBilingualFoundationProductionTests
             }
         });
 
+    [Fact]
+    public void Current_attention_language_reprojection_preserves_canonical_filters_focus_state_and_host_request_count() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory();
+            var client = new RecordingClient();
+            try
+            {
+                using var composition = CreateComposition(root, client);
+                var window = composition.CreateMainWindow(initializeOnLoaded: false);
+                Click(window, "CurrentAttentionNavigationItem");
+                window.Show();
+                window.UpdateLayout();
+
+                var kind = Assert.IsType<ComboBox>(window.FindName("CurrentAttentionKindFilter"));
+                var severity = Assert.IsType<ComboBox>(window.FindName("CurrentAttentionSeverityFilter"));
+                var page = Assert.IsType<TextBox>(window.FindName("CurrentAttentionPageNumberInput"));
+                kind.Text = CurrentIngestAttentionKinds.SeriesError;
+                severity.Text = CurrentIngestAttentionSeverities.Error;
+                page.Text = "4";
+                Assert.Same(page, System.Windows.Input.Keyboard.Focus(page));
+                var focusedBefore = System.Windows.Input.Keyboard.FocusedElement;
+                var stateBefore = window.WorkspaceState;
+                var requestsBefore = client.TotalRequestCount;
+
+                composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+
+                Assert.Equal(WatchWorkspacePage.CurrentAttention, window.ActivePage);
+                Assert.Same(stateBefore, window.WorkspaceState);
+                Assert.Equal(requestsBefore, client.TotalRequestCount);
+                Assert.Equal(CurrentIngestAttentionKinds.SeriesError, Assert.IsType<ComboBoxItem>(kind.SelectedItem).Tag);
+                Assert.Equal(CurrentIngestAttentionSeverities.Error, Assert.IsType<ComboBoxItem>(severity.SelectedItem).Tag);
+                Assert.Equal("4", page.Text);
+                Assert.Same(focusedBefore, System.Windows.Input.Keyboard.FocusedElement);
+                Assert.Equal("Current ingest attention", Assert.IsAssignableFrom<TextBlock>(window.FindName("CurrentAttentionPageTitleText")).Text);
+                Assert.Equal("Apply filters", Assert.IsAssignableFrom<ButtonBase>(window.FindName("CurrentAttentionApplyFilterButton")).Content);
+
+                window.Close();
+            }
+            finally
+            {
+                DeleteDirectory(root);
+            }
+        });
+
     private static WatchV2ApplicationComposition CreateComposition(
         string root,
         IWatchV2ApiClient? client = null) =>
