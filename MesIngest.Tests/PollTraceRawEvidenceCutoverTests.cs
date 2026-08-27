@@ -293,7 +293,7 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
     private WebApplicationFactory<Program> CreateFactory(AdjustableTimeProvider clock) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -307,7 +307,8 @@ public sealed class PollTraceRawEvidenceCutoverTests : IClassFixture<WebApplicat
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 }

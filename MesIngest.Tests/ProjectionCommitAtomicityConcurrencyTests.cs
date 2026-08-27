@@ -1538,7 +1538,7 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
         IWatchOverviewReadBoundaryObserver? overviewReadBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -1569,9 +1569,9 @@ public sealed class ProjectionCommitAtomicityConcurrencyTests
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "Oracle",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
             [$"{MesIngestHostOptions.SectionName}__SharedSecret"] = sharedSecret,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
             [$"{MesIngestHostOptions.SectionName}__ZeroDropEnterThreshold"] = "2",
             [$"{MesIngestHostOptions.SectionName}__ZeroDropClearStreak"] = "2",

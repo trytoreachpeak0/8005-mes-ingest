@@ -400,7 +400,7 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         IProjectionReadBoundaryObserver? readBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -424,7 +424,8 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

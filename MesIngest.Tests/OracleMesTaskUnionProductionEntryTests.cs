@@ -52,16 +52,16 @@ public sealed class OracleMesTaskUnionProductionEntryTests : IClassFixture<WebAp
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = database.ConnectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "Oracle",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
             [$"{MesIngestHostOptions.SectionName}__OracleMode"] = "Thin",
             [$"{MesIngestHostOptions.SectionName}__QueriesDirectory"] = Path.Combine(AppContext.BaseDirectory, "queries"),
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
                 services.AddSingleton<IOracleStatementExecutor>(executor));
         });

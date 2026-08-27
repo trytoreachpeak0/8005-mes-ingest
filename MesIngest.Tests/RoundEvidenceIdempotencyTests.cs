@@ -5,8 +5,10 @@ using MesIngest.Core.SeriesProjection;
 using MesIngest.Host;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 
 namespace MesIngest.Tests;
@@ -14,6 +16,9 @@ namespace MesIngest.Tests;
 [Collection("Ticket01SqlServer")]
 public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplicationFactory<Program>>
 {
+    private static readonly DateTimeOffset FixtureUtcNow =
+        new(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
     private const string WorkType = "WIRE_TO_NITROGEN";
     private const string Sublot = "SL-TICKET02-EVIDENCE";
     private const string SeriesByKeyUri =
@@ -651,7 +656,15 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
     }
 
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseEnvironment(Environments.Production));
+        _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseProductionSqlApiTestHost();
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(new AdjustableTimeProvider(FixtureUtcNow));
+            });
+        });
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
         new ProcessEnvironmentScope(new Dictionary<string, string?>
@@ -659,8 +672,8 @@ public sealed class RoundEvidenceIdempotencyTests : IClassFixture<WebApplication
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

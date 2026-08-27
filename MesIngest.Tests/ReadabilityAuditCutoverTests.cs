@@ -292,7 +292,7 @@ public sealed class ReadabilityAuditCutoverTests : IClassFixture<WebApplicationF
         IProjectionReadBoundaryObserver? readBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             if (readBoundaryObserver is not null)
             {
                 builder.ConfigureTestServices(services =>
@@ -309,8 +309,8 @@ public sealed class ReadabilityAuditCutoverTests : IClassFixture<WebApplicationF
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = "Oracle",
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 

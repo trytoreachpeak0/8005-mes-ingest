@@ -32,7 +32,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         FailOnceHistoryCleanupOperations? failOnce = null;
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -146,7 +146,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         var clock = new ManualTimerTimeProvider(firstSeenAt);
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -216,7 +216,7 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
         var clock = new AdjustableTimeProvider(firstSeenAt);
         await using var factory = _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            builder.UseProductionSqlApiTestHost();
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<TimeProvider>();
@@ -413,8 +413,8 @@ public sealed class HistoryCleanupSqlServerTests : IClassFixture<WebApplicationF
             ["ASPNETCORE_ENVIRONMENT"] = Environments.Production,
             ["DOTNET_ENVIRONMENT"] = Environments.Production,
             [$"{MesIngestHostOptions.SectionName}__NewSqlServerConnectionString"] = connectionString,
-            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.NoRoundSource,
-            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "false",
+            [$"{MesIngestHostOptions.SectionName}__SnapshotSource"] = MesIngestHostOptions.OracleRoundSource,
+            [$"{MesIngestHostOptions.SectionName}__ContinuousPollEnabled"] = "true",
             [$"{MesIngestHostOptions.SectionName}__RunOneShotOnStartup"] = "false",
         });
 
