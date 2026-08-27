@@ -252,6 +252,17 @@ public sealed class MesIngestHostOptions
     public OracleSnapshotOptions ToOracleSnapshotOptions(string? contentRoot = null)
     {
         var queriesRoot = ResolveQueriesDirectory(contentRoot);
+        return ToOracleOptions(Path.Combine(queriesRoot, "mes-task-union", "query.sql"));
+    }
+
+    public OracleSnapshotOptions ToSublotBoxCountOracleOptions(string? contentRoot = null)
+    {
+        var queriesRoot = ResolveQueriesDirectory(contentRoot);
+        return ToOracleOptions(Path.Combine(queriesRoot, "sublot-box-count", "query.sql"));
+    }
+
+    private OracleSnapshotOptions ToOracleOptions(string querySqlPath)
+    {
         var instantClientDir = string.IsNullOrWhiteSpace(OracleInstantClientDir)
             ? Environment.GetEnvironmentVariable("ORACLE_CLIENT_LIB_DIR")?.Trim() ?? string.Empty
             : OracleInstantClientDir.Trim();
@@ -267,7 +278,7 @@ public sealed class MesIngestHostOptions
             CommandTimeoutSeconds = Math.Max(1, QueryTimeoutSeconds),
             MinPoolSize = OracleMinPoolSize,
             MaxPoolSize = OracleMaxPoolSize,
-            QuerySqlPath = Path.Combine(queriesRoot, "mes-task-union", "query.sql"),
+            QuerySqlPath = querySqlPath,
         };
     }
 

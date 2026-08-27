@@ -7,8 +7,10 @@
 ```
 MesIngest/
   service/                 # Windows Service（MesIngest.Host）自包含发布
-    queries/mes-task-union/query.sql  # 唯一正式 Oracle 查询稿
+    queries/mes-task-union/query.sql  # 六类任务轮询的固定 Oracle 查询稿
     queries/mes-task-union/query.manifest.json # 查询版本、长度与原始 SHA-256
+    queries/sublot-box-count/query.sql # SUBLOT_BOX_COUNT 固定只读查询稿
+    queries/sublot-box-count/query.manifest.json # 查询版本、长度与原始 SHA-256
   watch/                   # 可选 WPF 盯盘客户端（MesIngest.Watch）
   openapi/v2.json          # Production V2 唯一 canonical OpenAPI 契约
   templates/               # 填空配置模板（无真实凭证）
@@ -116,7 +118,7 @@ $env:MES_INGEST_RELEASE_SMOKE_EMPTY_DATABASE_CONFIRMED = 'YES'
 - `GET /api/v2/contract` 的版本、schema、精确能力集合与只读策略严格匹配冻结契约；
 - 包内 canonical `openapi/v2.json` 的 SHA-256 匹配发布清单，且运行时 `/openapi/v2.json` 与包内文档完整 JSON 语义严格一致；
 - 退役面 `/api/contract`、`/api/demands`（含详情）、`/api/alerts`、`/api/poll-health`、`/api/demand-changes`、`/openapi/v1.json` 全部为 404；同时脚本会故意注入一个已退役配置键，Host 必须拒绝启动而不是忽略它，否则不接受 ADR-mes-0017 切换声明；
-- 唯一 canonical Oracle 查询原稿与相邻 `query.manifest.json` 的路径、长度和 SHA-256；
+- 两个 canonical Oracle 查询原稿与各自相邻 `query.manifest.json` 的路径、长度和 SHA-256；
 - `GET /api/v2/externally-readable-demand-catalog` 首次返回非空正文、已提交的 `catalogRevision` 与对应弱 ETag；带同一 `If-None-Match` 的条件读取返回 304 且无正文；
 - 受限原始证据 `/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations` 即使在本机也必须带正确 Bearer 密钥：缺密钥或密钥错误一律 403；
 - 非本机绑定且未配置 `SharedSecret` 时 Host 拒绝启动；
@@ -355,7 +357,7 @@ physical/used、autogrowth、`log_reuse_wait_desc`，并在最后一次固定 au
 | 空板 / 无需求 | `GET /api/v2/current-ingest-attention`、`GET /api/v2/demand-series`；Oracle 探针是否成功 |
 | Oracle 连不上 | `OracleMode` Thin→Thick，并同时配置 `OracleInstantClientDir` + 已注册 `OracleThickOdbcDriver`；账号/数据源；工厂网络。Thick 不会回退 Thin |
 | SQL Server 投影丢失 | `NewSqlServerConnectionString`；库是否可连；Production 不允许空连接串或内存回退 |
-| 查询 SQL 缺失或被拒绝 | 只确认 `service/queries/mes-task-union/query.sql` 与邻接 `query.manifest.json`；不要从别处补第二份 SQL。二者必须匹配发布清单中的 `canonicalQuery` |
+| 查询 SQL 缺失或被拒绝 | 只确认 `service/queries/mes-task-union/` 与 `service/queries/sublot-box-count/` 中各自唯一的 `query.sql` 和邻接 manifest；不要从别处补第三份 SQL。它们必须匹配发布清单中的 `canonicalQuery` 与 `supplementalReadQueries` |
 
 只读 API（本机默认）：
 

@@ -133,6 +133,16 @@ if (projectionEnabled)
                 executorFactory: sp.GetRequiredService<IOracleStatementExecutorFactory>());
         });
         builder.Services.AddSingleton<IOracleStatementExecutorFactory, OracleStatementExecutorFactory>();
+        builder.Services.AddSingleton<ISublotBoxCountReader>(sp =>
+        {
+            var options = sp.GetRequiredService<MesIngestHostOptions>();
+            var contentRoot = sp.GetRequiredService<IHostEnvironment>().ContentRootPath;
+            return new OracleSublotBoxCountReader(
+                options.ToSublotBoxCountOracleOptions(contentRoot),
+                sp.GetRequiredService<IOracleStatementExecutorFactory>(),
+                sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILogger<OracleSublotBoxCountReader>>());
+        });
         builder.Services.AddSingleton<MesTaskUnionPollRunner>();
         builder.Services.AddSingleton<IMesTaskUnionPollRunner>(sp =>
             sp.GetRequiredService<MesTaskUnionPollRunner>());
@@ -141,6 +151,10 @@ if (projectionEnabled)
         {
             builder.Services.AddHostedService<MesTaskUnionPollHostedService>();
         }
+    }
+    else
+    {
+        builder.Services.AddSingleton<ISublotBoxCountReader, UnavailableSublotBoxCountReader>();
     }
 }
 builder.Services.AddSingleton<ILatencyTelemetry>(sp =>

@@ -26,6 +26,39 @@ public sealed class CanonicalOracleQueryArtifactTests
     }
 
     [Fact]
+    public void Sublot_box_count_source_build_output_and_runtime_artifact_have_identical_raw_sha256()
+    {
+        var sourcePath = FindRepositoryQuery("sublot-box-count");
+        var runtimePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "queries",
+            "sublot-box-count",
+            "query.sql");
+
+        var source = CanonicalSublotBoxCountQuery.Load(sourcePath);
+        var runtime = CanonicalSublotBoxCountQuery.Load(runtimePath);
+
+        Assert.Equal(CanonicalSublotBoxCountQuery.ExpectedSha256, source.Sha256);
+        Assert.Equal(source.Sha256, runtime.Sha256);
+        Assert.Equal(File.ReadAllBytes(sourcePath), File.ReadAllBytes(runtimePath));
+        Assert.Equal($"SUBLOT_BOX_COUNT/sha256:{source.Sha256}", source.QueryVersion);
+    }
+
+    [Fact]
+    public void Sublot_box_count_artifact_is_one_read_only_select_with_one_bound_parameter()
+    {
+        var artifact = CanonicalSublotBoxCountQuery.Load(FindRepositoryQuery("sublot-box-count"));
+        var executableSql = StripCommentsAndQuotedLiterals(artifact.Sql);
+
+        Assert.Matches("^\\s*SELECT\\b", executableSql);
+        Assert.Single(
+            Regex.Matches(executableSql, ":sublot", RegexOptions.IgnoreCase).Cast<Match>());
+        Assert.DoesNotMatch(
+            "\\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|CALL|BEGIN|COMMIT|ROLLBACK|SET)\\b",
+            executableSql);
+    }
+
+    [Fact]
     public void Canonical_artifact_is_one_read_only_select_and_has_no_DML_DDL()
     {
         var artifact = CanonicalMesTaskUnionQuery.Load(FindRepositoryQuery());
@@ -70,6 +103,9 @@ public sealed class CanonicalOracleQueryArtifactTests
     }
 
     private static string FindRepositoryQuery()
+        => FindRepositoryQuery("mes-task-union");
+
+    private static string FindRepositoryQuery(string queryDirectory)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
@@ -78,7 +114,7 @@ public sealed class CanonicalOracleQueryArtifactTests
                 directory.FullName,
                 "mes",
                 "queries",
-                "mes-task-union",
+                queryDirectory,
                 "query.sql");
             if (File.Exists(candidate))
             {

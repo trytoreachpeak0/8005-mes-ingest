@@ -30,7 +30,10 @@ public sealed record OracleStatementRequest(
     string Sql,
     string QueryVersion,
     string QuerySha256,
-    int CommandTimeoutSeconds);
+    int CommandTimeoutSeconds,
+    IReadOnlyList<OracleBindParameter>? BindParameters = null);
+
+public sealed record OracleBindParameter(string Name, string Value);
 
 public sealed record OracleStatementResult(
     IReadOnlyList<OracleResultColumn> Columns,
@@ -524,19 +527,10 @@ public sealed class OdpNetOracleStatementExecutor : IOracleStatementExecutor
     {
         ArgumentNullException.ThrowIfNull(request);
         Volatile.Write(ref _connectionAttempted, 0);
-        if (!string.Equals(
-                request.QuerySha256,
-                CanonicalMesTaskUnionQuery.ExpectedSha256,
-                StringComparison.Ordinal)
-            || !string.Equals(
-                request.QueryVersion,
-                CanonicalMesTaskUnionQuery.QueryVersion,
-                StringComparison.Ordinal)
-            || !CanonicalMesTaskUnionQuery.IsApprovedSql(request.Sql)
-            || request.CommandTimeoutSeconds <= 0)
+        if (!ApprovedOracleStatementRequest.IsValid(request))
         {
             throw new ArgumentException(
-                "The Oracle statement request is not the approved canonical query contract.",
+                "The Oracle statement request is not an approved canonical query contract.",
                 nameof(request));
         }
 
@@ -556,6 +550,7 @@ public sealed class OdpNetOracleStatementExecutor : IOracleStatementExecutor
         {
             oracleCommand.BindByName = true;
         }
+        AddBindParameters(command, request.BindParameters);
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -584,6 +579,21 @@ public sealed class OdpNetOracleStatementExecutor : IOracleStatementExecutor
         }
 
         return new OracleStatementResult(columns, rows);
+    }
+
+    private static void AddBindParameters(
+        DbCommand command,
+        IReadOnlyList<OracleBindParameter>? bindParameters)
+    {
+        foreach (var bind in bindParameters ?? [])
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = bind.Name;
+            parameter.DbType = DbType.String;
+            parameter.Size = CanonicalSublotBoxCountQuery.MaximumSublotLength;
+            parameter.Value = bind.Value;
+            command.Parameters.Add(parameter);
+        }
     }
 
     internal static OracleColumnKind Classify(string? providerTypeName)

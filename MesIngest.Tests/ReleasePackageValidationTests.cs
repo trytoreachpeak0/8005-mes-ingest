@@ -7,20 +7,25 @@ namespace MesIngest.Tests;
 
 public sealed class ReleasePackageValidationTests
 {
-    private const string ContractVersion = "2026.08.new-mes-ingest.v2.2";
+    private const string ContractVersion = "2026.08.new-mes-ingest.v2.3";
     private const int ContractSchemaVersion = 29;
     private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
     private const string CanonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
     private const string CanonicalQueryRelativePath = "service/queries/mes-task-union/query.sql";
+    private const string SublotBoxCountQueryId = "SUBLOT_BOX_COUNT";
+    private const string SublotBoxCountQuerySha256 = "4d2784513bfb85506c190cf138d833ad38dc27102dc33df8161c3f41fbaf26ff";
+    private const string SublotBoxCountQueryRelativePath = "service/queries/sublot-box-count/query.sql";
 
     [Fact]
-    public void Publish_script_emits_one_content_addressed_service_query_without_a_root_mirror()
+    public void Publish_script_emits_two_content_addressed_service_queries_without_a_root_mirror()
     {
         var script = File.ReadAllText(Path.Combine(CSharpRoot, "pack", "Publish-MesIngest.ps1"));
 
         Assert.Contains(CanonicalQueryRelativePath, script, StringComparison.Ordinal);
         Assert.Contains(CanonicalQuerySha256, script, StringComparison.Ordinal);
+        Assert.Contains(SublotBoxCountQueryRelativePath, script, StringComparison.Ordinal);
+        Assert.Contains(SublotBoxCountQuerySha256, script, StringComparison.Ordinal);
         Assert.Contains("query.manifest.json", script, StringComparison.Ordinal);
         Assert.DoesNotContain("$queriesDir", script, StringComparison.Ordinal);
         Assert.DoesNotContain("mirror at install root", script, StringComparison.OrdinalIgnoreCase);
@@ -96,6 +101,8 @@ public sealed class ReleasePackageValidationTests
             StringComparison.Ordinal);
         Assert.Contains(CanonicalQueryRelativePath, smoke, StringComparison.Ordinal);
         Assert.Contains(CanonicalQuerySha256, smoke, StringComparison.Ordinal);
+        Assert.Contains(SublotBoxCountQueryRelativePath, smoke, StringComparison.Ordinal);
+        Assert.Contains(SublotBoxCountQuerySha256, smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("SnapshotCsvPath", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("host.stdout.log", smoke, StringComparison.Ordinal);
         Assert.DoesNotContain("host.stderr.log", smoke, StringComparison.Ordinal);
@@ -146,6 +153,18 @@ public sealed class ReleasePackageValidationTests
             Assert.Equal(
                 new FileInfo(Path.Combine(root, CanonicalQueryRelativePath.Replace('/', Path.DirectorySeparatorChar))).Length,
                 canonicalQuery.GetProperty("length").GetInt64());
+            var supplementalQuery = Assert.Single(
+                manifest.RootElement.GetProperty("supplementalReadQueries").EnumerateArray());
+            Assert.Equal(SublotBoxCountQueryId, supplementalQuery.GetProperty("id").GetString());
+            Assert.Equal(
+                $"{SublotBoxCountQueryId}/sha256:{SublotBoxCountQuerySha256}",
+                supplementalQuery.GetProperty("version").GetString());
+            Assert.Equal(
+                SublotBoxCountQueryRelativePath,
+                supplementalQuery.GetProperty("path").GetString());
+            Assert.Equal(
+                SublotBoxCountQuerySha256,
+                supplementalQuery.GetProperty("sha256").GetString());
             Assert.NotEmpty(manifest.RootElement.GetProperty("files").EnumerateArray());
             Assert.All(
                 manifest.RootElement.GetProperty("files").EnumerateArray(),
@@ -302,7 +321,7 @@ public sealed class ReleasePackageValidationTests
             var result = await RunValidatorAsync(root);
 
             Assert.NotEqual(0, result.ExitCode);
-            Assert.Contains("exactly one", result.Output, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("exactly two", result.Output, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -517,6 +536,26 @@ public sealed class ReleasePackageValidationTests
                     length = queryLength,
                     sha256 = CanonicalQuerySha256,
                 }));
+        var sublotQueryDirectory = Path.Combine(root, "service", "queries", "sublot-box-count");
+        Directory.CreateDirectory(sublotQueryDirectory);
+        var sublotQueryPath = Path.Combine(sublotQueryDirectory, "query.sql");
+        File.Copy(RepositorySublotBoxCountQueryPath, sublotQueryPath);
+        var sublotQueryLength = new FileInfo(sublotQueryPath).Length;
+        var sublotQueryHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(sublotQueryPath)))
+            .ToLowerInvariant();
+        Assert.Equal(SublotBoxCountQuerySha256, sublotQueryHash);
+        File.WriteAllText(
+            Path.Combine(sublotQueryDirectory, "query.manifest.json"),
+            JsonSerializer.Serialize(
+                new
+                {
+                    schemaVersion = 1,
+                    id = SublotBoxCountQueryId,
+                    version = $"{SublotBoxCountQueryId}/sha256:{SublotBoxCountQuerySha256}",
+                    path = SublotBoxCountQueryRelativePath,
+                    length = sublotQueryLength,
+                    sha256 = SublotBoxCountQuerySha256,
+                }));
         File.WriteAllText(Path.Combine(root, "scripts", "install-service.ps1"), "# install");
         File.WriteAllText(Path.Combine(root, "scripts", "uninstall-service.ps1"), "# uninstall");
         File.WriteAllText(Path.Combine(root, "scripts", "Test-ReleasePackage.ps1"), "# validate");
@@ -665,6 +704,9 @@ public sealed class ReleasePackageValidationTests
 
     private static string RepositoryCanonicalQueryPath => Path.GetFullPath(
         Path.Combine(CSharpRoot, "..", "..", "queries", "mes-task-union", "query.sql"));
+
+    private static string RepositorySublotBoxCountQueryPath => Path.GetFullPath(
+        Path.Combine(CSharpRoot, "..", "..", "queries", "sublot-box-count", "query.sql"));
 
     private sealed record ValidationResult(int ExitCode, string Output);
 }

@@ -125,6 +125,11 @@ public static class MesIngestOpenApi
                     return ["WatchOverview"];
                 }
 
+                if (path.StartsWith("api/v2/sublot-box-count", StringComparison.OrdinalIgnoreCase))
+                {
+                    return ["SublotBoxCount"];
+                }
+
                 if (path.StartsWith("api/v2/contract", StringComparison.OrdinalIgnoreCase))
                 {
                     return ["Contract"];

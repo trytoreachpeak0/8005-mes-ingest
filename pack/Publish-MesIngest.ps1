@@ -54,6 +54,10 @@ $canonicalQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\que
 $canonicalQueryId = 'MES_TASK_UNION'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
+$sublotBoxCountQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\sublot-box-count\query.sql"))
+$sublotBoxCountQueryId = 'SUBLOT_BOX_COUNT'
+$sublotBoxCountQuerySha256 = '4d2784513bfb85506c190cf138d833ad38dc27102dc33df8161c3f41fbaf26ff'
+$sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }
 if (-not (Test-Path $referenceConsumerProj)) { throw "Reference consumer project not found: $referenceConsumerProj" }
@@ -75,6 +79,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $maintenanceSrc 'Invoke-SqlServerMem
     throw "Missing SQL Server memory profile entry: $maintenanceSrc"
 }
 if (-not (Test-Path -LiteralPath $canonicalQuerySource -PathType Leaf)) { throw "Missing canonical query source: $canonicalQuerySource" }
+if (-not (Test-Path -LiteralPath $sublotBoxCountQuerySource -PathType Leaf)) { throw "Missing canonical SUBLOT_BOX_COUNT query source: $sublotBoxCountQuerySource" }
 
 $resolvedOutput = [IO.Path]::GetFullPath($OutputDir).TrimEnd('\', '/')
 $pathRoot = [IO.Path]::GetPathRoot($resolvedOutput).TrimEnd('\', '/')
@@ -152,8 +157,8 @@ if (-not $SkipWatch) {
 New-Item -ItemType Directory -Force -Path $openapiDir | Out-Null
 Copy-Item -LiteralPath $openapiSrc -Destination (Join-Path $openapiDir "v2.json") -Force
 
-# The service copy is the only deployable SQL artifact. Verify the repository source and
-# published bytes before declaring their content-addressed version beside the artifact.
+# These two service copies form the complete deployable SQL allowlist. Verify each
+# repository source and the published bytes before declaring content-addressed versions.
 $canonicalSourceHash = (Get-FileHash -LiteralPath $canonicalQuerySource -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($canonicalSourceHash -cne $canonicalQuerySha256) {
     throw "Canonical query source hash mismatch: expected $canonicalQuerySha256; actual $canonicalSourceHash"
@@ -175,6 +180,28 @@ if ($publishedCanonicalQueryFile.Length -le 0 -or $publishedCanonicalQueryHash -
     length = $publishedCanonicalQueryFile.Length
     sha256 = $canonicalQuerySha256
 } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $publishedCanonicalQueryFile.DirectoryName 'query.manifest.json') -Encoding UTF8
+
+$sublotBoxCountSourceHash = (Get-FileHash -LiteralPath $sublotBoxCountQuerySource -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($sublotBoxCountSourceHash -cne $sublotBoxCountQuerySha256) {
+    throw "Canonical SUBLOT_BOX_COUNT query source hash mismatch: expected $sublotBoxCountQuerySha256; actual $sublotBoxCountSourceHash"
+}
+$publishedSublotBoxCountQuery = Join-Path $OutputDir $sublotBoxCountQueryRelativePath
+if (-not (Test-Path -LiteralPath $publishedSublotBoxCountQuery -PathType Leaf)) {
+    throw "Published Host is missing canonical SUBLOT_BOX_COUNT query: $sublotBoxCountQueryRelativePath"
+}
+$publishedSublotBoxCountFile = Get-Item -LiteralPath $publishedSublotBoxCountQuery
+$publishedSublotBoxCountHash = (Get-FileHash -LiteralPath $publishedSublotBoxCountQuery -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($publishedSublotBoxCountFile.Length -le 0 -or $publishedSublotBoxCountHash -cne $sublotBoxCountQuerySha256) {
+    throw "Published canonical SUBLOT_BOX_COUNT query differs from the approved repository source."
+}
+[ordered]@{
+    schemaVersion = 1
+    id = $sublotBoxCountQueryId
+    version = "$sublotBoxCountQueryId/sha256:$sublotBoxCountQuerySha256"
+    path = $sublotBoxCountQueryRelativePath
+    length = $publishedSublotBoxCountFile.Length
+    sha256 = $sublotBoxCountQuerySha256
+} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $publishedSublotBoxCountFile.DirectoryName 'query.manifest.json') -Encoding UTF8
 
 New-Item -ItemType Directory -Force -Path $templatesDir | Out-Null
 Copy-Item $exampleLocal (Join-Path $templatesDir "appsettings.Local.json.example") -Force

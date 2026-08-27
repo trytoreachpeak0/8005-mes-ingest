@@ -7,7 +7,7 @@ public sealed class NewMesIngestContractFreezeTests
     [Fact]
     public void Contract_discovery_returns_exact_version_and_only_the_frozen_v2_capability_set()
     {
-        Assert.Equal("2026.08.new-mes-ingest.v2.2", NewMesIngestContract.Version);
+        Assert.Equal("2026.08.new-mes-ingest.v2.3", NewMesIngestContract.Version);
         Assert.Equal(29, NewMesIngestContract.SchemaVersion);
         Assert.Equal(
             "EXACT_VERSION_SCHEMA_AND_CAPABILITIES",
@@ -27,6 +27,7 @@ public sealed class NewMesIngestContractFreezeTests
                 "POLL_HEALTH_AND_EVIDENCE|2.0|GET /api/v2/poll-traces/{pollTraceId};GET /api/v2/absence-authority;GET /api/v2/absence-authority/{hostSessionId};GET /api/v2/task-type-protections;GET /api/v2/task-type-protections/{workType}",
                 "READABILITY_AUDIT|2.0|GET /api/v2/readability-audit;GET /api/v2/readability-audit/{demandId}",
                 "SERIES_ERROR_CATALOG|2.0|GET /api/v2/contract",
+                "SUBLOT_BOX_COUNT|1.0|GET /api/v2/sublot-box-count",
                 "WATCH_OVERVIEW|2.0|GET /api/v2/watch-overview",
             ],
             NewMesIngestContract.Capabilities.Select(capability =>
@@ -38,7 +39,7 @@ public sealed class NewMesIngestContractFreezeTests
             .OrderBy(operation => operation.Path, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(17, operations.Length);
+        Assert.Equal(18, operations.Length);
         Assert.All(operations, operation => Assert.Equal("GET", operation.Method));
         Assert.All(
             operations,

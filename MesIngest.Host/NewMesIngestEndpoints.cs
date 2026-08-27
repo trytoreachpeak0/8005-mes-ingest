@@ -10,6 +10,9 @@ internal static class NewMesIngestEndpoints
         endpoints.MapGet("/api/v2/contract", GetContract)
             .DescribeV2("GetV2Contract", "Contract");
 
+        endpoints.MapGet("/api/v2/sublot-box-count", SublotBoxCountEndpoints.GetAsync)
+            .DescribeV2("GetSublotBoxCount", "SublotBoxCount");
+
         endpoints.MapGet("/api/v2/demand-series", ListDemandSeriesAsync)
             .DescribeV2("ListDemandSeries", "DemandSeries");
 
@@ -90,7 +93,7 @@ internal static class NewMesIngestEndpoints
             ReadabilityQualificationCheckCatalog.Definitions
                 .Select(ReadabilityQualificationCheckDefinitionDto.From).ToArray()));
 
-    private static RouteHandlerBuilder DescribeV2(
+    internal static RouteHandlerBuilder DescribeV2(
         this RouteHandlerBuilder endpoint,
         string operationName,
         string tag)
@@ -142,6 +145,7 @@ internal static class NewMesIngestEndpoints
             "GetErrorSearchRawEvidence" => Set("snapshot", "fields", "maxItems"),
             "ListCurrentIngestAttention" => Set("pageSize", "pageNumber", "kind", "severity"),
             "GetWatchOverview" => Set("area"),
+            "GetSublotBoxCount" => Set("sublot"),
             _ => Set(),
         };
 
@@ -154,6 +158,7 @@ internal static class NewMesIngestEndpoints
         "ListErrorSearch" or "GetErrorSearchDetail" => ErrorSearchErrorCodes.InvalidQuery,
         "ListCurrentIngestAttention" => CurrentIngestAttentionErrorCodes.InvalidQuery,
         "GetWatchOverview" => WatchOverviewErrorCodes.InvalidQuery,
+        "GetSublotBoxCount" => "SUBLOT_BOX_COUNT_INVALID_QUERY",
         "GetV2Contract" => "INVALID_CONTRACT_QUERY",
         _ => PollEvidenceErrorCodes.InvalidQuery,
     };

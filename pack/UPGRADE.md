@@ -70,8 +70,8 @@ Host 只接受两种数据库状态：
 - `OracleMode=Thin` 作为默认尝试；如需 Thick，还必须同时填 `OracleInstantClientDir` 和已注册的 `OracleThickOdbcDriver`；
 - 跨机绑定时的 `Urls` 和 `SharedSecret`。
 
-`service/queries/mes-task-union/query.sql` 是唯一正式 Oracle SQL，必须与相邻 `query.manifest.json`
-及根目录 `RELEASE-MANIFEST.json` 一致；先在安装根目录执行 `.\scripts\Test-ReleasePackage.ps1 -PackageRoot .`
+`service/queries/mes-task-union/query.sql` 与 `service/queries/sublot-box-count/query.sql` 是仅有的两个正式 Oracle SQL，必须分别与相邻 `query.manifest.json`
+及根目录 `RELEASE-MANIFEST.json` 的 `canonicalQuery`／`supplementalReadQueries` 一致；先在安装根目录执行 `.\scripts\Test-ReleasePackage.ps1 -PackageRoot .`
 校验包内容，再在 `service/` 执行 `.\MesIngest.Host.exe --probe-oracle` 取得 `LIVE_ORACLE` 探针结果。
 
 接着安装并启动新版 Host：

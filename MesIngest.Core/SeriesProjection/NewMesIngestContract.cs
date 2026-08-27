@@ -7,7 +7,7 @@ namespace MesIngest.Core.SeriesProjection;
 /// </summary>
 public static class NewMesIngestContract
 {
-    public const string Version = "2026.08.new-mes-ingest.v2.2";
+    public const string Version = "2026.08.new-mes-ingest.v2.3";
 
     public const int SchemaVersion = 29;
 
@@ -73,6 +73,10 @@ public static class NewMesIngestContract
             "SERIES_ERROR_CATALOG",
             "2.0",
             [Get("/api/v2/contract")]),
+        new(
+            "SUBLOT_BOX_COUNT",
+            "1.0",
+            [Get("/api/v2/sublot-box-count")]),
         new(
             "WATCH_OVERVIEW",
             "2.0",
