@@ -54,7 +54,7 @@
             <Style x:Key="InspectorEventGridTextCell"
                    TargetType="TextBlock"
                    BasedOn="{StaticResource DataGridTextCell}">
-                <Setter Property="Margin" Value="10,0" />
+                <Setter Property="Margin" Value="4,0" />
             </Style>
         </ResourceDictionary>
     </ui:FluentWindow.Resources>
