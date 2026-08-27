@@ -260,6 +260,7 @@ public sealed class OracleClientModeConfigurationTests
         Assert.Equal(request.Sql, thinProvider.Connection.Command.CommandText);
         Assert.Contains(":sublot", thinProvider.Connection.Command.CommandText, StringComparison.Ordinal);
         Assert.DoesNotContain(sublot, thinProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.False(thinProvider.Connection.Command.CommandText.TrimEnd().EndsWith(';'));
         AssertBoundSublot(thinProvider.Connection.Command, sublot);
 
         using var directory = TemporaryDirectory.Create();
@@ -273,6 +274,7 @@ public sealed class OracleClientModeConfigurationTests
         Assert.DoesNotContain(":sublot", StripSqlComments(thickProvider.Connection.Command.CommandText), StringComparison.Ordinal);
         Assert.Contains("t.lot = ?", thickProvider.Connection.Command.CommandText, StringComparison.Ordinal);
         Assert.DoesNotContain(sublot, thickProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.False(thickProvider.Connection.Command.CommandText.TrimEnd().EndsWith(';'));
         AssertBoundSublot(thickProvider.Connection.Command, sublot);
     }
 

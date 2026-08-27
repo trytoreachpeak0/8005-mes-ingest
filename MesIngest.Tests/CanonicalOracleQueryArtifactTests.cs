@@ -53,6 +53,9 @@ public sealed class CanonicalOracleQueryArtifactTests
         Assert.Matches("^\\s*SELECT\\b", executableSql);
         Assert.Single(
             Regex.Matches(executableSql, ":sublot", RegexOptions.IgnoreCase).Cast<Match>());
+        Assert.False(
+            executableSql.TrimEnd().EndsWith(';'),
+            "ODP.NET rejects a SQL statement terminator with ORA-00911.");
         Assert.DoesNotMatch(
             "\\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|CALL|BEGIN|COMMIT|ROLLBACK|SET)\\b",
             executableSql);

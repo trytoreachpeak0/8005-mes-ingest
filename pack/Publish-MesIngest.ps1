@@ -56,7 +56,7 @@ $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed81
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $sublotBoxCountQuerySource = [IO.Path]::GetFullPath((Join-Path $csharpRoot "..\..\queries\sublot-box-count\query.sql"))
 $sublotBoxCountQueryId = 'SUBLOT_BOX_COUNT'
-$sublotBoxCountQuerySha256 = '4d2784513bfb85506c190cf138d833ad38dc27102dc33df8161c3f41fbaf26ff'
+$sublotBoxCountQuerySha256 = '9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24'
 $sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
 
 if (-not (Test-Path $hostProj)) { throw "Host project not found: $hostProj" }

@@ -93,7 +93,7 @@ $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
 $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
 $sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
-$sublotBoxCountQuerySha256 = '4d2784513bfb85506c190cf138d833ad38dc27102dc33df8161c3f41fbaf26ff'
+$sublotBoxCountQuerySha256 = '9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24'
 
 # Every check the run must account for. New-FactoryAcceptanceSummary refuses to close
 # while any of these has no result, so an unexecuted step cannot leave silently.

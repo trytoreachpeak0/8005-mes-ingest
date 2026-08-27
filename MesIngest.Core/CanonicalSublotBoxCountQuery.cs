@@ -11,7 +11,7 @@ public static class CanonicalSublotBoxCountQuery
     public const string Id = "SUBLOT_BOX_COUNT";
     public const int MaximumSublotLength = 256;
     public const string ExpectedSha256 =
-        "4d2784513bfb85506c190cf138d833ad38dc27102dc33df8161c3f41fbaf26ff";
+        "9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24";
     public const string QueryVersion = Id + "/sha256:" + ExpectedSha256;
 
     private static readonly UTF8Encoding StrictUtf8 = new(
