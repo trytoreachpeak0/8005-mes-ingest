@@ -19,7 +19,7 @@ internal sealed class WatchReadabilityAuditText(WatchDisplayLanguage language)
 internal sealed class WatchErrorSearchText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
-internal sealed class WatchAreaFilterText(WatchDisplayLanguage language)
+internal sealed partial class WatchAreaFilterText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
 internal sealed class WatchCurrentAttentionText(WatchDisplayLanguage language)
@@ -28,6 +28,5 @@ internal sealed class WatchCurrentAttentionText(WatchDisplayLanguage language)
 internal sealed class WatchInspectorText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
 
-internal sealed class WatchFeedbackText(WatchDisplayLanguage language)
+internal sealed partial class WatchFeedbackText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);
-

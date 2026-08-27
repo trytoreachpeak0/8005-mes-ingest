@@ -12,7 +12,12 @@ internal partial class WatchWorkspaceWindow
         }
 
         var focusedElement = System.Windows.Input.Keyboard.FocusedElement;
+        var areaEditorViewState = AreaProfileEditor is null
+            ? null
+            : CaptureAreaProfileEditorViewState();
         ApplyLocalizedShellAndSettingsText();
+        ApplyLocalizedAreaFilterStaticText();
+        RenderAreaProfiles(editorViewState: areaEditorViewState);
         InitializeIntervalInputs();
         DisplayLanguageInput.SelectedValue = _displayLanguageState.Current;
 
@@ -142,6 +147,7 @@ internal partial class WatchWorkspaceWindow
             settings.DefaultNavigationPane);
         SaveRefreshIntervalsButton.Content = settings.Save;
         AutomationProperties.SetName(SaveRefreshIntervalsButton, settings.Save);
+        ApplyLocalizedAreaFilterStaticText();
     }
 
     private static void ApplyNavigationText(
@@ -168,4 +174,3 @@ internal partial class WatchWorkspaceWindow
             settings.RefreshAutomationName(label));
     }
 }
-

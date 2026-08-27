@@ -80,6 +80,11 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     DateTimeOffset? FileLastModifiedAt,
     WatchAreaFilterProfileAvailability Availability)
 {
+    public WatchDisplayLanguage DisplayLanguage { get; init; } =
+        WatchDisplayLanguage.SimplifiedChinese;
+
+    private WatchAreaFilterText Text => WatchTextCatalog.For(DisplayLanguage).AreaFilter;
+
     public bool IsAllAreas { get; init; }
 
     public int MesAreaCount => MesAreas.Count;
@@ -102,21 +107,21 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     /// content and drift are a second, orthogonal dimension carried by
     /// <see cref="AttentionText"/>, so neither one can hide the other.
     /// </summary>
-    public string AppliedBadgeText => "当前应用";
+    public string AppliedBadgeText => Text.AppliedBadge;
 
     /// <summary>
     /// Spoken only. On screen the corner shows 有效 for a healthy profile and
     /// hands the slot over to the badge or to <see cref="AttentionText"/>
     /// otherwise, but a screen reader still needs the word said out loud.
     /// </summary>
-    public string ValidityText => IsValid ? "有效" : "无效";
+    public string ValidityText => IsValid ? Text.Valid : Text.Invalid;
 
     public string? AttentionText => this switch
     {
-        { IsMissing: true } => "文件已删除 · 范围仍生效",
-        { IsValid: false, IsApplied: true } => "内容非法 · 待重新应用",
-        { IsValid: false } => "内容非法 · 需修复",
-        { IsApplied: true, HasDrifted: true } => "待重新应用",
+        { IsMissing: true } => Text.MissingAttention,
+        { IsValid: false, IsApplied: true } => Text.AppliedInvalidAttention,
+        { IsValid: false } => Text.InvalidAttention,
+        { IsApplied: true, HasDrifted: true } => Text.ReapplyAttention,
         _ => null,
     };
 
@@ -132,24 +137,30 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     public bool BlocksIdentityChangingCommands { get; init; }
 
     public string MetadataText => IsAllAreas
-        ? "不限制显示范围"
+        ? Text.Unrestricted
         : IsMissing
-        ? $"{MesAreaCount:N0} 个 AREA · 已应用快照"
-        : $"{MesAreaCount:N0} 个 AREA · {LastModifiedText} 修改";
+        ? Text.FileCountMetadata(MesAreaCount, Text.AppliedSnapshot)
+        : Text.FileCountMetadata(MesAreaCount, Text.Modified(LastModifiedText));
 
     public string AutomationName => string.Join(
         '；',
         new[]
         {
             ProfileName,
-            IsAllAreas ? null : $"{MesAreaCount:N0} 个 AREA",
-            IsApplied ? AppliedBadgeText : IsMissing ? "文件已删除" : ValidityText,
+            IsAllAreas ? null : Text.AreaCount(MesAreaCount),
+            IsApplied ? AppliedBadgeText : IsMissing ? Text.DeletedApplied : ValidityText,
             AttentionText,
             IsAllAreas
-                ? "不限制显示范围"
-                : IsMissing ? "已应用快照" : $"{LastModifiedText} 修改",
+                ? Text.Unrestricted
+                : IsMissing ? Text.AppliedSnapshot : Text.Modified(LastModifiedText),
         }.Where(part => part is not null));
 }
+
+internal sealed record WatchAreaFilterProfileDiagnosticPresentation(
+    string Code,
+    string Message,
+    int? LineNumber,
+    string? Value);
 
 /// <summary>
 /// What the apply button offers for the selected profile. The display scope is
@@ -181,11 +192,14 @@ internal sealed record WatchAreaProfileApplyButtonState(
     bool IsEnabled,
     string? BlockedReason)
 {
+    public WatchDisplayLanguage DisplayLanguage { get; init; } =
+        WatchDisplayLanguage.SimplifiedChinese;
+
     public string Content => Action switch
     {
-        WatchAreaProfileApplyAction.Applied => "已应用",
-        WatchAreaProfileApplyAction.Reapply => "重新应用",
-        _ => "应用此配置",
+        WatchAreaProfileApplyAction.Applied => WatchTextCatalog.For(DisplayLanguage).AreaFilter.Applied,
+        WatchAreaProfileApplyAction.Reapply => WatchTextCatalog.For(DisplayLanguage).AreaFilter.Reapply,
+        _ => WatchTextCatalog.For(DisplayLanguage).AreaFilter.Apply,
     };
 
     public string AutomationName => Action switch
@@ -230,6 +244,73 @@ internal sealed record WatchAreaProfileApplyButtonState(
 internal partial class WatchWorkspaceWindow
 {
     private const string AllAreasProfileDisplayName = "全部 AREA（不筛选）";
+
+    private void ApplyLocalizedAreaFilterStaticText()
+    {
+        var text = _displayLanguageState.Catalog.AreaFilter;
+        AutomationProperties.SetName(AreaFilterPage, text.PageTitle);
+        AreaProfilePageTitleText.Text = text.PageTitle;
+        AreaProfilePageSubtitleText.Text = text.PageSubtitle;
+        AreaProfileDirectoryWatchInfoBar.Title = text.ListNotLoaded;
+        AreaProfileListTitleText.Text = text.ListTitle;
+        AreaProfileOpenDirectoryButton.Content = text.OpenFolder;
+        AreaProfileNewButton.Content = text.NewProfile;
+        AreaProfileLocalScopeText.Text = text.LocalOnly;
+        AreaProfileSaveDraftAsButton.Content = text.SaveDraftAs;
+        AreaProfileDirectoryText.Text = text.StorageCaption;
+        AreaProfileValidationExpander.Header = text.ValidationDetails;
+        AreaProfileDiagnosticLineColumn.Header = text.ValidationLine;
+        AreaProfileDiagnosticCodeColumn.Header = text.ValidationCode;
+        AreaProfileDiagnosticMessageColumn.Header = text.ValidationMessage;
+        AreaProfileFileOperationCancelButton.Content = text.Cancel;
+
+        if (_areaProfileFileOperationConfirmation is { } confirmation)
+        {
+            AreaProfileFileOperationPromptText.Text = confirmation.Operation switch
+            {
+                AreaProfileFileOperation.Rename => text.RenamePrompt(confirmation.SourceProfileName),
+                AreaProfileFileOperation.Delete => text.DeletePrompt(confirmation.SourceProfileName),
+                AreaProfileFileOperation.SaveAs => text.SaveAs,
+                _ => text.NewProfileTitle,
+            };
+            AreaProfileFileOperationConfirmButton.Content = confirmation.Operation switch
+            {
+                AreaProfileFileOperation.Create => text.ConfirmName,
+                AreaProfileFileOperation.SaveAs => text.SaveAs,
+                AreaProfileFileOperation.Rename => text.Rename,
+                AreaProfileFileOperation.Delete => text.ConfirmDelete,
+                _ => text.Confirm,
+            };
+            AutomationProperties.SetName(
+                AreaProfileFileOperationPanel,
+                AreaProfileFileOperationPromptText.Text);
+            AreaProfileFileOperationPromptText.ToolTip = AreaProfileFileOperationPromptText.Text;
+            AutomationProperties.SetHelpText(
+                AreaProfileFileOperationConfirmButton,
+                AreaProfileFileOperationPromptText.Text);
+        }
+
+        if (AreaProfileList.Resources["AreaProfileFileContextMenu"] is ContextMenu menu
+            && menu.Items.Count >= 3)
+        {
+            ((MenuItem)menu.Items[0]).Header = text.SaveAs;
+            ((MenuItem)menu.Items[1]).Header = text.Rename;
+            ((MenuItem)menu.Items[2]).Header = text.Delete;
+        }
+    }
+
+    private void OnAreaProfileFileContextMenuOpened(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ContextMenu { Items.Count: >= 3 } menu)
+        {
+            return;
+        }
+
+        var text = _displayLanguageState.Catalog.AreaFilter;
+        ((MenuItem)menu.Items[0]).Header = text.SaveAs;
+        ((MenuItem)menu.Items[1]).Header = text.Rename;
+        ((MenuItem)menu.Items[2]).Header = text.Delete;
+    }
 
     private enum AreaProfileFileOperation
     {
@@ -586,6 +667,7 @@ internal partial class WatchWorkspaceWindow
             _areaProfileRows = _areaProfileRows
                 .Select(row => row with
                 {
+                    DisplayLanguage = _displayLanguageState.Current,
                     IsApplied = row.IsAllAreas
                         ? applied.IsAllAreas
                         : string.Equals(
@@ -597,7 +679,8 @@ internal partial class WatchWorkspaceWindow
 
             var areaProfileDirectoryPath = Path.GetFullPath(_areaProfileStore.DirectoryPath);
             AreaProfileDirectoryText.Text = FormatAreaProfileDirectoryCaption(
-                areaProfileDirectoryPath);
+                areaProfileDirectoryPath,
+                _displayLanguageState.Current);
             AreaProfileDirectoryText.ToolTip = areaProfileDirectoryPath;
             AutomationProperties.SetHelpText(
                 AreaProfileDirectoryText,
@@ -640,24 +723,36 @@ internal partial class WatchWorkspaceWindow
             _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
                 string.Empty,
                 string.Empty);
-            var applyState = EvaluateAreaProfileApplyState(applied, _areaProfileDraft);
+            var areaText = _displayLanguageState.Catalog.AreaFilter;
+            var applyState = EvaluateAreaProfileApplyState(applied, _areaProfileDraft) with
+            {
+                DisplayLanguage = _displayLanguageState.Current,
+            };
             _areaProfileRows = MarkDriftedAreaProfileRows(
                 _areaProfileRows,
                 applied,
                 _areaProfileDraft);
+            _areaProfileRows = _areaProfileRows.Select(row => row.IsAllAreas
+                ? row with { ProfileName = areaText.AllAreas }
+                : row).ToArray();
             var searchText = AreaProfileSearchInput.Text.Trim();
             var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
             var fileCount = _areaProfileRows.Count(row => !row.IsAllAreas && !row.IsMissing);
             var invalidCount = _areaProfileRows.Count(row =>
                 !row.IsAllAreas && !row.IsMissing && !row.IsValid);
             AreaProfileListSummaryText.Text = searchText.Length == 0
-                ? $"{fileCount:N0} 个文件 · {invalidCount:N0} 个需要修复"
-                : $"显示 {visibleRows.Count(row => !row.IsAllAreas):N0} / {fileCount:N0} 个配置"
-                    + $" · {invalidCount:N0} 个需要修复";
+                ? areaText.FileSummary(fileCount, invalidCount)
+                : areaText.FilteredSummary(
+                    visibleRows.Count(row => !row.IsAllAreas),
+                    fileCount,
+                    invalidCount);
 
-            AreaProfileAppliedStateText.Text = applied.AppliedAt is { } appliedAt
-                ? $"当前应用：{applied.DisplaySummary} · {WatchTimeDisplay.Format(appliedAt)}"
-                : $"当前应用：{applied.DisplaySummary}";
+            var appliedSummary = applied.IsAllAreas
+                ? areaText.AllAreas
+                : $"{applied.ProfileName} · {areaText.AreaCount(applied.MesAreas.Count)}";
+            AreaProfileAppliedStateText.Text = areaText.CurrentApplied(
+                appliedSummary,
+                applied.AppliedAt is { } appliedAt ? WatchTimeDisplay.Format(appliedAt) : null);
             AutomationProperties.SetName(
                 AreaProfileAppliedStateText,
                 applied.MesAreas.Count == 0
@@ -693,30 +788,37 @@ internal partial class WatchWorkspaceWindow
 
             AreaProfileEditor.IsReadOnly = _isAllAreasSelected;
             AreaProfileValidationGrid.ItemsSource = _isAllAreasSelected
-                ? Array.Empty<WatchAreaFilterProfileDiagnostic>()
-                : _areaProfileDraft.Diagnostics;
+                ? Array.Empty<WatchAreaFilterProfileDiagnosticPresentation>()
+                : _areaProfileDraft.Diagnostics.Select(diagnostic =>
+                    new WatchAreaFilterProfileDiagnosticPresentation(
+                        diagnostic.Code,
+                        areaText.DiagnosticMessage(diagnostic),
+                        diagnostic.LineNumber,
+                        diagnostic.Value)).ToArray();
             var contentByteCount = Encoding.UTF8.GetByteCount(_areaProfileDraft.Content);
             AreaProfileFileTitleText.Text = _isAllAreasSelected
-                ? AllAreasProfileDisplayName
+                ? areaText.AllAreas
                 : string.IsNullOrWhiteSpace(_areaProfileDraft.ProfileName)
-                    ? "新建 AREA 配置"
+                    ? areaText.NewProfileTitle
                     : $"{_areaProfileDraft.ProfileName}.txt";
             AreaProfileValidCountText.Text = _isAllAreasSelected
-                ? "不限制显示范围"
+                ? areaText.Unrestricted
                 : _areaProfileDraft.IsValid
-                    ? $"✓ {_areaProfileDraft.MesAreas.Count:N0} 个有效 AREA"
-                    : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 无效";
+                    ? areaText.ValidCount(_areaProfileDraft.MesAreas.Count)
+                    : areaText.InvalidCount(_areaProfileDraft.Diagnostics.Count);
             AreaProfileValidCountPill.SetResourceReference(
                 FrameworkElement.StyleProperty,
                 _isAllAreasSelected || _areaProfileDraft.IsValid
                     ? "StatusPillSuccess"
                     : "StatusPillCritical");
             AreaProfileValidationSummaryText.Text = _isAllAreasSelected
-                ? "显示所有 AREA，不应用 TXT 筛选"
+                ? areaText.AllAreasValidation
                 : applyState.BlockedReason
-                    ?? (_areaProfileDraft.IsValid
-                        ? $"✓ 格式有效 · {contentByteCount:N0} B"
-                        : $"{_areaProfileDraft.Diagnostics.Count:N0} 项问题 · 非法内容不可应用");
+                    is { } blockedReason
+                        ? areaText.LocalizeApplyBlockedReason(blockedReason)
+                        : _areaProfileDraft.IsValid
+                            ? areaText.ValidFormat(contentByteCount)
+                            : areaText.InvalidFormat(_areaProfileDraft.Diagnostics.Count);
             AreaProfileDiskStateText.Text = DescribeAreaProfileDiskState();
             AreaProfileValidationExpander.Visibility = _isAllAreasSelected
                 || _areaProfileDraft.IsValid
@@ -837,31 +939,32 @@ internal partial class WatchWorkspaceWindow
     /// </summary>
     private string DescribeAreaProfileDiskState()
     {
+        var text = _displayLanguageState.Catalog.AreaFilter;
         if (_isAllAreasSelected)
         {
-            return "不对应 TXT 文件";
+            return text.NoFile;
         }
 
         if (_areaProfileWriteConflictProfileName is not null)
         {
-            return "磁盘已变更 · 等待选择";
+            return text.DiskConflict;
         }
 
         if (_areaProfileDraftLostItsFile)
         {
-            return "文件已删除 · 未命名草稿";
+            return text.DeletedDraft;
         }
 
         if (IsSelectedAreaProfileMissing())
         {
-            return "文件已删除 · 范围仍生效";
+            return text.DeletedApplied;
         }
 
         return _areaProfileDraftIsDirty
-            ? "未落盘 · 即将自动保存"
+            ? text.AutoSavePending
             : _selectedAreaProfileName is null
-                ? "尚未保存"
-                : "已自动保存";
+                ? text.NotSaved
+                : text.AutoSaved;
     }
 
     private AreaProfileEditorViewState CaptureAreaProfileEditorViewState()
@@ -1149,9 +1252,13 @@ internal partial class WatchWorkspaceWindow
             Enumerable.Range(1, lineCount));
     }
 
-    internal static string FormatAreaProfileDirectoryCaption(string directoryPath)
+    internal static string FormatAreaProfileDirectoryCaption(
+        string directoryPath,
+        WatchDisplayLanguage language = WatchDisplayLanguage.SimplifiedChinese)
     {
-        const string formatHint = "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略";
+        var formatHint = language == WatchDisplayLanguage.English
+            ? "One AREA per line · Format: A1-1 or A11-11 · Blank lines and # comments are ignored"
+            : "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略";
         var fullPath = Path.GetFullPath(directoryPath);
         var localApplicationData = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData);
@@ -1177,7 +1284,14 @@ internal partial class WatchWorkspaceWindow
         else
         {
             var directoryName = Path.GetFileName(Path.TrimEndingDirectorySeparator(fullPath));
-            storageCaption = $"{directoryName} · 本机 TXT · UTF-8";
+            storageCaption = language == WatchDisplayLanguage.English
+                ? $"{directoryName} · Local TXT · UTF-8"
+                : $"{directoryName} · 本机 TXT · UTF-8";
+        }
+
+        if (language == WatchDisplayLanguage.English)
+        {
+            storageCaption = storageCaption.Replace("本机 TXT", "Local TXT", StringComparison.Ordinal);
         }
 
         return $"{storageCaption} · {formatHint}";

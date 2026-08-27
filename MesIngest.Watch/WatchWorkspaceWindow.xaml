@@ -2467,8 +2467,8 @@
                             </Grid.RowDefinitions>
                             <Grid>
                                 <StackPanel>
-                                    <ui:TextBlock Text="AREA 筛选" Style="{StaticResource PageTitleText}" />
-                                    <ui:TextBlock Text="当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围"
+                                    <ui:TextBlock x:Name="AreaProfilePageTitleText" Text="AREA 筛选" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock x:Name="AreaProfilePageSubtitleText" Text="当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="0,3,0,0" />
                                 </StackPanel>
@@ -2528,7 +2528,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
-                                                <ui:TextBlock Text="筛选配置" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="AreaProfileListTitleText" Text="筛选配置" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="AreaProfileListSummaryText"
                                                               Text="尚未读取本机配置"
                                                               Style="{StaticResource SecondaryText}"
@@ -2572,6 +2572,7 @@
                                             <ListBox.Resources>
                                                 <ContextMenu x:Key="AreaProfileFileContextMenu"
                                                              x:Shared="False"
+                                                             Opened="OnAreaProfileFileContextMenuOpened"
                                                              DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}">
                                                     <ui:MenuItem Header="另存为"
                                                                  CommandParameter="{Binding}"
@@ -3019,9 +3020,9 @@
                                                           AutomationProperties.Name="AREA 配置逐项校验"
                                                           AutomationProperties.AutomationId="AreaProfileValidationGrid">
                                                     <DataGrid.Columns>
-                                                        <DataGridTextColumn Header="行" Binding="{Binding LineNumber}" Width="{StaticResource AreaProfileDiagnosticLineColumnWidth}" />
-                                                        <DataGridTextColumn Header="代码" Binding="{Binding Code}" Width="{StaticResource AreaProfileDiagnosticCodeColumnWidth}" />
-                                                        <DataGridTextColumn Header="说明" Binding="{Binding Message}" Width="*" />
+                                                        <DataGridTextColumn x:Name="AreaProfileDiagnosticLineColumn" Header="行" Binding="{Binding LineNumber}" Width="{StaticResource AreaProfileDiagnosticLineColumnWidth}" />
+                                                        <DataGridTextColumn x:Name="AreaProfileDiagnosticCodeColumn" Header="代码" Binding="{Binding Code}" Width="{StaticResource AreaProfileDiagnosticCodeColumnWidth}" />
+                                                        <DataGridTextColumn x:Name="AreaProfileDiagnosticMessageColumn" Header="说明" Binding="{Binding Message}" Width="*" />
                                                     </DataGrid.Columns>
                                                 </DataGrid>
                                             </Expander>
