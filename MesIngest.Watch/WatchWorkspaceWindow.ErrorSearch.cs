@@ -42,11 +42,11 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeErrorSearchPage()
     {
-        WatchGridClipboardBehavior.Attach(ErrorSearchActivityStateFacetGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ErrorSearchSeriesGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ErrorSearchPeriodGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ErrorSearchEvidenceGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ErrorSearchRawEvidenceGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ErrorSearchActivityStateFacetGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ErrorSearchSeriesGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ErrorSearchPeriodGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ErrorSearchEvidenceGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ErrorSearchRawEvidenceGrid, _displayLanguageState, preserveSelectionUnit: true);
 
         PopulateErrorSearchCatalogChoices();
 

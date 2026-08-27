@@ -27,6 +27,14 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             ?? new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
         _text = _displayLanguageState.Catalog.Inspector;
         InitializeComponent();
+        WatchGridClipboardBehavior.Attach(
+            DemandSeriesInspectorAfterObservationGrid,
+            _displayLanguageState,
+            preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(
+            DemandSeriesInspectorEventGrid,
+            _displayLanguageState,
+            preserveSelectionUnit: true);
         Owner = null;
         if (Application.Current is null)
         {

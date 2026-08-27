@@ -547,7 +547,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private void InitializeDemandSeriesPage()
     {
-        WatchGridClipboardBehavior.Attach(DemandSeriesGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(
+            DemandSeriesGrid,
+            _displayLanguageState,
+            preserveSelectionUnit: true);
         DemandSeriesPresenceFilter.SelectedValuePath = nameof(FrameworkElement.Tag);
         DemandSeriesWorkTypeFilter.SelectedValuePath = nameof(FrameworkElement.Tag);
         DemandSeriesPresenceFilter.SelectionChanged += OnDemandSeriesFilterDraftChanged;
@@ -1497,7 +1500,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchV2WorkspaceState state,
         WatchOverviewPresentation overview)
     {
-        var shell = _displayLanguageState.Catalog.Shell;
+        var catalog = _displayLanguageState.Catalog;
+        var shell = catalog.Shell;
         var latestViewFailure = new[]
             {
                 state.Overview.LastFailureAt,
@@ -1583,19 +1587,21 @@ internal partial class WatchWorkspaceWindow : IDisposable
             settingsIconForeground);
         AutomationProperties.SetName(
             OverviewHostStatusPill,
-            $"概览 Host 状态：{OverviewHostStatusText.Text}");
+            catalog.Overview.OverviewHostStatusAutomation(OverviewHostStatusText.Text));
         AutomationProperties.SetName(
             HostNavigationItem,
-            $"Host 状态：{HostNavigationItem.Content}；{overview.Protection.Detail}；打开连接设置");
+            catalog.Overview.HostNavigationAutomation(
+                HostNavigationItem.Content?.ToString() ?? string.Empty,
+                overview.Protection.Detail));
         var viewFailureDetail = hasViewFailure
-            ? $" · 最近页面读取失败 {latestViewFailure:yyyy-MM-dd HH:mm:ss}"
+            ? catalog.Overview.RecentPageReadFailure(latestViewFailure, catalog)
             : string.Empty;
         HostNavigationItem.ToolTip =
             $"{overview.HostDetail} · {overview.Protection.Status} · {overview.Protection.Detail}{viewFailureDetail}";
         SettingsHostStateText.Text = $"{HostNavigationItem.Content} · {overview.HostDetail}";
         AutomationProperties.SetName(
             SettingsHostStatusPill,
-            $"设置 Host 状态：{SettingsHostStatusText.Text}");
+            catalog.Overview.SettingsHostStatusAutomation(SettingsHostStatusText.Text));
     }
 
     private static void SetNavigationAction(

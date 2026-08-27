@@ -10,14 +10,34 @@ namespace MesIngest.Watch;
 /// </summary>
 internal static class WatchGridClipboardBehavior
 {
-    internal static readonly string[] ClipboardMenuHeaders =
-    [
-        "复制单元格",
-        "复制整行",
-        "复制整行（含列名）",
-    ];
+    internal static IReadOnlyList<string> ClipboardMenuHeaders(
+        WatchDisplayLanguage language = WatchDisplayLanguage.SimplifiedChinese)
+    {
+        var text = WatchTextCatalog.For(language).Common;
+        return [text.CopyCell, text.CopyRow, text.CopyRowWithHeaders];
+    }
 
     public static void Attach(DataGrid grid, bool preserveSelectionUnit = false)
+        => AttachCore(
+            grid,
+            preserveSelectionUnit,
+            WatchDisplayLanguage.SimplifiedChinese,
+            languageState: null);
+
+    public static void Attach(
+        DataGrid grid,
+        WatchDisplayLanguageState languageState,
+        bool preserveSelectionUnit = false)
+    {
+        ArgumentNullException.ThrowIfNull(languageState);
+        AttachCore(grid, preserveSelectionUnit, languageState.Current, languageState);
+    }
+
+    private static void AttachCore(
+        DataGrid grid,
+        bool preserveSelectionUnit,
+        WatchDisplayLanguage initialLanguage,
+        WatchDisplayLanguageState? languageState)
     {
         if (!preserveSelectionUnit)
         {
@@ -47,10 +67,30 @@ internal static class WatchGridClipboardBehavior
 
         // Preserve XAML / caller menu items (e.g. 「查看详情」) then append clipboard actions.
         var menu = grid.ContextMenu ?? new ContextMenu();
-        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[0], () => CopyCell(grid)));
-        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[1], () => CopyRow(grid, includeHeaders: false)));
-        menu.Items.Add(CreateMenuItem(ClipboardMenuHeaders[2], () => CopyRow(grid, includeHeaders: true)));
+        var headers = ClipboardMenuHeaders(initialLanguage);
+        var copyCell = CreateMenuItem(headers[0], () => CopyCell(grid));
+        var copyRow = CreateMenuItem(headers[1], () => CopyRow(grid, includeHeaders: false));
+        var copyRowWithHeaders = CreateMenuItem(
+            headers[2],
+            () => CopyRow(grid, includeHeaders: true));
+        menu.Items.Add(copyCell);
+        menu.Items.Add(copyRow);
+        menu.Items.Add(copyRowWithHeaders);
         grid.ContextMenu = menu;
+
+        if (languageState is not null)
+        {
+            EventHandler? languageChanged = null;
+            languageChanged = (_, _) =>
+            {
+                var localized = ClipboardMenuHeaders(languageState.Current);
+                copyCell.Header = localized[0];
+                copyRow.Header = localized[1];
+                copyRowWithHeaders.Header = localized[2];
+            };
+            languageState.Changed += languageChanged;
+            grid.Unloaded += (_, _) => languageState.Changed -= languageChanged;
+        }
     }
 
     /// <summary>
@@ -58,7 +98,8 @@ internal static class WatchGridClipboardBehavior
     /// (preserved items + clipboard actions).
     /// </summary>
     internal static IReadOnlyList<string> ComposeContextMenuHeaders(
-        IReadOnlyList<string>? preservedHeaders)
+        IReadOnlyList<string>? preservedHeaders,
+        WatchDisplayLanguage language = WatchDisplayLanguage.SimplifiedChinese)
     {
         var headers = new List<string>();
         if (preservedHeaders is { Count: > 0 })
@@ -66,7 +107,7 @@ internal static class WatchGridClipboardBehavior
             headers.AddRange(preservedHeaders);
         }
 
-        headers.AddRange(ClipboardMenuHeaders);
+        headers.AddRange(ClipboardMenuHeaders(language));
         return headers;
     }
 

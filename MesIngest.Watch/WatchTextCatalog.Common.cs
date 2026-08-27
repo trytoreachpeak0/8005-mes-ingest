@@ -27,6 +27,12 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
         new("common.time.minutesAgo", "{0} 分钟前", "{0} minutes ago");
     private static readonly WatchTextCatalogEntry HoursAgoEntry =
         new("common.time.hoursAgo", "{0} 小时前", "{0} hours ago");
+    private static readonly WatchTextCatalogEntry CopyCellEntry =
+        new("common.clipboard.copyCell", "复制单元格", "Copy cell");
+    private static readonly WatchTextCatalogEntry CopyRowEntry =
+        new("common.clipboard.copyRow", "复制整行", "Copy row");
+    private static readonly WatchTextCatalogEntry CopyRowWithHeadersEntry =
+        new("common.clipboard.copyRowWithHeaders", "复制整行（含列名）", "Copy row with headers");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -42,6 +48,9 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
         SecondsAgoEntry,
         MinutesAgoEntry,
         HoursAgoEntry,
+        CopyCellEntry,
+        CopyRowEntry,
+        CopyRowWithHeadersEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -69,5 +78,10 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
     public string MinutesAgoFormat => Text(MinutesAgoEntry);
 
     public string HoursAgoFormat => Text(HoursAgoEntry);
-}
 
+    public string CopyCell => Text(CopyCellEntry);
+
+    public string CopyRow => Text(CopyRowEntry);
+
+    public string CopyRowWithHeaders => Text(CopyRowWithHeadersEntry);
+}

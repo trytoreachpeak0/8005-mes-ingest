@@ -202,12 +202,8 @@ internal sealed record WatchAreaProfileApplyButtonState(
         _ => WatchTextCatalog.For(DisplayLanguage).AreaFilter.Apply,
     };
 
-    public string AutomationName => Action switch
-    {
-        WatchAreaProfileApplyAction.Applied => "选中 AREA 配置已是当前显示范围",
-        WatchAreaProfileApplyAction.Reapply => "重新应用选中 AREA 配置",
-        _ => "应用选中 AREA 配置",
-    } + (BlockedReason is { } reason ? $"；{reason}" : string.Empty);
+    public string AutomationName => WatchTextCatalog.For(DisplayLanguage)
+        .AreaFilter.ApplyAutomation(Action, BlockedReason);
 
     /// <summary>
     /// The five button appearances the spec fixed: the two blocked 重新应用
@@ -264,6 +260,13 @@ internal partial class WatchWorkspaceWindow
         AreaProfileDiagnosticMessageColumn.Header = text.ValidationMessage;
         AreaProfileFileOperationCancelButton.Content = text.Cancel;
         ReprojectAreaProfileInfoBars();
+        AreaProfileTargetNameInput.ToolTip = text.FileNameTooltip;
+        AutomationProperties.SetName(AreaProfileTargetNameInput, text.TargetNameAutomation);
+        AutomationProperties.SetName(AreaProfileSearchInput, text.SearchAutomation);
+        AutomationProperties.SetName(AreaProfileList, text.ListAutomation);
+        AutomationProperties.SetName(AreaProfileMasterCard, text.MasterAutomation);
+        AutomationProperties.SetName(AreaProfileEditorCard, text.EditorAutomation);
+        AutomationProperties.SetName(AreaProfileValidationGrid, text.ValidationAutomation);
 
         if (_areaProfileFileOperationConfirmation is { } confirmation)
         {
@@ -395,7 +398,10 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeAreaFilterProfilePage()
     {
-        WatchGridClipboardBehavior.Attach(AreaProfileValidationGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(
+            AreaProfileValidationGrid,
+            _displayLanguageState,
+            preserveSelectionUnit: true);
         AreaProfileEditor.AddHandler(
             ScrollViewer.ScrollChangedEvent,
             new ScrollChangedEventHandler(OnAreaProfileEditorScrollChanged));

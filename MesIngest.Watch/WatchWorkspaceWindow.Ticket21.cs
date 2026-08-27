@@ -14,12 +14,12 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeReadabilityAuditPage()
     {
-        WatchGridClipboardBehavior.Attach(ReadabilityStateFacetGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ReadabilityBlockerFacetGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ReadabilityAuditGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ReadabilityQualificationGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ReadabilityBlockerEvidenceGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(ReadabilityRawObservationGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityStateFacetGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityBlockerFacetGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityAuditGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityQualificationGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityBlockerEvidenceGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(ReadabilityRawObservationGrid, _displayLanguageState, preserveSelectionUnit: true);
 
         ReadabilityWorkTypeFilter.Items.Add(new ComboBoxItem
         {

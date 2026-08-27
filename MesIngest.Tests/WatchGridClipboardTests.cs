@@ -155,6 +155,48 @@ public class WatchGridClipboardTests
     }
 
     [Fact]
+    public void Context_menu_headers_project_in_english_without_translating_preserved_commands()
+    {
+        var headers = WatchGridClipboardBehavior.ComposeContextMenuHeaders(
+            ["View raw JSON", "Copy DemandId"],
+            WatchDisplayLanguage.English);
+
+        Assert.Equal(
+            ["View raw JSON", "Copy DemandId", "Copy cell", "Copy row", "Copy row with headers"],
+            headers);
+    }
+
+    [Fact]
+    public void Attached_copy_commands_reproject_in_place_when_shared_language_changes()
+    {
+        StaTestRunner.Run(() =>
+        {
+            var grid = new System.Windows.Controls.DataGrid
+            {
+                ContextMenu = new System.Windows.Controls.ContextMenu(),
+            };
+            grid.ContextMenu.Items.Add(new System.Windows.Controls.MenuItem
+            {
+                Header = "RAW_JSON",
+            });
+            var language = new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+
+            WatchGridClipboardBehavior.Attach(grid, language, preserveSelectionUnit: true);
+            Assert.Equal(
+                ["RAW_JSON", "复制单元格", "复制整行", "复制整行（含列名）"],
+                grid.ContextMenu.Items.Cast<System.Windows.Controls.MenuItem>()
+                    .Select(item => item.Header?.ToString()).ToArray());
+
+            language.ApplyCommitted(WatchDisplayLanguage.English);
+
+            Assert.Equal(
+                ["RAW_JSON", "Copy cell", "Copy row", "Copy row with headers"],
+                grid.ContextMenu.Items.Cast<System.Windows.Controls.MenuItem>()
+                    .Select(item => item.Header?.ToString()).ToArray());
+        });
+    }
+
+    [Fact]
     public void Projects_alert_row_preserving_column_order()
     {
         var alert = new ClipboardAlertRow(

@@ -26,11 +26,11 @@ internal partial class WatchWorkspaceWindow
 
     private void InitializeCurrentIngestAttentionPage()
     {
-        WatchGridClipboardBehavior.Attach(CurrentAttentionKindFacetGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(CurrentAttentionSeverityFacetGrid, preserveSelectionUnit: true);
-        WatchGridClipboardBehavior.Attach(CurrentAttentionGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(CurrentAttentionKindFacetGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(CurrentAttentionSeverityFacetGrid, _displayLanguageState, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(CurrentAttentionGrid, _displayLanguageState, preserveSelectionUnit: true);
         CurrentAttentionGrid.ClearValue(DataGrid.HeadersVisibilityProperty);
-        WatchGridClipboardBehavior.Attach(CurrentAttentionEvidenceGrid, preserveSelectionUnit: true);
+        WatchGridClipboardBehavior.Attach(CurrentAttentionEvidenceGrid, _displayLanguageState, preserveSelectionUnit: true);
 
         SyncCurrentAttentionFilterControls(_currentAttentionQuery);
     }

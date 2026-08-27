@@ -270,4 +270,26 @@ internal sealed partial class WatchOverviewText
         (WatchDisplayLanguage.English, "本机已应用") => "Applied locally",
         _ => raw,
     };
+
+    public string OverviewHostStatusAutomation(string status) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"概览 Host 状态：{status}"
+            : $"Overview Host status: {status}";
+
+    public string HostNavigationAutomation(
+        string status,
+        string protectionDetail) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"Host 状态：{status}；{protectionDetail}；打开连接设置"
+            : $"Host status: {status}; {protectionDetail}; open connection settings";
+
+    public string RecentPageReadFailure(DateTimeOffset failedAt, WatchTextCatalog catalog) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $" · 最近页面读取失败 {catalog.FormatAbsoluteTime(failedAt)}"
+            : $" · Recent page read failed {catalog.FormatAbsoluteTime(failedAt)}";
+
+    public string SettingsHostStatusAutomation(string status) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"设置 Host 状态：{status}"
+            : $"Settings Host status: {status}";
 }

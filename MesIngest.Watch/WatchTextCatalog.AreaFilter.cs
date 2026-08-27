@@ -156,6 +156,49 @@ internal sealed partial class WatchAreaFilterText
     public string DeletePrompt(string? profileName) => Language == WatchDisplayLanguage.English
         ? $"Confirm deletion of “{profileName}.txt” again; if it is applied, the AREA snapshot and display scope remain active after deletion"
         : $"再次确认删除“{profileName}.txt”；若该配置为当前应用，删除后已应用 AREA 快照与显示范围仍生效";
+    public string FileNameTooltip => Language == WatchDisplayLanguage.English
+        ? "File name (without .txt)"
+        : "文件名（不含 .txt）";
+    public string SearchAutomation => Language == WatchDisplayLanguage.English
+        ? "Search AREA profiles"
+        : "搜索 AREA 配置";
+    public string ListAutomation => Language == WatchDisplayLanguage.English
+        ? "Named local AREA profiles"
+        : "本机命名 AREA 配置列表";
+    public string MasterAutomation => Language == WatchDisplayLanguage.English
+        ? "AREA profile master list"
+        : "AREA 配置主列表";
+    public string EditorAutomation => Language == WatchDisplayLanguage.English
+        ? "AREA profile editor"
+        : "AREA 配置编辑器";
+    public string TargetNameAutomation => Language == WatchDisplayLanguage.English
+        ? "AREA file operation target name"
+        : "AREA 文件操作目标名称";
+    public string ValidationAutomation => Language == WatchDisplayLanguage.English
+        ? "AREA profile validation details"
+        : "AREA 配置逐项校验";
+    public string ApplyAutomation(
+        WatchAreaProfileApplyAction action,
+        string? blockedReason)
+    {
+        var label = action switch
+        {
+            WatchAreaProfileApplyAction.Applied when Language == WatchDisplayLanguage.English =>
+                "The selected AREA profile is already the current display scope",
+            WatchAreaProfileApplyAction.Applied => "选中 AREA 配置已是当前显示范围",
+            WatchAreaProfileApplyAction.Reapply when Language == WatchDisplayLanguage.English =>
+                "Reapply the selected AREA profile",
+            WatchAreaProfileApplyAction.Reapply => "重新应用选中 AREA 配置",
+            _ when Language == WatchDisplayLanguage.English => "Apply the selected AREA profile",
+            _ => "应用选中 AREA 配置",
+        };
+        var localizedReason = LocalizeApplyBlockedReason(blockedReason);
+        return string.IsNullOrEmpty(localizedReason)
+            ? label
+            : Language == WatchDisplayLanguage.English
+                ? $"{label}; {localizedReason}"
+                : $"{label}；{localizedReason}";
+    }
 
     public string DiagnosticMessage(WatchAreaFilterProfileDiagnostic diagnostic)
     {
