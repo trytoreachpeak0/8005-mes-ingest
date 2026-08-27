@@ -44,6 +44,70 @@ internal sealed partial class WatchAreaFilterText
         new("area.disk.pending", "未落盘 · 即将自动保存", "Not on disk · Auto-save pending"),
         new("area.disk.saved", "已自动保存", "Auto-saved"),
         new("area.disk.noFile", "不对应 TXT 文件", "No TXT file"),
+        new("area.feedback.severity.information", "信息", "Information"),
+        new("area.feedback.severity.success", "成功", "Success"),
+        new("area.feedback.severity.warning", "警告", "Warning"),
+        new("area.feedback.severity.error", "错误", "Error"),
+        new("area.feedback.action.return", "返回 AREA 配置", "Return to AREA profiles"),
+        new("area.feedback.restore.title", "无法恢复上次 AREA 配置", "Could not restore the previous AREA profile"),
+        new("area.feedback.restore.message", "已回退到全部 AREA。{0}", "The display scope fell back to all AREA values. Check the local applied-profile marker.{0}"),
+        new("area.feedback.readProfiles.title", "无法读取本机 AREA 配置", "Could not read local AREA profiles"),
+        new("area.feedback.readProfiles.listMessage", "配置列表可能不是最新的。{0}", "The profile list might not be current. Check the local profile folder and permissions.{0}"),
+        new("area.feedback.readProfiles.scopeMessage", "当前已应用显示范围保持不变。{0}", "The currently applied display scope is unchanged. Check the local profile folder and permissions.{0}"),
+        new("area.feedback.readApplied.title", "无法读取当前应用配置的 TXT", "Could not read the applied AREA profile TXT"),
+        new("area.feedback.readApplied.message", "已应用 AREA 快照保持不变。{0}", "The applied AREA snapshot is unchanged. Check the local profile file and permissions.{0}"),
+        new("area.feedback.directoryWatch.title", "AREA 配置目录监视已降级", "AREA profile folder monitoring is degraded"),
+        new("area.feedback.directoryWatch.message", "配置列表可能不是最新的。{0}", "The profile list might not be current. The folder watcher will continue trying to recover.{0}"),
+        new("area.feedback.directoryOpened.title", "AREA 配置目录已打开", "AREA profiles folder opened"),
+        new("area.feedback.directoryOpened.message", "已通过平台文件管理器打开 {0}。", "Opened {0} in the platform file manager."),
+        new("area.feedback.directoryPrepared.title", "AREA 配置目录已准备", "AREA profiles folder is ready"),
+        new("area.feedback.directoryPrepared.message", "已确认 {0} 存在；UI 测试模式未启动文件管理器。", "Confirmed that {0} exists; UI test mode did not start the file manager."),
+        new("area.feedback.readProfile.title", "无法读取 AREA TXT 配置", "Could not read the AREA TXT profile"),
+        new("area.feedback.readProfile.message", "无法读取所选文件。{0}", "The selected profile could not be read. Check the file and its permissions.{0}"),
+        new("area.feedback.confirmApplied.title", "无法确认已应用 AREA 范围", "Could not confirm the applied AREA scope"),
+        new("area.feedback.confirmApplied.message", "{0} 文件操作已取消；请先修复标记或明确应用全部 AREA。", "{0}The file operation was cancelled. Repair the applied-profile marker or explicitly apply all AREA values first."),
+        new("area.feedback.prepareOperation.title", "无法准备 AREA 文件操作", "Could not prepare the AREA file operation"),
+        new("area.feedback.prepareOperation.missingVersion", "当前 AREA TXT 未记录所显示的磁盘版本；请重新加载后再试。", "The displayed AREA TXT has no recorded disk version. Reload it and try again."),
+        new("area.feedback.prepareOperation.message", "无法读取当前磁盘版本。{0}", "The current disk version could not be read. Check the profile file and permissions.{0}"),
+        new("area.feedback.changedOnDisk.title", "AREA TXT 已在磁盘更改", "AREA TXT changed on disk"),
+        new("area.feedback.changedOnDisk.message", "所显示的 AREA TXT 已在磁盘更改；请重新加载后再选择文件操作。", "The displayed AREA TXT changed on disk. Reload it before choosing a file operation."),
+        new("area.feedback.draftNamed.title", "新 AREA 草稿已命名", "New AREA draft named"),
+        new("area.feedback.draftNamed.message", "请填写至少一个有效 AREA，然后保存；尚未创建或应用本机 TXT 文件。", "Enter at least one valid AREA value and save it; no local TXT file has been created or applied yet."),
+        new("area.feedback.savedAs.title", "AREA 配置已另存为", "AREA profile saved as"),
+        new("area.feedback.savedAs.message", "已创建 {0}.txt；原文件和当前应用范围均未改变。", "Created {0}.txt; the original file and currently applied scope are unchanged."),
+        new("area.feedback.renamed.title", "AREA 配置已重命名", "AREA profile renamed"),
+        new("area.feedback.renamed.message", "{0}.txt 已重命名为 {1}.txt；AREA 内容未改变。", "Renamed {0}.txt to {1}.txt; the AREA content is unchanged."),
+        new("area.feedback.deleted.title", "AREA 配置已删除", "AREA profile deleted"),
+        new("area.feedback.deleted.message", "{0}.txt 已删除；当前应用范围未改变。", "Deleted {0}.txt; the currently applied scope is unchanged."),
+        new("area.feedback.deletedApplied.message", "{0}.txt 已删除；已应用 AREA 快照与当前显示范围仍生效，可按原名另存恢复。", "Deleted {0}.txt; the applied AREA snapshot and current display scope remain active. Save under the original name to restore the file."),
+        new("area.feedback.savedNotApplied.title", "AREA 配置已保存但范围未应用", "AREA profile saved but scope not applied"),
+        new("area.feedback.savedNotApplied.message", "配置已保存，但显示范围未改变。{0}", "The profile was saved, but the display scope did not change. Check the applied-profile marker and retry.{0}"),
+        new("area.feedback.applied.title", "AREA 配置已应用", "AREA profile applied"),
+        new("area.feedback.applied.message", "概览、需求系列和资格审计已清除冻结游标并从第一页重新读取；错误检索与接入告警未改变。", "Overview, demand series, and eligibility audit cleared their frozen cursors and reloaded from the first page; error search and ingest attention are unchanged."),
+        new("area.feedback.allApplied.title", "已应用全部 AREA", "All AREA values applied"),
+        new("area.feedback.allApplied.message", "本机范围标记已持久化；三个 AREA 相关只读视图已从第一页重新读取。", "The local scope marker was persisted; the three AREA-aware read-only views reloaded from the first page."),
+        new("area.feedback.operationFailed.title", "无法完成 AREA 配置操作", "Could not complete the AREA profile operation"),
+        new("area.feedback.operationFailed.message", "操作未完成；请检查输入、文件权限或当前磁盘版本后重试。{0}", "The operation did not complete. Check the input, file permissions, or current disk version and try again.{0}"),
+        new("area.apply.blocked.deleted", "文件已删除 · 当前显示范围仍生效", "File deleted · Current display scope remains active"),
+        new("area.apply.blocked.invalid", "内容非法不可应用 · 当前显示范围保持不变", "Invalid content cannot be applied · Current display scope is unchanged"),
+        new("area.apply.blocked.other", "{0}", "The AREA profile cannot be applied in its current state{0}"),
+        new("area.apply.automation.applied", "选中 AREA 配置已是当前显示范围", "The selected AREA profile is already the current display scope"),
+        new("area.apply.automation.reapply", "重新应用选中 AREA 配置", "Reapply the selected AREA profile"),
+        new("area.apply.automation.apply", "应用选中 AREA 配置", "Apply the selected AREA profile"),
+        new("area.diagnostic.invalidActiveMarker", "已应用 AREA 标记无效。", "The applied AREA marker is invalid."),
+        new("area.diagnostic.profileNameRequired", "必须提供 AREA 配置名称。", "An AREA profile name is required."),
+        new("area.diagnostic.unsafeProfileName", "AREA 配置名称不能用作本机文件名。", "The AREA profile name cannot be used as a local file name."),
+        new("area.diagnostic.invalidMesArea", "AREA 必须匹配 ^[A-Z][1-9][0-9]?-[1-9][0-9]?$。", "AREA must match ^[A-Z][1-9][0-9]?-[1-9][0-9]?$."),
+        new("area.diagnostic.duplicateMesArea", "AREA“{0}”重复出现。", "AREA '{0}' appears more than once."),
+        new("area.diagnostic.tooManyMesAreas", "最多支持 {0} 个不同 AREA。", "At most {0} distinct AREA values are supported."),
+        new("area.diagnostic.emptyAreaSet", "AREA 配置必须包含至少一个有效 AREA。", "The AREA profile must contain at least one valid AREA value."),
+        new("area.diagnostic.invalidUtf8", "文件不是有效的 UTF-8。", "The file is not valid UTF-8."),
+        new("area.diagnostic.profileNotFound", "找不到 AREA 配置文件。", "The AREA profile file was not found."),
+        new("area.diagnostic.profileAlreadyExists", "已存在同名 AREA 配置。", "An AREA profile with this name already exists."),
+        new("area.diagnostic.profileChangedOnDisk", "AREA 配置已在磁盘更改。", "The AREA profile changed on disk."),
+        new("area.diagnostic.profileNameUnchanged", "新的 AREA 配置名称未改变。", "The new AREA profile name is unchanged."),
+        new("area.diagnostic.activeMarkerWriteFailed", "无法写入已应用 AREA 标记。", "The applied AREA marker could not be written."),
+        new("area.diagnostic.unknown", "{0}: {1}", "AREA profile diagnostic {0}.{1}"),
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
@@ -90,6 +154,189 @@ internal sealed partial class WatchAreaFilterText
     public string AutoSaved => Get("area.disk.saved");
     public string NoFile => Get("area.disk.noFile");
 
+    internal WatchLocalizedNotificationContent RestorePreviousFailed(string detail) =>
+        Feedback(
+            "area.feedback.severity.warning",
+            "area.feedback.restore.title",
+            "area.feedback.restore.message",
+            [detail],
+            [string.Empty]);
+
+    internal WatchLocalizedNotificationContent ReadProfilesFailed(
+        string detail,
+        bool preserveAppliedScope) => Feedback(
+            "area.feedback.severity.warning",
+            "area.feedback.readProfiles.title",
+            preserveAppliedScope
+                ? "area.feedback.readProfiles.scopeMessage"
+                : "area.feedback.readProfiles.listMessage",
+            [detail],
+            [string.Empty]);
+
+    internal WatchLocalizedNotificationContent ReadAppliedProfileFailed(string detail) =>
+        Feedback(
+            "area.feedback.severity.warning",
+            "area.feedback.readApplied.title",
+            "area.feedback.readApplied.message",
+            [detail],
+            [string.Empty]);
+
+    internal WatchLocalizedNotificationContent DirectoryWatchDegraded(string detail) =>
+        Feedback(
+            "area.feedback.severity.warning",
+            "area.feedback.directoryWatch.title",
+            "area.feedback.directoryWatch.message",
+            [detail],
+            [string.Empty]);
+
+    internal WatchLocalizedNotificationContent DirectoryOpened(
+        string directory,
+        bool launchedFileManager) => Feedback(
+            "area.feedback.severity.information",
+            launchedFileManager
+                ? "area.feedback.directoryOpened.title"
+                : "area.feedback.directoryPrepared.title",
+            launchedFileManager
+                ? "area.feedback.directoryOpened.message"
+                : "area.feedback.directoryPrepared.message",
+            [directory],
+            [directory]);
+
+    internal WatchLocalizedNotificationContent ReadProfileFailed(string detail) => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.readProfile.title",
+        "area.feedback.readProfile.message",
+        [detail],
+        [string.Empty],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent ConfirmAppliedScopeFailed(string detail) => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.confirmApplied.title",
+        "area.feedback.confirmApplied.message",
+        [detail],
+        [string.Empty],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent PrepareOperationMissingVersion() => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.prepareOperation.title",
+        "area.feedback.prepareOperation.missingVersion",
+        [],
+        [],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent ProfileChangedOnDisk() => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.changedOnDisk.title",
+        "area.feedback.changedOnDisk.message",
+        [],
+        [],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent PrepareOperationFailed(string detail) => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.prepareOperation.title",
+        "area.feedback.prepareOperation.message",
+        [detail],
+        [string.Empty],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent DraftNamed() => Feedback(
+        "area.feedback.severity.information",
+        "area.feedback.draftNamed.title",
+        "area.feedback.draftNamed.message",
+        [],
+        []);
+
+    internal WatchLocalizedNotificationContent SavedAs(string profileName) => Feedback(
+        "area.feedback.severity.success",
+        "area.feedback.savedAs.title",
+        "area.feedback.savedAs.message",
+        [profileName],
+        [profileName]);
+
+    internal WatchLocalizedNotificationContent Renamed(
+        string previousProfileName,
+        string newProfileName) => Feedback(
+            "area.feedback.severity.success",
+            "area.feedback.renamed.title",
+            "area.feedback.renamed.message",
+            [previousProfileName, newProfileName],
+            [previousProfileName, newProfileName]);
+
+    internal WatchLocalizedNotificationContent Deleted(
+        string profileName,
+        bool appliedProfileWasDeleted) => Feedback(
+            "area.feedback.severity.success",
+            "area.feedback.deleted.title",
+            appliedProfileWasDeleted
+                ? "area.feedback.deletedApplied.message"
+                : "area.feedback.deleted.message",
+            [profileName],
+            [profileName]);
+
+    internal WatchLocalizedNotificationContent SavedButNotApplied(string detail) => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.savedNotApplied.title",
+        "area.feedback.savedNotApplied.message",
+        [detail],
+        [string.Empty],
+        includeReturnAction: true);
+
+    internal WatchLocalizedNotificationContent ProfileApplied() => Feedback(
+        "area.feedback.severity.success",
+        "area.feedback.applied.title",
+        "area.feedback.applied.message",
+        [],
+        []);
+
+    internal WatchLocalizedNotificationContent AllAreasApplied() => Feedback(
+        "area.feedback.severity.success",
+        "area.feedback.allApplied.title",
+        "area.feedback.allApplied.message",
+        [],
+        []);
+
+    internal WatchLocalizedNotificationContent OperationFailed(string detail) => Feedback(
+        "area.feedback.severity.error",
+        "area.feedback.operationFailed.title",
+        "area.feedback.operationFailed.message",
+        [detail],
+        [string.Empty],
+        includeReturnAction: true);
+
+    private static WatchLocalizedNotificationContent Feedback(
+        string severityId,
+        string titleId,
+        string messageId,
+        object?[] simplifiedChineseArguments,
+        object?[] englishArguments,
+        bool includeReturnAction = false) => new(
+            Pair(severityId, [], []),
+            Pair(titleId, [], []),
+            Pair(messageId, simplifiedChineseArguments, englishArguments),
+            includeReturnAction
+                ? Pair("area.feedback.action.return", [], [])
+                : null);
+
+    private static WatchLocalizedText Pair(
+        string id,
+        object?[] simplifiedChineseArguments,
+        object?[] englishArguments)
+    {
+        var entry = AreaEntries.Single(candidate => candidate.SemanticId == id);
+        return new WatchLocalizedText(
+            string.Format(
+                CultureInfo.InvariantCulture,
+                entry.SimplifiedChinese,
+                simplifiedChineseArguments),
+            string.Format(
+                CultureInfo.InvariantCulture,
+                entry.English,
+                englishArguments));
+    }
+
     public string FileSummary(int files, int invalid) => Format(WatchLegacyGeneratedText.AreaFilter001, new object?[] { files, invalid }, new object?[] { files.ToString("N0", CultureInfo.GetCultureInfo("en-US")), invalid.ToString("N0", CultureInfo.GetCultureInfo("en-US")) });
 
     public string FilteredSummary(int visible, int files, int invalid) => Format(WatchLegacyGeneratedText.AreaFilter002, new object?[] { visible, files, invalid }, new object?[] { visible, files, invalid });
@@ -112,11 +359,12 @@ internal sealed partial class WatchAreaFilterText
     public string LocalizeApplyBlockedReason(string? chineseReason) => chineseReason switch
     {
         null => string.Empty,
-        "文件已删除 · 当前显示范围仍生效" when Language == WatchDisplayLanguage.English =>
-            "File deleted · Current display scope remains active",
-        "内容非法不可应用 · 当前显示范围保持不变" when Language == WatchDisplayLanguage.English =>
-            "Invalid content cannot be applied · Current display scope is unchanged",
-        _ => chineseReason,
+        "文件已删除 · 当前显示范围仍生效" => Get("area.apply.blocked.deleted"),
+        "内容非法不可应用 · 当前显示范围保持不变" => Get("area.apply.blocked.invalid"),
+        _ => Format(
+            AreaEntries.Single(entry => entry.SemanticId == "area.apply.blocked.other"),
+            [chineseReason],
+            [string.Empty]),
     };
 
     public string CurrentApplied(string summary, string? time = null) => Format(WatchLegacyGeneratedText.AreaFilter015, new object?[] { summary, (time is null ? string.Empty : $" · {time}") }, new object?[] { summary, (time is null ? string.Empty : $" · {time}") });
@@ -136,14 +384,9 @@ internal sealed partial class WatchAreaFilterText
     {
         var label = action switch
         {
-            WatchAreaProfileApplyAction.Applied when Language == WatchDisplayLanguage.English =>
-                "The selected AREA profile is already the current display scope",
-            WatchAreaProfileApplyAction.Applied => "选中 AREA 配置已是当前显示范围",
-            WatchAreaProfileApplyAction.Reapply when Language == WatchDisplayLanguage.English =>
-                "Reapply the selected AREA profile",
-            WatchAreaProfileApplyAction.Reapply => "重新应用选中 AREA 配置",
-            _ when Language == WatchDisplayLanguage.English => "Apply the selected AREA profile",
-            _ => "应用选中 AREA 配置",
+            WatchAreaProfileApplyAction.Applied => Get("area.apply.automation.applied"),
+            WatchAreaProfileApplyAction.Reapply => Get("area.apply.automation.reapply"),
+            _ => Get("area.apply.automation.apply"),
         };
         var localizedReason = LocalizeApplyBlockedReason(blockedReason);
         return string.IsNullOrEmpty(localizedReason)
@@ -153,26 +396,31 @@ internal sealed partial class WatchAreaFilterText
 
     public string DiagnosticMessage(WatchAreaFilterProfileDiagnostic diagnostic)
     {
-        if (Language == WatchDisplayLanguage.SimplifiedChinese)
-        {
-            return diagnostic.Message;
-        }
-
         return diagnostic.Code switch
         {
-            WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired => "An AREA profile name is required.",
-            WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName => "The AREA profile name cannot be used as a local file name.",
-            WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea => "AREA must match ^[A-Z][1-9][0-9]?-[1-9][0-9]?$.",
-            WatchAreaFilterProfileDiagnosticCodes.DuplicateMesArea => $"AREA '{diagnostic.Value}' appears more than once.",
-            WatchAreaFilterProfileDiagnosticCodes.TooManyMesAreas => $"At most {WatchAreaFilterProfileParser.MaximumAreaCount} distinct AREA values are supported.",
-            WatchAreaFilterProfileDiagnosticCodes.EmptyAreaSet => "The AREA profile must contain at least one valid AREA value.",
-            WatchAreaFilterProfileDiagnosticCodes.InvalidUtf8 => "The file is not valid UTF-8.",
-            WatchAreaFilterProfileDiagnosticCodes.ProfileNotFound => "The AREA profile file was not found.",
-            WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists => "An AREA profile with this name already exists.",
-            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk => "The AREA profile changed on disk.",
-            WatchAreaFilterProfileDiagnosticCodes.ProfileNameUnchanged => "The new AREA profile name is unchanged.",
-            WatchAreaFilterProfileDiagnosticCodes.ActiveMarkerWriteFailed => "The applied AREA marker could not be written.",
-            _ => $"{diagnostic.Code}: {diagnostic.Message}",
+            WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker => Get("area.diagnostic.invalidActiveMarker"),
+            WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired => Get("area.diagnostic.profileNameRequired"),
+            WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName => Get("area.diagnostic.unsafeProfileName"),
+            WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea => Get("area.diagnostic.invalidMesArea"),
+            WatchAreaFilterProfileDiagnosticCodes.DuplicateMesArea => Format(
+                AreaEntries.Single(entry => entry.SemanticId == "area.diagnostic.duplicateMesArea"),
+                [diagnostic.Value],
+                [diagnostic.Value]),
+            WatchAreaFilterProfileDiagnosticCodes.TooManyMesAreas => Format(
+                AreaEntries.Single(entry => entry.SemanticId == "area.diagnostic.tooManyMesAreas"),
+                [WatchAreaFilterProfileParser.MaximumAreaCount],
+                [WatchAreaFilterProfileParser.MaximumAreaCount]),
+            WatchAreaFilterProfileDiagnosticCodes.EmptyAreaSet => Get("area.diagnostic.emptyAreaSet"),
+            WatchAreaFilterProfileDiagnosticCodes.InvalidUtf8 => Get("area.diagnostic.invalidUtf8"),
+            WatchAreaFilterProfileDiagnosticCodes.ProfileNotFound => Get("area.diagnostic.profileNotFound"),
+            WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists => Get("area.diagnostic.profileAlreadyExists"),
+            WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk => Get("area.diagnostic.profileChangedOnDisk"),
+            WatchAreaFilterProfileDiagnosticCodes.ProfileNameUnchanged => Get("area.diagnostic.profileNameUnchanged"),
+            WatchAreaFilterProfileDiagnosticCodes.ActiveMarkerWriteFailed => Get("area.diagnostic.activeMarkerWriteFailed"),
+            _ => Format(
+                AreaEntries.Single(entry => entry.SemanticId == "area.diagnostic.unknown"),
+                [diagnostic.Code, diagnostic.Message],
+                [diagnostic.Code, string.Empty]),
         };
     }
 }

@@ -417,7 +417,7 @@ internal sealed record WatchErrorSearchPresentation(
         {
             0 => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation153),
             1 => catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation154) + demandIds[0],
-            _ => catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation155, new object?[] { demandIds.Length }, new object?[] { demandIds.Length }) + string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", demandIds),
+            _ => catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation155, new object?[] { demandIds.Length }, new object?[] { demandIds.Length }) + string.Join(catalog.Common.ListSeparator, demandIds),
         };
         return new WatchErrorSearchDetailPresentation(
             $"{detail.Series.SeriesId} · {catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeActivityState(detail.Series.ActivityState))}",
@@ -457,7 +457,7 @@ internal sealed record WatchErrorSearchPresentation(
         }
         if (evidence.RelatedWorkTypes.Count > 0)
         {
-            references.Add($"WorkType {string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", evidence.RelatedWorkTypes)}");
+            references.Add($"WorkType {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}");
         }
 
         return new WatchErrorSearchEvidencePresentation(
@@ -483,7 +483,7 @@ internal sealed record WatchErrorSearchPresentation(
             ErrorSearchDiagnosticValueKinds.WorkTypeMembership =>
                 evidence.RelatedWorkTypes.Count == 0
                     ? $"WorkType {catalog.Common.SourceNotProvided}"
-                    : $"WorkType {string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", evidence.RelatedWorkTypes)}",
+                    : $"WorkType {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}",
             ErrorSearchDiagnosticValueKinds.RawObservationSet =>
                 catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation159, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }) + ProjectText(evidence.DiagnosticValue.Sha256Digest, catalog),
             _ => evidence.DiagnosticValue.Kind,
@@ -637,7 +637,7 @@ internal sealed record WatchErrorSearchPresentation(
         {
             if (values.Count > 0)
             {
-                conditions.Add($"{label} {string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", values)}");
+                conditions.Add($"{label} {string.Join(catalog.Common.ListSeparator, values)}");
             }
         }
 

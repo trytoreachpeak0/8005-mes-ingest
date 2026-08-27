@@ -113,6 +113,11 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(CurrentAttentionGoToPageButton, text.GoToPage);
         AutomationProperties.SetName(CurrentAttentionOpenDemandSeriesButton, text.OpenSeries);
         AutomationProperties.SetName(CurrentAttentionOpenErrorSearchButton, text.OpenErrorSearch);
+        AutomationProperties.SetName(CurrentAttentionFacetCard, text.Facets);
+        AutomationProperties.SetName(CurrentAttentionResultsCard, text.Results);
+        AutomationProperties.SetName(CurrentAttentionEvidenceCard, text.Evidence);
+        AutomationProperties.SetName(CurrentAttentionContractFactsPanel, text.PageTitle);
+        AutomationProperties.SetName(CurrentAttentionHistoryScopeText, text.PageTitle);
 
         RenderCurrentAttention(_session.State);
         CurrentAttentionPage.ScrollToVerticalOffset(offset);
@@ -666,9 +671,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.CurrentAttention,
                 "attention.operation",
-                text.Select(WatchGeneratedText.CurrentAttentionUi102),
-                text.Select(WatchGeneratedText.CurrentAttentionUi103),
-                text.Select(WatchGeneratedText.CurrentAttentionUi104));
+                WatchLocalizedText.FromEntry(WatchGeneratedText.CurrentAttentionUi102),
+                WatchLocalizedText.FromEntry(WatchGeneratedText.CurrentAttentionUi103),
+                WatchLocalizedText.FromEntry(WatchGeneratedText.CurrentAttentionUi104));
         }
     }
 

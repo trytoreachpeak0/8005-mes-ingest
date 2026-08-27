@@ -175,6 +175,11 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(ErrorSearchGoToPageButton, text.GoToPage);
         AutomationProperties.SetName(ErrorSearchLoadRawEvidenceButton, text.LoadRawEvidence);
         AutomationProperties.SetName(ErrorSearchOpenSeriesButton, text.OpenSeries);
+        AutomationProperties.SetName(ErrorSearchCategoryCard, text.CategoryTitle);
+        AutomationProperties.SetName(ErrorSearchResultsCard, text.ResultsTitle);
+        AutomationProperties.SetName(ErrorSearchDetailCard, text.DetailTitle);
+        AutomationProperties.SetName(ErrorSearchContractFactsPanel, text.PageTitle);
+        AutomationProperties.SetName(ErrorSearchScopeText, text.PageTitle);
 
         RenderErrorSearch(_session.State);
         ErrorSearchBodyScrollViewer.ScrollToVerticalOffset(bodyOffset);
@@ -1164,9 +1169,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.ErrorSearch,
                 "error-search.operation",
-                text.Select(WatchGeneratedText.ErrorSearchUi272),
-                text.Select(WatchGeneratedText.ErrorSearchUi273),
-                text.Select(WatchGeneratedText.ErrorSearchUi274));
+                WatchLocalizedText.FromEntry(WatchGeneratedText.ErrorSearchUi272),
+                WatchLocalizedText.FromEntry(WatchGeneratedText.ErrorSearchUi273),
+                WatchLocalizedText.FromEntry(WatchGeneratedText.ErrorSearchUi274));
         }
     }
 

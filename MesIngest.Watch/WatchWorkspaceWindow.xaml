@@ -1219,7 +1219,7 @@
                                                 </DataGrid.Columns>
                                             </DataGrid>
                                         </Grid>
-                                        <ui:TextBlock Text=""
+                                        <ui:TextBlock x:Name="ReadabilityFacetOverlapHelpText" Text=""
                                                       Style="{StaticResource SecondaryText}"
                                                       Visibility="Collapsed" />
 
@@ -1306,11 +1306,11 @@
                                                     IsOpen="False"
                                                     IsClosable="False"
                                                     Severity="Informational"
-                                                    Title="当前条件零命中"
+                                                    Title=""
                                                     Message=""
                                                     Margin="12"
                                                     VerticalAlignment="Top"
-                                                    AutomationProperties.Name="资格审计成功零结果" />
+                                                    AutomationProperties.Name="" />
                                         <Border Grid.Row="2"
                                                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
                                                 BorderThickness="{StaticResource DemandSeriesPagingDividerThickness}"
@@ -1319,7 +1319,7 @@
                                                 <StackPanel Orientation="Horizontal"
                                                             VerticalAlignment="Center"
                                                             Margin="0,4,8,4">
-                                                    <ui:TextBlock Text=""
+                                                    <ui:TextBlock x:Name="ReadabilityPerPageLabel" Text=""
                                                                   Style="{StaticResource CaptionText}"
                                                                   VerticalAlignment="Center" />
                                                     <ComboBox x:Name="ReadabilityPageSizeInput"
@@ -1797,8 +1797,7 @@
                                     Grid.Row="2">
                             <Border Padding="10,6"
                                     CornerRadius="4"
-                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                    AutomationProperties.Name="">
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}">
                                 <StackPanel>
                                     <ui:TextBlock x:Name="ErrorSearchCompactFactsText"
                                                   Text=""
@@ -3118,8 +3117,7 @@
                                         Grid.Row="2">
                                 <Border Padding="10,6"
                                         CornerRadius="4"
-                                        Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                        AutomationProperties.Name="">
+                                        Background="{DynamicResource ControlFillColorSecondaryBrush}">
                                     <StackPanel>
                                         <ui:TextBlock x:Name="CurrentAttentionHistoryScopeText"
                                                       Text=""

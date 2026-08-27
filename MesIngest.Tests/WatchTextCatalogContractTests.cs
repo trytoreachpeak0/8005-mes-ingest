@@ -94,6 +94,71 @@ public sealed partial class WatchTextCatalogContractTests
     }
 
     [Fact]
+    public void Production_visible_copy_cannot_bypass_typed_enumerable_catalog_entries()
+    {
+        var watchDirectory = FindWatchSourceDirectory();
+        var sourceFiles = Directory.GetFiles(watchDirectory, "*.cs", SearchOption.TopDirectoryOnly);
+        var sources = sourceFiles.ToDictionary(
+            path => path,
+            File.ReadAllText,
+            StringComparer.OrdinalIgnoreCase);
+
+        Assert.DoesNotContain(sources, pair => pair.Value.Contains(
+            "new WatchNotificationEvent(",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(sources, pair => pair.Value.Contains(
+            "TranslateKnownChinese",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(sources, pair => pair.Value.Contains(
+            ".Pick(",
+            StringComparison.Ordinal));
+
+        var inlineLocalizedLiteral = new Regex(
+            "new\\s*(?:WatchLocalizedText)?\\s*\\(\\s*\"[^\"]*[\\p{IsCJKUnifiedIdeographs}][^\"]*\"\\s*,\\s*\"",
+            RegexOptions.CultureInvariant);
+        Assert.DoesNotContain(sources, pair => inlineLocalizedLiteral.IsMatch(pair.Value));
+
+        const string fundamentalLanguageSelection = "Language == WatchDisplayLanguage.SimplifiedChinese";
+        var catalogBaseSource = sources.Single(pair => string.Equals(
+            Path.GetFileName(pair.Key),
+            "WatchTextCatalog.cs",
+            StringComparison.Ordinal));
+        Assert.Equal(
+            2,
+            Regex.Matches(
+                catalogBaseSource.Value,
+                Regex.Escape(fundamentalLanguageSelection),
+                RegexOptions.CultureInvariant).Count);
+        var catalogSectionSources = sources
+            .Where(pair => Path.GetFileName(pair.Key).StartsWith(
+                "WatchTextCatalog.",
+                StringComparison.Ordinal)
+                && !Path.GetFileName(pair.Key).EndsWith(
+                    ".Generated.cs",
+                    StringComparison.Ordinal))
+            .Select(pair => string.Equals(
+                    Path.GetFileName(pair.Key),
+                    "WatchTextCatalog.cs",
+                    StringComparison.Ordinal)
+                ? new KeyValuePair<string, string>(
+                    pair.Key,
+                    new Regex(
+                        Regex.Escape(fundamentalLanguageSelection),
+                        RegexOptions.CultureInvariant)
+                        .Replace(pair.Value, string.Empty, count: 2))
+                : pair)
+            .ToArray();
+        Assert.DoesNotContain(
+            catalogSectionSources,
+            pair => pair.Value.Contains(
+                "Language == WatchDisplayLanguage",
+                StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            catalogSectionSources,
+            pair => pair.Value.Contains("(Language,", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Unknown_code_description_is_localized_and_preserves_the_raw_code()
     {
         const string rawCode = "FUTURE_CONTRACT_CODE_17";
@@ -164,6 +229,24 @@ public sealed partial class WatchTextCatalogContractTests
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal)
             .ToArray();
+
+    private static string FindWatchSourceDirectory()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            var candidate = Path.Combine(directory.FullName, "MesIngest.Watch");
+            if (Directory.Exists(candidate)
+                && File.Exists(Path.Combine(candidate, "WatchTextCatalog.cs")))
+            {
+                return candidate;
+            }
+        }
+
+        throw new DirectoryNotFoundException(
+            "Could not locate the MesIngest.Watch production source directory.");
+    }
 
     [GeneratedRegex("\\{([^{}:,]+)[,:}]", RegexOptions.CultureInvariant)]
     private static partial Regex FormatParameterRegex();

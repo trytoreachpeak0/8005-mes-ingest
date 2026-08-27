@@ -33,6 +33,14 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
         new("common.clipboard.copyRow", "复制整行", "Copy row");
     private static readonly WatchTextCatalogEntry CopyRowWithHeadersEntry =
         new("common.clipboard.copyRowWithHeaders", "复制整行（含列名）", "Copy row with headers");
+    private static readonly WatchTextCatalogEntry ListSeparatorEntry =
+        new("common.list.separator", "、", ", ");
+    private static readonly WatchTextCatalogEntry ItemCountUnitEntry =
+        new("common.count.items", "项", "items");
+    private static readonly WatchTextCatalogEntry DemandCountUnitEntry =
+        new("common.count.demands", "个 Demand", "Demands");
+    private static readonly WatchTextCatalogEntry SeriesCountUnitEntry =
+        new("common.count.series", "个 Series", "Series");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -51,6 +59,10 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
         CopyCellEntry,
         CopyRowEntry,
         CopyRowWithHeadersEntry,
+        ListSeparatorEntry,
+        ItemCountUnitEntry,
+        DemandCountUnitEntry,
+        SeriesCountUnitEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -82,6 +94,14 @@ internal sealed class WatchCommonText(WatchDisplayLanguage language)
     public string CopyCell => Text(CopyCellEntry);
 
     public string CopyRow => Text(CopyRowEntry);
+
+    public string ListSeparator => Text(ListSeparatorEntry);
+
+    public string ItemCountUnit => Text(ItemCountUnitEntry);
+
+    public string DemandCountUnit => Text(DemandCountUnitEntry);
+
+    public string SeriesCountUnit => Text(SeriesCountUnitEntry);
 
     public string CopyRowWithHeaders => Text(CopyRowWithHeadersEntry);
 }

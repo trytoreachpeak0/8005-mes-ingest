@@ -242,14 +242,11 @@ internal sealed class WatchTextCatalog
         var culture = Language == WatchDisplayLanguage.SimplifiedChinese
             ? CultureInfo.GetCultureInfo("zh-CN")
             : CultureInfo.GetCultureInfo("en-US");
-        var label = (Language, unit) switch
+        var label = unit switch
         {
-            (WatchDisplayLanguage.SimplifiedChinese, WatchCountUnit.Items) => "项",
-            (WatchDisplayLanguage.SimplifiedChinese, WatchCountUnit.Demands) => "个 Demand",
-            (WatchDisplayLanguage.SimplifiedChinese, WatchCountUnit.Series) => "个 Series",
-            (WatchDisplayLanguage.English, WatchCountUnit.Items) => "items",
-            (WatchDisplayLanguage.English, WatchCountUnit.Demands) => "Demands",
-            (WatchDisplayLanguage.English, WatchCountUnit.Series) => "Series",
+            WatchCountUnit.Items => Common.ItemCountUnit,
+            WatchCountUnit.Demands => Common.DemandCountUnit,
+            WatchCountUnit.Series => Common.SeriesCountUnit,
             _ => throw new ArgumentOutOfRangeException(nameof(unit), unit, null),
         };
         return $"{value.ToString("N0", culture)} {label}";

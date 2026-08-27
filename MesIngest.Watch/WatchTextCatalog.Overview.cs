@@ -146,18 +146,13 @@ internal sealed partial class WatchOverviewText
     public string NoProtectionDetail(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview063, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) }, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) });
     public string WaitingProtection => Select(WatchLegacyGeneratedText.Overview064);
 
-    public string HostStatus(WatchHostConnectionStatus status, bool hasRecentFailure) => (Language, status, hasRecentFailure) switch
+    public string HostStatus(WatchHostConnectionStatus status, bool hasRecentFailure) => (status, hasRecentFailure) switch
     {
-        (WatchDisplayLanguage.SimplifiedChinese, WatchHostConnectionStatus.NotConfigured, _) => "Host 未连接",
-        (WatchDisplayLanguage.SimplifiedChinese, WatchHostConnectionStatus.Connecting, _) => "Host 连接中",
-        (WatchDisplayLanguage.SimplifiedChinese, WatchHostConnectionStatus.Failed, _) => "Host 连接失败",
-        (WatchDisplayLanguage.SimplifiedChinese, WatchHostConnectionStatus.Connected, true) => "Host 已连接 · 最近读取失败",
-        (WatchDisplayLanguage.SimplifiedChinese, WatchHostConnectionStatus.Connected, false) => "Host 已连接",
-        (WatchDisplayLanguage.English, WatchHostConnectionStatus.NotConfigured, _) => "Host disconnected",
-        (WatchDisplayLanguage.English, WatchHostConnectionStatus.Connecting, _) => "Connecting to Host",
-        (WatchDisplayLanguage.English, WatchHostConnectionStatus.Failed, _) => "Host connection failed",
-        (WatchDisplayLanguage.English, WatchHostConnectionStatus.Connected, true) => "Host connected · recent read failed",
-        (WatchDisplayLanguage.English, WatchHostConnectionStatus.Connected, false) => "Host connected",
+        (WatchHostConnectionStatus.NotConfigured, _) => Select(WatchLegacyGeneratedText.OverviewHostDisconnected),
+        (WatchHostConnectionStatus.Connecting, _) => Select(WatchLegacyGeneratedText.OverviewHostConnecting),
+        (WatchHostConnectionStatus.Failed, _) => Select(WatchLegacyGeneratedText.OverviewHostFailed),
+        (WatchHostConnectionStatus.Connected, true) => Select(WatchLegacyGeneratedText.OverviewHostConnectedRecentFailure),
+        (WatchHostConnectionStatus.Connected, false) => Select(WatchLegacyGeneratedText.OverviewHostConnected),
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, null),
     };
 
@@ -202,11 +197,11 @@ internal sealed partial class WatchOverviewText
             : Format(WatchLegacyGeneratedText.Overview093, new object?[] { detail, correlationId }, new object?[] { detail, correlationId });
     }
 
-    public string LocalState(string raw) => (Language, raw) switch
+    public string LocalState(string raw) => raw switch
     {
-        (WatchDisplayLanguage.English, "本机默认") => "Local default",
-        (WatchDisplayLanguage.English, "本机配置") => "Local configuration",
-        (WatchDisplayLanguage.English, "本机已应用") => "Applied locally",
+        "本机默认" => Select(WatchLegacyGeneratedText.OverviewLocalDefault),
+        "本机配置" => Select(WatchLegacyGeneratedText.OverviewLocalConfiguration),
+        "本机已应用" => Select(WatchLegacyGeneratedText.OverviewLocalApplied),
         _ => raw,
     };
 

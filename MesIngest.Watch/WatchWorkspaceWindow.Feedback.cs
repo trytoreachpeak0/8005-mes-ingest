@@ -61,29 +61,29 @@ internal partial class WatchWorkspaceWindow
             WatchWorkspacePage.DemandSeries,
             state.DemandSeries.SelectionNotice,
             $"{state.HostGeneration}:{state.DemandSeries.SelectionGeneration}",
-            "原需求系列已不在刷新结果中");
+            WatchFeedbackText.Localized("feedback.selection.demand-series"));
         PublishSelectionFeedback(
             WatchWorkspacePage.ReadabilityAudit,
             state.ReadabilityAudit.SelectionNotice,
             $"{state.HostGeneration}:{state.ReadabilityAudit.SelectionGeneration}",
-            "原 Demand 已不在刷新结果中");
+            WatchFeedbackText.Localized("feedback.selection.transport-demand"));
         PublishSelectionFeedback(
             WatchWorkspacePage.ErrorSearch,
             state.ErrorSearch.SelectionNotice,
             $"{state.HostGeneration}:{state.ErrorSearch.SelectionGeneration}",
-            "原错误项已不在刷新结果中");
+            WatchFeedbackText.Localized("feedback.selection.error"));
         PublishSelectionFeedback(
             WatchWorkspacePage.CurrentAttention,
             _currentAttentionSelectionNotice,
             _currentAttentionSelectionNotice ?? string.Empty,
-            "原关注项已不在刷新结果中");
+            WatchFeedbackText.Localized("feedback.selection.attention"));
     }
 
     private void PublishSelectionFeedback(
         WatchWorkspacePage page,
         string? notice,
         string token,
-        string title)
+        WatchLocalizedText title)
     {
         if (string.IsNullOrWhiteSpace(notice))
         {
@@ -97,15 +97,17 @@ internal partial class WatchWorkspaceWindow
         }
 
         _selectionFeedbackTokens[page] = token;
-        PresentNotification(new WatchNotificationEvent(
+        var localized = new WatchLocalizedNotificationContent(
+            WatchFeedbackText.Localized("feedback.severity.information"),
+            title,
+            WatchFeedbackText.Localized("feedback.selection-cleared"));
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "refresh.selection-cleared",
                 WatchNotificationScope.ForPage(page),
                 page.ToString()),
             WatchNotificationSeverity.Information,
-            "信息",
-            title,
-            "刷新已清除原选择；详情保持未选择，请重新选择一项。"));
+            localized));
     }
 
     private IReadOnlyList<WatchContinuingFault> ProjectContinuingFaults(
@@ -188,16 +190,13 @@ internal partial class WatchWorkspaceWindow
             var localizedTitle = fault.LocalizedContent?.Title
                 ?? new WatchLocalizedText(fault.Title, fault.Title);
             var localized = WatchFeedbackText.Recovered(localizedTitle);
-            PresentNotification(new WatchNotificationEvent(
+            PresentNotification(WatchNotificationEvent.CreateLocalized(
                 new WatchNotificationSource(
                     "continuing-fault.recovered",
                     fault.Scope,
                     fault.SourceKey),
                 WatchNotificationSeverity.Success,
-                localized.SeverityText.SimplifiedChinese,
-                localized.Title.SimplifiedChinese,
-                localized.Message.SimplifiedChinese,
-                LocalizedContent: localized));
+                localized));
         }
 
         if (change.ForegroundSummary.Count > 0)
@@ -208,18 +207,14 @@ internal partial class WatchWorkspaceWindow
             var localized = WatchFeedbackText.BackgroundFaultSummary(
                 change.ForegroundSummary.Count,
                 mostSevereTitle);
-            PresentNotification(new WatchNotificationEvent(
+            PresentNotification(WatchNotificationEvent.CreateLocalized(
                 new WatchNotificationSource(
                     "continuing-fault.background-summary",
                     WatchNotificationScope.Global,
                     "active-new-faults"),
                 mostSevere.Severity,
-                localized.SeverityText.SimplifiedChinese,
-                localized.Title.SimplifiedChinese,
-                localized.Message.SimplifiedChinese,
-                localized.ActionLabel!.SimplifiedChinese,
-                () => NavigateToFault(mostSevere),
-                localized));
+                localized,
+                () => NavigateToFault(mostSevere)));
         }
 
         RenderFaultHeaders(change.Active);
@@ -228,15 +223,14 @@ internal partial class WatchWorkspaceWindow
     private void PresentFaultNotification(WatchContinuingFault fault)
     {
         var source = FaultNotificationSource(fault);
-        PresentNotification(new WatchNotificationEvent(
+        var localized = fault.LocalizedContent
+            ?? throw new InvalidOperationException(
+                "Production continuing faults require bilingual localized content.");
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             source,
             fault.Severity,
-            "错误",
-            fault.Title,
-            fault.Message,
-            fault.ActionLabel,
-            () => NavigateToFault(fault),
-            fault.LocalizedContent));
+            localized,
+            () => NavigateToFault(fault)));
     }
 
     private static WatchNotificationSource FaultNotificationSource(
@@ -303,45 +297,37 @@ internal partial class WatchWorkspaceWindow
 
         var fault = faults[0];
         var localizedFault = fault.LocalizedContent
-            ?? WatchFeedbackText.Localize(new WatchNotificationEvent(
-                new WatchNotificationSource(
-                    "continuing-fault.details",
-                    WatchNotificationScope.ForPage(page),
-                    page.ToString()),
-                fault.Severity,
-                "错误",
-                fault.Title,
-                fault.Message));
+            ?? throw new InvalidOperationException(
+                "Production continuing faults require bilingual localized content.");
         var localized = WatchFeedbackText.FaultDetails(faults.Length, localizedFault);
-        PresentNotification(new WatchNotificationEvent(
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "continuing-fault.details",
                 WatchNotificationScope.ForPage(page),
                 page.ToString()),
             fault.Severity,
-            localized.SeverityText.SimplifiedChinese,
-            localized.Title.SimplifiedChinese,
-            localized.Message.SimplifiedChinese,
-            LocalizedContent: localized));
+            localized));
     }
 
     private void PresentOperationFailure(
         WatchWorkspacePage page,
         string sourceIdentity,
-        string title,
-        string controlledMessage,
-        string actionLabel)
+        WatchLocalizedText title,
+        WatchLocalizedText controlledMessage,
+        WatchLocalizedText actionLabel)
     {
-        PresentNotification(new WatchNotificationEvent(
+        var localized = new WatchLocalizedNotificationContent(
+            WatchFeedbackText.Localized("feedback.severity.error"),
+            title,
+            controlledMessage,
+            actionLabel);
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "operation.failed",
                 WatchNotificationScope.ForPage(page),
                 sourceIdentity),
             WatchNotificationSeverity.Error,
-            "错误",
-            title,
-            controlledMessage,
-            actionLabel,
+            localized,
             () => NavigateTo(page)));
     }
 }

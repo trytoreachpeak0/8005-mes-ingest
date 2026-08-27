@@ -449,10 +449,10 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
         WatchTextCatalog catalog)
     {
         var kindSummary = kinds is { Count: > 0 }
-            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation051) + string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", kinds)
+            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation051) + string.Join(catalog.Common.ListSeparator, kinds)
             : catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation052);
         var severitySummary = severities is { Count: > 0 }
-            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation053) + string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", severities)
+            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation053) + string.Join(catalog.Common.ListSeparator, severities)
             : catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation054);
         return $"{kindSummary} · {severitySummary}";
     }

@@ -403,7 +403,7 @@ internal sealed record WatchReadabilityAuditPresentation(
             observationSummary,
             detail.Blockers.Count == 0
                 ? text.NoBlocker
-                : string.Join(catalog.Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", detail.Blockers
+                : string.Join(catalog.Common.ListSeparator, detail.Blockers
                     .OrderBy(blocker => blocker.Priority)
                     .Select(blocker => blocker.Code)),
             liveMes,

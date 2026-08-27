@@ -37,6 +37,9 @@ internal readonly record struct WatchNotificationSource(
 
 internal sealed record WatchLocalizedText(string SimplifiedChinese, string English)
 {
+    internal static WatchLocalizedText FromEntry(WatchTextCatalogEntry entry) =>
+        new(entry.SimplifiedChinese, entry.English);
+
     internal string In(WatchDisplayLanguage language) => language switch
     {
         WatchDisplayLanguage.SimplifiedChinese => SimplifiedChinese,
@@ -72,6 +75,20 @@ internal sealed record WatchNotificationEvent(
     Action? Action = null,
     WatchLocalizedNotificationContent? LocalizedContent = null)
 {
+    internal static WatchNotificationEvent CreateLocalized(
+        WatchNotificationSource source,
+        WatchNotificationSeverity severity,
+        WatchLocalizedNotificationContent content,
+        Action? action = null) => new(
+            source,
+            severity,
+            content.SeverityText.SimplifiedChinese,
+            content.Title.SimplifiedChinese,
+            content.Message.SimplifiedChinese,
+            content.ActionLabel?.SimplifiedChinese,
+            action,
+            content);
+
     public TimeSpan DefaultLifetime => Severity switch
     {
         WatchNotificationSeverity.Warning => TimeSpan.FromSeconds(5),

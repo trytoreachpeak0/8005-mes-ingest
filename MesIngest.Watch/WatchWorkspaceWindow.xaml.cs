@@ -1881,8 +1881,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 PresentSettingsFeedback(
                     WatchNotificationSeverity.Success,
                     "host.apply",
-                    "Host 设置已应用",
-                    "契约兼容，概览已读取并恢复自动刷新。");
+                    WatchFeedbackText.Localized("feedback.settings.host-applied.title"),
+                    WatchFeedbackText.Localized("feedback.settings.host-applied.message"));
             }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
@@ -1900,8 +1900,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             PresentSettingsFailure(
                 "host.apply",
-                "无法应用 Host 设置",
-                "请检查地址格式、超时范围或本机设置文件后重试。",
+                WatchFeedbackText.Localized("feedback.settings.host-failed.title"),
+                WatchFeedbackText.Localized("feedback.settings.host-failed.message"),
                 ApplyHostButton);
         }
         finally
@@ -1947,28 +1947,30 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 throw new InvalidOperationException("Local preferences must not replace the Host session.");
             }
 
-            PresentNotification(new WatchNotificationEvent(
+            PresentNotification(WatchNotificationEvent.CreateLocalized(
                 new WatchNotificationSource(
                     "settings.local-preferences",
                     WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
                     "workspace-preferences"),
                 WatchNotificationSeverity.Success,
-                "成功",
-                "本机设置已保存",
-                "自动刷新保持开启；当前 Host 会话未重建。"));
+                new WatchLocalizedNotificationContent(
+                    WatchFeedbackText.Localized("feedback.severity.success"),
+                    WatchFeedbackText.Localized("feedback.settings.saved"),
+                    WatchFeedbackText.Localized("feedback.settings.saved-detail"))));
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
-            PresentNotification(new WatchNotificationEvent(
+            PresentNotification(WatchNotificationEvent.CreateLocalized(
                 new WatchNotificationSource(
                     "settings.local-preferences",
                     WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
                     "workspace-preferences"),
                 WatchNotificationSeverity.Error,
-                "错误",
-                "无法保存本机设置",
-                "本机设置文件无法写入。请检查文件权限后重试。",
-                "重试保存",
+                new WatchLocalizedNotificationContent(
+                    WatchFeedbackText.Localized("feedback.severity.error"),
+                    WatchFeedbackText.Localized("feedback.settings.save-failed"),
+                    WatchFeedbackText.Localized("feedback.settings.save-failed-detail"),
+                    WatchFeedbackText.Localized("feedback.action.retry-save")),
                 () => SaveRefreshIntervalsButton.RaiseEvent(
                     new RoutedEventArgs(
                         System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
@@ -1994,15 +1996,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentSettingsFeedback(
                 WatchNotificationSeverity.Success,
                 "layout.restore-default",
-                "已恢复默认布局",
-                "窗口恢复为 1440×900 和紧凑导航 rail；刷新间隔与 Host 会话保持不变。");
+                WatchFeedbackText.Localized("feedback.settings.layout-restored.title"),
+                WatchFeedbackText.Localized("feedback.settings.layout-restored.message"));
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
             PresentSettingsFailure(
                 "layout.restore-default",
-                "无法恢复默认布局",
-                "本机布局设置无法写入；请检查文件权限后重试。",
+                WatchFeedbackText.Localized("feedback.settings.layout-failed.title"),
+                WatchFeedbackText.Localized("feedback.settings.layout-failed.message"),
                 RestoreDefaultLayoutButton);
         }
     }
@@ -2028,15 +2030,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentSettingsFeedback(
                 WatchNotificationSeverity.Success,
                 "settings.restore-default",
-                "已恢复默认设置",
-                "窗口恢复为 1440×900、紧凑导航 rail；五个数据视图保持 10 秒自动刷新。Host 会话未重建。");
+                WatchFeedbackText.Localized("feedback.settings.defaults-restored.title"),
+                WatchFeedbackText.Localized("feedback.settings.defaults-restored.message"));
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
             PresentSettingsFailure(
                 "settings.restore-default",
-                "无法恢复默认设置",
-                "本机设置无法写入；请检查文件权限后重试。",
+                WatchFeedbackText.Localized("feedback.settings.defaults-failed.title"),
+                WatchFeedbackText.Localized("feedback.settings.defaults-failed.message"),
                 RestoreDefaultSettingsButton);
         }
     }
@@ -2049,33 +2051,37 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private void PresentSettingsFeedback(
         WatchNotificationSeverity severity,
         string identity,
-        string title,
-        string message) =>
-        PresentNotification(new WatchNotificationEvent(
+        WatchLocalizedText title,
+        WatchLocalizedText message) =>
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "settings.operation",
                 WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
                 identity),
             severity,
-            severity == WatchNotificationSeverity.Success ? "成功" : "信息",
-            title,
-            message));
+            new WatchLocalizedNotificationContent(
+                severity == WatchNotificationSeverity.Success
+                    ? WatchFeedbackText.Localized("feedback.severity.success")
+                    : WatchFeedbackText.Localized("feedback.severity.information"),
+                title,
+                message)));
 
     private void PresentSettingsFailure(
         string identity,
-        string title,
-        string message,
+        WatchLocalizedText title,
+        WatchLocalizedText message,
         System.Windows.Controls.Primitives.ButtonBase retryButton) =>
-        PresentNotification(new WatchNotificationEvent(
+        PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "settings.operation",
                 WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
                 identity),
             WatchNotificationSeverity.Error,
-            "错误",
-            title,
-            message,
-            "重试",
+            new WatchLocalizedNotificationContent(
+                WatchFeedbackText.Localized("feedback.severity.error"),
+                title,
+                message,
+                WatchFeedbackText.Localized("feedback.action.retry")),
             () => retryButton.RaiseEvent(new RoutedEventArgs(
                 System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
 
@@ -2430,9 +2436,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentOperationFailure(
                 WatchWorkspacePage.DemandSeries,
                 "demand-series.operation",
-                "无法执行需求系列操作",
-                "请检查输入或当前快照后重试。",
-                "返回需求系列");
+                WatchFeedbackText.Localized("feedback.operation.demand-series.title"),
+                WatchFeedbackText.Localized("feedback.operation.retry-message"),
+                WatchFeedbackText.Localized("feedback.operation.demand-series.action"));
         }
     }
 

@@ -2,6 +2,70 @@ namespace MesIngest.Watch;
 
 internal static class WatchLegacyGeneratedText
 {
+    internal static readonly WatchTextCatalogEntry ReadabilityFacetOverlapHelp =
+        new(
+            "readability-audit.facet-overlap-help",
+            "原因分面可重叠；NOT_READABLE 总数按运输需求代次去重，不能相加原因数量。",
+            "Reason facets may overlap. The NOT_READABLE total is distinct by transport-demand generation, so reason counts must not be added together.");
+    internal static readonly WatchTextCatalogEntry ReadabilityFilterEligibilityLabel =
+        new("readability-audit.filter.eligibility-label", "资格", "Eligibility outcome");
+    internal static readonly WatchTextCatalogEntry ReadabilityFilterBlockerLabel =
+        new("readability-audit.filter.blocker-label", "阻断", "Unreadable reason");
+    internal static readonly WatchTextCatalogEntry ReadabilityObservationTrusted =
+        new("readability-audit.observation.trusted", "{0:N0} 条原始观测 · 当前可信 LiveMesFieldSet 可用", "{0:N0} raw observations · trusted LiveMesFieldSet available");
+    internal static readonly WatchTextCatalogEntry ReadabilityObservationConflict =
+        new("readability-audit.observation.conflict", "{0:N0} 条原始观测 · 无可信单值；保留原始观测冲突证据", "{0:N0} raw observations · no trusted single value; raw conflict evidence retained");
+    internal static readonly WatchTextCatalogEntry ReadabilityObservationUntrusted =
+        new("readability-audit.observation.untrusted", "{0:N0} 条原始观测 · 无可信 LiveMesFieldSet", "{0:N0} raw observations · no trusted LiveMesFieldSet");
+    internal static readonly WatchTextCatalogEntry ReadabilitySelectionCleared =
+        new("readability-audit.detail.selection-cleared", "原选择已清除", "Previous selection cleared");
+    internal static readonly WatchTextCatalogEntry ReadabilityDetailFailed =
+        new("readability-audit.detail.load-failed", "无法读取同快照详情", "Could not read same-snapshot details");
+    internal static readonly WatchTextCatalogEntry ReadabilityDetailLoading =
+        new("readability-audit.detail.loading", "正在读取同快照详情", "Loading same-snapshot details");
+    internal static readonly WatchTextCatalogEntry ReadabilityDetailFailedMessage =
+        new("readability-audit.detail.load-failed-message", "运输需求 {0} 的详情读取失败；列表仍属于上方标明的冻结快照。", "Details for transport demand {0} failed to load; the list still belongs to the frozen snapshot shown above.");
+    internal static readonly WatchTextCatalogEntry ReadabilityDetailLoadingMessage =
+        new("readability-audit.detail.loading-message", "已选择运输需求 {0}；正在读取当前 snapshotReference 的详情。", "Transport demand {0} is selected; loading details for the current snapshotReference.");
+    internal static readonly WatchTextCatalogEntry OverviewHostDisconnected =
+        new("overview.host.disconnected", "Host 未连接", "Host disconnected");
+    internal static readonly WatchTextCatalogEntry OverviewHostConnecting =
+        new("overview.host.connecting", "Host 连接中", "Connecting to Host");
+    internal static readonly WatchTextCatalogEntry OverviewHostFailed =
+        new("overview.host.failed", "Host 连接失败", "Host connection failed");
+    internal static readonly WatchTextCatalogEntry OverviewHostConnectedRecentFailure =
+        new("overview.host.connected-recent-failure", "Host 已连接 · 最近读取失败", "Host connected · recent read failed");
+    internal static readonly WatchTextCatalogEntry OverviewHostConnected =
+        new("overview.host.connected", "Host 已连接", "Host connected");
+    internal static readonly WatchTextCatalogEntry OverviewLocalDefault =
+        new("overview.local-state.default", "本机默认", "Local default");
+    internal static readonly WatchTextCatalogEntry OverviewLocalConfiguration =
+        new("overview.local-state.configuration", "本机配置", "Local configuration");
+    internal static readonly WatchTextCatalogEntry OverviewLocalApplied =
+        new("overview.local-state.applied", "本机已应用", "Applied locally");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationDemandVisible =
+        new("readability-audit.qualification.demand-visible", "Demand 在当前完整源投影中可见", "The Demand is visible in the current complete source projection.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationSeriesTracking =
+        new("readability-audit.qualification.series-tracking", "所属需求系列尚未归档", "The owning DemandSeries has not been archived.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationNotLongGone =
+        new("readability-audit.qualification.not-long-gone", "Demand 不是归档后再次出现", "The Demand is not a postarchive reappearance.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationUniqueObservation =
+        new("readability-audit.qualification.unique-observation", "当前轮次中该 Demand 业务键只有一条原始观测", "The current round has exactly one raw observation for the Demand key.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationOneWorkType =
+        new("readability-audit.qualification.one-work-type", "当前轮次中 SUBLOT 只对应一个 WorkType", "The SUBLOT occurs in one WorkType in the current round.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationFieldsPresent =
+        new("readability-audit.qualification.fields-present", "全部必需 MES 字段均已提供且非空白", "Every required MES field is present and non-whitespace.");
+    internal static readonly WatchTextCatalogEntry ReadabilityQualificationFieldsValid =
+        new("readability-audit.qualification.fields-valid", "全部已提供 MES 字段符合领域格式", "Every present MES field matches its domain format.");
+    internal static readonly WatchTextCatalogEntry ReadabilityLoading =
+        new("readability-audit.loading", "正在读取资格审计", "Loading eligibility audit");
+    internal static readonly WatchTextCatalogEntry ReadabilityRefreshing =
+        new("readability-audit.refreshing", "正在刷新资格审计", "Refreshing eligibility audit");
+    internal static readonly WatchTextCatalogEntry ReadabilityReadFailed =
+        new("readability-audit.read-failed", "资格审计读取失败", "Eligibility-audit read failed");
+    internal static readonly WatchTextCatalogEntry ReadabilityRefreshFailed =
+        new("readability-audit.refresh-failed", "资格审计刷新失败，已保留上次快照", "Eligibility-audit refresh failed; previous snapshot retained");
+
     internal static readonly WatchTextCatalogEntry AreaFilter001 =
         new("area-filter.0-files-1-need-repair-aeb3928b", "{0:N0} \u4E2A\u6587\u4EF6 \u00B7 {1:N0} \u4E2A\u9700\u8981\u4FEE\u590D", "{0} files \u00B7 {1} need repair");
     internal static readonly WatchTextCatalogEntry AreaFilter002 =
@@ -352,6 +416,14 @@ internal static class WatchLegacyGeneratedText
 
     internal static IReadOnlyList<WatchTextCatalogEntry> OverviewEntries { get; } =
     [
+        OverviewHostDisconnected,
+        OverviewHostConnecting,
+        OverviewHostFailed,
+        OverviewHostConnectedRecentFailure,
+        OverviewHostConnected,
+        OverviewLocalDefault,
+        OverviewLocalConfiguration,
+        OverviewLocalApplied,
         Overview030,
         Overview031,
         Overview032,
@@ -424,6 +496,28 @@ internal static class WatchLegacyGeneratedText
 
     internal static IReadOnlyList<WatchTextCatalogEntry> ReadabilityAuditEntries { get; } =
     [
+        ReadabilityFacetOverlapHelp,
+        ReadabilityFilterEligibilityLabel,
+        ReadabilityFilterBlockerLabel,
+        ReadabilityObservationTrusted,
+        ReadabilityObservationConflict,
+        ReadabilityObservationUntrusted,
+        ReadabilitySelectionCleared,
+        ReadabilityDetailFailed,
+        ReadabilityDetailLoading,
+        ReadabilityDetailFailedMessage,
+        ReadabilityDetailLoadingMessage,
+        ReadabilityQualificationDemandVisible,
+        ReadabilityQualificationSeriesTracking,
+        ReadabilityQualificationNotLongGone,
+        ReadabilityQualificationUniqueObservation,
+        ReadabilityQualificationOneWorkType,
+        ReadabilityQualificationFieldsPresent,
+        ReadabilityQualificationFieldsValid,
+        ReadabilityLoading,
+        ReadabilityRefreshing,
+        ReadabilityReadFailed,
+        ReadabilityRefreshFailed,
         ReadabilityAudit098,
         ReadabilityAudit099,
         ReadabilityAudit100,

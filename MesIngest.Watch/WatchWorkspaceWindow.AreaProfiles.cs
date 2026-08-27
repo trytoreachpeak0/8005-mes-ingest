@@ -354,9 +354,8 @@ internal partial class WatchWorkspaceWindow
     private bool _areaProfileDraftLostItsFile;
     private AreaProfileFileOperationConfirmation? _areaProfileFileOperationConfirmation;
     private long _areaProfileOperationGeneration;
-    private string? _areaProfileInfoTitleSource;
-    private string? _areaProfileInfoMessageSource;
-    private string? _areaProfileDirectoryWatchMessageSource;
+    private WatchLocalizedNotificationContent? _areaProfileInfoContent;
+    private WatchLocalizedNotificationContent? _areaProfileDirectoryWatchContent;
 
     internal Task AreaProfileOperationTask { get; private set; } = Task.CompletedTask;
 
@@ -425,8 +424,8 @@ internal partial class WatchWorkspaceWindow
         {
             ShowAreaProfileInfo(
                 InfoBarSeverity.Warning,
-                "无法恢复上次 AREA 配置",
-                $"已回退到全部 AREA。{_areaProfileStartupError}");
+                _displayLanguageState.Catalog.AreaFilter.RestorePreviousFailed(
+                    _areaProfileStartupError));
         }
 
     }
@@ -482,12 +481,10 @@ internal partial class WatchWorkspaceWindow
 
     private void ShowAreaProfileDirectoryWatchDegraded(string message)
     {
-        _areaProfileDirectoryWatchMessageSource = message;
+        _areaProfileDirectoryWatchContent = _displayLanguageState.Catalog.AreaFilter
+            .DirectoryWatchDegraded(message);
         ReprojectAreaProfileInfoBars();
         AreaProfileDirectoryWatchInfoBar.IsOpen = true;
-        AutomationProperties.SetName(
-            AreaProfileDirectoryWatchInfoBar,
-            $"{AreaProfileDirectoryWatchInfoBar.Title}。{AreaProfileDirectoryWatchInfoBar.Message}");
     }
 
     private void OnAreaProfileDirectoryChanged(
@@ -619,8 +616,9 @@ internal partial class WatchWorkspaceWindow
         {
             ShowAreaProfileInfo(
                 InfoBarSeverity.Warning,
-                "无法读取本机 AREA 配置",
-                $"配置列表可能不是最新的。{exception.Message}");
+                _displayLanguageState.Catalog.AreaFilter.ReadProfilesFailed(
+                    exception.Message,
+                    preserveAppliedScope: false));
         }
     }
 
@@ -650,8 +648,8 @@ internal partial class WatchWorkspaceWindow
                     _areaProfileStartupError = diagnostic.Message;
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Warning,
-                        "无法恢复上次 AREA 配置",
-                        diagnostic.Message);
+                        _displayLanguageState.Catalog.AreaFilter.RestorePreviousFailed(
+                            diagnostic.Message));
                 }
             }
             catch (Exception exception) when (exception is IOException
@@ -669,8 +667,9 @@ internal partial class WatchWorkspaceWindow
                 _areaProfileStartupError ??= exception.Message;
                 ShowAreaProfileInfo(
                     InfoBarSeverity.Warning,
-                    "无法读取本机 AREA 配置",
-                    $"当前已应用显示范围保持不变。{exception.Message}");
+                    _displayLanguageState.Catalog.AreaFilter.ReadProfilesFailed(
+                        exception.Message,
+                        preserveAppliedScope: true));
             }
 
             _areaProfileRows = _areaProfileRows
@@ -716,8 +715,8 @@ internal partial class WatchWorkspaceWindow
                     _selectedAreaProfileName = null;
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Warning,
-                        "无法读取当前应用配置的 TXT",
-                        $"已应用 AREA 快照保持不变。{exception.Message}");
+                        _displayLanguageState.Catalog.AreaFilter.ReadAppliedProfileFailed(
+                            exception.Message));
                 }
             }
 
@@ -1204,12 +1203,10 @@ internal partial class WatchWorkspaceWindow
             var disposition = _areaProfileDirectoryLauncher.Open(directory);
             ShowAreaProfileInfo(
                 InfoBarSeverity.Informational,
-                disposition == WatchAreaProfileDirectoryOpenDisposition.Opened
-                    ? "AREA 配置目录已打开"
-                    : "AREA 配置目录已准备",
-                disposition == WatchAreaProfileDirectoryOpenDisposition.Opened
-                    ? $"已通过平台文件管理器打开 {directory}。"
-                    : $"已确认 {directory} 存在；UI 测试模式未启动文件管理器。");
+                _displayLanguageState.Catalog.AreaFilter.DirectoryOpened(
+                    directory,
+                    launchedFileManager:
+                        disposition == WatchAreaProfileDirectoryOpenDisposition.Opened));
             return Task.CompletedTask;
         });
     }
@@ -1296,11 +1293,6 @@ internal partial class WatchWorkspaceWindow
             storageCaption = language == WatchDisplayLanguage.English
                 ? $"{directoryName} · Local TXT · UTF-8"
                 : $"{directoryName} · 本机 TXT · UTF-8";
-        }
-
-        if (language == WatchDisplayLanguage.English)
-        {
-            storageCaption = storageCaption.Replace("本机 TXT", "Local TXT", StringComparison.Ordinal);
         }
 
         return $"{storageCaption} · {formatHint}";
@@ -1401,8 +1393,8 @@ internal partial class WatchWorkspaceWindow
         {
             ShowAreaProfileInfo(
                 InfoBarSeverity.Error,
-                "无法读取 AREA TXT 配置",
-                exception.Message);
+                _displayLanguageState.Catalog.AreaFilter.ReadProfileFailed(
+                    exception.Message));
         }
     }
 
@@ -1799,8 +1791,8 @@ internal partial class WatchWorkspaceWindow
                     CloseAreaProfileFileOperation(restoreInvokerFocus: false);
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Error,
-                        "无法确认已应用 AREA 范围",
-                        $"{diagnostic.Message} 文件操作已取消；请先修复标记或明确应用全部 AREA。");
+                        _displayLanguageState.Catalog.AreaFilter.ConfirmAppliedScopeFailed(
+                            diagnostic.Message));
                     return;
                 }
 
@@ -1815,8 +1807,7 @@ internal partial class WatchWorkspaceWindow
                     CloseAreaProfileFileOperation(restoreInvokerFocus: false);
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Error,
-                        "无法准备 AREA 文件操作",
-                        "当前 AREA TXT 未记录所显示的磁盘版本；请重新加载后再试。");
+                        _displayLanguageState.Catalog.AreaFilter.PrepareOperationMissingVersion());
                     return;
                 }
 
@@ -1829,13 +1820,7 @@ internal partial class WatchWorkspaceWindow
                     CloseAreaProfileFileOperation(restoreInvokerFocus: false);
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Error,
-                        "AREA TXT 已在磁盘更改",
-                        ProjectAreaDiagnostics(
-                            [
-                                new WatchAreaFilterProfileDiagnostic(
-                                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
-                                    "所显示的 AREA TXT 已在磁盘更改；请重新加载后再选择文件操作。"),
-                            ]));
+                        _displayLanguageState.Catalog.AreaFilter.ProfileChangedOnDisk());
                     return;
                 }
 
@@ -1848,8 +1833,8 @@ internal partial class WatchWorkspaceWindow
                 CloseAreaProfileFileOperation(restoreInvokerFocus: false);
                 ShowAreaProfileInfo(
                     InfoBarSeverity.Error,
-                    "无法准备 AREA 文件操作",
-                    exception.Message);
+                    _displayLanguageState.Catalog.AreaFilter.PrepareOperationFailed(
+                        exception.Message));
                 return;
             }
         }
@@ -1980,8 +1965,7 @@ internal partial class WatchWorkspaceWindow
                     CloseAreaProfileFileOperation();
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Informational,
-                        "新 AREA 草稿已命名",
-                        "请填写至少一个有效 AREA，然后保存；尚未创建或应用本机 TXT 文件。");
+                        _displayLanguageState.Catalog.AreaFilter.DraftNamed());
                     RenderAreaProfiles();
                     AreaProfileEditor.Focus();
                     break;
@@ -2004,8 +1988,8 @@ internal partial class WatchWorkspaceWindow
                     CloseAreaProfileFileOperation();
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Success,
-                        "AREA 配置已另存为",
-                        $"已创建 {result.Draft.ProfileName}.txt；原文件和当前应用范围均未改变。");
+                        _displayLanguageState.Catalog.AreaFilter.SavedAs(
+                            result.Draft.ProfileName));
                     AdoptSavedAreaProfile(result.Draft);
                     break;
                 }
@@ -2056,8 +2040,9 @@ internal partial class WatchWorkspaceWindow
 
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Success,
-                        "AREA 配置已重命名",
-                        $"{selectedName}.txt 已重命名为 {result.Draft.ProfileName}.txt；AREA 内容未改变。");
+                        _displayLanguageState.Catalog.AreaFilter.Renamed(
+                            selectedName,
+                            result.Draft.ProfileName));
                     RenderAreaProfiles(reloadProfiles: true);
                     break;
                 }
@@ -2113,10 +2098,9 @@ internal partial class WatchWorkspaceWindow
 
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Success,
-                        "AREA 配置已删除",
-                        result.AppliedProfileWasDeleted
-                            ? $"{selectedName}.txt 已删除；已应用 AREA 快照与当前显示范围仍生效，可按原名另存恢复。"
-                            : $"{selectedName}.txt 已删除；当前应用范围未改变。");
+                        _displayLanguageState.Catalog.AreaFilter.Deleted(
+                            selectedName,
+                            result.AppliedProfileWasDeleted));
                     RenderAreaProfiles(reloadProfiles: true);
                     await Dispatcher.InvokeAsync(
                         () =>
@@ -2191,8 +2175,8 @@ internal partial class WatchWorkspaceWindow
             {
                 ShowAreaProfileInfo(
                     InfoBarSeverity.Error,
-                    "AREA 配置已保存但范围未应用",
-                    applyDiagnostic.Message);
+                    _displayLanguageState.Catalog.AreaFilter.SavedButNotApplied(
+                        applyDiagnostic.Message));
                 return;
             }
 
@@ -2213,8 +2197,7 @@ internal partial class WatchWorkspaceWindow
             }
             ShowAreaProfileInfo(
                 InfoBarSeverity.Success,
-                "AREA 配置已应用",
-                "概览、需求系列和资格审计已清除冻结游标并从第一页重新读取；错误检索与接入告警未改变。");
+                _displayLanguageState.Catalog.AreaFilter.ProfileApplied());
             RenderAreaProfiles(reloadProfiles: true);
         });
     }
@@ -2236,8 +2219,7 @@ internal partial class WatchWorkspaceWindow
             }
             ShowAreaProfileInfo(
                 InfoBarSeverity.Success,
-                "已应用全部 AREA",
-                "本机范围标记已持久化；三个 AREA 相关只读视图已从第一页重新读取。");
+                _displayLanguageState.Catalog.AreaFilter.AllAreasApplied());
             RenderAreaProfiles(reloadProfiles: true);
         });
     }
@@ -2281,8 +2263,8 @@ internal partial class WatchWorkspaceWindow
                 {
                     ShowAreaProfileInfo(
                         InfoBarSeverity.Error,
-                        "无法完成 AREA 配置操作",
-                        exception.Message);
+                        _displayLanguageState.Catalog.AreaFilter.OperationFailed(
+                            exception.Message));
                     RenderAreaProfiles();
                 });
             }
@@ -2294,8 +2276,7 @@ internal partial class WatchWorkspaceWindow
 
     private void ShowAreaProfileInfo(
         InfoBarSeverity severity,
-        string title,
-        string message)
+        WatchLocalizedNotificationContent content)
     {
         if (severity is InfoBarSeverity.Success
             or InfoBarSeverity.Informational
@@ -2308,25 +2289,13 @@ internal partial class WatchWorkspaceWindow
                 InfoBarSeverity.Error => WatchNotificationSeverity.Error,
                 _ => WatchNotificationSeverity.Information,
             };
-            PresentNotification(new WatchNotificationEvent(
+            PresentNotification(WatchNotificationEvent.CreateLocalized(
                 new WatchNotificationSource(
                     "area.operation",
                     WatchNotificationScope.ForPage(WatchWorkspacePage.AreaFilter),
-                    title),
+                    content.Title.English),
                 notificationSeverity,
-                notificationSeverity switch
-                {
-                    WatchNotificationSeverity.Success => "成功",
-                    WatchNotificationSeverity.Error => "错误",
-                    _ => "信息",
-                },
-                title,
-                notificationSeverity == WatchNotificationSeverity.Error
-                    ? "操作未完成；请检查输入、文件权限或当前磁盘版本后重试。"
-                    : message,
-                notificationSeverity == WatchNotificationSeverity.Error
-                    ? "返回 AREA 配置"
-                    : null,
+                content,
                 notificationSeverity == WatchNotificationSeverity.Error
                     ? () =>
                     {
@@ -2337,45 +2306,38 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
-        _areaProfileInfoTitleSource = title;
-        _areaProfileInfoMessageSource = message;
+        _areaProfileInfoContent = content;
         AreaProfileInfoBar.Severity = severity;
-        AreaProfileInfoBar.Title = LocalizeFeedbackSource(title);
-        AreaProfileInfoBar.Message = LocalizeFeedbackSource(message);
+        ProjectAreaProfileInfoBar(AreaProfileInfoBar, content);
         AreaProfileInfoBar.IsOpen = true;
-        AutomationProperties.SetName(
-            AreaProfileInfoBar,
-            $"{AreaProfileInfoBar.Title}。{AreaProfileInfoBar.Message}");
     }
 
     private void ReprojectAreaProfileInfoBars()
     {
-        if (_areaProfileInfoTitleSource is { } infoTitle)
+        if (_areaProfileInfoContent is { } infoContent)
         {
-            AreaProfileInfoBar.Title = LocalizeFeedbackSource(infoTitle);
-            AreaProfileInfoBar.Message = LocalizeFeedbackSource(
-                _areaProfileInfoMessageSource ?? string.Empty);
-            AutomationProperties.SetName(
-                AreaProfileInfoBar,
-                $"{AreaProfileInfoBar.Title}。{AreaProfileInfoBar.Message}");
+            ProjectAreaProfileInfoBar(AreaProfileInfoBar, infoContent);
         }
 
-        if (_areaProfileDirectoryWatchMessageSource is { } watchMessage)
+        if (_areaProfileDirectoryWatchContent is { } watchContent)
         {
-            const string title = "AREA 配置目录监视已降级";
-            var message = $"配置列表可能不是最新的。{watchMessage}";
-            AreaProfileDirectoryWatchInfoBar.Title = LocalizeFeedbackSource(title);
-            AreaProfileDirectoryWatchInfoBar.Message = LocalizeFeedbackSource(message);
-            AutomationProperties.SetName(
-                AreaProfileDirectoryWatchInfoBar,
-                $"{AreaProfileDirectoryWatchInfoBar.Title}。{AreaProfileDirectoryWatchInfoBar.Message}");
+            ProjectAreaProfileInfoBar(AreaProfileDirectoryWatchInfoBar, watchContent);
         }
     }
 
-    private string LocalizeFeedbackSource(string source) =>
-        _displayLanguageState.Current == WatchDisplayLanguage.English
-            ? WatchFeedbackText.TranslateKnownChinese(source)
-            : source;
+    private void ProjectAreaProfileInfoBar(
+        Wpf.Ui.Controls.InfoBar infoBar,
+        WatchLocalizedNotificationContent content)
+    {
+        var language = _displayLanguageState.Current;
+        infoBar.Title = content.Title.In(language);
+        infoBar.Message = content.Message.In(language);
+        AutomationProperties.SetName(
+            infoBar,
+            language == WatchDisplayLanguage.English
+                ? $"{infoBar.Title}. {infoBar.Message}"
+                : $"{infoBar.Title}。{infoBar.Message}");
+    }
 
     private static string ProjectAreaDiagnostics(
         IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics) => diagnostics.Count == 0

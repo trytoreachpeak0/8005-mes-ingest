@@ -129,8 +129,9 @@ internal partial class WatchWorkspaceWindow
             ReadabilityAreaProfileSelector.SelectedIndex = 0;
             ShowAreaProfileInfo(
                 Wpf.Ui.Controls.InfoBarSeverity.Warning,
-                "无法读取本机 AREA 配置",
-                $"当前已应用显示范围保持不变。{exception.Message}");
+                _displayLanguageState.Catalog.AreaFilter.ReadProfilesFailed(
+                    exception.Message,
+                    preserveAppliedScope: true));
         }
         finally
         {

@@ -10,7 +10,10 @@ internal partial class WatchWorkspaceWindow
         var text = _displayLanguageState.Catalog.ReadabilityAudit;
 
         ReadabilityPageTitleText.Text = text.PageTitle;
+        ReadabilityPerPageLabel.Text = text.PerPage;
+        ReadabilityFacetOverlapHelpText.Text = text.FacetOverlapHelp;
         AutomationProperties.SetName(ReadabilityAuditPage, text.PageTitle);
+        AutomationProperties.SetName(ReadabilityAuditGrid, text.PageTitle);
         ReadabilityStateFilterLabel.Text = text.StateFilter;
         ReadabilityWorkTypeFilterLabel.Text = text.WorkTypeFilter;
         ReadabilityBlockerFilterLabel.Text = text.BlockerFilter;

@@ -739,9 +739,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.ReadabilityAudit,
                 "readability.operation",
-                "无法执行资格审计操作",
-                "请检查输入或当前快照后重试。",
-                "返回资格审计");
+                WatchFeedbackText.Localized("feedback.operation.readability.title"),
+                WatchFeedbackText.Localized("feedback.operation.retry-message"),
+                WatchFeedbackText.Localized("feedback.operation.readability.action"));
         }
     }
 }
