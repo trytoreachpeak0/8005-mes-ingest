@@ -257,6 +257,19 @@ internal sealed class NewMesIngestOpenApiDocumentFilter : IDocumentFilter
             "Returns the comparable contract identity, exact-match policy, read-only capability set, SeriesErrorCatalog, and readability vocabularies. Consumers refuse business interpretation until this identity matches exactly.",
             typeof(NewMesIngestContractDto));
         yield return Operation(
+            "/api/v2/sublot-box-count",
+            "GetSublotBoxCount",
+            "SublotBoxCount",
+            "Read the maximum historical box count for one SUBLOT",
+            "Executes only the SHA-256-pinned SUBLOT_BOX_COUNT Oracle SELECT with one bound SUBLOT. Empty, non-positive, malformed, unavailable, or timed-out results fail closed and never allocate or unlock a slot.",
+            typeof(SublotBoxCountDto),
+            [RequiredQuery("sublot", "Exact SUBLOT bound to the approved read-only Oracle query.")],
+            Errors(
+                ("400", "SUBLOT_BOX_COUNT_INVALID_QUERY."),
+                ("422", "SUBLOT_BOX_COUNT_NOT_AVAILABLE."),
+                ("503", "SUBLOT_BOX_COUNT_QUERY_INVALID or SUBLOT_BOX_COUNT_SOURCE_UNAVAILABLE."),
+                ("504", "SUBLOT_BOX_COUNT_TIMEOUT.")));
+        yield return Operation(
             "/api/v2/demand-series",
             "ListDemandSeries",
             "DemandSeries",

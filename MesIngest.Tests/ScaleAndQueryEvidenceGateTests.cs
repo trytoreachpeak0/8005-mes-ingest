@@ -946,7 +946,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             packageManifestSha256 = new string('c', 64),
             watchClientSha256 = new string('d', 64),
             referenceConsumerSha256 = new string('e', 64),
-            contractVersion = "2026.08.new-mes-ingest.v2.2",
+            contractVersion = "2026.08.new-mes-ingest.v2.3",
             schemaVersion = 29,
             historyEpoch = "11111111-1111-1111-1111-111111111111",
         },

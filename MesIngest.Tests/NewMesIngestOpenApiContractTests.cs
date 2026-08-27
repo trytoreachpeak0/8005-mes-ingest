@@ -218,7 +218,7 @@ public sealed class NewMesIngestOpenApiContractTests
             contract.GetProperty("schemaVersion").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetInt32()));
         Assert.Equal(
-            ["2.0", "2.1"],
+            ["2.0", "2.1", "1.0"],
             Schema(root, "NewMesIngestCapabilityDto").GetProperty("properties")
                 .GetProperty("version").GetProperty("enum")
                 .EnumerateArray().Select(value => value.GetString()));
@@ -401,6 +401,7 @@ public sealed class NewMesIngestOpenApiContractTests
             ["/api/v2/error-search/{seriesId}/evidence/{evidenceId}/raw-observations"] = "INVALID_ERROR_SEARCH_QUERY",
             ["/api/v2/current-ingest-attention"] = "CURRENT_INGEST_ATTENTION_INVALID_QUERY",
             ["/api/v2/watch-overview"] = "WATCH_OVERVIEW_INVALID_QUERY",
+            ["/api/v2/sublot-box-count"] = "SUBLOT_BOX_COUNT_INVALID_QUERY",
             ["/api/v2/poll-traces/{pollTraceId}"] = "INVALID_POLL_EVIDENCE_QUERY",
             ["/api/v2/absence-authority"] = "INVALID_POLL_EVIDENCE_QUERY",
             ["/api/v2/absence-authority/{hostSessionId}"] = "INVALID_POLL_EVIDENCE_QUERY",

@@ -5,9 +5,10 @@ using Microsoft.Data.SqlClient;
 namespace MesIngest.Tests;
 
 /// <summary>
-/// Ticket 25: the final schema is established from an empty database only. There is no
-/// upgrade path, so a database that already carries anything else is refused rather than
-/// converted, and nothing the Host runs deletes what it found.
+/// Ticket 25: the final schema is established from an empty database only. Unknown or
+/// structurally different databases are refused rather than converted. The one bounded
+/// v2.2-to-v2.3 contract-identity transition preserves the already-qualified schema and
+/// history in place.
 /// </summary>
 [Collection("Ticket01SqlServer")]
 public sealed class EmptyDatabaseBootstrapTests
@@ -47,6 +48,75 @@ public sealed class EmptyDatabaseBootstrapTests
                 "PK_MesIngest_DemandRawObservations:PAGE",
             },
             await ReadRawObservationIndexCompressionAsync(database.ConnectionString));
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Exact_v2_2_schema_identity_migrates_to_v2_3_without_replacing_history()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        var projection = new SqlServerMesIngestProjection(database.ConnectionString);
+        await projection.CommitRoundAsync(EmptySuccessRound("poll-v2-2-migration-before"));
+        var historyEpoch = await ReadHistoryEpochAsync(database.ConnectionString);
+        var signingKeyHash = await ReadSigningKeyHashAsync(database.ConnectionString);
+        var tableCount = await ReadUserTableCountAsync(database.ConnectionString);
+        await ExecuteAsync(
+            database.ConnectionString,
+            "UPDATE mesingest.SchemaInfo SET ContractVersion = N'2026.08.new-mes-ingest.v2.2' WHERE Id = 1;");
+
+        await new SqlServerMesIngestProjection(database.ConnectionString)
+            .CommitRoundAsync(EmptySuccessRound("poll-v2-2-migration-after"));
+
+        Assert.Equal(NewMesIngestContract.Version, await ReadContractVersionAsync(database.ConnectionString));
+        Assert.Equal(historyEpoch, await ReadHistoryEpochAsync(database.ConnectionString));
+        Assert.Equal(signingKeyHash, await ReadSigningKeyHashAsync(database.ConnectionString));
+        Assert.Equal(tableCount, await ReadUserTableCountAsync(database.ConnectionString));
+        Assert.Equal(2, await ReadPollTraceCountAsync(database.ConnectionString));
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Unapproved_contract_identity_is_rejected_and_left_unchanged()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        await new SqlServerMesIngestProjection(database.ConnectionString)
+            .CommitRoundAsync(EmptySuccessRound("poll-unapproved-contract-bootstrap"));
+        const string unapprovedVersion = "2026.08.new-mes-ingest.v2.1";
+        await ExecuteAsync(
+            database.ConnectionString,
+            $"UPDATE mesingest.SchemaInfo SET ContractVersion = N'{unapprovedVersion}' WHERE Id = 1;");
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(
+            () => new SqlServerMesIngestProjection(database.ConnectionString)
+                .CommitRoundAsync(EmptySuccessRound("poll-unapproved-contract-restart")));
+
+        Assert.Contains("contract identity", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(unapprovedVersion, await ReadContractVersionAsync(database.ConnectionString));
+        Assert.Equal(1, await ReadPollTraceCountAsync(database.ConnectionString));
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Structurally_drifted_v2_2_schema_is_rejected_before_identity_migration()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        await new SqlServerMesIngestProjection(database.ConnectionString)
+            .CommitRoundAsync(EmptySuccessRound("poll-v2-2-drift-bootstrap"));
+        await ExecuteAsync(
+            database.ConnectionString,
+            """
+            UPDATE mesingest.SchemaInfo
+            SET ContractVersion = N'2026.08.new-mes-ingest.v2.2'
+            WHERE Id = 1;
+            ALTER TABLE mesingest.CatalogItems ALTER COLUMN Area NVARCHAR(MAX) NOT NULL;
+            """);
+
+        var exception = await Assert.ThrowsAnyAsync<Exception>(
+            () => new SqlServerMesIngestProjection(database.ConnectionString)
+                .CommitRoundAsync(EmptySuccessRound("poll-v2-2-drift-restart")));
+
+        Assert.Contains("column", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            "2026.08.new-mes-ingest.v2.2",
+            await ReadContractVersionAsync(database.ConnectionString));
+        Assert.Equal(1, await ReadPollTraceCountAsync(database.ConnectionString));
     }
 
     [Ticket01SqlServerFact]
@@ -445,6 +515,28 @@ public sealed class EmptyDatabaseBootstrapTests
     private static async Task<int> ReadSchemaVersionAsync(string connectionString) =>
         Convert.ToInt32(
             await ScalarAsync(connectionString, "SELECT SchemaVersion FROM mesingest.SchemaInfo WHERE Id = 1;"),
+            System.Globalization.CultureInfo.InvariantCulture);
+
+    private static async Task<string> ReadContractVersionAsync(string connectionString) =>
+        Convert.ToString(
+            await ScalarAsync(connectionString, "SELECT ContractVersion FROM mesingest.SchemaInfo WHERE Id = 1;"),
+            System.Globalization.CultureInfo.InvariantCulture)!;
+
+    private static async Task<Guid> ReadHistoryEpochAsync(string connectionString) =>
+        (Guid)(await ScalarAsync(
+            connectionString,
+            "SELECT HistoryEpoch FROM mesingest.SchemaInfo WHERE Id = 1;"))!;
+
+    private static async Task<string> ReadSigningKeyHashAsync(string connectionString) =>
+        Convert.ToString(
+            await ScalarAsync(
+                connectionString,
+                "SELECT CONVERT(varchar(64), HASHBYTES('SHA2_256', SnapshotTokenSigningKey), 2) FROM mesingest.SchemaInfo WHERE Id = 1;"),
+            System.Globalization.CultureInfo.InvariantCulture)!;
+
+    private static async Task<int> ReadPollTraceCountAsync(string connectionString) =>
+        Convert.ToInt32(
+            await ScalarAsync(connectionString, "SELECT COUNT(*) FROM mesingest.PollTraces;"),
             System.Globalization.CultureInfo.InvariantCulture);
 
     private static async Task<bool> HasRetentionStateSchemaAsync(string connectionString) =>

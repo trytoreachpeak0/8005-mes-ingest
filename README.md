@@ -72,9 +72,16 @@ Representative read-only endpoints are:
 - `GET /api/v2/demand-series?presence=VISIBLE&page=1&pageSize=100`
 - `GET /api/v2/current-ingest-attention?pageNumber=1&pageSize=100`
 - `GET /api/v2/externally-readable-demand-catalog`
+- `GET /api/v2/sublot-box-count?sublot=Q26067601-2`
 - `GET /api/v2/poll-traces/{pollTraceId}`
 
 `GET /api/v2/contract` returns the one exact, comparable contract identity and its stable capability set. Host and consumers must match that identity exactly; missing fields, old states, or client-side single-page filtering are not compatibility fallbacks. The canonical `/openapi/v2.json` describes only the read-only V2 GET surface, including its snapshot identities, ProjectionCommit, CatalogRevision, pagination bounds, stable ordering, conditional catalog reads, and error responses. No earlier OpenAPI document is served or supported.
+
+`GET /api/v2/sublot-box-count` executes only the SHA-256-pinned
+`queries/sublot-box-count/query.sql` with one exact bound `sublot`. It returns one fresh
+`SUBLOT_BOX_COUNT` identity and positive `maxBoxCount`; missing, non-positive, malformed,
+unavailable, or timed-out results fail closed. It never participates in the six-work-type poll
+and never performs an Oracle write.
 
 ## Ticket 19–22 — production Watch client
 

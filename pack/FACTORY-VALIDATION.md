@@ -50,7 +50,7 @@ PowerShell Direct 只用于部署、监控与取回证据，不用于驱动 UI�
 
 - [ ] 复制 `templates/appsettings.Local.json.example` → `service/appsettings.Local.json`
 - [ ] 填写 SQL Server、Oracle 占位符；`SnapshotSource=Oracle`；默认 `OracleMode=Thin`
-- [ ] `RELEASE-MANIFEST.json.canonicalQuery` 与 `service/queries/mes-task-union/query.manifest.json` 都指向唯一的 `service/queries/mes-task-union/query.sql`，版本/hash 为 `MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae`
+- [ ] `RELEASE-MANIFEST.json.canonicalQuery` 与 `service/queries/mes-task-union/query.manifest.json` 都绑定 `MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae`；`supplementalReadQueries` 与 `service/queries/sublot-box-count/query.manifest.json` 都绑定 `SUBLOT_BOX_COUNT/sha256:9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24`
 - [ ] 确认 `Urls` 仍为 `http://127.0.0.1:5088`（或已按 `INSTALL.md` 配置 `SharedSecret`）
 - [ ] **不要**把已填配置拷回仓库或放进回传包
 - [ ] 远程调用需鉴权时，把 SharedSecret 放入执行进程环境变量 `MES_INGEST_SHARED_SECRET`；不要作为脚本参数或命令历史明文传入

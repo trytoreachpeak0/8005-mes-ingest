@@ -289,7 +289,7 @@ $watchExecutable = Join-Path $packageRoot 'watch\MesIngest.Watch.exe'
 $releaseManifestPath = Join-Path $packageRoot 'RELEASE-MANIFEST.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
 $canonicalOpenApiPath = Join-Path $packageRoot $canonicalOpenApiRelativePath
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.3'
 $expectedContractSchemaVersion = 29
 $expectedCompatibilityPolicy = 'EXACT_VERSION_SCHEMA_AND_CAPABILITIES'
 $expectedCapabilityVersions = [ordered]@{
@@ -301,6 +301,7 @@ $expectedCapabilityVersions = [ordered]@{
     POLL_HEALTH_AND_EVIDENCE = '2.0'
     READABILITY_AUDIT = '2.0'
     SERIES_ERROR_CATALOG = '2.0'
+    SUBLOT_BOX_COUNT = '1.0'
     WATCH_OVERVIEW = '2.0'
 }
 $expectedCapabilityOperations = [ordered]@{
@@ -329,6 +330,7 @@ $expectedCapabilityOperations = [ordered]@{
         '/api/v2/readability-audit/{demandId}'
     )
     SERIES_ERROR_CATALOG = @('/api/v2/contract')
+    SUBLOT_BOX_COUNT = @('/api/v2/sublot-box-count')
     WATCH_OVERVIEW = @('/api/v2/watch-overview')
 }
 $expectedCapabilityIds = @($expectedCapabilityOperations.Keys)
@@ -343,13 +345,21 @@ $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed81
 $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
 $canonicalQueryPath = Join-Path $packageRoot $canonicalQueryRelativePath
 $canonicalQueryManifestPath = Join-Path $packageRoot $canonicalQueryManifestRelativePath
+$sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
+$sublotBoxCountManifestRelativePath = 'service/queries/sublot-box-count/query.manifest.json'
+$sublotBoxCountQuerySha256 = '9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24'
+$sublotBoxCountQueryVersion = "SUBLOT_BOX_COUNT/sha256:$sublotBoxCountQuerySha256"
+$sublotBoxCountQueryPath = Join-Path $packageRoot $sublotBoxCountQueryRelativePath
+$sublotBoxCountManifestPath = Join-Path $packageRoot $sublotBoxCountManifestRelativePath
 
 foreach ($path in @(
     $serviceExecutable,
     $releaseManifestPath,
     $canonicalOpenApiPath,
     $canonicalQueryPath,
-    $canonicalQueryManifestPath
+    $canonicalQueryManifestPath,
+    $sublotBoxCountQueryPath,
+    $sublotBoxCountManifestPath
 )) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "Production V2 release smoke input missing: $path"
@@ -473,12 +483,15 @@ if ($preflightUserTableCount -ne 0) {
 }
 
 $queryFiles = @(Get-ChildItem -LiteralPath $packageRoot -Filter '*.sql' -File -Recurse -Force)
-if ($queryFiles.Count -ne 1) {
-    throw "Production V2 release smoke requires exactly one SQL artifact; found $($queryFiles.Count)."
+if ($queryFiles.Count -ne 2) {
+    throw "Production V2 release smoke requires exactly two approved SQL artifacts; found $($queryFiles.Count)."
 }
-$actualQueryPath = $queryFiles[0].FullName.Substring($packageRoot.Length).TrimStart('\', '/').Replace('\', '/')
-if ($actualQueryPath -cne $canonicalQueryRelativePath) {
-    throw "The only SQL artifact is not the canonical deployment path: $actualQueryPath"
+$actualQueryPaths = @($queryFiles |
+    ForEach-Object { $_.FullName.Substring($packageRoot.Length).TrimStart('\', '/').Replace('\', '/') } |
+    Sort-Object)
+$expectedQueryPaths = @($canonicalQueryRelativePath, $sublotBoxCountQueryRelativePath) | Sort-Object
+if (@(Compare-Object -ReferenceObject $expectedQueryPaths -DifferenceObject $actualQueryPaths -CaseSensitive).Count -gt 0) {
+    throw "SQL artifacts do not match the two approved deployment paths: $($actualQueryPaths -join ', ')"
 }
 $queryHash = (Get-FileHash -LiteralPath $canonicalQueryPath -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($queryHash -cne $canonicalQuerySha256) {
@@ -497,6 +510,25 @@ if ([int]$queryManifest.schemaVersion -ne 1 `
     -or [long]$queryManifest.length -ne $queryFile.Length `
     -or ([string]$queryManifest.sha256).ToLowerInvariant() -cne $canonicalQuerySha256) {
     throw 'Canonical query manifest does not match the approved deployment artifact.'
+}
+
+$sublotQueryHash = (Get-FileHash -LiteralPath $sublotBoxCountQueryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($sublotQueryHash -cne $sublotBoxCountQuerySha256) {
+    throw "Canonical SUBLOT_BOX_COUNT query hash mismatch: expected $sublotBoxCountQuerySha256; actual $sublotQueryHash"
+}
+$sublotQueryFile = Get-Item -LiteralPath $sublotBoxCountQueryPath
+try {
+    $sublotQueryManifest = Get-Content -Raw -LiteralPath $sublotBoxCountManifestPath | ConvertFrom-Json
+} catch {
+    throw "Canonical SUBLOT_BOX_COUNT manifest is invalid: $sublotBoxCountManifestRelativePath"
+}
+if ([int]$sublotQueryManifest.schemaVersion -ne 1 `
+    -or [string]$sublotQueryManifest.id -cne 'SUBLOT_BOX_COUNT' `
+    -or [string]$sublotQueryManifest.version -cne $sublotBoxCountQueryVersion `
+    -or [string]$sublotQueryManifest.path -cne $sublotBoxCountQueryRelativePath `
+    -or [long]$sublotQueryManifest.length -ne $sublotQueryFile.Length `
+    -or ([string]$sublotQueryManifest.sha256).ToLowerInvariant() -cne $sublotBoxCountQuerySha256) {
+    throw 'Canonical SUBLOT_BOX_COUNT manifest does not match the approved deployment artifact.'
 }
 
 $artifacts = if ([string]::IsNullOrWhiteSpace($ArtifactsDirectory)) {

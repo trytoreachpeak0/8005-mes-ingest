@@ -9,8 +9,8 @@
   entry from a recording so it can run anywhere; this script refuses a recording and only
   accepts rounds that actually executed the approved statement against the plant Oracle.
 
-  Oracle is read-only here and stays read-only: the Host may execute exactly one
-  hash-pinned SELECT artifact, the business surface is GET, and this script opens no
+  Oracle is read-only here and stays read-only: the Host may execute exactly two
+  hash-pinned SELECT artifacts, the business surfaces are GET, and this script opens no
   Oracle connection of its own.
 
   Every declared check produces a result. A check that could not run becomes a named skip
@@ -74,7 +74,7 @@ $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'FactoryAcceptanceTools.ps1')
 
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.3'
 $expectedContractSchemaVersion = 29
 $expectedCapabilityVersions = [ordered]@{
     CONTRACT_DISCOVERY = '2.0'
@@ -85,12 +85,15 @@ $expectedCapabilityVersions = [ordered]@{
     POLL_HEALTH_AND_EVIDENCE = '2.0'
     READABILITY_AUDIT = '2.0'
     SERIES_ERROR_CATALOG = '2.0'
+    SUBLOT_BOX_COUNT = '1.0'
     WATCH_OVERVIEW = '2.0'
 }
 $expectedCapabilityIds = @($expectedCapabilityVersions.Keys)
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
 $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
+$sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
+$sublotBoxCountQuerySha256 = '9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24'
 
 # Every check the run must account for. New-FactoryAcceptanceSummary refuses to close
 # while any of these has no result, so an unexecuted step cannot leave silently.
@@ -479,8 +482,9 @@ $serviceExecutable = Join-Path $packageRoot 'service\MesIngest.Host.exe'
 $watchExecutable = Join-Path $packageRoot 'watch\MesIngest.Watch.exe'
 $localSettingsPath = Join-Path $packageRoot 'service\appsettings.Local.json'
 $canonicalQueryPath = Join-Path $packageRoot ($canonicalQueryRelativePath -replace '/', '\')
+$sublotBoxCountQueryPath = Join-Path $packageRoot ($sublotBoxCountQueryRelativePath -replace '/', '\')
 
-foreach ($required in @($serviceExecutable, $canonicalQueryPath, $localSettingsPath)) {
+foreach ($required in @($serviceExecutable, $canonicalQueryPath, $sublotBoxCountQueryPath, $localSettingsPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "Factory acceptance input missing: $required"
     }
@@ -672,16 +676,16 @@ try {
         })
 
     # -----------------------------------------------------------------------
-    # 2. Read-only boundary of the one statement the Host may execute.
+    # 2. Read-only boundary of the two statements the Host may execute.
     # -----------------------------------------------------------------------
     [void](Invoke-AcceptanceSection `
         -Id 'CANONICAL_QUERY_READ_ONLY_BOUNDARY' `
-        -Title 'One approved six-branch read-only statement' `
+        -Title 'Two approved read-only statements' `
         -Gate 'FACTORY_ORACLE_ACCEPTANCE' `
         -Body {
             $sqlFiles = @(Get-ChildItem -LiteralPath $packageRoot -Filter '*.sql' -File -Recurse -Force)
-            if ($sqlFiles.Count -ne 1) {
-                throw "The package must carry exactly one SQL artifact; found $($sqlFiles.Count)."
+            if ($sqlFiles.Count -ne 2) {
+                throw "The package must carry exactly two SQL artifacts; found $($sqlFiles.Count)."
             }
             $statement = Test-CanonicalReadOnlyStatement `
                 -Sql ([IO.File]::ReadAllText($canonicalQueryPath)) -ExpectedSha256 $canonicalQuerySha256
@@ -694,8 +698,30 @@ try {
                 throw ("The deployed statement is not the six-branch UNION ALL: " +
                     "branches=$($statement.TaskTypeBranchCount) unionAll=$($statement.UnionAllCount).")
             }
-            ("One statement, $($statement.TaskTypeBranchCount) TASK_TYPE branches, " +
-                "$($statement.UnionAllCount) UNION ALL, no write keyword, sha256=$($statement.Sha256).")
+            $sublotStatement = Test-CanonicalReadOnlyStatement `
+                -Sql ([IO.File]::ReadAllText($sublotBoxCountQueryPath)) `
+                -ExpectedSha256 $sublotBoxCountQuerySha256
+            if (-not $sublotStatement.ReadOnly) {
+                throw ("The deployed SUBLOT_BOX_COUNT statement is not the approved read-only artifact: " +
+                    "approved=$($sublotStatement.MatchesApprovedArtifact) " +
+                    "statements=$($sublotStatement.StatementCount) " +
+                    "writes=$($sublotStatement.WriteKeywordsFound -join ',').")
+            }
+            $sublotExecutable = [Regex]::Replace(
+                [IO.File]::ReadAllText($sublotBoxCountQueryPath),
+                '/\*.*?\*/|--[^\r\n]*',
+                ' ',
+                [Text.RegularExpressions.RegexOptions]::Singleline)
+            $sublotBindCount = [Regex]::Matches(
+                $sublotExecutable,
+                ':sublot\b',
+                [Text.RegularExpressions.RegexOptions]::IgnoreCase).Count
+            if ($sublotBindCount -ne 1) {
+                throw "The deployed SUBLOT_BOX_COUNT statement must carry exactly one :sublot bind; found $sublotBindCount."
+            }
+            ("Two statements: MES_TASK_UNION has $($statement.TaskTypeBranchCount) TASK_TYPE branches, " +
+                "$($statement.UnionAllCount) UNION ALL, sha256=$($statement.Sha256); " +
+                "SUBLOT_BOX_COUNT has one :sublot bind, sha256=$($sublotStatement.Sha256); no write keyword.")
         })
 
     # -----------------------------------------------------------------------

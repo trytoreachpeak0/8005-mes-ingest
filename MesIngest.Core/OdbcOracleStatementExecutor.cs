@@ -64,19 +64,10 @@ public sealed class OdbcOracleStatementExecutor : IOracleStatementExecutor
         ArgumentNullException.ThrowIfNull(request);
         Volatile.Write(ref _connectionAttempted, 0);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!string.Equals(
-                request.QuerySha256,
-                CanonicalMesTaskUnionQuery.ExpectedSha256,
-                StringComparison.Ordinal)
-            || !string.Equals(
-                request.QueryVersion,
-                CanonicalMesTaskUnionQuery.QueryVersion,
-                StringComparison.Ordinal)
-            || !CanonicalMesTaskUnionQuery.IsApprovedSql(request.Sql)
-            || request.CommandTimeoutSeconds <= 0)
+        if (!ApprovedOracleStatementRequest.IsValid(request))
         {
             throw new ArgumentException(
-                "The Oracle statement request is not the approved canonical query contract.",
+                "The Oracle statement request is not an approved canonical query contract.",
                 nameof(request));
         }
 
@@ -95,9 +86,10 @@ public sealed class OdbcOracleStatementExecutor : IOracleStatementExecutor
         await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = request.Sql;
+        command.CommandText = PrepareCommandText(request);
         command.CommandType = CommandType.Text;
         command.CommandTimeout = request.CommandTimeoutSeconds;
+        AddBindParameters(command, request.BindParameters);
 
         using var cancellationRegistration = cancellationToken.Register(
             static state =>
@@ -126,6 +118,43 @@ public sealed class OdbcOracleStatementExecutor : IOracleStatementExecutor
         var rows = await ReadRowsAsync(reader, columns, cancellationToken)
             .ConfigureAwait(false);
         return new OracleStatementResult(columns, rows);
+    }
+
+    private static string PrepareCommandText(OracleStatementRequest request)
+    {
+        if (request.BindParameters is not { Count: > 0 })
+        {
+            return request.Sql;
+        }
+
+        var marker = ":sublot";
+        var markerIndex = request.Sql.LastIndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            throw new ArgumentException(
+                "The approved parameterized Oracle statement is missing its bind marker.",
+                nameof(request));
+        }
+
+        return string.Concat(
+            request.Sql.AsSpan(0, markerIndex),
+            "?",
+            request.Sql.AsSpan(markerIndex + marker.Length));
+    }
+
+    private static void AddBindParameters(
+        DbCommand command,
+        IReadOnlyList<OracleBindParameter>? bindParameters)
+    {
+        foreach (var bind in bindParameters ?? [])
+        {
+            var parameter = command.CreateParameter();
+            parameter.ParameterName = bind.Name;
+            parameter.DbType = DbType.String;
+            parameter.Size = CanonicalSublotBoxCountQuery.MaximumSublotLength;
+            parameter.Value = bind.Value;
+            command.Parameters.Add(parameter);
+        }
     }
 
     private static void ConfigureSystemOdbcConnectionTimeout(

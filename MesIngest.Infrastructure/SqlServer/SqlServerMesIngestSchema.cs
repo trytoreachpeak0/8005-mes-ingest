@@ -6,6 +6,8 @@ namespace MesIngest.Infrastructure.SqlServer;
 
 internal static class SqlServerMesIngestSchema
 {
+    private const string UpgradeableContractVersion = "2026.08.new-mes-ingest.v2.2";
+
     public static async Task<HistoryEpoch> EnsureAsync(
         SqlConnection connection,
         HistoryEpochBootstrapIntent? historyEpochBootstrapIntent,
@@ -55,6 +57,8 @@ internal static class SqlServerMesIngestSchema
                     NewMesIngestContract.SchemaVersion;
                 command.Parameters.Add("@contractVersion", SqlDbType.NVarChar, 128).Value =
                     NewMesIngestContract.Version;
+                command.Parameters.Add("@upgradeableContractVersion", SqlDbType.NVarChar, 128).Value =
+                    UpgradeableContractVersion;
                 command.Parameters.Add("@keyComparison", SqlDbType.NVarChar, 128).Value =
                     NewMesIngestContract.KeyComparison;
                 command.Parameters.Add("@historyEpoch", SqlDbType.UniqueIdentifier).Value =
@@ -2042,7 +2046,11 @@ internal static class SqlServerMesIngestSchema
             SELECT 1 FROM mesingest.SchemaInfo
             WHERE Id = 1
               AND SchemaVersion = @schemaVersion
-              AND ContractVersion = @contractVersion COLLATE Latin1_General_100_BIN2
+              AND
+              (
+                  ContractVersion = @contractVersion COLLATE Latin1_General_100_BIN2
+                  OR ContractVersion = @upgradeableContractVersion COLLATE Latin1_General_100_BIN2
+              )
               AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2
               AND DATALENGTH(SnapshotTokenSigningKey) = 32
               AND HistoryEpoch <> '00000000-0000-0000-0000-000000000000'
@@ -2066,5 +2074,27 @@ internal static class SqlServerMesIngestSchema
               AND HistoryEpoch = (SELECT HistoryEpoch FROM mesingest.SchemaInfo WHERE Id = 1)
         )
             THROW 51008, 'The configured database has a mismatched new-MesIngest schema contract identity.', 1;
+
+        -- v2.3 adds one read-only Oracle capability without changing the SQL Server
+        -- schema. Only an otherwise exact v2.2 database may advance its identity;
+        -- unknown identities and every structural drift have already failed above.
+        IF EXISTS
+        (
+            SELECT 1
+            FROM mesingest.SchemaInfo
+            WHERE Id = 1
+              AND ContractVersion = @upgradeableContractVersion COLLATE Latin1_General_100_BIN2
+        )
+        BEGIN
+            UPDATE mesingest.SchemaInfo
+            SET ContractVersion = @contractVersion
+            WHERE Id = 1
+              AND SchemaVersion = @schemaVersion
+              AND ContractVersion = @upgradeableContractVersion COLLATE Latin1_General_100_BIN2
+              AND TransportDemandKeyComparison = @keyComparison COLLATE Latin1_General_100_BIN2;
+
+            IF @@ROWCOUNT <> 1
+                THROW 51008, 'The v2.2-to-v2.3 contract identity migration did not update exactly one row.', 1;
+        END;
         """;
 }

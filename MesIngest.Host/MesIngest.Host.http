@@ -30,6 +30,10 @@
 GET {{MesIngestHost}}/api/v2/contract
 Accept: application/json
 
+### Read the approved maximum historical box count for one exact SUBLOT
+GET {{MesIngestHost}}/api/v2/sublot-box-count?sublot={{sublot}}
+Accept: application/json
+
 ### Get the canonical V2 OpenAPI document
 GET {{MesIngestHost}}/openapi/v2.json
 Accept: application/json

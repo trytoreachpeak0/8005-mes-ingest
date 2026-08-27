@@ -38,8 +38,13 @@ $canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed81
 $canonicalQueryVersion = "$canonicalQueryId/sha256:$canonicalQuerySha256"
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
+$sublotBoxCountQueryId = 'SUBLOT_BOX_COUNT'
+$sublotBoxCountQuerySha256 = '9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24'
+$sublotBoxCountQueryVersion = "$sublotBoxCountQueryId/sha256:$sublotBoxCountQuerySha256"
+$sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
+$sublotBoxCountQueryManifestRelativePath = 'service/queries/sublot-box-count/query.manifest.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.2'
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.3'
 $expectedContractSchemaVersion = 29
 $expectedOpenApiPaths = @(
     '/api/v2/absence-authority',
@@ -56,6 +61,7 @@ $expectedOpenApiPaths = @(
     '/api/v2/poll-traces/{pollTraceId}',
     '/api/v2/readability-audit',
     '/api/v2/readability-audit/{demandId}',
+    '/api/v2/sublot-box-count',
     '/api/v2/task-type-protections',
     '/api/v2/task-type-protections/{workType}',
     '/api/v2/watch-overview'
@@ -89,14 +95,21 @@ $required = @(
     "VERSION.txt",
     $canonicalOpenApiRelativePath,
     $canonicalQueryRelativePath,
-    $canonicalQueryManifestRelativePath
+    $canonicalQueryManifestRelativePath,
+    $sublotBoxCountQueryRelativePath,
+    $sublotBoxCountQueryManifestRelativePath
 )
 if (-not $AllowNoWatch) {
     $required += "watch\MesIngest.Watch.exe"
 }
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root $_) -PathType Leaf) })
 if ($missing.Count -gt 0) {
-    $missingCanonical = @($missing | Where-Object { $_ -in @($canonicalQueryRelativePath, $canonicalQueryManifestRelativePath) })
+    $missingCanonical = @($missing | Where-Object { $_ -in @(
+        $canonicalQueryRelativePath,
+        $canonicalQueryManifestRelativePath,
+        $sublotBoxCountQueryRelativePath,
+        $sublotBoxCountQueryManifestRelativePath
+    ) })
     if ($missingCanonical.Count -gt 0) {
         throw "Release package is missing canonical query files: $($missingCanonical -join ', ')"
     }
@@ -313,14 +326,18 @@ if ($cutoverToolsText -notmatch 'Read-Host') {
 }
 
 $queryFiles = @(Get-ChildItem -LiteralPath $root -Filter "*.sql" -File -Force -Recurse -ErrorAction SilentlyContinue)
-if ($queryFiles.Count -ne 1) {
-    throw "Release package must contain exactly one canonical SQL artifact; found $($queryFiles.Count)."
+if ($queryFiles.Count -ne 2) {
+    throw "Release package must contain exactly two approved canonical SQL artifacts; found $($queryFiles.Count)."
 }
 
 $canonicalQueryPath = Join-Path $root $canonicalQueryRelativePath
-$actualQueryPath = $queryFiles[0].FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
-if ($actualQueryPath -cne $canonicalQueryRelativePath) {
-    throw "The only SQL artifact must use the canonical path '$canonicalQueryRelativePath'; found '$actualQueryPath'."
+$sublotBoxCountQueryPath = Join-Path $root $sublotBoxCountQueryRelativePath
+$actualQueryPaths = @($queryFiles |
+    ForEach-Object { $_.FullName.Substring($root.Length).TrimStart('\', '/').Replace('\', '/') } |
+    Sort-Object)
+$expectedQueryPaths = @($canonicalQueryRelativePath, $sublotBoxCountQueryRelativePath) | Sort-Object
+if (@(Compare-Object -ReferenceObject $expectedQueryPaths -DifferenceObject $actualQueryPaths -CaseSensitive).Count -gt 0) {
+    throw "SQL artifacts must use only the two approved canonical paths: $($expectedQueryPaths -join ', ')."
 }
 $canonicalQueryFile = Get-Item -LiteralPath $canonicalQueryPath
 if ($canonicalQueryFile.Length -le 0) {
@@ -344,6 +361,29 @@ if ([int]$canonicalQueryDeclaration.schemaVersion -ne 1 `
     -or [long]$canonicalQueryDeclaration.length -ne $canonicalQueryFile.Length `
     -or ([string]$canonicalQueryDeclaration.sha256).ToLowerInvariant() -cne $canonicalQuerySha256) {
     throw "Canonical query manifest does not match the approved artifact: $canonicalQueryManifestRelativePath"
+}
+
+$sublotBoxCountQueryFile = Get-Item -LiteralPath $sublotBoxCountQueryPath
+if ($sublotBoxCountQueryFile.Length -le 0) {
+    throw 'Canonical SUBLOT_BOX_COUNT SQL artifact must not be empty.'
+}
+$sublotBoxCountActualSha256 = (Get-FileHash -LiteralPath $sublotBoxCountQueryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($sublotBoxCountActualSha256 -cne $sublotBoxCountQuerySha256) {
+    throw "Canonical SUBLOT_BOX_COUNT SQL artifact hash mismatch: expected $sublotBoxCountQuerySha256; actual $sublotBoxCountActualSha256."
+}
+$sublotBoxCountQueryManifestPath = Join-Path $root $sublotBoxCountQueryManifestRelativePath
+try {
+    $sublotBoxCountDeclaration = (Get-Content -Raw -LiteralPath $sublotBoxCountQueryManifestPath) | ConvertFrom-Json
+} catch {
+    throw "Canonical SUBLOT_BOX_COUNT query manifest is invalid JSON: $sublotBoxCountQueryManifestRelativePath"
+}
+if ([int]$sublotBoxCountDeclaration.schemaVersion -ne 1 `
+    -or [string]$sublotBoxCountDeclaration.id -cne $sublotBoxCountQueryId `
+    -or [string]$sublotBoxCountDeclaration.version -cne $sublotBoxCountQueryVersion `
+    -or [string]$sublotBoxCountDeclaration.path -cne $sublotBoxCountQueryRelativePath `
+    -or [long]$sublotBoxCountDeclaration.length -ne $sublotBoxCountQueryFile.Length `
+    -or ([string]$sublotBoxCountDeclaration.sha256).ToLowerInvariant() -cne $sublotBoxCountQuerySha256) {
+    throw "Canonical SUBLOT_BOX_COUNT query manifest does not match the approved artifact: $sublotBoxCountQueryManifestRelativePath"
 }
 
 $files = @(Get-ChildItem -LiteralPath $root -File -Recurse)
@@ -450,6 +490,15 @@ $inventory = @(
         length = $canonicalQueryFile.Length
         sha256 = $canonicalQuerySha256
     }
+    supplementalReadQueries = @(
+        [ordered]@{
+            id = $sublotBoxCountQueryId
+            version = $sublotBoxCountQueryVersion
+            path = $sublotBoxCountQueryRelativePath
+            length = $sublotBoxCountQueryFile.Length
+            sha256 = $sublotBoxCountQuerySha256
+        }
+    )
     rebuildEvidence = $releaseEvidence
     files = $inventory
 } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifest -Encoding UTF8

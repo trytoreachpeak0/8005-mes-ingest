@@ -235,6 +235,50 @@ public sealed class OracleClientModeConfigurationTests
     }
 
     [Fact]
+    public async Task Thin_and_thick_executors_bind_sublot_without_concatenating_the_value()
+    {
+        const string sublot = " SL-BOUND-001 ";
+        var request = new OracleStatementRequest(
+            File.ReadAllText(SublotQueryPath()),
+            CanonicalSublotBoxCountQuery.QueryVersion,
+            CanonicalSublotBoxCountQuery.ExpectedSha256,
+            11,
+            [new OracleBindParameter("sublot", sublot)]);
+
+        var thinProvider = new RecordingProviderFactory();
+        var thin = new OdpNetOracleStatementExecutor(
+            new OracleSnapshotOptions
+            {
+                Mode = OracleClientMode.Thin,
+                User = "MES_READONLY",
+                Password = "plant-secret",
+                DataSource = "mes-11g",
+            },
+            thinProvider);
+        await thin.ExecuteAsync(request);
+
+        Assert.Equal(request.Sql, thinProvider.Connection.Command.CommandText);
+        Assert.Contains(":sublot", thinProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sublot, thinProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.False(thinProvider.Connection.Command.CommandText.TrimEnd().EndsWith(';'));
+        AssertBoundSublot(thinProvider.Connection.Command, sublot);
+
+        using var directory = TemporaryDirectory.Create();
+        var thickProvider = new RecordingProviderFactory();
+        var thick = new OdbcOracleStatementExecutor(
+            ValidThickOptions(directory.Path),
+            thickProvider,
+            static (_, _) => { });
+        await thick.ExecuteAsync(request);
+
+        Assert.DoesNotContain(":sublot", StripSqlComments(thickProvider.Connection.Command.CommandText), StringComparison.Ordinal);
+        Assert.Contains("t.lot = ?", thickProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.DoesNotContain(sublot, thickProvider.Connection.Command.CommandText, StringComparison.Ordinal);
+        Assert.False(thickProvider.Connection.Command.CommandText.TrimEnd().EndsWith(';'));
+        AssertBoundSublot(thickProvider.Connection.Command, sublot);
+    }
+
+    [Fact]
     public void Thin_provider_type_mapping_normalizes_ODP_NET_temporal_values_at_the_adapter_boundary()
     {
         var clock = new DateTime(2026, 8, 14, 9, 30, 15, DateTimeKind.Unspecified);
@@ -320,6 +364,13 @@ public sealed class OracleClientModeConfigurationTests
                     CanonicalMesTaskUnionQuery.QueryVersion,
                     CanonicalMesTaskUnionQuery.ExpectedSha256,
                     5)));
+            await Assert.ThrowsAnyAsync<ArgumentException>(() => executor.ExecuteAsync(
+                new OracleStatementRequest(
+                    File.ReadAllText(QueryPath()),
+                    CanonicalMesTaskUnionQuery.QueryVersion,
+                    CanonicalMesTaskUnionQuery.ExpectedSha256,
+                    5,
+                    [new OracleBindParameter("sublot", "UNAUTHORIZED-BIND")])));
         }
     }
 
@@ -386,6 +437,30 @@ public sealed class OracleClientModeConfigurationTests
         "queries",
         "mes-task-union",
         "query.sql");
+
+    private static string SublotQueryPath() => Path.Combine(
+        AppContext.BaseDirectory,
+        "queries",
+        "sublot-box-count",
+        "query.sql");
+
+    private static void AssertBoundSublot(DbCommand command, string expected)
+    {
+        var parameter = Assert.IsAssignableFrom<DbParameter>(Assert.Single(command.Parameters.Cast<object>()));
+        Assert.Equal("sublot", parameter.ParameterName);
+        Assert.Equal(DbType.String, parameter.DbType);
+        Assert.Equal(CanonicalSublotBoxCountQuery.MaximumSublotLength, parameter.Size);
+        Assert.Equal(expected, parameter.Value);
+    }
+
+    private static string StripSqlComments(string sql)
+    {
+        var start = sql.IndexOf("/*", StringComparison.Ordinal);
+        var end = sql.IndexOf("*/", StringComparison.Ordinal);
+        return start >= 0 && end > start
+            ? sql.Remove(start, end + 2 - start)
+            : sql;
+    }
 
     private sealed class TemporaryDirectory : IDisposable
     {
@@ -481,8 +556,7 @@ public sealed class OracleClientModeConfigurationTests
         {
         }
 
-        protected override DbParameter CreateDbParameter() =>
-            throw new NotSupportedException();
+        protected override DbParameter CreateDbParameter() => new RecordingParameter();
 
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior) =>
             CreateReader();
@@ -508,6 +582,22 @@ public sealed class OracleClientModeConfigurationTests
                 table.CreateDataReader(),
                 ["VARCHAR2", "DATE"]);
         }
+    }
+
+    private sealed class RecordingParameter : DbParameter
+    {
+        [AllowNull]
+        public override string ParameterName { get; set; } = "";
+        [AllowNull]
+        public override string SourceColumn { get; set; } = "";
+        public override object? Value { get; set; }
+        public override DbType DbType { get; set; }
+        public override ParameterDirection Direction { get; set; } = ParameterDirection.Input;
+        public override bool IsNullable { get; set; }
+        public override int Size { get; set; }
+        public override bool SourceColumnNullMapping { get; set; }
+        public override DataRowVersion SourceVersion { get; set; }
+        public override void ResetDbType() => DbType = DbType.String;
     }
 
     private sealed class ProviderNamedDataReader(

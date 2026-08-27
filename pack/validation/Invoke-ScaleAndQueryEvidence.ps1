@@ -560,7 +560,7 @@ function Get-AcceleratedStabilityResult {
         [string]::IsNullOrWhiteSpace([string]$identity.packageManifestSha256) -or
         [string]::IsNullOrWhiteSpace([string]$identity.watchClientSha256) -or
         [string]::IsNullOrWhiteSpace([string]$identity.referenceConsumerSha256) -or
-        [string]$identity.contractVersion -cne '2026.08.new-mes-ingest.v2.2' -or
+        [string]$identity.contractVersion -cne '2026.08.new-mes-ingest.v2.3' -or
         [int]$identity.schemaVersion -ne 29 -or
         [guid]$identity.historyEpoch -eq [guid]::Empty) {
         [void]$failures.Add('STABILITY_BUILD_OR_CONTRACT_IDENTITY_INCOMPLETE')
@@ -2387,7 +2387,7 @@ function Get-CapacityPrerequisiteEvidence {
         $logical = [double]$capacity.model.predictionMb.logicalUsed
         $physical = [double]$capacity.model.predictionMb.physicalData
         $ldf = [double]$capacity.model.predictionMb.ldf
-        if ([string]$capacity.source.contractVersion -cne '2026.08.new-mes-ingest.v2.2' -or
+        if ([string]$capacity.source.contractVersion -cne '2026.08.new-mes-ingest.v2.3' -or
             [int]$capacity.source.schemaVersion -ne 29 -or
             [int]$capacity.model.targetDays -ne 15 -or
             [double]$capacity.model.safetyMarginFraction -ne 0.30) {

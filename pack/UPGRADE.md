@@ -2,6 +2,19 @@
 
 本说明随 `pack/Publish-MesIngest.ps1` 输出到安装根目录 `UPGRADE.md`。首次安装仍以 `INSTALL.md` 为准。
 
+## v2.2 到 v2.3 的唯一原位身份迁移
+
+`2026.08.new-mes-ingest.v2.3` 只新增只读 `SUBLOT_BOX_COUNT` Oracle 能力，SQL Server
+schema 仍为 `29`。新版 Host 在持有既有 schema applock 和 serializable 事务时，仅允许
+一个精确的原位迁移：数据库必须是完整通过结构校验的 v2.2/schema 29，且 key comparison、
+HistoryEpoch、签名密钥及全部表、列、约束、索引均匹配；随后只把
+`mesingest.SchemaInfo.ContractVersion` 从 v2.2 更新为 v2.3。HistoryEpoch、签名密钥和历史
+业务记录保持不变。
+
+未知 contract version、其它 schema version 或任何结构漂移仍拒绝启动，不会部分更新身份。
+该单步迁移不授权 v1/退役契约、任意旧版或结构差异数据库原位升级；以下空库切换规则继续
+适用于这些情况。
+
 ## 这不是就地升级
 
 按 ADR-mes-0017，本版本以**空数据库整体替换**上线，不做就地升级：
@@ -70,8 +83,8 @@ Host 只接受两种数据库状态：
 - `OracleMode=Thin` 作为默认尝试；如需 Thick，还必须同时填 `OracleInstantClientDir` 和已注册的 `OracleThickOdbcDriver`；
 - 跨机绑定时的 `Urls` 和 `SharedSecret`。
 
-`service/queries/mes-task-union/query.sql` 是唯一正式 Oracle SQL，必须与相邻 `query.manifest.json`
-及根目录 `RELEASE-MANIFEST.json` 一致；先在安装根目录执行 `.\scripts\Test-ReleasePackage.ps1 -PackageRoot .`
+`service/queries/mes-task-union/query.sql` 与 `service/queries/sublot-box-count/query.sql` 是仅有的两个正式 Oracle SQL，必须分别与相邻 `query.manifest.json`
+及根目录 `RELEASE-MANIFEST.json` 的 `canonicalQuery`／`supplementalReadQueries` 一致；先在安装根目录执行 `.\scripts\Test-ReleasePackage.ps1 -PackageRoot .`
 校验包内容，再在 `service/` 执行 `.\MesIngest.Host.exe --probe-oracle` 取得 `LIVE_ORACLE` 探针结果。
 
 接着安装并启动新版 Host：
