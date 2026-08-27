@@ -24,8 +24,8 @@ internal partial class WatchWorkspaceWindow
         DisplayLanguageInput.SelectedValue = _displayLanguageState.Current;
 
         RenderWorkspace();
-        RestoreLocalizedPageViewStates(pageViewStates);
         RestoreLocalizedGridViewStates(gridViewStates);
+        RestoreLocalizedPageViewStates(pageViewStates);
 
         if (!gridViewStates.Any(state => state.HadKeyboardFocus)
             && focusedElement is System.Windows.IInputElement focusTarget
