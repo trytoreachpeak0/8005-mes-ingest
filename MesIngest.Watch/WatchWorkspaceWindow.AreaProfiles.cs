@@ -263,6 +263,7 @@ internal partial class WatchWorkspaceWindow
         AreaProfileDiagnosticCodeColumn.Header = text.ValidationCode;
         AreaProfileDiagnosticMessageColumn.Header = text.ValidationMessage;
         AreaProfileFileOperationCancelButton.Content = text.Cancel;
+        ReprojectAreaProfileInfoBars();
 
         if (_areaProfileFileOperationConfirmation is { } confirmation)
         {
@@ -350,6 +351,9 @@ internal partial class WatchWorkspaceWindow
     private bool _areaProfileDraftLostItsFile;
     private AreaProfileFileOperationConfirmation? _areaProfileFileOperationConfirmation;
     private long _areaProfileOperationGeneration;
+    private string? _areaProfileInfoTitleSource;
+    private string? _areaProfileInfoMessageSource;
+    private string? _areaProfileDirectoryWatchMessageSource;
 
     internal Task AreaProfileOperationTask { get; private set; } = Task.CompletedTask;
 
@@ -472,9 +476,8 @@ internal partial class WatchWorkspaceWindow
 
     private void ShowAreaProfileDirectoryWatchDegraded(string message)
     {
-        AreaProfileDirectoryWatchInfoBar.Title = "AREA 配置目录监视已降级";
-        AreaProfileDirectoryWatchInfoBar.Message =
-            $"配置列表可能不是最新的。{message}";
+        _areaProfileDirectoryWatchMessageSource = message;
+        ReprojectAreaProfileInfoBars();
         AreaProfileDirectoryWatchInfoBar.IsOpen = true;
         AutomationProperties.SetName(
             AreaProfileDirectoryWatchInfoBar,
@@ -2328,12 +2331,45 @@ internal partial class WatchWorkspaceWindow
             return;
         }
 
+        _areaProfileInfoTitleSource = title;
+        _areaProfileInfoMessageSource = message;
         AreaProfileInfoBar.Severity = severity;
-        AreaProfileInfoBar.Title = title;
-        AreaProfileInfoBar.Message = message;
+        AreaProfileInfoBar.Title = LocalizeFeedbackSource(title);
+        AreaProfileInfoBar.Message = LocalizeFeedbackSource(message);
         AreaProfileInfoBar.IsOpen = true;
-        AutomationProperties.SetName(AreaProfileInfoBar, $"{title}。{message}");
+        AutomationProperties.SetName(
+            AreaProfileInfoBar,
+            $"{AreaProfileInfoBar.Title}。{AreaProfileInfoBar.Message}");
     }
+
+    private void ReprojectAreaProfileInfoBars()
+    {
+        if (_areaProfileInfoTitleSource is { } infoTitle)
+        {
+            AreaProfileInfoBar.Title = LocalizeFeedbackSource(infoTitle);
+            AreaProfileInfoBar.Message = LocalizeFeedbackSource(
+                _areaProfileInfoMessageSource ?? string.Empty);
+            AutomationProperties.SetName(
+                AreaProfileInfoBar,
+                $"{AreaProfileInfoBar.Title}。{AreaProfileInfoBar.Message}");
+        }
+
+        if (_areaProfileDirectoryWatchMessageSource is { } watchMessage)
+        {
+            const string title = "AREA 配置目录监视已降级";
+            var message = $"配置列表可能不是最新的。{watchMessage}";
+            AreaProfileDirectoryWatchInfoBar.Title = LocalizeFeedbackSource(title);
+            AreaProfileDirectoryWatchInfoBar.Message = LocalizeFeedbackSource(message);
+            AutomationProperties.SetName(
+                AreaProfileDirectoryWatchInfoBar,
+                $"{AreaProfileDirectoryWatchInfoBar.Title}。{AreaProfileDirectoryWatchInfoBar.Message}");
+        }
+    }
+
+    private string LocalizeFeedbackSource(string source) =>
+        _displayLanguageState.Current == WatchDisplayLanguage.English
+            ? WatchFeedbackText.TranslateKnownChinese(source)
+            : source;
 
     private static string ProjectAreaDiagnostics(
         IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics) => diagnostics.Count == 0

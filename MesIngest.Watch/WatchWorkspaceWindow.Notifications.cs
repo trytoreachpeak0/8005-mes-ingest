@@ -23,17 +23,31 @@ internal partial class WatchWorkspaceWindow
     private long _notificationTransitionVersion;
 
     internal void PresentNotification(WatchNotificationEvent notification) =>
-        _notificationCoordinator.Present(notification);
+        _notificationCoordinator.Present(notification.LocalizedContent is null
+            ? notification with
+            {
+                LocalizedContent = WatchFeedbackText.Localize(notification),
+            }
+            : notification);
 
     private void InitializeNotifications()
     {
         NotificationItemsControl.ItemsSource = _notificationCards;
         _notificationCoordinator.SnapshotChanged += OnNotificationSnapshotChanged;
         SystemParameters.StaticPropertyChanged += OnNotificationSystemParameterChanged;
+        ApplyLocalizedNotificationChrome();
         ApplyNotificationSnapshot(
             new WatchNotificationSnapshotChangedEventArgs(
                 _notificationCoordinator.GetSnapshot(),
                 announcement: null));
+    }
+
+    private void ApplyLocalizedNotificationChrome()
+    {
+        var feedback = _displayLanguageState.Catalog.Feedback;
+        AutomationProperties.SetName(NotificationOverlay, feedback.OverlayName);
+        AutomationProperties.SetName(NotificationLiveRegion, feedback.LiveRegionName);
+        AutomationProperties.SetName(NotificationItemsControl, feedback.CardsName);
     }
 
     private void OnNotificationSnapshotChanged(
@@ -51,12 +65,16 @@ internal partial class WatchWorkspaceWindow
             {
                 if (!_disposed)
                 {
+                    ApplyLocalizedNotificationChrome();
+                    ApplyLocalizedActiveWorkspaceDialog();
                     ApplyNotificationSnapshot(e);
                 }
             });
             return;
         }
 
+        ApplyLocalizedNotificationChrome();
+        ApplyLocalizedActiveWorkspaceDialog();
         ApplyNotificationSnapshot(e);
     }
 
@@ -299,6 +317,8 @@ internal partial class WatchWorkspaceWindow
         private string _occurrenceText = string.Empty;
         private string _timerText = string.Empty;
         private string _automationName = string.Empty;
+        private string _dismissText = string.Empty;
+        private string _severityAutomationName = string.Empty;
 
         public WatchNotificationCardViewModel(
             WatchNotificationSnapshot snapshot,
@@ -321,7 +341,8 @@ internal partial class WatchWorkspaceWindow
         public string TimerText { get => _timerText; private set => Set(ref _timerText, value); }
         public string AutomationName { get => _automationName; private set => Set(ref _automationName, value); }
         public string AutomationHelpText => $"{Message}。{OccurrenceText}";
-        public string SeverityAutomationName => $"{SeverityText}严重度";
+        public string DismissText { get => _dismissText; private set => Set(ref _dismissText, value); }
+        public string SeverityAutomationName { get => _severityAutomationName; private set => Set(ref _severityAutomationName, value); }
         public Visibility ActionVisibility => ActionLabel is null ? Visibility.Collapsed : Visibility.Visible;
         public ICommand ActionCommand { get; }
         public ICommand DismissCommand { get; }
@@ -338,8 +359,9 @@ internal partial class WatchWorkspaceWindow
             OccurrenceText = snapshot.OccurrenceText;
             TimerText = snapshot.TimerText;
             AutomationName = snapshot.AutomationName;
+            DismissText = snapshot.DismissText;
+            SeverityAutomationName = snapshot.SeverityAutomationName;
             OnPropertyChanged(nameof(AutomationHelpText));
-            OnPropertyChanged(nameof(SeverityAutomationName));
         }
 
         private bool Set<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

@@ -39,6 +39,28 @@ public sealed class WatchAreaProfileWriteConflictTests
         });
 
     [Fact]
+    public void Language_reprojection_updates_open_conflict_dialog_without_resolving_or_writing()
+        => RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
+        {
+            Editor(window).Text = "B2-2";
+            RaiseExternalWrite(directoryPath, events, clock, "C3-3");
+            clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
+            var before = File.GetLastWriteTimeUtc(Path.Combine(directoryPath, "西区.txt"));
+
+            window.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+            var dialog = ConflictDialog(window);
+
+            Assert.Equal("AREA file was modified by another program", dialog.Title);
+            Assert.Equal("Overwrite and save", dialog.PrimaryButtonText);
+            Assert.Equal("Reload file", dialog.SecondaryButtonText);
+            Assert.Equal("Handle later", dialog.CloseButtonText);
+            Assert.Equal("B2-2", Editor(window).Text);
+            Assert.Equal("C3-3", ReadProfile(directoryPath, "西区"));
+            Assert.Equal(before, File.GetLastWriteTimeUtc(Path.Combine(directoryPath, "西区.txt")));
+            Assert.Equal("area-write-conflict", window.ActiveWorkspaceDialogKind);
+        });
+
+    [Fact]
     public void Keeping_the_local_edit_writes_it_over_the_file_and_rebases_the_fingerprint() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {

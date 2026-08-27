@@ -35,6 +35,33 @@ internal readonly record struct WatchNotificationSource(
     }
 }
 
+internal sealed record WatchLocalizedText(string SimplifiedChinese, string English)
+{
+    internal string In(WatchDisplayLanguage language) => language switch
+    {
+        WatchDisplayLanguage.SimplifiedChinese => SimplifiedChinese,
+        WatchDisplayLanguage.English => English,
+        _ => throw new ArgumentOutOfRangeException(nameof(language), language, null),
+    };
+
+    public static implicit operator WatchLocalizedText((string Chinese, string English) value) =>
+        new(value.Chinese, value.English);
+}
+
+internal sealed record WatchLocalizedNotificationContent(
+    WatchLocalizedText SeverityText,
+    WatchLocalizedText Title,
+    WatchLocalizedText Message,
+    WatchLocalizedText? ActionLabel = null)
+{
+    internal static WatchLocalizedNotificationContent Create(
+        WatchLocalizedText severityText,
+        WatchLocalizedText title,
+        WatchLocalizedText message,
+        WatchLocalizedText? actionLabel = null) =>
+        new(severityText, title, message, actionLabel);
+}
+
 internal sealed record WatchNotificationEvent(
     WatchNotificationSource Source,
     WatchNotificationSeverity Severity,
@@ -42,7 +69,8 @@ internal sealed record WatchNotificationEvent(
     string Title,
     string Message,
     string? ActionLabel = null,
-    Action? Action = null)
+    Action? Action = null,
+    WatchLocalizedNotificationContent? LocalizedContent = null)
 {
     public TimeSpan DefaultLifetime => Severity switch
     {
@@ -61,13 +89,18 @@ internal sealed record WatchNotificationSnapshot(
     string? ActionLabel,
     int Occurrences,
     int RemainingSeconds,
-    DateTimeOffset LastActivityAt)
+    DateTimeOffset LastActivityAt,
+    WatchDisplayLanguage DisplayLanguage = WatchDisplayLanguage.SimplifiedChinese)
 {
-    public string OccurrenceText => Occurrences > 1
-        ? $"已合并 {Occurrences} 次"
-        : "首次出现";
+    private WatchFeedbackText Feedback => WatchTextCatalog.For(DisplayLanguage).Feedback;
 
-    public string TimerText => $"{RemainingSeconds} 秒";
+    public string OccurrenceText => Feedback.Occurrence(Occurrences);
+
+    public string TimerText => Feedback.Timer(RemainingSeconds);
+
+    public string DismissText => Feedback.Dismiss;
+
+    public string SeverityAutomationName => Feedback.SeverityAutomation(SeverityText);
 
     public string AutomationName =>
         $"{SeverityText}。{Title}。{Message}。{OccurrenceText}";
@@ -94,20 +127,28 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
 {
     private readonly object _gate = new();
     private readonly TimeProvider _clock;
+    private readonly WatchDisplayLanguageState? _displayLanguageState;
     private readonly ITimer _timer;
     private readonly List<Entry> _entries = [];
     private long _activitySequence;
     private DateTimeOffset? _pausedAt;
     private bool _disposed;
 
-    public WatchWindowNotificationCoordinator(TimeProvider? clock = null)
+    public WatchWindowNotificationCoordinator(
+        TimeProvider? clock = null,
+        WatchDisplayLanguageState? displayLanguageState = null)
     {
         _clock = clock ?? TimeProvider.System;
+        _displayLanguageState = displayLanguageState;
         _timer = _clock.CreateTimer(
             static state => ((WatchWindowNotificationCoordinator)state!).OnTimer(),
             this,
             Timeout.InfiniteTimeSpan,
             Timeout.InfiniteTimeSpan);
+        if (_displayLanguageState is not null)
+        {
+            _displayLanguageState.Changed += OnDisplayLanguageChanged;
+        }
     }
 
     public event EventHandler<WatchNotificationSnapshotChangedEventArgs>? SnapshotChanged;
@@ -138,6 +179,9 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
             existing.ActionLabel = notification.Action is null
                 ? null
                 : NormalizeText(notification.ActionLabel!, 32);
+            existing.LocalizedContent = notification.LocalizedContent is null
+                ? null
+                : Normalize(notification.LocalizedContent);
             existing.Action = notification.Action;
             existing.Occurrences = existing.Occurrences == 0
                 ? 1
@@ -151,11 +195,15 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
 
             TrimToVisibleCapacity();
             ScheduleNextTimer(now);
-            var retained = _entries.Contains(existing);
-            var announcement = retained && existing.Occurrences == 1
-                ? $"{existing.SeverityText}。{existing.Title}。{existing.Message}"
+            var snapshots = CreateSnapshots(now);
+            var retainedSnapshot = snapshots.FirstOrDefault(item => item.SourceKey == sourceKey);
+            var announcement = retainedSnapshot is not null && existing.Occurrences == 1
+                ? retainedSnapshot.AutomationName
                 : null;
-            change = CreateChange(now, announcement, shouldAnimate: true);
+            change = new WatchNotificationSnapshotChangedEventArgs(
+                snapshots,
+                announcement,
+                shouldAnimate: true);
         }
 
         RaiseSnapshotChanged(change);
@@ -299,7 +347,31 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
             _entries.Clear();
         }
 
+        if (_displayLanguageState is not null)
+        {
+            _displayLanguageState.Changed -= OnDisplayLanguageChanged;
+        }
         _timer.Dispose();
+    }
+
+    private void OnDisplayLanguageChanged(object? sender, EventArgs e)
+    {
+        WatchNotificationSnapshotChangedEventArgs? change = null;
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                change = CreateChange(
+                    EffectiveNow(),
+                    announcement: null,
+                    shouldAnimate: false);
+            }
+        }
+
+        if (change is not null)
+        {
+            RaiseSnapshotChanged(change);
+        }
     }
 
     private void OnTimer()
@@ -390,16 +462,23 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
     private IReadOnlyList<WatchNotificationSnapshot> CreateSnapshots(DateTimeOffset now) =>
         _entries
             .OrderByDescending(item => item.ActivitySequence)
-            .Select(item => new WatchNotificationSnapshot(
-                item.SourceKey,
-                item.Severity,
-                item.SeverityText,
-                item.Title,
-                item.Message,
-                item.ActionLabel,
-                item.Occurrences,
-                Math.Max(0, (int)Math.Ceiling((item.ExpiresAt - now).TotalSeconds)),
-                item.LastActivityAt))
+            .Select(item =>
+            {
+                var language = _displayLanguageState?.Current
+                    ?? WatchDisplayLanguage.SimplifiedChinese;
+                var localized = item.LocalizedContent;
+                return new WatchNotificationSnapshot(
+                    item.SourceKey,
+                    item.Severity,
+                    localized?.SeverityText.In(language) ?? item.SeverityText,
+                    localized?.Title.In(language) ?? item.Title,
+                    localized?.Message.In(language) ?? item.Message,
+                    localized?.ActionLabel?.In(language) ?? item.ActionLabel,
+                    item.Occurrences,
+                    Math.Max(0, (int)Math.Ceiling((item.ExpiresAt - now).TotalSeconds)),
+                    item.LastActivityAt,
+                    language);
+            })
             .ToArray();
 
     private void RaiseSnapshotChanged(WatchNotificationSnapshotChangedEventArgs change) =>
@@ -434,6 +513,23 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
             : normalized[..(maximumLength - 1)] + "…";
     }
 
+    private static WatchLocalizedNotificationContent Normalize(
+        WatchLocalizedNotificationContent content) => new(
+        new(
+            NormalizeText(content.SeverityText.SimplifiedChinese, 24),
+            NormalizeText(content.SeverityText.English, 24)),
+        new(
+            NormalizeText(content.Title.SimplifiedChinese, 80),
+            NormalizeText(content.Title.English, 80)),
+        new(
+            NormalizeText(content.Message.SimplifiedChinese, 240),
+            NormalizeText(content.Message.English, 240)),
+        content.ActionLabel is null
+            ? null
+            : new WatchLocalizedText(
+                NormalizeText(content.ActionLabel.SimplifiedChinese, 32),
+                NormalizeText(content.ActionLabel.English, 32)));
+
     private sealed class Entry(string sourceKey, WatchNotificationScope scope)
     {
         public string SourceKey { get; } = sourceKey;
@@ -443,6 +539,7 @@ internal sealed class WatchWindowNotificationCoordinator : IDisposable
         public string Title { get; set; } = string.Empty;
         public string Message { get; set; } = string.Empty;
         public string? ActionLabel { get; set; }
+        public WatchLocalizedNotificationContent? LocalizedContent { get; set; }
         public Action? Action { get; set; }
         public int Occurrences { get; set; }
         public DateTimeOffset ExpiresAt { get; set; }

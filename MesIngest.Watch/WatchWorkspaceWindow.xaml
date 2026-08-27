@@ -3802,12 +3802,12 @@
                                            Height="32"
                                            Margin="0,8,4,0"
                                            VerticalAlignment="Top"
-                                            ToolTip="关闭通知"
+                                            ToolTip="{Binding DismissText}"
                                             Focusable="True"
                                             FocusVisualStyle="{StaticResource NotificationFocusVisual}"
                                             KeyboardNavigation.IsTabStop="True"
                                             AutomationProperties.AutomationId="NotificationDismissButton"
-                                            AutomationProperties.Name="关闭通知">
+                                            AutomationProperties.Name="{Binding DismissText}">
                                     <ui:SymbolIcon Symbol="Dismiss24" />
                                 </ui:Button>
                             </Grid>

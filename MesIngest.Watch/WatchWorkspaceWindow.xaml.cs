@@ -101,7 +101,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _session,
             preferences.RefreshIntervals,
             timeProvider);
-        _notificationCoordinator = new WatchWindowNotificationCoordinator(timeProvider);
+        _notificationCoordinator = new WatchWindowNotificationCoordinator(
+            timeProvider,
+            _displayLanguageState);
         _notificationReducedMotionProvider = notificationReducedMotionProvider
             ?? (static () => !System.Windows.SystemParameters.ClientAreaAnimation);
         _demandSeriesInspectorCoordinator = demandSeriesInspectorCoordinator

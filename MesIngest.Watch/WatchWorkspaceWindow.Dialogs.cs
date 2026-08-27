@@ -16,6 +16,49 @@ internal partial class WatchWorkspaceWindow
 
     internal Task ActiveWorkspaceDialogTask { get; private set; } = Task.CompletedTask;
 
+    private void ApplyLocalizedActiveWorkspaceDialog()
+    {
+        if (_activeWorkspaceDialog is not { } dialog)
+        {
+            return;
+        }
+
+        var feedback = _displayLanguageState.Catalog.Feedback;
+        if (_activeWorkspaceDialogKind == "all-areas")
+        {
+            dialog.Title = feedback.AllAreasDialogTitle;
+            dialog.PrimaryButtonText = feedback.AllAreasDialogPrimary;
+            dialog.CloseButtonText = feedback.DialogCancel;
+            SetDialogParagraphs(
+                dialog,
+                feedback.AllAreasDialogBody1,
+                feedback.AllAreasDialogBody2);
+            AutomationProperties.SetName(dialog, feedback.AllAreasDialogTitle);
+        }
+        else if (_activeWorkspaceDialogKind == "area-write-conflict"
+            && _areaProfileWriteConflictProfileName is { } profileName)
+        {
+            dialog.Title = feedback.ConflictDialogTitle;
+            dialog.PrimaryButtonText = feedback.ConflictDialogOverwrite;
+            dialog.SecondaryButtonText = feedback.ConflictDialogReload;
+            dialog.CloseButtonText = feedback.ConflictDialogLater;
+            SetDialogParagraphs(
+                dialog,
+                feedback.ConflictDialogBody(profileName),
+                feedback.ConflictDialogBody2);
+            AutomationProperties.SetName(dialog, $"{profileName}.txt · {feedback.ConflictDialogTitle}");
+        }
+    }
+
+    private static void SetDialogParagraphs(ContentDialog dialog, string first, string second)
+    {
+        if (dialog.Content is StackPanel panel && panel.Children.Count >= 2)
+        {
+            ((Wpf.Ui.Controls.TextBlock)panel.Children[0]).Text = first;
+            ((Wpf.Ui.Controls.TextBlock)panel.Children[1]).Text = second;
+        }
+    }
+
     private void OfferDemandSeriesAllAreasDialogIfNeeded()
     {
         if (!ShouldOfferDemandSeriesAllAreasConfirmation())
@@ -65,6 +108,7 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(dialog, "确认切换到全部 AREA 范围");
         _activeWorkspaceDialog = dialog;
         _activeWorkspaceDialogKind = "all-areas";
+        ApplyLocalizedActiveWorkspaceDialog();
         try
         {
             var result = await dialog.ShowAsync(_lifetimeCancellation.Token).ConfigureAwait(false);
@@ -126,6 +170,7 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(dialog, $"{profileName}.txt AREA 并发写入冲突");
         _activeWorkspaceDialog = dialog;
         _activeWorkspaceDialogKind = "area-write-conflict";
+        ApplyLocalizedActiveWorkspaceDialog();
         try
         {
             var result = await dialog.ShowAsync(_lifetimeCancellation.Token).ConfigureAwait(false);
