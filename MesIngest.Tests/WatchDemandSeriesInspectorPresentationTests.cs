@@ -7,6 +7,128 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
 {
     private static readonly DateTimeOffset At = DateTimeOffset.Parse("2026-08-20T04:05:06Z");
 
+    [Theory]
+    [InlineData("FIRST_OBSERVED", "First observed", 1, false)]
+    [InlineData("PREARCHIVE_REAPPEARANCE", "Reappeared before archive", 4, false)]
+    [InlineData("POSTARCHIVE_REAPPEARANCE", "Reappeared after archive", 5, true)]
+    public void Known_formation_reasons_have_localized_distinct_evidence_and_keep_raw_codes(
+        string reasonCode,
+        string expectedEnglishLabel,
+        int expectedFactCount,
+        bool expectArchive)
+    {
+        var first = Demand(
+            generation: 1,
+            demandId: "demand-1",
+            predecessorDemandId: null,
+            status: reasonCode == "FIRST_OBSERVED"
+                ? DemandSeriesLifecycleContract.Visible
+                : DemandSeriesLifecycleContract.Gone,
+            createdAt: At.AddHours(-4),
+            createdPollTraceId: "poll-create-1",
+            createdProjectionCommitId: "commit-create-1",
+            latestObservationAt: At.AddHours(-3),
+            latestObservationPollTraceId: "poll-seen-1",
+            latestObservationProjectionCommitId: "commit-seen-1",
+            goneConfirmedAt: reasonCode == "FIRST_OBSERVED" ? null : At.AddHours(-2));
+        var focused = reasonCode == "FIRST_OBSERVED"
+            ? first
+            : Demand(
+                generation: 2,
+                demandId: "demand-2",
+                predecessorDemandId: first.DemandId,
+                status: DemandSeriesLifecycleContract.Visible,
+                createdAt: At,
+                createdPollTraceId: "poll-create-2",
+                createdProjectionCommitId: "commit-create-2",
+                latestObservationAt: At,
+                latestObservationPollTraceId: "poll-create-2",
+                latestObservationProjectionCommitId: "commit-create-2");
+        var events = new List<DemandSeriesEventSnapshot>
+        {
+            Event(1, "TRANSPORT_DEMAND_CREATED", "DEMAND", first.DemandId,
+                "poll-create-1", "commit-create-1",
+                "{\"demandId\":\"demand-1\",\"generation\":1,\"reason\":\"FIRST_OBSERVED\"}",
+                At.AddHours(-4)),
+        };
+        if (reasonCode != "FIRST_OBSERVED")
+        {
+            events.Add(Event(2, "DEMAND_GONE", "DEMAND", first.DemandId,
+                "poll-gone", "commit-gone", "{\"demandId\":\"demand-1\"}", At.AddHours(-2)));
+            if (expectArchive)
+            {
+                events.Add(Event(3, "GONE_TIMEOUT_ARCHIVED", "SERIES", "series-e",
+                    "poll-archive", "commit-archive",
+                    "{\"demandId\":\"demand-1\"}", At.AddHours(-1)));
+            }
+
+            events.Add(Event(expectArchive ? 4 : 3, "TRANSPORT_DEMAND_CREATED", "DEMAND", focused.DemandId,
+                "poll-create-2", "commit-create-2",
+                $"{{\"demandId\":\"{focused.DemandId}\",\"generation\":2,\"predecessorDemandId\":\"demand-1\",\"reason\":\"{reasonCode}\"}}",
+                At));
+        }
+
+        var detail = Detail(
+            reasonCode == "FIRST_OBSERVED" ? [first] : [first, focused],
+            events,
+            observations: [],
+            lifecycle: expectArchive ? DemandSeriesLifecycleContract.Archived : DemandSeriesLifecycleContract.Tracking,
+            currentPresence: DemandSeriesLifecycleContract.Visible,
+            archivedAt: expectArchive ? At.AddHours(-1) : null);
+
+        var presentation = WatchDemandSeriesInspectorPresentation.Project(
+            detail,
+            focused.DemandId,
+            WatchTextCatalog.For(WatchDisplayLanguage.English).Inspector);
+        var generation = presentation.FocusedGeneration;
+
+        Assert.Equal(reasonCode, generation.FormationReason.RawCode);
+        Assert.Equal(expectedEnglishLabel, generation.FormationReason.ChineseLabel);
+        Assert.True(generation.FormationReason.IsKnown);
+        Assert.Equal(expectedFactCount, generation.FormationFacts.Count);
+        Assert.Equal(expectArchive, generation.FormationFacts.Any(
+            fact => fact.Kind == WatchDemandFormationFactKind.Archive));
+        Assert.All(generation.FormationFacts, fact =>
+            Assert.DoesNotContain("首次匹配观测", fact.Label, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Unknown_formation_reason_is_neutral_localized_and_preserves_raw_code()
+    {
+        var demand = Demand(
+            generation: 1,
+            demandId: "demand-unknown",
+            predecessorDemandId: null,
+            status: DemandSeriesLifecycleContract.Visible,
+            createdAt: At,
+            createdPollTraceId: "poll-unknown",
+            createdProjectionCommitId: "commit-unknown",
+            latestObservationAt: At,
+            latestObservationPollTraceId: "poll-unknown",
+            latestObservationProjectionCommitId: "commit-unknown");
+        var detail = Detail(
+            [demand],
+            [Event(1, "TRANSPORT_DEMAND_CREATED", "DEMAND", demand.DemandId,
+                "poll-unknown", "commit-unknown",
+                "{\"demandId\":\"demand-unknown\",\"reason\":\"FUTURE_REASON\"}", At)],
+            observations: []);
+
+        var presentation = WatchDemandSeriesInspectorPresentation.Project(
+            detail,
+            demand.DemandId,
+            WatchTextCatalog.For(WatchDisplayLanguage.English).Inspector);
+        var reason = presentation.FocusedGeneration.FormationReason;
+
+        Assert.Equal("FUTURE_REASON", reason.RawCode);
+        Assert.Equal("Formation reason cannot be determined", reason.ChineseLabel);
+        Assert.False(reason.IsKnown);
+        Assert.DoesNotContain("archive", reason.ChineseLabel, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            presentation.FocusedGeneration.FormationFacts,
+            fact => fact.Kind is WatchDemandFormationFactKind.AuthoritativeGone
+                or WatchDemandFormationFactKind.Archive);
+    }
+
     [Fact]
     public void Project_Preserves_the_frozen_snapshot_reference_identity_and_time()
     {

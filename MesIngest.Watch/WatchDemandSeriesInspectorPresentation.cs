@@ -61,19 +61,22 @@ internal sealed record WatchDemandFormationFactPresentation(
     string? PollTraceId,
     string? ProjectionCommitId,
     long? SeriesSequence,
-    bool IsAvailable = true)
+    bool IsAvailable = true,
+    WatchInspectorText? Catalog = null)
 {
+    private WatchInspectorText Text => Catalog
+        ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
+
     public string OccurrenceSummary => IsAvailable && OccurredAt is { } occurredAt
-        ? WatchTimeDisplay.Format(occurredAt)
-            + (SeriesSequence is { } sequence ? $" · #{sequence}" : string.Empty)
-        : "冻结快照中未找到此项事实";
+        ? Text.FormatOccurrence(WatchTimeDisplay.Format(occurredAt), SeriesSequence)
+        : Text.MissingOccurrence;
 
     public string EvidenceSummary => IsAvailable
-        ? $"PollTrace {PollTraceId} · ProjectionCommit {ProjectionCommitId}"
-        : "无 PollTrace 或 ProjectionCommit 提交证据";
+        ? Text.FormatEvidence(PollTraceId, ProjectionCommitId)
+        : Text.MissingEvidence;
 
     public string AutomationName =>
-        $"{Label}：{Value}；{OccurrenceSummary}；{EvidenceSummary}";
+        Text.FormatFactAutomation(Label, Value, OccurrenceSummary, EvidenceSummary);
 }
 
 internal enum WatchDemandMesBoundaryState
@@ -132,12 +135,16 @@ internal sealed record WatchDemandMesScalarFieldPresentation(
     string AfterValue,
     bool IsChanged,
     DateTimeOffset? BeforeMesSourceDate = null,
-    DateTimeOffset? AfterMesSourceDate = null)
+    DateTimeOffset? AfterMesSourceDate = null,
+    WatchInspectorText? Catalog = null)
 {
-    public string ChangeLabel => IsChanged ? "已变化" : "保持不变";
+    private WatchInspectorText Text => Catalog
+        ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
+
+    public string ChangeLabel => IsChanged ? Text.Changed : Text.Unchanged;
 
     public string AutomationName =>
-        $"{FieldName}：{BeforeValue} → {AfterValue}，{ChangeLabel}";
+        Text.FormatScalarAutomation(FieldName, BeforeValue, AfterValue, ChangeLabel);
 }
 
 internal sealed record WatchDemandMesBoundaryPresentation(
@@ -176,12 +183,16 @@ internal sealed record WatchDemandSeriesInspectorGenerationPresentation(
     bool IsCurrent,
     WatchDemandFormationReasonPresentation FormationReason,
     IReadOnlyList<WatchDemandFormationFactPresentation> FormationFacts,
-    WatchDemandMesBoundaryPresentation MesBoundary)
+    WatchDemandMesBoundaryPresentation MesBoundary,
+    WatchInspectorText? Catalog = null)
 {
-    public string CurrentMarker => IsCurrent ? "当前世代" : "历史世代";
+    private WatchInspectorText Text => Catalog
+        ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
+
+    public string CurrentMarker => IsCurrent ? Text.CurrentGeneration : Text.HistoricalGeneration;
 
     public string NavigationAutomationName =>
-        $"第 {Generation} 代；DemandId {DemandId}；状态 {Status}；{CurrentMarker}";
+        Text.FormatGenerationNavigation(Generation, DemandId, Status, CurrentMarker);
 }
 
 internal sealed record WatchDemandSeriesInspectorPresentation(
@@ -193,15 +204,23 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
     WatchDemandSeriesFrozenSnapshotPresentation FrozenSnapshot,
     IReadOnlyList<WatchDemandSeriesInspectorGenerationPresentation> Generations,
     WatchDemandSeriesInspectorGenerationPresentation FocusedGeneration,
-    IReadOnlyList<WatchDemandSeriesInspectorEventPresentation> Events)
+    IReadOnlyList<WatchDemandSeriesInspectorEventPresentation> Events,
+    WatchInspectorText? Catalog = null)
 {
     private const string DemandCreatedEvent = "TRANSPORT_DEMAND_CREATED";
 
+    private WatchInspectorText Text => Catalog
+        ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
+
+    public string EventsCountAutomationName => Text.FormatFrozenEventCount(Events.Count);
+
     public static WatchDemandSeriesInspectorPresentation Project(
         DemandSeriesDetailSnapshot snapshot,
-        string? focusedDemandId)
+        string? focusedDemandId,
+        WatchInspectorText? text = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
+        text ??= WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
 
         var series = snapshot.Series;
         var events = series.Events
@@ -211,7 +230,7 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             .OrderBy(demand => demand.Generation)
             .ToArray();
         var generations = demands
-            .Select(demand => ProjectGeneration(series, demand, events))
+            .Select(demand => ProjectGeneration(series, demand, events, text))
             .ToArray();
         var focused = generations.FirstOrDefault(generation => string.Equals(
                 generation.DemandId,
@@ -236,7 +255,8 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
                 snapshot.Snapshot.PollTraceId),
             generations,
             focused,
-            events.Select(seriesEvent => ProjectEvent(seriesEvent, demands)).ToArray());
+            events.Select(seriesEvent => ProjectEvent(seriesEvent, demands)).ToArray(),
+            text);
     }
 
     public IReadOnlyList<WatchDemandSeriesInspectorEventPresentation> EventsForDemand(
@@ -305,14 +325,15 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
     private static WatchDemandSeriesInspectorGenerationPresentation ProjectGeneration(
         DemandSeriesSnapshot series,
         TransportDemandSnapshot demand,
-        IReadOnlyList<DemandSeriesEventSnapshot> events)
+        IReadOnlyList<DemandSeriesEventSnapshot> events,
+        WatchInspectorText text)
     {
         var creationEvents = events
             .Where(seriesEvent => IsDemandEvent(seriesEvent, DemandCreatedEvent, demand.DemandId))
             .ToArray();
         var creationEvent = creationEvents.Length == 1 ? creationEvents[0] : null;
-        var reason = ProjectReason(demand, creationEvents);
-        var facts = ProjectFormationFacts(series, demand, reason.RawCode, creationEvent, events);
+        var reason = ProjectReason(demand, creationEvents, text);
+        var facts = ProjectFormationFacts(series, demand, reason.RawCode, creationEvent, events, text);
 
         return new WatchDemandSeriesInspectorGenerationPresentation(
             demand.Generation,
@@ -322,12 +343,14 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             string.Equals(demand.DemandId, series.CurrentDemand.DemandId, StringComparison.Ordinal),
             reason,
             facts,
-            ProjectMesBoundary(series, demand));
+            ProjectMesBoundary(series, demand, text),
+            text);
     }
 
     private static WatchDemandMesBoundaryPresentation ProjectMesBoundary(
         DemandSeriesSnapshot series,
-        TransportDemandSnapshot demand)
+        TransportDemandSnapshot demand,
+        WatchInspectorText text)
     {
         var predecessor = string.IsNullOrWhiteSpace(demand.PredecessorDemandId)
             ? null
@@ -338,7 +361,7 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         var beforeProjection = predecessor is null
             ? new BoundarySideProjection(
                 new WatchDemandMesBoundarySidePresentation(
-                    "前代最后匹配观测",
+                    text.BeforeBoundary,
                     DemandId: null,
                     PollTraceId: null,
                     ProjectionCommitId: null,
@@ -346,13 +369,13 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
                     ObservationGroups: []),
                 UniqueAssignedRow: null)
             : ProjectBoundarySide(
-                "前代最后匹配观测",
+                text.BeforeBoundary,
                 predecessor.DemandId,
                 predecessor.LatestObservationPollTraceId,
                 predecessor.LatestObservationProjectionCommitId,
                 series.RawObservations);
         var afterProjection = ProjectBoundarySide(
-            demand.Generation == 1 ? "首次匹配观测" : "新世代首次匹配观测",
+            demand.Generation == 1 ? text.FirstBoundary : text.NewBoundary,
             demand.DemandId,
             demand.CreatedPollTraceId,
             demand.CreatedProjectionCommitId,
@@ -365,7 +388,8 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         var fields = canProjectScalars
             ? ProjectScalarFields(
                 beforeProjection.UniqueAssignedRow,
-                afterProjection.UniqueAssignedRow!)
+                afterProjection.UniqueAssignedRow!,
+                text)
             : [];
 
         return new WatchDemandMesBoundaryPresentation(
@@ -373,7 +397,7 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             after,
             canProjectScalars,
             fields,
-            "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。");
+            text.MesExplanation);
     }
 
     private static BoundarySideProjection ProjectBoundarySide(
@@ -459,7 +483,8 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
 
     private static IReadOnlyList<WatchDemandMesScalarFieldPresentation> ProjectScalarFields(
         DemandRawObservationSnapshot? before,
-        DemandRawObservationSnapshot after)
+        DemandRawObservationSnapshot after,
+        WatchInspectorText text)
     {
         var notApplicable = before is null;
         return
@@ -471,11 +496,12 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             Field("STEP", before?.Step, after.Step),
             new WatchDemandMesScalarFieldPresentation(
                 "DATES / MesSourceDate",
-                notApplicable ? "不适用" : Display(before!.MesSourceDate),
-                Display(after.MesSourceDate),
+                notApplicable ? text.NotApplicable : Display(before!.MesSourceDate, text),
+                Display(after.MesSourceDate, text),
                 !notApplicable && before!.MesSourceDate != after.MesSourceDate,
-                before?.MesSourceDate,
-                after.MesSourceDate),
+                BeforeMesSourceDate: before?.MesSourceDate,
+                AfterMesSourceDate: after.MesSourceDate,
+                Catalog: text),
             Field("PACKAGE", before?.Package, after.Package),
         ];
 
@@ -484,30 +510,34 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             string? beforeValue,
             string? afterValue) => new(
             fieldName,
-            notApplicable ? "不适用" : Display(beforeValue),
-            Display(afterValue),
-            !notApplicable && !string.Equals(beforeValue, afterValue, StringComparison.Ordinal));
+                notApplicable ? text.NotApplicable : Display(beforeValue, text),
+                Display(afterValue, text),
+                !notApplicable && !string.Equals(beforeValue, afterValue, StringComparison.Ordinal),
+                Catalog: text);
     }
 
-    private static string Display(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "—" : value;
+    private static string Display(string? value, WatchInspectorText text) =>
+        string.IsNullOrWhiteSpace(value) ? text.SourceNotProvided : value;
 
-    private static string Display(DateTimeOffset? value) =>
-        value is null ? "—" : WatchTimeDisplay.Format(value.Value);
+    private static string Display(DateTimeOffset? value, WatchInspectorText text) =>
+        value is null ? text.SourceNotProvided : WatchTimeDisplay.Format(value.Value);
 
     private static WatchDemandFormationReasonPresentation ProjectReason(
         TransportDemandSnapshot demand,
-        IReadOnlyList<DemandSeriesEventSnapshot> creationEvents)
+        IReadOnlyList<DemandSeriesEventSnapshot> creationEvents,
+        WatchInspectorText text)
     {
         if (creationEvents.Count != 1)
         {
-            return UnknownReason(creationEvents.Count == 0 ? "（创建事件缺失）" : "（创建事件冲突）");
+            return UnknownReason(
+                creationEvents.Count == 0 ? text.MissingCreation : text.ConflictingCreation,
+                text);
         }
 
         var payloadReason = ReadReason(creationEvents[0].PayloadJson);
         if (payloadReason.State == ReasonPayloadState.Malformed)
         {
-            return UnknownReason("（原因载荷无效）");
+            return UnknownReason(text.InvalidReasonPayload, text);
         }
 
         var rawCode = payloadReason.Value;
@@ -518,10 +548,10 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
 
         return rawCode switch
         {
-            "FIRST_OBSERVED" => new(rawCode, "首次观察到", IsKnown: true),
-            "PREARCHIVE_REAPPEARANCE" => new(rawCode, "归档前消失后再现", IsKnown: true),
-            "POSTARCHIVE_REAPPEARANCE" => new(rawCode, "归档后再次出现", IsKnown: true),
-            _ => UnknownReason(string.IsNullOrWhiteSpace(rawCode) ? "（原因码缺失）" : rawCode),
+            "FIRST_OBSERVED" => new(rawCode, text.DescribeReason(rawCode), IsKnown: true),
+            "PREARCHIVE_REAPPEARANCE" => new(rawCode, text.DescribeReason(rawCode), IsKnown: true),
+            "POSTARCHIVE_REAPPEARANCE" => new(rawCode, text.DescribeReason(rawCode), IsKnown: true),
+            _ => UnknownReason(string.IsNullOrWhiteSpace(rawCode) ? text.MissingReasonCode : rawCode, text),
         };
     }
 
@@ -530,7 +560,8 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         TransportDemandSnapshot demand,
         string reasonCode,
         DemandSeriesEventSnapshot? creationEvent,
-        IReadOnlyList<DemandSeriesEventSnapshot> events)
+        IReadOnlyList<DemandSeriesEventSnapshot> events,
+        WatchInspectorText text)
     {
         if (creationEvent is null)
         {
@@ -541,9 +572,10 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             return [EventFact(
                 WatchDemandFormationFactKind.FirstObservation,
-                "首次匹配观测",
+                text.FactLabel(WatchDemandFormationFactKind.FirstObservation),
                 demand.DemandId,
-                creationEvent)];
+                creationEvent,
+                text)];
         }
 
         var isPrearchiveReappearance = string.Equals(
@@ -558,9 +590,10 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             return [EventFact(
                 WatchDemandFormationFactKind.FirstObservation,
-                "创建事件",
+                text.CreationEventFact,
                 demand.DemandId,
-                creationEvent)];
+                creationEvent,
+                text)];
         }
 
         var facts = new List<WatchDemandFormationFactPresentation>();
@@ -568,25 +601,30 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorIdentity,
-                "前代 Demand"));
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorIdentity),
+                text));
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorLastObservation,
-                "前代最后匹配观测"));
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorLastObservation),
+                text));
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.AuthoritativeGone,
-                "权威缺失 / GONE"));
+                text.FactLabel(WatchDemandFormationFactKind.AuthoritativeGone),
+                text));
             if (isPostarchiveReappearance)
             {
                 facts.Add(MissingFact(
                     WatchDemandFormationFactKind.Archive,
-                    "Series 归档"));
+                    text.FactLabel(WatchDemandFormationFactKind.Archive),
+                    text));
             }
 
             facts.Add(EventFact(
                 WatchDemandFormationFactKind.FirstObservation,
-                "新世代首次匹配观测",
+                text.FactLabel(WatchDemandFormationFactKind.FirstObservation, isNewObservation: true),
                 demand.DemandId,
-                creationEvent));
+                creationEvent,
+                text));
             return facts;
         }
 
@@ -598,25 +636,30 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorIdentity,
-                "前代 Demand"));
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorIdentity),
+                text));
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorLastObservation,
-                "前代最后匹配观测"));
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorLastObservation),
+                text));
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.AuthoritativeGone,
-                "权威缺失 / GONE"));
+                text.FactLabel(WatchDemandFormationFactKind.AuthoritativeGone),
+                text));
             if (isPostarchiveReappearance)
             {
                 facts.Add(MissingFact(
                     WatchDemandFormationFactKind.Archive,
-                    "Series 归档"));
+                    text.FactLabel(WatchDemandFormationFactKind.Archive),
+                    text));
             }
 
             facts.Add(EventFact(
                 WatchDemandFormationFactKind.FirstObservation,
-                "新世代首次匹配观测",
+                text.FactLabel(WatchDemandFormationFactKind.FirstObservation, isNewObservation: true),
                 demand.DemandId,
-                creationEvent));
+                creationEvent,
+                text));
             return facts;
         }
 
@@ -625,16 +668,18 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         facts.Add(predecessorCreation is null
             ? SnapshotFact(
                 WatchDemandFormationFactKind.PredecessorIdentity,
-                "前代 Demand",
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorIdentity),
                 predecessor.DemandId,
                 predecessor.CreatedAt,
                 predecessor.CreatedPollTraceId,
-                predecessor.CreatedProjectionCommitId)
+                predecessor.CreatedProjectionCommitId,
+                text)
             : EventFact(
                 WatchDemandFormationFactKind.PredecessorIdentity,
-                "前代 Demand",
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorIdentity),
                 predecessor.DemandId,
-                predecessorCreation));
+                predecessorCreation,
+                text));
 
         if (!string.IsNullOrWhiteSpace(predecessor.LatestObservationPollTraceId)
             && !string.IsNullOrWhiteSpace(predecessor.LatestObservationProjectionCommitId)
@@ -642,17 +687,19 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             facts.Add(SnapshotFact(
                 WatchDemandFormationFactKind.PredecessorLastObservation,
-                "前代最后匹配观测",
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorLastObservation),
                 predecessor.DemandId,
                 latestObservationAt,
                 predecessor.LatestObservationPollTraceId,
-                predecessor.LatestObservationProjectionCommitId));
+                predecessor.LatestObservationProjectionCommitId,
+                text));
         }
         else
         {
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.PredecessorLastObservation,
-                "前代最后匹配观测"));
+                text.FactLabel(WatchDemandFormationFactKind.PredecessorLastObservation),
+                text));
         }
 
         var goneEvent = events.LastOrDefault(seriesEvent =>
@@ -662,15 +709,17 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         {
             facts.Add(EventFact(
                 WatchDemandFormationFactKind.AuthoritativeGone,
-                "权威缺失 / GONE",
+                text.FactLabel(WatchDemandFormationFactKind.AuthoritativeGone),
                 predecessor.DemandId,
-                goneEvent));
+                goneEvent,
+                text));
         }
         else
         {
             facts.Add(MissingFact(
                 WatchDemandFormationFactKind.AuthoritativeGone,
-                "权威缺失 / GONE"));
+                text.FactLabel(WatchDemandFormationFactKind.AuthoritativeGone),
+                text));
         }
 
         if (isPostarchiveReappearance)
@@ -686,50 +735,58 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
             {
                 facts.Add(EventFact(
                     WatchDemandFormationFactKind.Archive,
-                    "Series 归档",
+                    text.FactLabel(WatchDemandFormationFactKind.Archive),
                     predecessor.DemandId,
-                    archiveEvent));
+                    archiveEvent,
+                    text));
             }
             else
             {
                 facts.Add(MissingFact(
                     WatchDemandFormationFactKind.Archive,
-                    "Series 归档"));
+                    text.FactLabel(WatchDemandFormationFactKind.Archive),
+                    text));
             }
         }
 
         facts.Add(EventFact(
             WatchDemandFormationFactKind.FirstObservation,
-            "新世代首次匹配观测",
+            text.FactLabel(WatchDemandFormationFactKind.FirstObservation, isNewObservation: true),
             demand.DemandId,
-            creationEvent));
+            creationEvent,
+            text));
         return facts;
     }
 
     private static WatchDemandFormationFactPresentation MissingFact(
         WatchDemandFormationFactKind kind,
-        string label) => new(
+        string label,
+        WatchInspectorText text) => new(
         kind,
         label,
-        "冻结快照中未找到",
+        text.MissingFact,
         OccurredAt: null,
         PollTraceId: null,
         ProjectionCommitId: null,
         SeriesSequence: null,
-        IsAvailable: false);
+        IsAvailable: false,
+        Catalog: text);
 
     private static WatchDemandFormationFactPresentation EventFact(
         WatchDemandFormationFactKind kind,
         string label,
         string value,
-        DemandSeriesEventSnapshot seriesEvent) => new(
+        DemandSeriesEventSnapshot seriesEvent,
+        WatchInspectorText text) => new(
         kind,
         label,
         value,
         seriesEvent.OccurredAt,
         seriesEvent.PollTraceId,
         seriesEvent.ProjectionCommitId,
-        seriesEvent.SeriesSequence);
+        seriesEvent.SeriesSequence,
+        IsAvailable: true,
+        Catalog: text);
 
     private static WatchDemandFormationFactPresentation SnapshotFact(
         WatchDemandFormationFactKind kind,
@@ -737,14 +794,17 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         string value,
         DateTimeOffset occurredAt,
         string pollTraceId,
-        string projectionCommitId) => new(
+        string projectionCommitId,
+        WatchInspectorText text) => new(
         kind,
         label,
         value,
         occurredAt,
         pollTraceId,
         projectionCommitId,
-        SeriesSequence: null);
+        SeriesSequence: null,
+        IsAvailable: true,
+        Catalog: text);
 
     private static bool IsDemandEvent(
         DemandSeriesEventSnapshot seriesEvent,
@@ -754,8 +814,10 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         && string.Equals(seriesEvent.SubjectKind, "DEMAND", StringComparison.OrdinalIgnoreCase)
         && string.Equals(seriesEvent.SubjectId, demandId, StringComparison.Ordinal);
 
-    private static WatchDemandFormationReasonPresentation UnknownReason(string rawCode) =>
-        new(rawCode, "形成原因暂无法确认", IsKnown: false);
+    private static WatchDemandFormationReasonPresentation UnknownReason(
+        string rawCode,
+        WatchInspectorText text) =>
+        new(rawCode, text.DescribeReason(rawCode), IsKnown: false);
 
     private static bool PayloadReferencesDemand(string payloadJson, string demandId)
     {

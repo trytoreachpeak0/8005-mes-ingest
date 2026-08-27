@@ -41,15 +41,20 @@ internal sealed class WatchDemandSeriesInspectorCoordinator : IDisposable
     private readonly Func<IWatchDemandSeriesInspectorWindow> _windowFactory;
     private readonly Func<WatchWindowLayout?>? _layoutLoader;
     private readonly Action<WatchWindowLayout>? _layoutSaver;
+    private readonly WatchDisplayLanguageState _displayLanguageState;
     private IWatchDemandSeriesInspectorWindow? _window;
     private bool _disposed;
 
     internal WatchDemandSeriesInspectorCoordinator(
         Func<IWatchDemandSeriesInspectorWindow>? windowFactory = null,
         Func<WatchWindowLayout?>? layoutLoader = null,
-        Action<WatchWindowLayout>? layoutSaver = null)
+        Action<WatchWindowLayout>? layoutSaver = null,
+        WatchDisplayLanguageState? displayLanguageState = null)
     {
-        _windowFactory = windowFactory ?? (() => new WatchDemandSeriesInspectorWindow());
+        _displayLanguageState = displayLanguageState
+            ?? new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+        _windowFactory = windowFactory
+            ?? (() => new WatchDemandSeriesInspectorWindow(_displayLanguageState));
         _layoutLoader = layoutLoader;
         _layoutSaver = layoutSaver;
     }

@@ -10,7 +10,7 @@ using MesIngest.Watch;
 namespace MesIngest.Tests;
 
 [Collection("WpfDesktop")]
-public sealed class WatchDemandSeriesInspectorShellTests
+    public sealed class WatchDemandSeriesInspectorShellTests
 {
     [Fact]
     public void Closed_inspector_navigation_and_selection_do_not_fetch_invisible_detail()
@@ -64,8 +64,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
             var command = Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesOpenInspectorButton"));
             Assert.True(command.IsEnabled);
-            Assert.Equal("打开详情窗口", command.Content);
-            Assert.Equal("打开 DemandSeries 详情窗口", AutomationProperties.GetName(command));
+            Assert.Equal("打开 Inspector", command.Content);
+            Assert.Equal("打开 Inspector", AutomationProperties.GetName(command));
 
             command.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Assert.Equal(1, inspectorWindow.ShowCount);
@@ -80,8 +80,8 @@ public sealed class WatchDemandSeriesInspectorShellTests
             Assert.Equal(
                 WatchDemandMesBoundaryState.Unique,
                 inspectorWindow.Presentation?.FocusedGeneration.MesBoundary.After.State);
-            Assert.Equal("显示详情窗口", command.Content);
-            Assert.Equal("显示 DemandSeries 详情窗口", AutomationProperties.GetName(command));
+            Assert.Equal("显示 Inspector", command.Content);
+            Assert.Equal("显示 Inspector", AutomationProperties.GetName(command));
 
             RaiseKey(grid, Key.Enter);
             RaiseDoubleClick(grid);
@@ -783,17 +783,146 @@ public sealed class WatchDemandSeriesInspectorShellTests
             TryDelete(root);
         });
 
+    [Fact]
+    public void Inspector_language_switch_reprojects_in_place_without_losing_investigation_state_or_requesting_host()
+        => StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-inspector-bilingual-{Guid.NewGuid():N}");
+            var client = new DemandSeriesClient(itemCount: 1);
+            var language = new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+            using var inspector = new WatchDemandSeriesInspectorCoordinator(
+                displayLanguageState: language);
+            using var window = CreateWindow(root, client, inspector, language);
+            window.InitializeAsync().GetAwaiter().GetResult();
+            window.NavigateFromOverview(
+                new OverviewNavigationIntent(OverviewNavigationTargets.DemandSeries));
+            window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+            Assert.IsAssignableFrom<ButtonBase>(window.FindName("DemandSeriesOpenInspectorButton"))
+                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            window.DemandSeriesInspectorLoadTask.GetAwaiter().GetResult();
+            var real = Assert.IsType<WatchDemandSeriesInspectorWindow>(inspector.CurrentWindow);
+            real.Show();
+            _ = real.Activate();
+            real.UpdateLayout();
+            var tabs = Assert.IsType<TabControl>(real.FindName("DemandSeriesInspectorTabs"));
+            tabs.SelectedIndex = 1;
+            real.UpdateLayout();
+            var selectedEvents = Assert.IsType<RadioButton>(
+                real.FindName("DemandSeriesInspectorSelectedEventsRadio"));
+            selectedEvents.IsChecked = true;
+            Assert.Same(selectedEvents, Keyboard.Focus(selectedEvents));
+            var scroll = Assert.IsType<ScrollViewer>(
+                real.FindName("DemandSeriesInspectorGenerationScrollViewer"));
+            var generationList = Assert.IsType<ListBox>(
+                real.FindName("DemandSeriesInspectorGenerationList"));
+            scroll.ScrollToVerticalOffset(31);
+            var offset = scroll.VerticalOffset;
+            var selectedDemandId = Assert.IsType<WatchDemandSeriesInspectorGenerationPresentation>(
+                generationList.SelectedItem).DemandId;
+            var placement = (real.Left, real.Top, real.Width, real.Height, real.WindowState);
+            var workspaceState = window.WorkspaceState;
+            var detailFetchCount = client.DetailFetchCount;
+
+            language.ApplyCommitted(WatchDisplayLanguage.English);
+
+            Assert.Same(workspaceState, window.WorkspaceState);
+            Assert.Equal(detailFetchCount, client.DetailFetchCount);
+            Assert.Equal(
+                selectedDemandId,
+                Assert.IsType<WatchDemandSeriesInspectorGenerationPresentation>(
+                    generationList.SelectedItem).DemandId);
+            Assert.Equal(1, tabs.SelectedIndex);
+            Assert.True(selectedEvents.IsChecked);
+            Assert.Same(selectedEvents, Keyboard.FocusedElement);
+            Assert.Equal(offset, scroll.VerticalOffset);
+            Assert.Equal(placement, (real.Left, real.Top, real.Width, real.Height, real.WindowState));
+            Assert.Equal("Demand series Inspector", real.Title.Split('·')[0].Trim());
+            Assert.Equal(
+                "Generation analysis",
+                Assert.IsType<TabItem>(real.FindName("DemandSeriesInspectorGenerationTab")).Header);
+            Assert.Equal(
+                "Events",
+                Assert.IsType<TabItem>(real.FindName("DemandSeriesInspectorEventsTab")).Header);
+            Assert.Equal(
+                "First observed",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    real.FindName("DemandSeriesInspectorFormationReasonText")).Text);
+            Assert.Equal(
+                "Raw reason code: FIRST_OBSERVED",
+                Assert.IsType<Wpf.Ui.Controls.TextBlock>(
+                    real.FindName("DemandSeriesInspectorFormationReasonCodeText")).Text);
+
+            real.Close();
+            window.Close();
+            TryDelete(root);
+        });
+
+    [Fact]
+    public void Open_inspectors_follow_shared_language_and_new_windows_inherit_it()
+        => StaTestRunner.Run(() =>
+        {
+            var language = new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+            using var firstCoordinator = new WatchDemandSeriesInspectorCoordinator(
+                displayLanguageState: language);
+            firstCoordinator.OpenOrShow(new WatchDemandSeriesInspectorStatePresentation(
+                "series-shared",
+                "WIRE_TO_GATE",
+                "SUB-SHARED",
+                "TRACKING",
+                "VISIBLE",
+                new WatchDemandSeriesFrozenSnapshotPresentation(
+                    "snapshot-shared", "commit-shared", 1,
+                    DateTimeOffset.Parse("2026-08-27T14:05:06+08:00"), "poll-shared"),
+                Detail: null,
+                IsLoading: true,
+                IsStale: false,
+                IsPaused: false,
+                WatchPresentationSeverity.Informational,
+                StatusTitle: string.Empty,
+                StatusMessage: string.Empty));
+            var first = Assert.IsType<WatchDemandSeriesInspectorWindow>(firstCoordinator.CurrentWindow);
+
+            language.ApplyCommitted(WatchDisplayLanguage.English);
+
+            Assert.Contains("Demand series Inspector", first.Title, StringComparison.Ordinal);
+            using var secondCoordinator = new WatchDemandSeriesInspectorCoordinator(
+                displayLanguageState: language);
+            secondCoordinator.OpenOrShow(new WatchDemandSeriesInspectorStatePresentation(
+                "series-later",
+                "WIRE_TO_GATE",
+                "SUB-LATER",
+                "TRACKING",
+                "VISIBLE",
+                new WatchDemandSeriesFrozenSnapshotPresentation(
+                    "snapshot-later", "commit-later", 2,
+                    DateTimeOffset.Parse("2026-08-27T14:06:06+08:00"), "poll-later"),
+                Detail: null,
+                IsLoading: true,
+                IsStale: false,
+                IsPaused: false,
+                WatchPresentationSeverity.Informational,
+                StatusTitle: string.Empty,
+                StatusMessage: string.Empty));
+            var second = Assert.IsType<WatchDemandSeriesInspectorWindow>(secondCoordinator.CurrentWindow);
+            Assert.Contains("Demand series Inspector", second.Title, StringComparison.Ordinal);
+
+            first.Close();
+            second.Close();
+        });
+
     private static WatchWorkspaceWindow CreateWindow(
         string root,
         IWatchV2ApiClient client,
-        WatchDemandSeriesInspectorCoordinator inspector) => new(
+        WatchDemandSeriesInspectorCoordinator inspector,
+        WatchDisplayLanguageState? displayLanguageState = null) => new(
         new WatchHostSettings("http://host-a", "secret", 30),
         WatchV2Preferences.Default,
         Path.Combine(root, "connection.json"),
         Path.Combine(root, "workspace.json"),
         _ => client,
         initializeOnLoaded: false,
-        demandSeriesInspectorCoordinator: inspector);
+        demandSeriesInspectorCoordinator: inspector,
+        displayLanguageState: displayLanguageState);
 
     private static string NotificationValue(ItemsControl items, string propertyName)
     {

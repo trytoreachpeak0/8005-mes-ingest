@@ -109,7 +109,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         _demandSeriesInspectorCoordinator = demandSeriesInspectorCoordinator
             ?? new WatchDemandSeriesInspectorCoordinator(
                 layoutLoader: LoadInspectorWindowLayout,
-                layoutSaver: SaveInspectorWindowLayout);
+                layoutSaver: SaveInspectorWindowLayout,
+                displayLanguageState: _displayLanguageState);
         _demandSeriesInspectorCoordinator.StateChanged += OnDemandSeriesInspectorStateChanged;
         _demandSeriesInspectorCoordinator.GenerationFocusRequested +=
             OnDemandSeriesInspectorGenerationFocusRequested;
@@ -2214,7 +2215,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             ? null
             : WatchDemandSeriesInspectorPresentation.Project(
                 retainedDetail,
-                view.DetailFocusId ?? _focusedDemandId);
+                view.DetailFocusId ?? _focusedDemandId,
+                _displayLanguageState.Catalog.Inspector);
         var retainedPriorSnapshot = retainedDetail is not null
             && !DetailMatchesTargetSnapshot(retainedDetail, item.SeriesId, snapshot);
         var frozenSnapshot = detail?.FrozenSnapshot
@@ -2231,14 +2233,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             _demandSeriesNavigation,
             _focusedDemandId,
             _displayLanguageState.Catalog.DemandSeries);
+        var inspectorText = _displayLanguageState.Catalog.Inspector;
         var statusParts = new[]
         {
             view.DetailErrorMessage,
             view.IsStale ? page.InfoMessage : null,
             retainedPriorSnapshot
-                ? $"目标列表已提交冻结快照 {snapshot.SnapshotReference}；"
-                    + $"正文仍保留上一成功冻结快照 {retainedDetail!.SnapshotReference}，"
-                    + "直到匹配的新详情原子提交。"
+                ? inspectorText.FormatRetainedSnapshot(
+                    snapshot.SnapshotReference,
+                    retainedDetail!.SnapshotReference)
                 : null,
             page.SourceComparison == WatchDemandSeriesSourceComparison.None
                 ? null
@@ -2250,20 +2253,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
         var isPaused = _activePage != WatchWorkspacePage.DemandSeries;
         var statusTitle = view.DetailLastFailureAt is not null
             ? detail is null
-                ? "详情读取失败"
-                : "详情刷新失败，已保留上次证据"
+                ? inspectorText.DetailReadFailed
+                : inspectorText.DetailRefreshFailed
             : isPaused
-                ? "DemandSeries 页面刷新已暂停"
+                ? inspectorText.PagePaused
                 : retainedPriorSnapshot
                     ? view.IsDetailLoading
-                        ? "正在刷新详情，已保留上次证据"
-                        : "详情尚未与最新快照同步，已保留上次证据"
+                        ? inspectorText.RefreshingRetained
+                        : inspectorText.SnapshotPending
                     : view.IsStale
-                        ? "刷新失败，已保留上次证据"
+                        ? inspectorText.RefreshFailed
                         : view.IsDetailLoading
-                        ? "正在读取所选 Series 详情"
+                        ? inspectorText.ReadingSelection
                         : page.SourceComparison != WatchDemandSeriesSourceComparison.None
-                            ? "来源快照比较"
+                            ? inspectorText.SourceComparison
                             : string.Empty;
         var statusMessage = string.Join(" ", statusParts);
         if (isPaused)
@@ -2272,7 +2275,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 " ",
                 new[]
                 {
-                    $"保留冻结快照 {snapshot.SnapshotReference}；返回 DemandSeries 页面后恢复刷新。",
+                    inspectorText.FormatPausedSnapshot(snapshot.SnapshotReference),
                     statusMessage,
                 }.Where(value => !string.IsNullOrWhiteSpace(value)));
         }

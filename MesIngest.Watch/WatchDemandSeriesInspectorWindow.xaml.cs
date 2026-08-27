@@ -17,9 +17,15 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     private WatchDemandSeriesInspectorPresentation? _presentation;
     private WindowState _lastNonMinimizedState = WindowState.Normal;
     private WatchWindowLayout? _capturedLayout;
+    private readonly WatchDisplayLanguageState _displayLanguageState;
+    private WatchInspectorText _text;
 
-    internal WatchDemandSeriesInspectorWindow()
+    internal WatchDemandSeriesInspectorWindow(
+        WatchDisplayLanguageState? displayLanguageState = null)
     {
+        _displayLanguageState = displayLanguageState
+            ?? new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+        _text = _displayLanguageState.Catalog.Inspector;
         InitializeComponent();
         Owner = null;
         if (Application.Current is null)
@@ -28,7 +34,92 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         }
 
         Loaded += OnInspectorLoaded;
+        Closed += OnInspectorClosed;
+        _displayLanguageState.Changed += OnDisplayLanguageChanged;
+        ApplyLocalizedText();
         ApplyResponsiveLayout(Width);
+    }
+
+    private void OnInspectorClosed(object? sender, EventArgs e)
+    {
+        Closed -= OnInspectorClosed;
+        _displayLanguageState.Changed -= OnDisplayLanguageChanged;
+    }
+
+    private void OnDisplayLanguageChanged(object? sender, EventArgs e)
+    {
+        var focusedElement = Keyboard.FocusedElement;
+        var offsets = CaptureViewportOffsets();
+        _text = _displayLanguageState.Catalog.Inspector;
+        ApplyLocalizedText();
+        if (_state is not null)
+        {
+            Update(_state);
+        }
+
+        RestoreViewportOffsets(offsets);
+        if (focusedElement is IInputElement focusTarget && focusTarget.Focusable)
+        {
+            Keyboard.Focus(focusTarget);
+        }
+    }
+
+    private void ApplyLocalizedText()
+    {
+        var demandText = _displayLanguageState.Catalog.DemandSeries;
+        Title = _state is null ? _text.WindowTitle : _text.FormatWindowTitle(_state.SeriesId);
+        InspectorTitleBar.Title = _state is null
+            ? $"MesIngest Watch · {_text.WindowTitle}"
+            : _text.FormatAppTitle(_state.SeriesId);
+        AutomationProperties.SetName(InspectorTitleBar, _text.TitleBarAutomationName);
+        AutomationProperties.SetName(DemandSeriesInspectorContext, _text.ContextAutomationName);
+        AutomationProperties.SetName(DemandSeriesInspectorStatusInfoBar, _text.ReadState);
+        AutomationProperties.SetName(DemandSeriesInspectorTabs, _text.InvestigationTasks);
+        DemandSeriesInspectorGenerationTab.Header = _text.GenerationAnalysis;
+        AutomationProperties.SetName(DemandSeriesInspectorGenerationTab, _text.GenerationAnalysis);
+        DemandSeriesInspectorEventsTab.Header = _text.Events;
+        AutomationProperties.SetName(DemandSeriesInspectorEventsTab, _text.Events);
+        DemandSeriesInspectorGenerationHeadingText.Text = _text.DemandGenerations;
+        DemandSeriesInspectorGenerationHelpText.Text = _text.GenerationHelp;
+        AutomationProperties.SetName(DemandSeriesInspectorGenerationList, _text.GenerationNavigation);
+        DemandSeriesInspectorRelatedEventsButton.Content = _text.RelatedEvents;
+        AutomationProperties.SetName(
+            DemandSeriesInspectorRelatedEventsButton,
+            _text.RelatedEventsAutomationName);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationReasonText,
+            _text.FormationReason);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationFacts,
+            _text.FormationFacts);
+        DemandSeriesInspectorMesHeadingText.Text = _text.MesDiffHeading;
+        DemandSeriesInspectorMesHelpText.Text = _text.MesDiffHelp;
+        DemandSeriesInspectorNativeFieldHeaderText.Text = _text.NativeField;
+        DemandSeriesInspectorBeforeValueHeaderText.Text = _text.BeforeValue;
+        DemandSeriesInspectorAfterValueHeaderText.Text = _text.AfterValue;
+        DemandSeriesInspectorChangeHeaderText.Text = _text.Change;
+        AutomationProperties.SetName(DemandSeriesInspectorMesScalarFields, _text.MesDiffHeading);
+        DemandSeriesInspectorAfterObservationGrid.Columns[0].Header = _text.BoundaryColumn;
+        AutomationProperties.SetName(
+            DemandSeriesInspectorAfterObservationGrid,
+            _text.RawRows);
+        DemandSeriesInspectorEventHeadingText.Text = _text.PermanentEvents;
+        DemandSeriesInspectorAllEventsRadio.Content = _text.AllEvents;
+        DemandSeriesInspectorSelectedEventsRadio.Content = _text.SelectedEvents;
+        AutomationProperties.SetName(DemandSeriesInspectorAllEventsRadio, _text.ShowAllEvents);
+        AutomationProperties.SetName(DemandSeriesInspectorSelectedEventsRadio, _text.ShowSelectedEvents);
+        DemandSeriesInspectorEventLogHeadingText.Text = _text.EventLog;
+        DemandSeriesInspectorEventLogHelpText.Text = _text.EventLogHelp;
+        AutomationProperties.SetName(DemandSeriesInspectorEventGrid, _text.EventGrid);
+
+        if (_state is not null)
+        {
+            InspectorLifecycleText.Text = _text.FormatStableIdentity(
+                demandText.DescribeLifecycle(_state.Lifecycle),
+                _state.WorkType,
+                _state.Sublot);
+            InspectorPresenceText.Text = demandText.DescribePresence(_state.CurrentPresence);
+        }
     }
 
     public event EventHandler<WatchDemandSeriesGenerationFocusRequestedEventArgs>?
@@ -76,6 +167,9 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     public void Update(WatchDemandSeriesInspectorStatePresentation state)
     {
         ArgumentNullException.ThrowIfNull(state);
+        var focusedElement = Keyboard.FocusedElement;
+        var restoreInspectorFocus = focusedElement is DependencyObject focusedObject
+            && ReferenceEquals(GetWindow(focusedObject), this);
         _isRendering = true;
         try
         {
@@ -100,17 +194,20 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             var presentation = state.Detail;
             _presentation = presentation;
             DataContext = presentation;
-            Title = $"DemandSeries Inspector · {state.SeriesId}";
-            InspectorTitleBar.Title =
-                $"MesIngest Watch · DemandSeries Inspector · {state.SeriesId}";
+            Title = _text.FormatWindowTitle(state.SeriesId);
+            InspectorTitleBar.Title = _text.FormatAppTitle(state.SeriesId);
             InspectorSeriesContextText.Text = state.SeriesId;
             InspectorSnapshotContextText.Text =
-                $"冻结快照 {state.FrozenSnapshot.SnapshotReference} · "
-                + WatchTimeDisplay.Format(state.FrozenSnapshot.ProjectionCommittedAt);
+                _text.FormatFrozenSnapshot(
+                    state.FrozenSnapshot.SnapshotReference,
+                    WatchTimeDisplay.Format(state.FrozenSnapshot.ProjectionCommittedAt));
             InspectorSnapshotContextText.ToolTip = InspectorSnapshotContextText.Text;
-            InspectorLifecycleText.Text =
-                $"{state.Lifecycle} · {state.WorkType} · {state.Sublot}";
-            InspectorPresenceText.Text = state.CurrentPresence;
+            var demandText = _displayLanguageState.Catalog.DemandSeries;
+            InspectorLifecycleText.Text = _text.FormatStableIdentity(
+                demandText.DescribeLifecycle(state.Lifecycle),
+                state.WorkType,
+                state.Sublot);
+            InspectorPresenceText.Text = demandText.DescribePresence(state.CurrentPresence);
             UpdateContextAutomationNames();
             DemandSeriesInspectorStatusInfoBar.IsOpen =
                 !string.IsNullOrWhiteSpace(state.StatusTitle)
@@ -127,8 +224,8 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             AutomationProperties.SetName(
                 DemandSeriesInspectorStatusInfoBar,
                 DemandSeriesInspectorStatusInfoBar.IsOpen
-                    ? $"{state.StatusTitle}。{state.StatusMessage}"
-                    : "DemandSeries Inspector 读取状态：当前无通知");
+                    ? _text.FormatStatusName(state.StatusTitle, state.StatusMessage)
+                    : $"{_text.ReadState}: {_text.NoNotice}");
             if (targetChanged)
             {
                 _filterSelectedGeneration = false;
@@ -144,7 +241,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
             DemandSeriesInspectorTabs.IsEnabled = true;
             DemandSeriesInspectorGenerationCountText.Text =
-                $"{presentation.Generations.Count:N0} 个世代";
+                _text.FormatGenerationCount(presentation.Generations.Count);
 
             var previousFocusedDemandId =
                 DemandSeriesInspectorGenerationList.SelectedItem
@@ -186,6 +283,13 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                                 StringComparison.Ordinal));
                 RestoreViewportOffsets(viewportOffsets);
             }
+
+            if (restoreInspectorFocus
+                && focusedElement is IInputElement focusTarget
+                && focusTarget.Focusable)
+            {
+                Keyboard.Focus(focusTarget);
+            }
         }
         finally
         {
@@ -204,24 +308,24 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             _state = null;
             _presentation = null;
             DataContext = null;
-            Title = "DemandSeries Inspector";
-            InspectorTitleBar.Title = "MesIngest Watch · DemandSeries Inspector";
-            InspectorSeriesContextText.Text = "尚未选择 DemandSeries";
-            InspectorSnapshotContextText.Text = "尚无冻结快照";
+            Title = _text.WindowTitle;
+            InspectorTitleBar.Title = $"MesIngest Watch · {_text.WindowTitle}";
+            InspectorSeriesContextText.Text = _text.NoSelection;
+            InspectorSnapshotContextText.Text = _text.NoSnapshot;
             InspectorSnapshotContextText.ToolTip = null;
-            InspectorLifecycleText.Text = "—";
-            InspectorPresenceText.Text = "—";
+            InspectorLifecycleText.Text = _text.NoSelection;
+            InspectorPresenceText.Text = _text.NoSelection;
             UpdateContextAutomationNames();
             DemandSeriesInspectorStatusInfoBar.IsOpen = true;
             DemandSeriesInspectorStatusInfoBar.Severity =
                 Wpf.Ui.Controls.InfoBarSeverity.Informational;
-            DemandSeriesInspectorStatusInfoBar.Title = "当前选择已清除";
-            DemandSeriesInspectorStatusInfoBar.Message =
-                "所选 Series 已离开最新结果；没有自动选择另一 Series。";
+            DemandSeriesInspectorStatusInfoBar.Title = _text.ClearedTitle;
+            DemandSeriesInspectorStatusInfoBar.Message = _text.ClearedMessage;
             AutomationProperties.SetName(
                 DemandSeriesInspectorStatusInfoBar,
-                $"{DemandSeriesInspectorStatusInfoBar.Title}。"
-                + DemandSeriesInspectorStatusInfoBar.Message);
+                _text.FormatStatusName(
+                    DemandSeriesInspectorStatusInfoBar.Title,
+                    DemandSeriesInspectorStatusInfoBar.Message));
             _filterSelectedGeneration = false;
             DemandSeriesInspectorAllEventsRadio.IsChecked = true;
             DemandSeriesInspectorTabs.SelectedIndex = 0;
@@ -236,13 +340,13 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     private void ClearDetailBody()
     {
         DemandSeriesInspectorTabs.IsEnabled = false;
-        DemandSeriesInspectorGenerationCountText.Text = "正在读取世代";
+        DemandSeriesInspectorGenerationCountText.Text = _text.LoadingGenerations;
         DemandSeriesInspectorGenerationList.ItemsSource = null;
         DemandSeriesInspectorFormationFacts.ItemsSource = null;
         DemandSeriesInspectorMesScalarFields.ItemsSource = null;
         DemandSeriesInspectorAfterObservationGrid.ItemsSource = null;
         DemandSeriesInspectorEventGrid.ItemsSource = null;
-        DemandSeriesInspectorGenerationIdentityText.Text = "正在读取所选 Series 详情";
+        DemandSeriesInspectorGenerationIdentityText.Text = _text.LoadingDetail;
         DemandSeriesInspectorGenerationSummaryText.Text = string.Empty;
         DemandSeriesInspectorFormationReasonText.Text = "—";
         DemandSeriesInspectorFormationReasonText.ToolTip = null;
@@ -250,47 +354,47 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorScalarBoundaryEvidenceText.Text = string.Empty;
         DemandSeriesInspectorBeforeEvidenceText.Text = string.Empty;
         DemandSeriesInspectorAfterEvidenceText.Text = string.Empty;
-        DemandSeriesInspectorMesFieldCountText.Text = "0 个原生字段";
+        DemandSeriesInspectorMesFieldCountText.Text = _text.FormatNativeFieldCount(0);
         DemandSeriesInspectorScalarEvidencePanel.Visibility = Visibility.Visible;
         DemandSeriesInspectorRawEvidencePanel.Visibility = Visibility.Collapsed;
         DemandSeriesInspectorMesExplanationText.Text = string.Empty;
-        DemandSeriesInspectorEventContextText.Text = "详情尚未提交";
+        DemandSeriesInspectorEventContextText.Text = _text.LoadingDetail;
         ClearDetailAutomationNames();
     }
 
     private void ClearDetailAutomationNames()
     {
-        var stateLabel = _state?.IsLoading == true ? "正在读取" : "不可用";
+        var stateLabel = _state?.IsLoading == true ? _text.Loading : _text.Unavailable;
         AutomationProperties.SetName(
             DemandSeriesInspectorGenerationIdentityText,
-            $"所选 Series 详情{stateLabel}");
+            _text.FormatDetailStateName(stateLabel));
         AutomationProperties.SetName(
             DemandSeriesInspectorFormationReasonText,
-            $"Demand 形成原因{stateLabel}");
+            _text.FormatFormationStateName(stateLabel));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorFormationReasonText,
             string.Empty);
         AutomationProperties.SetName(
             DemandSeriesInspectorFormationFacts,
-            $"Demand 形成事实{stateLabel}");
+            _text.FormatFormationFactsStateName(stateLabel));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorFormationFacts,
             string.Empty);
         AutomationProperties.SetName(
             DemandSeriesInspectorScalarBoundaryEvidenceText,
-            $"MES 标量对比边界来源{stateLabel}");
+            _text.FormatScalarBoundaryStateName(stateLabel));
         AutomationProperties.SetName(
             DemandSeriesInspectorAfterObservationGrid,
-            $"MES 边界原始行{stateLabel}");
+            _text.FormatRawRowsStateName(stateLabel));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorAfterObservationGrid,
             string.Empty);
         AutomationProperties.SetName(
             DemandSeriesInspectorEventContextText,
-            $"事件 DemandId 过滤上下文{stateLabel}");
+            _text.FormatEventContextStateName(stateLabel));
         AutomationProperties.SetName(
             DemandSeriesInspectorEventGrid,
-            $"DemandSeries 永久事件{stateLabel}");
+            _text.FormatEventGridStateName(stateLabel));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorEventGrid,
             string.Empty);
@@ -355,23 +459,27 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         WatchDemandSeriesInspectorGenerationPresentation generation)
     {
         DemandSeriesInspectorGenerationIdentityText.Text =
-            $"DemandId {generation.DemandId} · 第 {generation.Generation} 代 · "
-            + generation.Status;
+            _text.FormatGenerationIdentity(
+                generation.DemandId,
+                generation.Generation,
+                generation.Status);
         AutomationProperties.SetName(
             DemandSeriesInspectorGenerationIdentityText,
-            $"选中世代：DemandId {generation.DemandId}；"
-            + $"第 {generation.Generation} 代；状态 {generation.Status}；"
-            + generation.CurrentMarker);
+            _text.FormatGenerationIdentityName(
+                generation.DemandId,
+                generation.Generation,
+                generation.Status,
+                generation.CurrentMarker));
         DemandSeriesInspectorGenerationSummaryText.Text =
             generation.PredecessorDemandId is { } predecessorDemandId
-                ? $"前驱 {predecessorDemandId}"
-                : "Series 首个 Demand 世代";
+                ? _text.FormatPredecessor(predecessorDemandId)
+                : _text.FirstGeneration;
         DemandSeriesInspectorFormationReasonText.Text = generation.FormationReason.ChineseLabel;
         DemandSeriesInspectorFormationReasonText.ToolTip =
-            $"内部原因码：{generation.FormationReason.RawCode}";
-        var formationReasonAutomationName =
-            $"形成原因：{generation.FormationReason.ChineseLabel}；"
-            + $"原始原因码：{generation.FormationReason.RawCode}";
+            _text.FormatRawReasonCode(generation.FormationReason.RawCode);
+        var formationReasonAutomationName = _text.FormatFormationReasonName(
+            generation.FormationReason.ChineseLabel,
+            generation.FormationReason.RawCode);
         AutomationProperties.SetName(
             DemandSeriesInspectorFormationReasonText,
             formationReasonAutomationName);
@@ -379,11 +487,14 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             DemandSeriesInspectorFormationReasonText,
             formationReasonAutomationName);
         DemandSeriesInspectorFormationReasonCodeText.Text =
-            $"原始原因码：{generation.FormationReason.RawCode}";
+            _text.FormatRawReasonCode(generation.FormationReason.RawCode);
+        AutomationProperties.SetName(
+            DemandSeriesInspectorFormationReasonCodeText,
+            DemandSeriesInspectorFormationReasonCodeText.Text);
         DemandSeriesInspectorFormationFacts.ItemsSource = generation.FormationFacts;
         AutomationProperties.SetName(
             DemandSeriesInspectorFormationFacts,
-            $"Demand 形成事实，共 {generation.FormationFacts.Count:N0} 项");
+            _text.FormatFormationFactsCount(generation.FormationFacts.Count));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorFormationFacts,
             string.Join("；", generation.FormationFacts.Select(fact => fact.AutomationName)));
@@ -416,16 +527,17 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorAfterObservationGrid.ItemsSource = rawRows;
         AutomationProperties.SetName(
             DemandSeriesInspectorAfterObservationGrid,
-            $"MES 边界原始行；{FormatBoundaryState(before)}；"
-            + $"{FormatBoundaryState(after)}；共 {rawRows.Length:N0} 行");
+            _text.FormatRawRowsCount(
+                FormatBoundaryState(before),
+                FormatBoundaryState(after),
+                rawRows.Length));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorAfterObservationGrid,
-            "保留边界原始行的 Assignment、SeriesId、DemandId、七个 MES 原生字段、"
-            + "PollTrace 与 ProjectionCommit；不挑选 canonical row。");
+            _text.RawRowsHelp);
         DemandSeriesInspectorMesScalarFields.ItemsSource =
             generation.MesBoundary.ScalarFields;
         DemandSeriesInspectorMesFieldCountText.Text =
-            $"{generation.MesBoundary.ScalarFields.Count:N0} 个原生字段";
+            _text.FormatNativeFieldCount(generation.MesBoundary.ScalarFields.Count);
         DemandSeriesInspectorScalarEvidencePanel.Visibility =
             generation.MesBoundary.CanProjectScalarFields
                 ? Visibility.Visible
@@ -435,23 +547,20 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 ? Visibility.Collapsed
                 : Visibility.Visible;
         DemandSeriesInspectorMesExplanationText.Text = generation.Generation == 1
-            ? $"{generation.DemandId} 是该 Series 的首个 Demand 世代；"
-                + generation.MesBoundary.Explanation
-            : $"{generation.FormationReason.ChineseLabel}形成第 {generation.Generation} 代；"
-                + generation.MesBoundary.Explanation;
+            ? _text.FormatFirstConclusion(
+                generation.DemandId,
+                generation.MesBoundary.Explanation)
+            : _text.FormatLaterConclusion(
+                generation.FormationReason.ChineseLabel,
+                generation.Generation,
+                generation.MesBoundary.Explanation);
         ApplyEventFilter();
     }
 
-    private static string FormatBoundaryState(
+    private string FormatBoundaryState(
         WatchDemandMesBoundarySidePresentation side)
     {
-        var state = side.State switch
-        {
-            WatchDemandMesBoundaryState.Missing => $"{side.Label}：缺失",
-            WatchDemandMesBoundaryState.Conflict => $"{side.Label}：多行冲突",
-            WatchDemandMesBoundaryState.Unique => $"{side.Label}：唯一可信原始行",
-            _ => $"{side.Label}：不适用",
-        };
+        var state = _text.FormatBoundaryState(side.Label, side.State);
         return string.IsNullOrWhiteSpace(side.PollTraceId)
             || string.IsNullOrWhiteSpace(side.ProjectionCommitId)
             ? state
@@ -522,20 +631,21 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             : _presentation.Events;
         DemandSeriesInspectorEventGrid.ItemsSource = visibleEvents;
         var context = _filterSelectedGeneration
-            ? $"当前 Demand 相关事件 · DemandId {generation.DemandId} · "
-                + $"{relatedEvents.Count:N0} / {_presentation.Events.Count:N0} 条"
-            : $"全部 Series 事件 · DemandId {generation.DemandId} · "
-                + $"冻结快照内按 SeriesSequence 展示 {_presentation.Events.Count:N0} 条";
+            ? _text.FormatSelectedEventContext(
+                generation.DemandId,
+                relatedEvents.Count,
+                _presentation.Events.Count)
+            : _text.FormatAllEventContext(
+                generation.DemandId,
+                _presentation.Events.Count);
         DemandSeriesInspectorEventContextText.Text = context;
         AutomationProperties.SetName(DemandSeriesInspectorEventContextText, context);
         AutomationProperties.SetName(
             DemandSeriesInspectorEventGrid,
-            $"DemandSeries 永久事件；{context}");
+            _text.FormatEventGridContext(_text.EventGrid, context));
         AutomationProperties.SetHelpText(
             DemandSeriesInspectorEventGrid,
-            "事件字段：SeriesSequence、EventId、SeriesId、OccurredAt、EventType、"
-            + "SubjectKind、SubjectId、PollTraceId、ProjectionCommitId、PayloadVersion、PayloadJson。"
-            + "过滤只改变同一冻结事件集合的本地视图。");
+            _text.EventHelp);
     }
 
     private void OnInspectorSizeChanged(object sender, SizeChangedEventArgs e) =>
@@ -686,23 +796,28 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
 
     private void UpdateContextAutomationNames()
     {
+        var series = _text.FormatSeriesContext(InspectorSeriesContextText.Text);
+        var presence = _text.FormatPresenceContext(
+            _state?.CurrentPresence ?? InspectorPresenceText.Text);
+        var identity = InspectorLifecycleText.Text;
         AutomationProperties.SetName(
             InspectorSeriesContextText,
-            $"Series {InspectorSeriesContextText.Text}");
+            series);
         AutomationProperties.SetName(
             InspectorPresenceText,
-            $"当前出现状态 {InspectorPresenceText.Text}");
+            presence);
         AutomationProperties.SetName(
             InspectorLifecycleText,
-            $"生命周期与稳定身份 {InspectorLifecycleText.Text}");
+            identity);
         AutomationProperties.SetName(
             InspectorSnapshotContextText,
             InspectorSnapshotContextText.Text);
         AutomationProperties.SetName(
             DemandSeriesInspectorContext,
-            $"Series {InspectorSeriesContextText.Text}；"
-            + $"当前出现状态 {InspectorPresenceText.Text}；"
-            + $"生命周期与稳定身份 {InspectorLifecycleText.Text}；"
-            + InspectorSnapshotContextText.Text);
+            _text.FormatContextName(
+                series,
+                presence,
+                identity,
+                InspectorSnapshotContextText.Text));
     }
 }

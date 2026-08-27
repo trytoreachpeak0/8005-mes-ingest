@@ -163,7 +163,8 @@
                         KeyboardNavigation.TabIndex="0"
                         AutomationProperties.Name="DemandSeries Inspector 调查任务"
                         AutomationProperties.AutomationId="DemandSeriesInspectorTabs">
-                <TabItem Header="世代分析"
+                <TabItem x:Name="DemandSeriesInspectorGenerationTab"
+                         Header="世代分析"
                          AutomationProperties.Name="世代分析"
                          AutomationProperties.AutomationId="DemandSeriesInspectorGenerationTab">
                     <ScrollViewer x:Name="DemandSeriesInspectorGenerationScrollViewer"
@@ -197,9 +198,9 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <ui:TextBlock Text="Demand 世代"
+                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHeadingText" Text="Demand 世代"
                                                       Style="{StaticResource SectionTitleText}" />
-                                        <ui:TextBlock Margin="0,3,0,0"
+                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHelpText" Margin="0,3,0,0"
                                                       Text="滚动并选择 DemandId"
                                                       Style="{StaticResource SecondaryText}" />
                                     </StackPanel>
@@ -265,7 +266,7 @@
                                                             CornerRadius="10"
                                                             Background="{DynamicResource AccentFillColorSecondaryBrush}"
                                                             VerticalAlignment="Center">
-                                                        <ui:TextBlock Text="当前"
+                                                        <ui:TextBlock Text="{Binding CurrentMarker}"
                                                                       Foreground="White"
                                                                       FontSize="11"
                                                                       FontWeight="SemiBold" />
@@ -368,7 +369,7 @@
                                         </StackPanel>
                                     </Grid>
                                     <ui:TextBlock x:Name="DemandSeriesInspectorFormationReasonCodeText"
-                                                  Visibility="Collapsed"
+                                                  Visibility="Visible"
                                                   Style="{StaticResource CodeText}"
                                                   AutomationProperties.Name="Demand 形成原因原始码" />
                                     <ItemsControl x:Name="DemandSeriesInspectorFormationFacts"
@@ -426,9 +427,9 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <ui:TextBlock Text="选中世代的 MES 查询前后差异"
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorMesHeadingText" Text="选中世代的 MES 查询前后差异"
                                                           Style="{StaticResource SectionTitleText}" />
-                                            <ui:TextBlock Margin="0,3,0,0"
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorMesHelpText" Margin="0,3,0,0"
                                                           Text="左侧切换 DemandId 时，此处原子切换为对应边界的原始值"
                                                           Style="{StaticResource SecondaryText}" />
                                         </StackPanel>
@@ -464,10 +465,10 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="105" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:TextBlock Margin="12,7" Text="MES 原生字段" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock Grid.Column="1" Margin="10,7" Text="前驱最后查询值" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock Grid.Column="2" Margin="10,7" Text="选中世代首次查询值" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock Grid.Column="3" Margin="10,7" Text="变化" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorNativeFieldHeaderText" Margin="12,7" Text="MES 原生字段" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorBeforeValueHeaderText" Grid.Column="1" Margin="10,7" Text="前驱最后查询值" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorAfterValueHeaderText" Grid.Column="2" Margin="10,7" Text="选中世代首次查询值" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorChangeHeaderText" Grid.Column="3" Margin="10,7" Text="变化" FontSize="12" FontWeight="SemiBold" />
                                         </Grid>
                                         <ItemsControl x:Name="DemandSeriesInspectorMesScalarFields"
                                                       Grid.Row="2"
@@ -561,7 +562,7 @@
                                                 <DataGridTextColumn Header="AREA" Binding="{Binding RawRow.Area}" Width="90" />
                                                 <DataGridTextColumn Header="EQP" Binding="{Binding RawRow.Eqp}" Width="110" />
                                                 <DataGridTextColumn Header="STEP" Binding="{Binding RawRow.Step}" Width="120" />
-                                                <DataGridTextColumn Header="DATES / MesSourceDate" Binding="{Binding RawRow.MesSourceDate}" Width="180" />
+                                                <DataGridTextColumn Header="DATES / MesSourceDate" Binding="{Binding RawRow.MesSourceDate, StringFormat={}{0:yyyy-MM-dd HH:mm:ss zzz}}" Width="190" />
                                                 <DataGridTextColumn Header="PACKAGE" Binding="{Binding RawRow.Package}" Width="120" />
                                                 <DataGridTextColumn Header="PollTrace" Binding="{Binding RawRow.PollTraceId}" Width="150" />
                                                 <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding RawRow.ProjectionCommitId}" Width="170" />
@@ -585,7 +586,8 @@
                     </ScrollViewer>
                 </TabItem>
 
-                <TabItem Header="事件"
+                <TabItem x:Name="DemandSeriesInspectorEventsTab"
+                         Header="事件"
                          AutomationProperties.Name="事件"
                          AutomationProperties.AutomationId="DemandSeriesInspectorEventsTab">
                     <TabItem.HeaderTemplate>
@@ -599,7 +601,7 @@
                                     <ui:TextBlock Text="{Binding DataContext.Events.Count, RelativeSource={RelativeSource AncestorType={x:Type TabControl}}}"
                                                   Style="{StaticResource CaptionText}"
                                                   FontWeight="SemiBold"
-                                                  AutomationProperties.Name="{Binding DataContext.Events.Count, RelativeSource={RelativeSource AncestorType={x:Type TabControl}}, StringFormat='冻结事件总数 {0}'}"
+                                                  AutomationProperties.Name="{Binding DataContext.EventsCountAutomationName, RelativeSource={RelativeSource AncestorType={x:Type TabControl}}}"
                                                   AutomationProperties.AutomationId="DemandSeriesInspectorEventTabCount" />
                                 </Border>
                             </StackPanel>
@@ -621,7 +623,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <ui:TextBlock Text="永久事件" Style="{StaticResource SectionTitleText}" />
+                                <ui:TextBlock x:Name="DemandSeriesInspectorEventHeadingText" Text="永久事件" Style="{StaticResource SectionTitleText}" />
                                 <ui:TextBlock x:Name="DemandSeriesInspectorEventContextText"
                                               Margin="0,3,0,0"
                                               Style="{StaticResource SecondaryText}"
@@ -658,8 +660,8 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <StackPanel Margin="16,12">
-                                    <ui:TextBlock Text="事件日志" FontWeight="SemiBold" />
-                                    <ui:TextBlock Margin="0,3,0,0"
+                                    <ui:TextBlock x:Name="DemandSeriesInspectorEventLogHeadingText" Text="事件日志" FontWeight="SemiBold" />
+                                    <ui:TextBlock x:Name="DemandSeriesInspectorEventLogHelpText" Margin="0,3,0,0"
                                                   Text="事件是冻结审计事实；切换过滤不会改变世代分析中的选择"
                                                   Style="{StaticResource CaptionText}" />
                                 </StackPanel>
@@ -673,7 +675,7 @@
                                         <DataGridTextColumn Header="SeriesSequence" Binding="{Binding SeriesSequence}" Width="140" MinWidth="140" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                         <DataGridTextColumn Header="EventId" Binding="{Binding EventId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                         <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
-                                        <DataGridTextColumn Header="OccurredAt" Binding="{Binding OccurredAt}" Width="190" MinWidth="190" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
+                                        <DataGridTextColumn Header="OccurredAt" Binding="{Binding OccurredAt, StringFormat={}{0:yyyy-MM-dd HH:mm:ss zzz}}" Width="190" MinWidth="190" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                         <DataGridTextColumn Header="EventType" Binding="{Binding EventType}" Width="230" MinWidth="230" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                         <DataGridTextColumn Header="SubjectKind" Binding="{Binding SubjectKind}" Width="150" MinWidth="150" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
                                         <DataGridTextColumn Header="SubjectId" Binding="{Binding SubjectId}" Width="180" MinWidth="180" ElementStyle="{StaticResource InspectorEventGridTextCell}" />
