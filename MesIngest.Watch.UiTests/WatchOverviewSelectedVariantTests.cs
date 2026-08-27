@@ -77,7 +77,8 @@ public sealed class WatchOverviewSelectedVariantTests
                 {
                     Overview = new WatchV2AutoRefreshSetting(30),
                 },
-                WatchV2DisplayPreferences.Default));
+                WatchV2DisplayPreferences.Default,
+                WatchDisplayLanguage.SimplifiedChinese));
 
         await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(() =>
         {

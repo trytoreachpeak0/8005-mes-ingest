@@ -161,7 +161,8 @@ public sealed class WatchV2ProductionHostTests
                     rememberWindowLayout: false,
                     windowWidth: 1000,
                     windowHeight: 700,
-                    isNavigationPaneOpen: true)));
+                    isNavigationPaneOpen: true),
+                WatchDisplayLanguage.SimplifiedChinese));
 
         await RunInStaDispatcherAsync(() =>
         {

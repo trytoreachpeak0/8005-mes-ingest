@@ -44,6 +44,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private readonly WatchV2AutoRefreshCoordinator _autoRefresh;
     private readonly WatchDemandSeriesInspectorCoordinator _demandSeriesInspectorCoordinator;
     private readonly WatchWindowNotificationCoordinator _notificationCoordinator;
+    private readonly WatchDisplayLanguageState _displayLanguageState;
     private readonly string _connectionPreferencesPath;
     private readonly string _workspacePreferencesPath;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
@@ -79,11 +80,20 @@ internal partial class WatchWorkspaceWindow : IDisposable
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null,
         IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null,
         WatchDemandSeriesInspectorCoordinator? demandSeriesInspectorCoordinator = null,
-        Func<bool>? notificationReducedMotionProvider = null)
+        Func<bool>? notificationReducedMotionProvider = null,
+        WatchDisplayLanguageState? displayLanguageState = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
         _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
+        _displayLanguageState = displayLanguageState
+            ?? new WatchDisplayLanguageState(preferences.DisplayLanguage);
+        if (_displayLanguageState.Current != preferences.DisplayLanguage)
+        {
+            throw new ArgumentException(
+                "The shared display language state must match the loaded preferences.",
+                nameof(displayLanguageState));
+        }
         _connectionPreferencesPath = Path.GetFullPath(connectionPreferencesPath);
         _workspacePreferencesPath = Path.GetFullPath(workspacePreferencesPath);
         _session = new WatchV2WorkspaceSession(clientFactory, timeProvider);
@@ -126,8 +136,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ApplyWatchThemeResources(
             Wpf.Ui.Appearance.ApplicationThemeManager.GetAppTheme());
         InitializeIntervalInputs();
+        InitializeDisplayLanguageInput();
         ApplyDisplayPreferences(preferences.Display);
         PopulateSettingsInputs();
+        ApplyLocalizedShellAndSettingsText();
+        _displayLanguageState.Changed += OnDisplayLanguageChanged;
         _autoRefresh.RefreshStateChanged += OnAutoRefreshStateChanged;
         SourceInitialized += OnWindowSourceInitialized;
         Closing += OnWindowClosing;
@@ -171,6 +184,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     internal WatchDemandSeriesInspectorCoordinator DemandSeriesInspectorCoordinator =>
         _demandSeriesInspectorCoordinator;
+
+    internal WatchDisplayLanguageState DisplayLanguageState => _displayLanguageState;
 
     internal OverviewNavigationIntent? LastOverviewNavigationIntent { get; private set; }
 
@@ -370,21 +385,31 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     internal void ApplyLocalPreferences(
         WatchV2AutoRefreshSettings refreshIntervals,
-        WatchV2DisplayPreferences display)
+        WatchV2DisplayPreferences display) =>
+        ApplyLocalPreferences(refreshIntervals, display, _preferences.DisplayLanguage);
+
+    private void ApplyLocalPreferences(
+        WatchV2AutoRefreshSettings refreshIntervals,
+        WatchV2DisplayPreferences display,
+        WatchDisplayLanguage displayLanguage)
     {
         ArgumentNullException.ThrowIfNull(refreshIntervals);
         ArgumentNullException.ThrowIfNull(display);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        var proposed = new WatchV2Preferences(
+            refreshIntervals,
+            display,
+            displayLanguage);
+        WatchV2PreferencesStore.Save(_workspacePreferencesPath, proposed);
         foreach (var view in Enum.GetValues<WatchV2DataView>())
         {
             _autoRefresh.Update(view, refreshIntervals.For(view));
         }
 
-        _preferences = new WatchV2Preferences(_autoRefresh.Settings, display);
-        WatchV2PreferencesStore.Save(_workspacePreferencesPath, _preferences);
+        _preferences = proposed with { RefreshIntervals = _autoRefresh.Settings };
         ApplyDisplayPreferences(display, restoreGeometry: false);
-        RenderWorkspace();
+        _displayLanguageState.ApplyCommitted(displayLanguage);
     }
 
     internal void NavigateFromOverview(OverviewNavigationIntent intent)
@@ -1445,6 +1470,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchV2WorkspaceState state,
         WatchOverviewPresentation overview)
     {
+        var shell = _displayLanguageState.Catalog.Shell;
         var latestViewFailure = new[]
             {
                 state.Overview.LastFailureAt,
@@ -1463,14 +1489,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
         HostNavigationItem.Content = state.ConnectionStatus switch
         {
             WatchHostConnectionStatus.Connected when hasViewFailure && hasProtectionIssue =>
-                $"Host 已连接 · {overview.Protection.Status} · 读取失败",
-            WatchHostConnectionStatus.Connected when hasViewFailure => "Host 已连接 · 读取失败",
+                $"{shell.HostConnected} · {overview.Protection.Status} · {shell.ReadFailed}",
+            WatchHostConnectionStatus.Connected when hasViewFailure =>
+                $"{shell.HostConnected} · {shell.ReadFailed}",
             WatchHostConnectionStatus.Connected when hasProtectionIssue =>
-                $"Host 已连接 · {overview.Protection.Status}",
-            WatchHostConnectionStatus.Connected => "Host 已连接",
-            WatchHostConnectionStatus.Connecting => "Host 连接中",
-            WatchHostConnectionStatus.Failed => "Host 连接失败",
-            _ => "Host 未连接",
+                $"{shell.HostConnected} · {overview.Protection.Status}",
+            WatchHostConnectionStatus.Connected => shell.HostConnected,
+            WatchHostConnectionStatus.Connecting => shell.HostConnecting,
+            WatchHostConnectionStatus.Failed => shell.HostFailed,
+            _ => shell.HostDisconnected,
         };
         HostNavigationIcon.Symbol = state.ConnectionStatus switch
         {
@@ -1483,7 +1510,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             WatchHostConnectionStatus.Failed => SymbolRegular.CloudDismiss24,
             _ => SymbolRegular.CloudOff24,
         };
-        OverviewHostStatusText.Text = HostNavigationItem.Content?.ToString() ?? "Host 未连接";
+        OverviewHostStatusText.Text =
+            HostNavigationItem.Content?.ToString() ?? shell.HostDisconnected;
         OverviewHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
         var hostStatusStyleKey = state.ConnectionStatus switch
         {
@@ -1741,10 +1769,30 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ConfigureIntervalInput(CurrentAttentionIntervalInput, _preferences.RefreshIntervals.CurrentIngestAttention.IntervalSeconds);
     }
 
-    private static void ConfigureIntervalInput(ComboBox comboBox, int selectedSeconds)
+    private void InitializeDisplayLanguageInput()
+    {
+        DisplayLanguageInput.ItemsSource =
+        new WatchDisplayLanguageChoice[]
+        {
+            new WatchDisplayLanguageChoice(
+                WatchDisplayLanguage.SimplifiedChinese,
+                WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese)
+                    .Common.SimplifiedChineseLanguageName),
+            new WatchDisplayLanguageChoice(
+                WatchDisplayLanguage.English,
+                WatchTextCatalog.For(WatchDisplayLanguage.English)
+                    .Common.EnglishLanguageName),
+        };
+        DisplayLanguageInput.DisplayMemberPath = nameof(WatchDisplayLanguageChoice.Label);
+        DisplayLanguageInput.SelectedValuePath = nameof(WatchDisplayLanguageChoice.Language);
+    }
+
+    private void ConfigureIntervalInput(ComboBox comboBox, int selectedSeconds)
     {
         comboBox.ItemsSource = WatchV2AutoRefreshSetting.AllowedIntervals
-            .Select(seconds => new RefreshIntervalChoice(seconds, $"{seconds} 秒"))
+            .Select(seconds => new RefreshIntervalChoice(
+                seconds,
+                _displayLanguageState.Catalog.Settings.FormatSeconds(seconds)))
             .ToArray();
         comboBox.DisplayMemberPath = nameof(RefreshIntervalChoice.Label);
         comboBox.SelectedValuePath = nameof(RefreshIntervalChoice.Seconds);
@@ -1758,6 +1806,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RequestTimeoutInput.Text = _currentHostSettings.RequestTimeoutSeconds.ToString();
         RememberWindowLayoutCheckBox.IsChecked = _preferences.Display.RememberWindowLayout;
         KeepNavigationPaneOpenCheckBox.IsChecked = _preferences.Display.IsNavigationPaneOpen;
+        DisplayLanguageInput.SelectedValue = _preferences.DisplayLanguage;
     }
 
     private void ApplyDisplayPreferences(
@@ -1869,7 +1918,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     inspectorWindowLayout: _preferences.Display.InspectorWindowLayout);
             }
             var hostGeneration = _session.State.HostGeneration;
-            ApplyLocalPreferences(refresh, display);
+            var displayLanguage = DisplayLanguageInput.SelectedValue
+                is WatchDisplayLanguage selectedLanguage
+                    ? selectedLanguage
+                    : _preferences.DisplayLanguage;
+            ApplyLocalPreferences(refresh, display, displayLanguage);
             if (_session.State.HostGeneration != hostGeneration)
             {
                 throw new InvalidOperationException("Local preferences must not replace the Host session.");
@@ -1941,7 +1994,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             var defaults = WatchV2Preferences.Default;
             var hostGeneration = _session.State.HostGeneration;
-            ApplyLocalPreferences(defaults.RefreshIntervals, defaults.Display);
+            ApplyLocalPreferences(
+                defaults.RefreshIntervals,
+                defaults.Display,
+                defaults.DisplayLanguage);
             InitializeIntervalInputs();
             PopulateSettingsInputs();
             ApplyDisplayPreferences(defaults.Display);
@@ -2766,6 +2822,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         Interlocked.Increment(ref _errorSearchOperationGeneration);
         Interlocked.Increment(ref _currentAttentionOperationGeneration);
         Wpf.Ui.Appearance.ApplicationThemeManager.Changed -= OnApplicationThemeChanged;
+        _displayLanguageState.Changed -= OnDisplayLanguageChanged;
         _autoRefresh.RefreshStateChanged -= OnAutoRefreshStateChanged;
         _demandSeriesInspectorCoordinator.StateChanged -= OnDemandSeriesInspectorStateChanged;
         _demandSeriesInspectorCoordinator.GenerationFocusRequested -=

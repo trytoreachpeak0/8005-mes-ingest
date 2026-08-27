@@ -19,6 +19,7 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
     private readonly IWatchAreaProfileDirectoryLauncher? _areaProfileDirectoryLauncher;
     private readonly IWatchAreaProfileDirectoryEventSource? _areaProfileDirectoryEventSource;
     private readonly TimeProvider? _timeProvider;
+    private WatchDisplayLanguageState? _displayLanguageState;
     private WatchWorkspaceWindow? _window;
     private bool _disposed;
 
@@ -92,6 +93,7 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             _options.SharedSecret,
             connection.RequestTimeoutSeconds);
         var preferences = WatchV2PreferencesStore.Load(_workspacePreferencesPath);
+        _displayLanguageState = new WatchDisplayLanguageState(preferences.DisplayLanguage);
         _window = new WatchWorkspaceWindow(
             hostSettings,
             preferences,
@@ -102,9 +104,15 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             initializeOnLoaded,
             _areaFilterProfilesDirectoryPath,
             _areaProfileDirectoryLauncher,
-            _areaProfileDirectoryEventSource);
+            _areaProfileDirectoryEventSource,
+            displayLanguageState: _displayLanguageState);
         return _window;
     }
+
+    internal WatchDisplayLanguageState DisplayLanguageState =>
+        _displayLanguageState
+        ?? throw new InvalidOperationException(
+            "The display language state is available after the main window is created.");
 
     public void Dispose()
     {
@@ -116,5 +124,6 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
         _disposed = true;
         _window?.Dispose();
         _window = null;
+        _displayLanguageState = null;
     }
 }

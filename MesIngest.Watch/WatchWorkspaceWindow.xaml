@@ -3542,7 +3542,10 @@
                             </Grid.RowDefinitions>
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <StackPanel><ui:TextBlock Text="设置" Style="{StaticResource PageTitleText}" /><ui:TextBlock Text="Host 连接、自动刷新与本机显示偏好" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel>
+                                <StackPanel>
+                                    <ui:TextBlock x:Name="SettingsPageTitleText" Text="设置" Style="{StaticResource PageTitleText}" />
+                                    <ui:TextBlock x:Name="SettingsPageSubtitleText" Text="Host 连接、自动刷新与本机显示偏好" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" />
+                                </StackPanel>
                                 <ui:Button x:Name="RestoreDefaultSettingsButton"
                                            Grid.Column="1"
                                            Content="恢复默认设置"
@@ -3572,7 +3575,7 @@
                                                     <ui:SymbolIcon x:Name="SettingsHostStatusIcon" Symbol="CloudDismiss24" />
                                                 </Border>
                                                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                                                    <ui:TextBlock Text="Host 连接" Style="{StaticResource SectionTitleText}" />
+                                                    <ui:TextBlock x:Name="SettingsHostTitleText" Text="Host 连接" Style="{StaticResource SectionTitleText}" />
                                                     <ui:TextBlock x:Name="SettingsHostStateText"
                                                                   Text="Host 未连接"
                                                                   Style="{StaticResource SecondaryText}"
@@ -3591,14 +3594,23 @@
                                             <Grid Grid.Row="2" Margin="18,12">
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="140" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="8" /><RowDefinition Height="Auto" /><RowDefinition Height="6" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                                <ui:TextBlock Text="服务地址" Style="{StaticResource FieldLabel}" /><TextBox x:Name="HostBaseUrlInput" Grid.Column="1" AutomationProperties.Name="Host 基址" />
-                                                <ui:TextBlock Grid.Row="2" Text="访问凭据" Style="{StaticResource FieldLabel}" /><StackPanel Grid.Row="2" Grid.Column="1"><PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Padding="12,8" AutomationProperties.Name="只读 API 凭据" /><ui:TextBlock Text="留空继续使用当前外部配置凭据；输入值仅用于本次进程，保存后立即清空。" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" /></StackPanel>
-                                                <ui:TextBlock Grid.Row="4" Text="请求超时" Style="{StaticResource FieldLabel}" /><StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal"><TextBox x:Name="RequestTimeoutInput" Width="100" ToolTip="1–300 秒" AutomationProperties.Name="全局请求超时秒数" /><ui:TextBlock Text="秒 · 合法范围 1–300" Style="{StaticResource SecondaryText}" Margin="10,0,0,0" VerticalAlignment="Center" /></StackPanel>
+                                                <ui:TextBlock x:Name="SettingsHostAddressLabel" Text="服务地址" Style="{StaticResource FieldLabel}" />
+                                                <TextBox x:Name="HostBaseUrlInput" Grid.Column="1" AutomationProperties.Name="Host 基址" />
+                                                <ui:TextBlock x:Name="SettingsHostCredentialLabel" Grid.Row="2" Text="访问凭据" Style="{StaticResource FieldLabel}" />
+                                                <StackPanel Grid.Row="2" Grid.Column="1">
+                                                    <PasswordBox x:Name="HostCredentialInput" PasswordChar="●" Padding="12,8" AutomationProperties.Name="只读 API 凭据" />
+                                                    <ui:TextBlock x:Name="SettingsHostCredentialHelpText" Text="留空继续使用当前外部配置凭据；输入值仅用于本次进程，保存后立即清空。" Style="{StaticResource SecondaryText}" Margin="0,4,0,0" />
+                                                </StackPanel>
+                                                <ui:TextBlock x:Name="SettingsRequestTimeoutLabel" Grid.Row="4" Text="请求超时" Style="{StaticResource FieldLabel}" />
+                                                <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal">
+                                                    <TextBox x:Name="RequestTimeoutInput" Width="100" ToolTip="1–300 秒" AutomationProperties.Name="全局请求超时秒数" />
+                                                    <ui:TextBlock x:Name="SettingsRequestTimeoutRangeText" Text="秒 · 合法范围 1–300" Style="{StaticResource SecondaryText}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                                                </StackPanel>
                                             </Grid>
                                         </Grid>
                                     </Border>
                                     <Border Style="{StaticResource SurfaceCard}" Padding="0" Margin="0,12,0,0">
-                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,14"><ui:TextBlock Text="连接变更" Style="{StaticResource SectionTitleText}" /><ui:TextBlock Text="应用后取消旧 Host 的全部请求，清空旧业务窗口并返回概览。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,12"><ui:InfoBar IsOpen="True" IsClosable="False" Severity="Informational" Title="凭据仅保存在本机" Message="界面不会显示、复制或记录完整令牌。" /><ui:Button x:Name="ApplyHostButton" Content="应用 Host 设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,10,0,0" Click="OnApplyHostClick" AutomationProperties.Name="应用 Host 设置" /></StackPanel></Grid>
+                                        <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions><StackPanel Margin="18,14"><ui:TextBlock x:Name="SettingsConnectionChangeTitleText" Text="连接变更" Style="{StaticResource SectionTitleText}" /><ui:TextBlock x:Name="SettingsConnectionChangeHelpText" Text="应用后取消旧 Host 的全部请求，清空旧业务窗口并返回概览。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" /><StackPanel Grid.Row="2" Margin="18,12"><ui:InfoBar x:Name="SettingsCredentialInfoBar" IsOpen="True" IsClosable="False" Severity="Informational" Title="凭据仅保存在本机" Message="界面不会显示、复制或记录完整令牌。" /><ui:Button x:Name="ApplyHostButton" Content="应用 Host 设置" Appearance="Secondary" HorizontalAlignment="Right" Margin="0,10,0,0" Click="OnApplyHostClick" AutomationProperties.Name="应用 Host 设置" /></StackPanel></Grid>
                                     </Border>
                                 </StackPanel>
 
@@ -3607,18 +3619,18 @@
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <StackPanel Margin="18,16">
-                                                <ui:TextBlock Text="自动刷新间隔" Style="{StaticResource SectionTitleText}" />
-                                                <ui:TextBlock Text="所有数据视图始终自动刷新；这里只配置各视图的刷新时间。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" />
+                                                <ui:TextBlock x:Name="SettingsRefreshTitleText" Text="自动刷新间隔" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="SettingsRefreshHelpText" Text="所有数据视图始终自动刷新；这里只配置各视图的刷新时间。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" />
                                             </StackPanel>
                                             <Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
                                             <StackPanel x:Name="PrimaryRefreshIntervalRows" Grid.Row="2" Margin="18,10,18,16">
-                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="概览" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host、投影、当前关注与跨页摘要" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="OverviewIntervalInput" Grid.Column="1" AutomationProperties.Name="概览自动刷新间隔" /></Grid>
+                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsOverviewRefreshLabel" Text="概览" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsOverviewRefreshHelpText" Text="Host、投影、当前关注与跨页摘要" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="OverviewIntervalInput" Grid.Column="1" AutomationProperties.Name="概览自动刷新间隔" /></Grid>
                                                 <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="需求系列" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="完整生命周期与当前出现范围" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="DemandSeriesIntervalInput" Grid.Column="1" AutomationProperties.Name="需求系列自动刷新间隔" /></Grid>
+                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsDemandSeriesRefreshLabel" Text="需求系列" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsDemandSeriesRefreshHelpText" Text="完整生命周期与当前出现范围" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="DemandSeriesIntervalInput" Grid.Column="1" AutomationProperties.Name="需求系列自动刷新间隔" /></Grid>
                                                 <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="资格审计" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="外部可读资格与全部阻断原因" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ReadabilityAuditIntervalInput" Grid.Column="1" AutomationProperties.Name="资格审计自动刷新间隔" /></Grid>
+                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsReadabilityRefreshLabel" Text="资格审计" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsReadabilityRefreshHelpText" Text="外部可读资格与全部阻断原因" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ReadabilityAuditIntervalInput" Grid.Column="1" AutomationProperties.Name="资格审计自动刷新间隔" /></Grid>
                                                 <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="错误检索" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="活动与已结束的历史错误" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ErrorSearchIntervalInput" Grid.Column="1" AutomationProperties.Name="错误检索自动刷新间隔" /></Grid>
+                                                <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsErrorSearchRefreshLabel" Text="错误检索" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsErrorSearchRefreshHelpText" Text="活动与已结束的历史错误" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="ErrorSearchIntervalInput" Grid.Column="1" AutomationProperties.Name="错误检索自动刷新间隔" /></Grid>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -3626,24 +3638,26 @@
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="1" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <StackPanel Margin="18,16">
-                                                <ui:TextBlock Text="显示与布局" Style="{StaticResource SectionTitleText}" />
-                                                <ui:TextBlock Text="本机偏好，不影响 Host 或业务数据。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" />
+                                                <ui:TextBlock x:Name="SettingsDisplayTitleText" Text="显示与布局" Style="{StaticResource SectionTitleText}" />
+                                                <ui:TextBlock x:Name="SettingsDisplayHelpText" Text="本机偏好，不影响 Host 或业务数据。" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" />
                                             </StackPanel>
                                             <Border Grid.Row="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
                                             <Grid x:Name="PrimaryDisplayPreferences" Grid.Row="2" Margin="18,16">
                                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                                <StackPanel><ui:TextBlock Text="记住窗口布局" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="重启后恢复主窗口和详情窗口布局" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel>
-                                                <ui:ToggleSwitch x:Name="RememberWindowLayoutCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口布局" />
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /><RowDefinition Height="16" /><RowDefinition Height="Auto" /><RowDefinition Height="12" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                                <StackPanel><ui:TextBlock x:Name="SettingsLanguageLabel" Text="显示语言" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsLanguageHelpText" Text="保存后全部已打开窗口立即使用同一语言" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel>
+                                                <ComboBox x:Name="DisplayLanguageInput" Grid.Column="1" MinWidth="150" AutomationProperties.Name="显示语言" />
+                                                <StackPanel Grid.Row="2"><ui:TextBlock x:Name="SettingsRememberLayoutLabel" Text="记住窗口布局" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsRememberLayoutHelpText" Text="重启后恢复主窗口和详情窗口布局" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel>
+                                                <ui:ToggleSwitch x:Name="RememberWindowLayoutCheckBox" Grid.Row="2" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="记住窗口布局" />
                                                 <ui:Button x:Name="RestoreDefaultLayoutButton"
-                                                           Grid.Row="2"
+                                                           Grid.Row="4"
                                                            Content="恢复默认布局"
                                                            Appearance="Secondary"
                                                            HorizontalAlignment="Left"
                                                            Click="OnRestoreDefaultLayoutClick"
                                                            AutomationProperties.Name="恢复默认窗口与导航布局" />
                                                 <Expander x:Name="AdvancedLocalPreferencesExpander"
-                                                          Grid.Row="2"
+                                                          Grid.Row="4"
                                                           Grid.Column="1"
                                                           Header="更多本机设置"
                                                           IsExpanded="False"
@@ -3651,13 +3665,13 @@
                                                           AutomationProperties.Name="更多本机刷新与导航设置"
                                                           AutomationProperties.AutomationId="AdvancedLocalPreferencesExpander">
                                                     <StackPanel MinWidth="420" Margin="0,12,0,0">
-                                                        <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="接入告警" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="Host 当前仍需关注的接入项" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="CurrentAttentionIntervalInput" Grid.Column="1" AutomationProperties.Name="接入告警自动刷新间隔" /></Grid>
+                                                        <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="110" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsCurrentAttentionRefreshLabel" Text="接入告警" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsCurrentAttentionRefreshHelpText" Text="Host 当前仍需关注的接入项" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ComboBox x:Name="CurrentAttentionIntervalInput" Grid.Column="1" AutomationProperties.Name="接入告警自动刷新间隔" /></Grid>
                                                         <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}" Margin="0,7" />
-                                                        <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock Text="默认展开导航窗格" Style="{StaticResource FieldLabel}" /><ui:TextBlock Text="关闭时使用获选的 48 epx 紧凑 rail" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="KeepNavigationPaneOpenCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="默认展开导航窗格" /></Grid>
+                                                        <Grid Margin="0,6"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel><ui:TextBlock x:Name="SettingsDefaultPaneLabel" Text="默认展开导航窗格" Style="{StaticResource FieldLabel}" /><ui:TextBlock x:Name="SettingsDefaultPaneHelpText" Text="关闭时使用 48 epx 紧凑 rail" Style="{StaticResource SecondaryText}" Margin="0,3,0,0" /></StackPanel><ui:ToggleSwitch x:Name="KeepNavigationPaneOpenCheckBox" Grid.Column="1" OnContent="开" OffContent="关" AutomationProperties.Name="默认展开导航窗格" /></Grid>
                                                     </StackPanel>
                                                 </Expander>
                                                 <ui:Button x:Name="SaveRefreshIntervalsButton"
-                                                           Grid.Row="4"
+                                                           Grid.Row="6"
                                                            Grid.ColumnSpan="2"
                                                            Content="保存刷新与显示设置"
                                                            Appearance="Secondary"

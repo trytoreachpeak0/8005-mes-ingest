@@ -73,11 +73,13 @@ internal sealed record WatchV2DisplayPreferences
 
 internal sealed record WatchV2Preferences(
     WatchV2AutoRefreshSettings RefreshIntervals,
-    WatchV2DisplayPreferences Display)
+    WatchV2DisplayPreferences Display,
+    WatchDisplayLanguage DisplayLanguage)
 {
     public static WatchV2Preferences Default { get; } = new(
         WatchV2AutoRefreshSettings.Default,
-        WatchV2DisplayPreferences.Default);
+        WatchV2DisplayPreferences.Default,
+        WatchDisplayLanguage.SimplifiedChinese);
 }
 
 /// <summary>
@@ -87,8 +89,9 @@ internal sealed record WatchV2Preferences(
 internal static class WatchV2PreferencesStore
 {
     // Version 1 was the legacy four-view auto-refresh document with Enabled
-    // switches. Version 2 is intentionally incompatible and falls back safely.
-    public const int CurrentVersion = 2;
+    // switches. Version 2 added the production layout model. Version 3 adds
+    // the per-user display language while explicitly migrating valid V2 data.
+    public const int CurrentVersion = 3;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -117,7 +120,7 @@ internal static class WatchV2PreferencesStore
                 File.ReadAllText(path),
                 JsonOptions);
             return document is not null
-                && document.Version == CurrentVersion
+                && document.Version is 2 or CurrentVersion
                 && document.IntervalSeconds is not null
                 && document.Display is not null
                 ? document.ToPreferences()
@@ -200,6 +203,13 @@ internal static class WatchV2PreferencesStore
                 nameof(preferences));
         }
 
+        if (!Enum.IsDefined(preferences.DisplayLanguage))
+        {
+            throw new ArgumentException(
+                "V2 preferences contain an unsupported display language.",
+                nameof(preferences));
+        }
+
         foreach (var view in Enum.GetValues<WatchV2DataView>())
         {
             var setting = preferences.RefreshIntervals.For(view);
@@ -231,12 +241,28 @@ internal static class WatchV2PreferencesStore
                 Display.WindowHeight,
                 Display.IsNavigationPaneOpen,
                 Display.MainWindowLayout,
-                Display.InspectorWindowLayout));
+                Display.InspectorWindowLayout),
+            ParseDisplayLanguage(Display.Language));
 
         public static PreferencesDocument From(WatchV2Preferences preferences) => new(
             CurrentVersion,
             IntervalSecondsDocument.From(preferences.RefreshIntervals),
-            DisplayDocument.From(preferences.Display));
+            DisplayDocument.From(preferences.Display, preferences.DisplayLanguage));
+
+        private static WatchDisplayLanguage ParseDisplayLanguage(JsonElement? language)
+        {
+            if (language is not { ValueKind: JsonValueKind.String } value)
+            {
+                return WatchDisplayLanguage.SimplifiedChinese;
+            }
+
+            return value.GetString() switch
+            {
+                "en-US" => WatchDisplayLanguage.English,
+                "zh-CN" => WatchDisplayLanguage.SimplifiedChinese,
+                _ => WatchDisplayLanguage.SimplifiedChinese,
+            };
+        }
     }
 
     private sealed record IntervalSecondsDocument(
@@ -262,14 +288,24 @@ internal static class WatchV2PreferencesStore
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         WatchWindowLayout? MainWindowLayout = null,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        WatchWindowLayout? InspectorWindowLayout = null)
+        WatchWindowLayout? InspectorWindowLayout = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        JsonElement? Language = null)
     {
-        public static DisplayDocument From(WatchV2DisplayPreferences display) => new(
+        public static DisplayDocument From(
+            WatchV2DisplayPreferences display,
+            WatchDisplayLanguage language) => new(
             display.RememberWindowLayout,
             display.WindowWidth,
             display.WindowHeight,
             display.IsNavigationPaneOpen,
             display.RememberWindowLayout ? display.MainWindowLayout : null,
-            display.RememberWindowLayout ? display.InspectorWindowLayout : null);
+            display.RememberWindowLayout ? display.InspectorWindowLayout : null,
+            JsonSerializer.SerializeToElement(language switch
+            {
+                WatchDisplayLanguage.SimplifiedChinese => "zh-CN",
+                WatchDisplayLanguage.English => "en-US",
+                _ => throw new ArgumentOutOfRangeException(nameof(language), language, null),
+            }));
     }
 }

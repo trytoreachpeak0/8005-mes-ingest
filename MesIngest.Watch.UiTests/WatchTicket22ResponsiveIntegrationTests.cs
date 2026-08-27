@@ -175,7 +175,8 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                     ErrorSearch = new WatchV2AutoRefreshSetting(60),
                     CurrentIngestAttention = new WatchV2AutoRefreshSetting(300),
                 },
-                WatchV2DisplayPreferences.Default));
+                WatchV2DisplayPreferences.Default,
+                WatchDisplayLanguage.SimplifiedChinese));
 
         await WatchErrorSearchProductionIntegrationTests.RunInStaDispatcherAsync(async () =>
         {

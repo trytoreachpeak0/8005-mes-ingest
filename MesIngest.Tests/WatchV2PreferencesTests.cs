@@ -129,7 +129,8 @@ public sealed class WatchV2PreferencesTests
                 rememberWindowLayout: true,
                 windowWidth: 1680,
                 windowHeight: 1050,
-                isNavigationPaneOpen));
+                isNavigationPaneOpen),
+            WatchDisplayLanguage.SimplifiedChinese);
 
         try
         {
@@ -181,7 +182,7 @@ public sealed class WatchV2PreferencesTests
 
             var display = document.RootElement.GetProperty("display");
             Assert.Equal(
-                ["isNavigationPaneOpen", "rememberWindowSize", "windowHeight", "windowWidth"],
+                ["isNavigationPaneOpen", "language", "rememberWindowSize", "windowHeight", "windowWidth"],
                 PropertyNames(display));
         }
         finally
