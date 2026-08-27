@@ -49,7 +49,8 @@ internal sealed partial class WatchFeedbackText
         new("feedback.dialog.conflict.body2", "关闭此对话框不会丢弃草稿，但自动保存会继续暂停。", "Closing this dialog does not discard the draft, but auto-save remains paused."),
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => FeedbackEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. FeedbackEntries, .. WatchLegacyGeneratedText.FeedbackEntries];
 
     private string Get(string id) => Text(FeedbackEntries.Single(entry => entry.SemanticId == id));
 
@@ -84,9 +85,7 @@ internal sealed partial class WatchFeedbackText
     public string ConflictDialogOverwrite => Get("feedback.dialog.conflict.overwrite");
     public string ConflictDialogReload => Get("feedback.dialog.conflict.reload");
     public string ConflictDialogLater => Get("feedback.dialog.conflict.later");
-    public string ConflictDialogBody(string profileName) => Language == WatchDisplayLanguage.English
-        ? $"Both the on-disk version of {profileName}.txt and the current draft changed, so they cannot be merged automatically."
-        : $"{profileName}.txt 的磁盘版本与当前草稿都已改变，无法自动合并。";
+    public string ConflictDialogBody(string profileName) => Format(WatchLegacyGeneratedText.Feedback026, new object?[] { profileName }, new object?[] { profileName });
     public string ConflictDialogBody2 => Get("feedback.dialog.conflict.body2");
 
     internal static WatchLocalizedNotificationContent Localize(
@@ -166,15 +165,18 @@ internal sealed partial class WatchFeedbackText
         IReadOnlyList<WatchContinuingFault> faults)
     {
         var projected = faults.Select(fault => fault.Project(language)).ToArray();
-        var text = language == WatchDisplayLanguage.English
-            ? $"Error · {faults.Count} faults"
-            : $"错误 · {faults.Count} 个故障";
+        var text = string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            WatchLegacyGeneratedText.Feedback027.In(language),
+            faults.Count);
         var detail = string.Join(
-            language == WatchDisplayLanguage.English ? "; " : "；",
+            WatchLegacyGeneratedText.Feedback028.In(language),
             projected.Select(item => item.Title));
-        var automation = language == WatchDisplayLanguage.English
-            ? $"{text}. {detail}. Open fault details"
-            : $"{text}。{detail}。打开故障详情";
+        var automation = string.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            WatchLegacyGeneratedText.Feedback029.In(language),
+            text,
+            detail);
         return (text, detail, automation);
     }
 

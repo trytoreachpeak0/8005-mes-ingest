@@ -86,7 +86,8 @@ internal sealed partial class WatchReadabilityAuditText
         .. BlockerEntries.Values,
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. CatalogEntries, .. WatchLegacyGeneratedText.ReadabilityAuditEntries];
 
     public string PageTitle => Text(PageTitleEntry);
     public string PageSubtitle => Text(PageSubtitleEntry);
@@ -157,64 +158,38 @@ internal sealed partial class WatchReadabilityAuditText
         string commitId,
         long sequence,
         string pollTraceId,
-        long catalogRevision) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"Host 投影提交 {WatchTimeDisplay.Format(committedAt)} · {commitId} · 序列 {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0}"
-        : $"Host projection committed {WatchTimeDisplay.Format(committedAt)} · {commitId} · sequence {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0}";
+        long catalogRevision) => Format(WatchLegacyGeneratedText.ReadabilityAudit098, new object?[] { WatchTimeDisplay.Format(committedAt), commitId, sequence, pollTraceId, catalogRevision }, new object?[] { WatchTimeDisplay.Format(committedAt), commitId, sequence, pollTraceId, catalogRevision });
 
     public string PageSummary(long total, int page, int pages) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"精确 {total:N0} 个运输需求代次 · 第 {page:N0} / {pages:N0} 页"
-            : $"Exactly {total:N0} Demands · page {page:N0} of {pages:N0}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit099, new object?[] { total, page, pages }, new object?[] { total, page, pages });
 
-    public string EmptyResult(long total) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"查询成功；Host 在当前已提交条件下精确 {total:N0} 个运输需求代次命中。"
-        : $"Query succeeded; exactly {total:N0} Demands matched the committed Host conditions.";
+    public string EmptyResult(long total) => Format(WatchLegacyGeneratedText.ReadabilityAudit100, new object?[] { total }, new object?[] { total });
 
-    public string HostOrder(string order) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"Host 固定排序：{order}"
-        : $"Fixed Host order: {order}";
+    public string HostOrder(string order) => Format(WatchLegacyGeneratedText.ReadabilityAudit101, new object?[] { order }, new object?[] { order });
 
     public string HostCommittedConditions(string conditions) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"Host 已提交条件：{conditions}"
-            : $"Host committed conditions: {conditions}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit102, new object?[] { conditions }, new object?[] { conditions });
 
     public string PendingConditions(string conditions) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"当前待查询条件：{conditions}"
-            : $"Pending query conditions: {conditions}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit103, new object?[] { conditions }, new object?[] { conditions });
 
-    public string AllDemands => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "全部运输需求代次"
-        : "All Demands";
+    public string AllDemands => Select(WatchLegacyGeneratedText.ReadabilityAudit104);
 
     public string HostAreaScope(IReadOnlyList<string> areas) => areas.Count == 0
-        ? Language == WatchDisplayLanguage.SimplifiedChinese
-            ? "Host 已提交范围：全部 AREA"
-            : "Host committed scope: all AREA"
-        : Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"Host 已提交范围：{string.Join('、', areas)}"
-            : $"Host committed scope: {string.Join(", ", areas)}";
+        ? Select(WatchLegacyGeneratedText.ReadabilityAudit105)
+        : Format(WatchLegacyGeneratedText.ReadabilityAudit106, new object?[] { string.Join('、', areas) }, new object?[] { string.Join(", ", areas) });
 
     public string LocalAreaDetail(string state, IReadOnlyList<string> areas) => areas.Count == 0
-        ? Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"{state} · 未限制 Host AREA 查询"
-            : $"{state} · Host AREA query is unrestricted"
-        : $"{state} · {string.Join(Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", areas)}";
+        ? Format(WatchLegacyGeneratedText.ReadabilityAudit107, new object?[] { state }, new object?[] { state })
+        : $"{state} · {string.Join(Select(WatchLegacyGeneratedText.ReadabilityAudit108), areas)}";
 
     public string ClientAttempts(DateTimeOffset? successfulAt, DateTimeOffset? failedAt)
     {
         var successful = successfulAt is { } success
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"Watch 最近成功 {WatchTimeDisplay.Format(success)}"
-                : $"Watch last succeeded {WatchTimeDisplay.Format(success)}"
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? "Watch 尚无成功读取"
-                : "Watch has no successful read";
+            ? Format(WatchLegacyGeneratedText.ReadabilityAudit109, new object?[] { WatchTimeDisplay.Format(success) }, new object?[] { WatchTimeDisplay.Format(success) })
+            : Select(WatchLegacyGeneratedText.ReadabilityAudit110);
         return failedAt is { } failure
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{successful} · 最近失败 {WatchTimeDisplay.Format(failure)}"
-                : $"{successful} · last failed {WatchTimeDisplay.Format(failure)}"
+            ? Format(WatchLegacyGeneratedText.ReadabilityAudit111, new object?[] { successful, WatchTimeDisplay.Format(failure) }, new object?[] { successful, WatchTimeDisplay.Format(failure) })
             : successful;
     }
 
@@ -225,7 +200,7 @@ internal sealed partial class WatchReadabilityAuditText
         AddMany("WorkType", filter.WorkTypes);
         AddMany(Language == WatchDisplayLanguage.SimplifiedChinese ? "阻断" : BlockerFilter, filter.Blockers);
         Add("DemandId", filter.DemandId);
-        Add(Language == WatchDisplayLanguage.SimplifiedChinese ? "SUBLOT 包含" : "SUBLOT contains", filter.SublotContains);
+        Add(Select(WatchLegacyGeneratedText.ReadabilityAudit112), filter.SublotContains);
         AddMany("AREA", filter.MesAreas);
         return conditions.Count == 0 ? AllDemands : string.Join(" · ", conditions);
 
@@ -233,7 +208,7 @@ internal sealed partial class WatchReadabilityAuditText
         {
             if (values.Count > 0)
             {
-                conditions.Add($"{label} {string.Join(Language == WatchDisplayLanguage.SimplifiedChinese ? "、" : ", ", values)}");
+                conditions.Add($"{label} {string.Join(Select(WatchLegacyGeneratedText.ReadabilityAudit108), values)}");
             }
         }
 
@@ -247,33 +222,21 @@ internal sealed partial class WatchReadabilityAuditText
     }
 
     public string RefreshPolicy(int seconds, bool refreshing) => refreshing
-        ? Language == WatchDisplayLanguage.SimplifiedChinese
-            ? "正在读取 · 自动刷新保持开启"
-            : "Reading · auto-refresh remains enabled"
-        : Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"每 {seconds} 秒自动刷新"
-            : $"Auto-refresh every {seconds} seconds";
+        ? Select(WatchLegacyGeneratedText.ReadabilityAudit113)
+        : Format(WatchLegacyGeneratedText.ReadabilityAudit114, new object?[] { seconds }, new object?[] { seconds });
 
     public string DetailConclusion(string demandId, bool readable) => readable
-        ? Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"{demandId} 当前可被外部读取"
-            : $"{demandId} is externally readable"
-        : Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"{demandId} 当前不可被外部读取"
-            : $"{demandId} is not externally readable";
+        ? Format(WatchLegacyGeneratedText.ReadabilityAudit115, new object?[] { demandId }, new object?[] { demandId })
+        : Format(WatchLegacyGeneratedText.ReadabilityAudit116, new object?[] { demandId }, new object?[] { demandId });
 
     public string QualificationConclusion(string rawState) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"结论：{DescribeReadability(rawState)}"
-            : $"Conclusion: {DescribeReadability(rawState)}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit117, new object?[] { DescribeReadability(rawState) }, new object?[] { DescribeReadability(rawState) });
 
     public string BusinessIdentity(
         string sublot,
         string seriesId,
         int generation,
-        string lastSeen) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"{sublot} · {seriesId} · Demand Generation {generation:N0} · 最后看见 {lastSeen}"
-        : $"{sublot} · {seriesId} · Demand Generation {generation:N0} · Last seen {lastSeen}";
+        string lastSeen) => Format(WatchLegacyGeneratedText.ReadabilityAudit118, new object?[] { sublot, seriesId, generation, lastSeen }, new object?[] { sublot, seriesId, generation, lastSeen });
 
     public string DetailFacts(
         string snapshotReference,
@@ -283,9 +246,7 @@ internal sealed partial class WatchReadabilityAuditText
         string pollTraceId,
         long catalogRevision,
         string observationPollTraceId,
-        string observationCommitId) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"审计快照 {snapshotReference} · Host 投影提交 {WatchTimeDisplay.Format(committedAt)} · {commitId} · 序列 {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0} · Demand 最新观测 PollTrace {observationPollTraceId} · ProjectionCommit {observationCommitId}"
-        : $"Audit snapshot {snapshotReference} · Host projection committed {WatchTimeDisplay.Format(committedAt)} · {commitId} · sequence {sequence:N0} · PollTrace {pollTraceId} · CatalogRevision {catalogRevision:N0} · Demand latest observation PollTrace {observationPollTraceId} · ProjectionCommit {observationCommitId}";
+        string observationCommitId) => Format(WatchLegacyGeneratedText.ReadabilityAudit119, new object?[] { snapshotReference, WatchTimeDisplay.Format(committedAt), commitId, sequence, pollTraceId, catalogRevision, observationPollTraceId, observationCommitId }, new object?[] { snapshotReference, WatchTimeDisplay.Format(committedAt), commitId, sequence, pollTraceId, catalogRevision, observationPollTraceId, observationCommitId });
 
     public string SeriesFacts(
         string seriesId,
@@ -295,18 +256,12 @@ internal sealed partial class WatchReadabilityAuditText
         string presence,
         string currentDemandId,
         string startedAt,
-        string archivedAt) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"Series {seriesId} · {workType} · SUBLOT {sublot} · {lifecycle} · {presence} · 当前 Demand {currentDemandId} · 开始 {startedAt} · 归档 {archivedAt}"
-        : $"Series {seriesId} · {workType} · SUBLOT {sublot} · {lifecycle} · {presence} · current Demand {currentDemandId} · started {startedAt} · archived {archivedAt}";
+        string archivedAt) => Format(WatchLegacyGeneratedText.ReadabilityAudit120, new object?[] { seriesId, workType, sublot, lifecycle, presence, currentDemandId, startedAt, archivedAt }, new object?[] { seriesId, workType, sublot, lifecycle, presence, currentDemandId, startedAt, archivedAt });
 
-    public string NoTrustedLiveMes => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "无可信 LiveMesFieldSet；请核对下方原始观测。"
-        : "No trusted LiveMesFieldSet; inspect the raw observations below.";
+    public string NoTrustedLiveMes => Select(WatchLegacyGeneratedText.ReadabilityAudit121);
 
     public string TrustedLiveMes(WatchReadabilityLiveMesFieldSetPresentation fields) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"可信 LiveMesFieldSet · AREA {fields.Area} · EQP {fields.Eqp} · STEP {fields.Step} · MesSourceDate {fields.MesSourceDate} · PACKAGE {fields.Package}"
-            : $"Trusted LiveMesFieldSet · AREA {fields.Area} · EQP {fields.Eqp} · STEP {fields.Step} · MesSourceDate {fields.MesSourceDate} · PACKAGE {fields.Package}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit122, new object?[] { fields.Area, fields.Eqp, fields.Step, fields.MesSourceDate, fields.Package }, new object?[] { fields.Area, fields.Eqp, fields.Step, fields.MesSourceDate, fields.Package });
 
     public string ObservationSummary(int count, bool trusted, bool conflicting) =>
         Language == WatchDisplayLanguage.SimplifiedChinese
@@ -330,9 +285,7 @@ internal sealed partial class WatchReadabilityAuditText
         long rowCount,
         string digest,
         string commitId,
-        long sequence) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"PollTrace {pollTraceId} · {queryVersion} · {outcome} · {startedAt} → {completedAt} · {rowCount:N0} 行 · Digest {digest} · ProjectionCommit {commitId} · 序列 {sequence:N0}"
-        : $"PollTrace {pollTraceId} · {queryVersion} · {outcome} · {startedAt} → {completedAt} · {rowCount:N0} rows · Digest {digest} · ProjectionCommit {commitId} · sequence {sequence:N0}";
+        long sequence) => Format(WatchLegacyGeneratedText.ReadabilityAudit123, new object?[] { pollTraceId, queryVersion, outcome, startedAt, completedAt, rowCount, digest, commitId, sequence }, new object?[] { pollTraceId, queryVersion, outcome, startedAt, completedAt, rowCount, digest, commitId, sequence });
 
     public string QualificationMeaning(string code, string fallbackEnglish) => (Language, code) switch
     {
@@ -346,29 +299,15 @@ internal sealed partial class WatchReadabilityAuditText
         _ => fallbackEnglish,
     };
 
-    public string CannotConnectHost => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "无法连接 Host"
-        : "Cannot connect to Host";
-    public string ReplacementHostFailure(string failure) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"新 Host 未通过契约连接；旧 Host 数据已清空。{failure}"
-        : $"The replacement Host failed contract connection; old Host data was cleared. {failure}";
-    public string ConnectingHost => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "正在连接 Host"
-        : "Connecting to Host";
-    public string ConnectingMessage => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "连接成功后将读取一份冻结的资格审计快照。"
-        : "A frozen eligibility-audit snapshot will be read after connection succeeds.";
-    public string WaitingFrozenSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "等待 Host 返回冻结快照。"
-        : "Waiting for the Host to return a frozen snapshot.";
+    public string CannotConnectHost => Select(WatchLegacyGeneratedText.ReadabilityAudit124);
+    public string ReplacementHostFailure(string failure) => Format(WatchLegacyGeneratedText.ReadabilityAudit125, new object?[] { failure }, new object?[] { failure });
+    public string ConnectingHost => Select(WatchLegacyGeneratedText.ReadabilityAudit126);
+    public string ConnectingMessage => Select(WatchLegacyGeneratedText.ReadabilityAudit127);
+    public string WaitingFrozenSnapshot => Select(WatchLegacyGeneratedText.ReadabilityAudit128);
     public string RetainedDuringRefresh(DateTimeOffset committedAt, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"刷新期间继续显示 Host 快照 {catalog.FormatAbsoluteTime(committedAt)}。"
-            : $"Refresh in progress; continues to show Host snapshot {catalog.FormatAbsoluteTime(committedAt)}.";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit129, new object?[] { catalog.FormatAbsoluteTime(committedAt) }, new object?[] { catalog.FormatAbsoluteTime(committedAt) });
     public string PriorFailureRetry(DateTimeOffset failedAt, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $" 上次失败于 {catalog.FormatAbsoluteTime(failedAt)}；本次正在重试。"
-            : $" Previous attempt failed {catalog.FormatAbsoluteTime(failedAt)}; retry in progress.";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit130, new object?[] { catalog.FormatAbsoluteTime(failedAt) }, new object?[] { catalog.FormatAbsoluteTime(failedAt) });
     public string LoadingTitle(bool hasSnapshot) => (Language, hasSnapshot) switch
     {
         (WatchDisplayLanguage.SimplifiedChinese, false) => "正在读取资格审计",
@@ -376,13 +315,9 @@ internal sealed partial class WatchReadabilityAuditText
         (WatchDisplayLanguage.English, false) => "Loading eligibility audit",
         _ => "Refreshing eligibility audit",
     };
-    public string NoSuccessfulSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "当前没有可显示的成功快照。"
-        : "There is no successful snapshot to display.";
+    public string NoSuccessfulSnapshot => Select(WatchLegacyGeneratedText.ReadabilityAudit131);
     public string RetainedAfterFailure(DateTimeOffset committedAt, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"继续显示 Host 快照 {catalog.FormatAbsoluteTime(committedAt)}；其筛选、精确分面和 AREA 范围不会被失败查询改写。"
-            : $"Continues to show Host snapshot {catalog.FormatAbsoluteTime(committedAt)}; the failed query did not rewrite its filters, exact facets, or AREA scope.";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit132, new object?[] { catalog.FormatAbsoluteTime(committedAt) }, new object?[] { catalog.FormatAbsoluteTime(committedAt) });
     public string FailureTitle(bool hasSnapshot) => (Language, hasSnapshot) switch
     {
         (WatchDisplayLanguage.SimplifiedChinese, false) => "资格审计读取失败",
@@ -391,83 +326,41 @@ internal sealed partial class WatchReadabilityAuditText
         _ => "Eligibility-audit refresh failed; previous snapshot retained",
     };
     public string FailedAt(DateTimeOffset failedAt, string retained, string failure, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"失败于 {catalog.FormatAbsoluteTime(failedAt)}。{retained}{failure}"
-            : $"Failed {catalog.FormatAbsoluteTime(failedAt)}. {retained}{failure}";
-    public string SelectionLostTitle => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "原选择已不在刷新结果中"
-        : "Previous selection is no longer in the refreshed results";
-    public string SelectionLostMessage => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "刷新成功，但原运输需求代次已不在当前冻结结果中；已清除详情，请重新选择。"
-        : "Refresh succeeded, but the previous demand generation is no longer in the frozen results. Details were cleared; select another item.";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit133, new object?[] { catalog.FormatAbsoluteTime(failedAt), retained, failure }, new object?[] { catalog.FormatAbsoluteTime(failedAt), retained, failure });
+    public string SelectionLostTitle => Select(WatchLegacyGeneratedText.ReadabilityAudit134);
+    public string SelectionLostMessage => Select(WatchLegacyGeneratedText.ReadabilityAudit135);
     public string FailureMessage(string? message, string? correlationId)
     {
         var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : $" {message}";
         return string.IsNullOrWhiteSpace(correlationId)
             ? detail
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{detail} 关联 ID {correlationId}。"
-                : $"{detail} Correlation ID {correlationId}.";
+            : Format(WatchLegacyGeneratedText.ReadabilityAudit136, new object?[] { detail, correlationId }, new object?[] { detail, correlationId });
     }
 
     public string ReadStateAutomation(string title, string message, bool isOpen) => isOpen
-        ? Language == WatchDisplayLanguage.English ? $"{title}. {message}" : $"{title}。{message}"
-        : Language == WatchDisplayLanguage.English
-            ? "Eligibility-audit read state: no active notification"
-            : "资格审计读取状态：当前无活动通知";
-    public string PageSummaryAutomation(string summary) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit exact total and page: {summary}"
-        : $"资格审计精确总数与页码：{summary}";
-    public string AreaScopeAutomation(string scope) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit AREA scope: {scope}"
-        : $"资格审计 AREA 范围：{scope}";
-    public string NonEmptyOrUnread => Language == WatchDisplayLanguage.English
-        ? "Eligibility-audit results are nonempty or have not been read successfully"
-        : "资格审计结果不为空或尚未成功读取";
-    public string DetailEvidence(string facts, string blockers) => Language == WatchDisplayLanguage.English
-        ? $"{facts} · All blockers {blockers}"
-        : $"{facts} · 全部阻断 {blockers}";
+        ? Format(WatchLegacyGeneratedText.ReadabilityAudit137, new object?[] { title, message }, new object?[] { title, message })
+        : Select(WatchLegacyGeneratedText.ReadabilityAudit138);
+    public string PageSummaryAutomation(string summary) => Format(WatchLegacyGeneratedText.ReadabilityAudit139, new object?[] { summary }, new object?[] { summary });
+    public string AreaScopeAutomation(string scope) => Format(WatchLegacyGeneratedText.ReadabilityAudit140, new object?[] { scope }, new object?[] { scope });
+    public string NonEmptyOrUnread => Select(WatchLegacyGeneratedText.ReadabilityAudit141);
+    public string DetailEvidence(string facts, string blockers) => Format(WatchLegacyGeneratedText.ReadabilityAudit142, new object?[] { facts, blockers }, new object?[] { facts, blockers });
     public string LiveMesFieldsAutomation(
         string area, string eqp, string step, string dates, string package) =>
-        Language == WatchDisplayLanguage.English
-            ? $"Eligibility-audit last trusted MES fields: AREA {area}; EQP {eqp}; STEP {step}; DATES {dates}; PACKAGE {package}"
-            : $"资格审计最后可信 MES 字段：AREA {area}；EQP {eqp}；STEP {step}；DATES {dates}；PACKAGE {package}";
-    public string FieldAutomation(string field, string value) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit MES {field} {value}"
-        : $"资格审计 MES {field} {value}";
-    public string BusinessIdentityAutomation(string value) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit business identity: {value}"
-        : $"资格审计业务身份：{value}";
-    public string SeriesFactsAutomation(string value) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit demand-series facts: {value}"
-        : $"资格审计所属需求系列事实：{value}";
-    public string ObservationAutomation(string value) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit MES observation: {value}"
-        : $"资格审计 MES 观测说明：{value}";
-    public string SelectPrimaryEvidence => Language == WatchDisplayLanguage.English
-        ? "Select an item to view primary blocker evidence."
-        : "选择后显示首要阻断证据。";
-    public string NoBlockerEvidence => Language == WatchDisplayLanguage.English
-        ? "The current qualification checks returned no blocker evidence."
-        : "当前资格检查未返回阻断证据。";
-    public string MissingStructuredEvidence => Language == WatchDisplayLanguage.English
-        ? "Host returned no structured evidence for the primary blocker."
-        : "Host 未返回首要阻断的结构化证据。";
-    public string ObservedValue(string subjectKind, string value, string at) => Language == WatchDisplayLanguage.English
-        ? $"{subjectKind} · Observed value {value} · {at}"
-        : $"{subjectKind} · 观测值 {value} · {at}";
-    public string Rule(string rule) => Language == WatchDisplayLanguage.English ? $"Rule: {rule}" : $"规则：{rule}";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit143, new object?[] { area, eqp, step, dates, package }, new object?[] { area, eqp, step, dates, package });
+    public string FieldAutomation(string field, string value) => Format(WatchLegacyGeneratedText.ReadabilityAudit144, new object?[] { field, value }, new object?[] { field, value });
+    public string BusinessIdentityAutomation(string value) => Format(WatchLegacyGeneratedText.ReadabilityAudit145, new object?[] { value }, new object?[] { value });
+    public string SeriesFactsAutomation(string value) => Format(WatchLegacyGeneratedText.ReadabilityAudit146, new object?[] { value }, new object?[] { value });
+    public string ObservationAutomation(string value) => Format(WatchLegacyGeneratedText.ReadabilityAudit147, new object?[] { value }, new object?[] { value });
+    public string SelectPrimaryEvidence => Select(WatchLegacyGeneratedText.ReadabilityAudit148);
+    public string NoBlockerEvidence => Select(WatchLegacyGeneratedText.ReadabilityAudit149);
+    public string MissingStructuredEvidence => Select(WatchLegacyGeneratedText.ReadabilityAudit150);
+    public string ObservedValue(string subjectKind, string value, string at) => Format(WatchLegacyGeneratedText.ReadabilityAudit151, new object?[] { subjectKind, value, at }, new object?[] { subjectKind, value, at });
+    public string Rule(string rule) => Format(WatchLegacyGeneratedText.ReadabilityAudit152, new object?[] { rule }, new object?[] { rule });
     public string PrimaryBlockerAutomation(string code, string evidence, string rule) =>
-        Language == WatchDisplayLanguage.English
-            ? $"Primary blocker: {code}; {evidence}; {rule}"
-            : $"首要阻断：{code}；{evidence}；{rule}";
-    public string RevisionPrompt => Language == WatchDisplayLanguage.English
-        ? "Select a transport demand to view the complete Catalog revision and frozen-snapshot chain."
-        : "选择运输需求后显示完整 Catalog 修订与冻结快照链。";
+        Format(WatchLegacyGeneratedText.ReadabilityAudit153, new object?[] { code, evidence, rule }, new object?[] { code, evidence, rule });
+    public string RevisionPrompt => Select(WatchLegacyGeneratedText.ReadabilityAudit154);
     public string RevisionNotLoaded => $"Catalog Revision {WatchTextCatalog.For(Language).Common.NotLoaded}";
-    public string RevisionAutomation(string value) => Language == WatchDisplayLanguage.English
-        ? $"Eligibility-audit Catalog revision facts: {value}"
-        : $"资格审计修订目录事实：{value}";
+    public string RevisionAutomation(string value) => Format(WatchLegacyGeneratedText.ReadabilityAudit155, new object?[] { value }, new object?[] { value });
     public string DetailStatusTitle(bool selectionLost, bool selected, bool failed) =>
         (Language, selectionLost, selected, failed) switch
         {

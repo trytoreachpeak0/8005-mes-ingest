@@ -46,7 +46,8 @@ internal sealed partial class WatchAreaFilterText
         new("area.disk.noFile", "不对应 TXT 文件", "No TXT file"),
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => AreaEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. AreaEntries, .. WatchLegacyGeneratedText.AreaFilterEntries];
 
     private string Get(string id) => Text(AreaEntries.Single(entry => entry.SemanticId == id));
 
@@ -89,53 +90,25 @@ internal sealed partial class WatchAreaFilterText
     public string AutoSaved => Get("area.disk.saved");
     public string NoFile => Get("area.disk.noFile");
 
-    public string FileSummary(int files, int invalid) => Language == WatchDisplayLanguage.English
-        ? $"{files.ToString("N0", CultureInfo.GetCultureInfo("en-US"))} files · {invalid.ToString("N0", CultureInfo.GetCultureInfo("en-US"))} need repair"
-        : $"{files:N0} 个文件 · {invalid:N0} 个需要修复";
+    public string FileSummary(int files, int invalid) => Format(WatchLegacyGeneratedText.AreaFilter001, new object?[] { files, invalid }, new object?[] { files.ToString("N0", CultureInfo.GetCultureInfo("en-US")), invalid.ToString("N0", CultureInfo.GetCultureInfo("en-US")) });
 
-    public string FilteredSummary(int visible, int files, int invalid) => Language == WatchDisplayLanguage.English
-        ? $"Showing {visible:N0} / {files:N0} profiles · {invalid:N0} need repair"
-        : $"显示 {visible:N0} / {files:N0} 个配置 · {invalid:N0} 个需要修复";
+    public string FilteredSummary(int visible, int files, int invalid) => Format(WatchLegacyGeneratedText.AreaFilter002, new object?[] { visible, files, invalid }, new object?[] { visible, files, invalid });
 
-    public string AreaCount(int count) => Language == WatchDisplayLanguage.English
-        ? $"{count:N0} AREA values"
-        : $"{count:N0} 个 AREA";
+    public string AreaCount(int count) => Format(WatchLegacyGeneratedText.AreaFilter003, new object?[] { count }, new object?[] { count });
 
-    public string MissingAttention => Language == WatchDisplayLanguage.English
-        ? "File deleted · Scope remains active"
-        : "文件已删除 · 范围仍生效";
-    public string AppliedInvalidAttention => Language == WatchDisplayLanguage.English
-        ? "Invalid content · Reapply required"
-        : "内容非法 · 待重新应用";
-    public string InvalidAttention => Language == WatchDisplayLanguage.English
-        ? "Invalid content · Repair required"
-        : "内容非法 · 需修复";
-    public string ReapplyAttention => Language == WatchDisplayLanguage.English
-        ? "Reapply required"
-        : "待重新应用";
-    public string Modified(string? time) => Language == WatchDisplayLanguage.English
-        ? $"Modified {time}"
-        : $"{time} 修改";
-    public string AppliedSnapshot => Language == WatchDisplayLanguage.English
-        ? "applied snapshot"
-        : "已应用快照";
+    public string MissingAttention => Select(WatchLegacyGeneratedText.AreaFilter004);
+    public string AppliedInvalidAttention => Select(WatchLegacyGeneratedText.AreaFilter005);
+    public string InvalidAttention => Select(WatchLegacyGeneratedText.AreaFilter006);
+    public string ReapplyAttention => Select(WatchLegacyGeneratedText.AreaFilter007);
+    public string Modified(string? time) => Format(WatchLegacyGeneratedText.AreaFilter008, new object?[] { time }, new object?[] { time });
+    public string AppliedSnapshot => Select(WatchLegacyGeneratedText.AreaFilter009);
     public string FileCountMetadata(int count, string suffix) =>
         $"{AreaCount(count)} · {suffix}";
-    public string ValidCount(int count) => Language == WatchDisplayLanguage.English
-        ? $"✓ {count:N0} valid AREA values"
-        : $"✓ {count:N0} 个有效 AREA";
-    public string InvalidCount(int count) => Language == WatchDisplayLanguage.English
-        ? $"{count:N0} issues · Invalid"
-        : $"{count:N0} 项问题 · 无效";
-    public string ValidFormat(int bytes) => Language == WatchDisplayLanguage.English
-        ? $"✓ Valid format · {bytes:N0} B"
-        : $"✓ 格式有效 · {bytes:N0} B";
-    public string InvalidFormat(int count) => Language == WatchDisplayLanguage.English
-        ? $"{count:N0} issues · Invalid content cannot be applied"
-        : $"{count:N0} 项问题 · 非法内容不可应用";
-    public string AllAreasValidation => Language == WatchDisplayLanguage.English
-        ? "Shows all AREA values; no TXT filter is applied"
-        : "显示所有 AREA，不应用 TXT 筛选";
+    public string ValidCount(int count) => Format(WatchLegacyGeneratedText.AreaFilter010, new object?[] { count }, new object?[] { count });
+    public string InvalidCount(int count) => Format(WatchLegacyGeneratedText.AreaFilter011, new object?[] { count }, new object?[] { count });
+    public string ValidFormat(int bytes) => Format(WatchLegacyGeneratedText.AreaFilter012, new object?[] { bytes }, new object?[] { bytes });
+    public string InvalidFormat(int count) => Format(WatchLegacyGeneratedText.AreaFilter013, new object?[] { count }, new object?[] { count });
+    public string AllAreasValidation => Select(WatchLegacyGeneratedText.AreaFilter014);
     public string LocalizeApplyBlockedReason(string? chineseReason) => chineseReason switch
     {
         null => string.Empty,
@@ -146,37 +119,17 @@ internal sealed partial class WatchAreaFilterText
         _ => chineseReason,
     };
 
-    public string CurrentApplied(string summary, string? time = null) => Language == WatchDisplayLanguage.English
-        ? $"Currently applied: {summary}{(time is null ? string.Empty : $" · {time}")}"
-        : $"当前应用：{summary}{(time is null ? string.Empty : $" · {time}")}";
+    public string CurrentApplied(string summary, string? time = null) => Format(WatchLegacyGeneratedText.AreaFilter015, new object?[] { summary, (time is null ? string.Empty : $" · {time}") }, new object?[] { summary, (time is null ? string.Empty : $" · {time}") });
 
-    public string RenamePrompt(string? profileName) => Language == WatchDisplayLanguage.English
-        ? $"Rename “{profileName}.txt”"
-        : $"重命名“{profileName}.txt”";
-    public string DeletePrompt(string? profileName) => Language == WatchDisplayLanguage.English
-        ? $"Confirm deletion of “{profileName}.txt” again; if it is applied, the AREA snapshot and display scope remain active after deletion"
-        : $"再次确认删除“{profileName}.txt”；若该配置为当前应用，删除后已应用 AREA 快照与显示范围仍生效";
-    public string FileNameTooltip => Language == WatchDisplayLanguage.English
-        ? "File name (without .txt)"
-        : "文件名（不含 .txt）";
-    public string SearchAutomation => Language == WatchDisplayLanguage.English
-        ? "Search AREA profiles"
-        : "搜索 AREA 配置";
-    public string ListAutomation => Language == WatchDisplayLanguage.English
-        ? "Named local AREA profiles"
-        : "本机命名 AREA 配置列表";
-    public string MasterAutomation => Language == WatchDisplayLanguage.English
-        ? "AREA profile master list"
-        : "AREA 配置主列表";
-    public string EditorAutomation => Language == WatchDisplayLanguage.English
-        ? "AREA profile editor"
-        : "AREA 配置编辑器";
-    public string TargetNameAutomation => Language == WatchDisplayLanguage.English
-        ? "AREA file operation target name"
-        : "AREA 文件操作目标名称";
-    public string ValidationAutomation => Language == WatchDisplayLanguage.English
-        ? "AREA profile validation details"
-        : "AREA 配置逐项校验";
+    public string RenamePrompt(string? profileName) => Format(WatchLegacyGeneratedText.AreaFilter016, new object?[] { profileName }, new object?[] { profileName });
+    public string DeletePrompt(string? profileName) => Format(WatchLegacyGeneratedText.AreaFilter017, new object?[] { profileName }, new object?[] { profileName });
+    public string FileNameTooltip => Select(WatchLegacyGeneratedText.AreaFilter018);
+    public string SearchAutomation => Select(WatchLegacyGeneratedText.AreaFilter019);
+    public string ListAutomation => Select(WatchLegacyGeneratedText.AreaFilter020);
+    public string MasterAutomation => Select(WatchLegacyGeneratedText.AreaFilter021);
+    public string EditorAutomation => Select(WatchLegacyGeneratedText.AreaFilter022);
+    public string TargetNameAutomation => Select(WatchLegacyGeneratedText.AreaFilter023);
+    public string ValidationAutomation => Select(WatchLegacyGeneratedText.AreaFilter024);
     public string ApplyAutomation(
         WatchAreaProfileApplyAction action,
         string? blockedReason)
@@ -195,9 +148,7 @@ internal sealed partial class WatchAreaFilterText
         var localizedReason = LocalizeApplyBlockedReason(blockedReason);
         return string.IsNullOrEmpty(localizedReason)
             ? label
-            : Language == WatchDisplayLanguage.English
-                ? $"{label}; {localizedReason}"
-                : $"{label}；{localizedReason}";
+            : Format(WatchLegacyGeneratedText.AreaFilter025, new object?[] { label, localizedReason }, new object?[] { label, localizedReason });
     }
 
     public string DiagnosticMessage(WatchAreaFilterProfileDiagnostic diagnostic)

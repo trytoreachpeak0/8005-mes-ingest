@@ -42,7 +42,8 @@ internal sealed partial class WatchOverviewText
         WaitingEntry, HostNoScopeEntry, ProtectionEntry, SnapshotEntry, AllAreaEntry,
     ];
 
-    public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
+    public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
+        [.. CatalogEntries, .. WatchLegacyGeneratedText.OverviewEntries];
 
     public string PageTitle => Text(PageTitleEntry);
     public string Series => Text(SeriesEntry);
@@ -75,123 +76,75 @@ internal sealed partial class WatchOverviewText
     {
         state = LocalState(state);
         var result = areas.Count == 0
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{state} · 未限制 Host AREA 查询"
-                : $"{state} · Host AREA query is unrestricted"
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{state} · {areas.Count} 个 AREA"
-                : $"{state} · {areas.Count} AREA values";
+            ? Format(WatchLegacyGeneratedText.Overview030, new object?[] { state }, new object?[] { state })
+            : Format(WatchLegacyGeneratedText.Overview031, new object?[] { state, areas.Count }, new object?[] { state, areas.Count });
         return updatedAt is null
             ? result
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{result} · 本机更新 {catalog.FormatAbsoluteTime(updatedAt.Value)}"
-                : $"{result} · local update {catalog.FormatAbsoluteTime(updatedAt.Value)}";
+            : Format(WatchLegacyGeneratedText.Overview032, new object?[] { result, catalog.FormatAbsoluteTime(updatedAt.Value) }, new object?[] { result, catalog.FormatAbsoluteTime(updatedAt.Value) });
     }
 
     public string SnapshotFacts(DateTimeOffset asOf, DateTimeOffset committedAt, long sequence, DateTimeOffset now, WatchTextCatalog catalog)
     {
         var absolute = catalog.FormatAbsoluteTime(asOf);
         var relative = catalog.FormatRelativeTime(asOf, now);
-        return Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"Host 快照 {absolute}（{relative}） · 投影提交 {catalog.FormatAbsoluteTime(committedAt)} · 序列 {sequence}"
-            : $"Host snapshot {absolute} ({relative}) · projection committed {catalog.FormatAbsoluteTime(committedAt)} · sequence {sequence}";
+        return Format(WatchLegacyGeneratedText.Overview033, new object?[] { absolute, relative, catalog.FormatAbsoluteTime(committedAt), sequence }, new object?[] { absolute, relative, catalog.FormatAbsoluteTime(committedAt), sequence });
     }
 
     public string ClientAttempts(DateTimeOffset? successfulAt, DateTimeOffset? failedAt, WatchTextCatalog catalog)
     {
         var successful = successfulAt is { } success
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"Watch 最近成功 {catalog.FormatAbsoluteTime(success)}"
-                : $"Watch last succeeded {catalog.FormatAbsoluteTime(success)}"
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? "Watch 尚无成功读取"
-                : "Watch has no successful read";
+            ? Format(WatchLegacyGeneratedText.Overview034, new object?[] { catalog.FormatAbsoluteTime(success) }, new object?[] { catalog.FormatAbsoluteTime(success) })
+            : Select(WatchLegacyGeneratedText.Overview035);
         return failedAt is { } failure
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{successful} · 最近失败 {catalog.FormatAbsoluteTime(failure)}"
-                : $"{successful} · last failed {catalog.FormatAbsoluteTime(failure)}"
+            ? Format(WatchLegacyGeneratedText.Overview036, new object?[] { successful, catalog.FormatAbsoluteTime(failure) }, new object?[] { successful, catalog.FormatAbsoluteTime(failure) })
             : successful;
     }
 
     public string SeriesDetail(long tracking, long archived, long gone, long longGoneVisible) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"{tracking:N0} Tracking · {archived:N0} Archived · {gone:N0} GONE · {longGoneVisible:N0} 归档后仍可见"
-            : $"{tracking:N0} Tracking · {archived:N0} Archived · {gone:N0} GONE · {longGoneVisible:N0} visible after archive";
+        Format(WatchLegacyGeneratedText.Overview037, new object?[] { tracking, archived, gone, longGoneVisible }, new object?[] { tracking, archived, gone, longGoneVisible });
 
-    public string ReadabilityDetail(long notReadable) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"当前外部可读 · {notReadable:N0} 个不可见或阻断"
-        : $"Currently externally readable · {notReadable:N0} invisible or blocked";
+    public string ReadabilityDetail(long notReadable) => Format(WatchLegacyGeneratedText.Overview038, new object?[] { notReadable }, new object?[] { notReadable });
 
-    public string ErrorsDetail(long priorSevenDays) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"活动错误 Series · 近 7 天 {priorSevenDays:N0} 个 Series"
-        : $"Active error series · {priorSevenDays:N0} series in the prior 7 days";
+    public string ErrorsDetail(long priorSevenDays) => Format(WatchLegacyGeneratedText.Overview039, new object?[] { priorSevenDays }, new object?[] { priorSevenDays });
 
-    public string AttentionDetail(long errors, long warnings) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"当前接入关注项 · {errors:N0} ERROR · {warnings:N0} WARNING"
-        : $"Current ingest attention · {errors:N0} ERROR · {warnings:N0} WARNING";
+    public string AttentionDetail(long errors, long warnings) => Format(WatchLegacyGeneratedText.Overview040, new object?[] { errors, warnings }, new object?[] { errors, warnings });
 
     public string HostAreas(IReadOnlyList<string> areas) => areas.Count == 0
-        ? Language == WatchDisplayLanguage.SimplifiedChinese ? "Host 已提交范围：全部 AREA" : "Host committed scope: all AREA"
+        ? Select(WatchLegacyGeneratedText.Overview041)
         : areas.Count <= 4
-            ? Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"Host 已提交范围：{string.Join("、", areas)}"
-                : $"Host committed scope: {string.Join(", ", areas)}"
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"Host 已提交范围：{areas.Count} 个 AREA（{string.Join("、", areas.Take(3))}…）"
-                : $"Host committed scope: {areas.Count} AREA values ({string.Join(", ", areas.Take(3))}…)";
+            ? Format(WatchLegacyGeneratedText.Overview042, new object?[] { string.Join("、", areas) }, new object?[] { string.Join(", ", areas) })
+            : Format(WatchLegacyGeneratedText.Overview043, new object?[] { areas.Count, string.Join("、", areas.Take(3)) }, new object?[] { areas.Count, string.Join(", ", areas.Take(3)) });
 
     public string ActivityKind(string kind) => kind switch
     {
         CurrentIngestAttentionKinds.SeriesError => Errors,
-        CurrentIngestAttentionKinds.PollRunFailure => Language == WatchDisplayLanguage.SimplifiedChinese ? "轮询运行" : "Poll run",
-        CurrentIngestAttentionKinds.TaskTypeProtection => Language == WatchDisplayLanguage.SimplifiedChinese ? "任务类型保护" : "Task-type protection",
-        CurrentIngestAttentionKinds.UnassignedMesObservation => Language == WatchDisplayLanguage.SimplifiedChinese ? "未分配 MES 观测" : "Unassigned MES observation",
+        CurrentIngestAttentionKinds.PollRunFailure => Select(WatchLegacyGeneratedText.Overview044),
+        CurrentIngestAttentionKinds.TaskTypeProtection => Select(WatchLegacyGeneratedText.Overview045),
+        CurrentIngestAttentionKinds.UnassignedMesObservation => Select(WatchLegacyGeneratedText.Overview046),
         _ => kind,
     };
 
-    public string RefreshPolicy(int seconds) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"自动刷新 {seconds} 秒"
-        : $"Auto-refresh {seconds} seconds";
+    public string RefreshPolicy(int seconds) => Format(WatchLegacyGeneratedText.Overview047, new object?[] { seconds }, new object?[] { seconds });
 
-    public string StaleSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "数据可能已过期；卡片仍属于上方标明的 Host 已提交范围。"
-        : "Data may be stale; every card still belongs to the committed Host scope shown above.";
+    public string StaleSnapshot => Select(WatchLegacyGeneratedText.Overview048);
 
-    public string ProtectionUnavailable => Language == WatchDisplayLanguage.SimplifiedChinese ? "保护状态不可用" : "Protection status unavailable";
-    public string ProtectionUnavailableDetail => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "连接 Host 后读取 StoragePressure 与 HistoryEpoch 保护状态。"
-        : "Connect to Host to read StoragePressure and HistoryEpoch protection status.";
-    public string HistoryResetPending => Language == WatchDisplayLanguage.SimplifiedChinese ? "历史重置待确认" : "History reset awaiting acknowledgement";
-    public string HistoryResetDetail(string epoch) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"HistoryEpoch {epoch} · 外部当前读取 503 INGEST_NOT_CURRENT · 仅可在数据库主机本地提交 HistoryResetAcknowledgement。"
-        : $"HistoryEpoch {epoch} · external reads currently return 503 INGEST_NOT_CURRENT · HistoryResetAcknowledgement can be submitted only on the database host.";
-    public string HistoryResetOverviewDetail(string epoch) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"HistoryEpoch {epoch} · 打开接入告警查看新纪元建立进度、503 原因与本地确认指引。"
-        : $"HistoryEpoch {epoch} · open Ingest alerts for new-epoch progress, the 503 reason, and local acknowledgement guidance.";
+    public string ProtectionUnavailable => Select(WatchLegacyGeneratedText.Overview049);
+    public string ProtectionUnavailableDetail => Select(WatchLegacyGeneratedText.Overview050);
+    public string HistoryResetPending => Select(WatchLegacyGeneratedText.Overview051);
+    public string HistoryResetDetail(string epoch) => Format(WatchLegacyGeneratedText.Overview052, new object?[] { epoch }, new object?[] { epoch });
+    public string HistoryResetOverviewDetail(string epoch) => Format(WatchLegacyGeneratedText.Overview053, new object?[] { epoch }, new object?[] { epoch });
     public string StorageObserved(string volume, decimal availablePercent, DateTimeOffset observedAt, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"卷 {volume} 可用 {availablePercent:0.###}% · 观测 {catalog.FormatAbsoluteTime(observedAt)}"
-            : $"Volume {volume} has {availablePercent:0.###}% available · observed {catalog.FormatAbsoluteTime(observedAt)}";
-    public string StoragePaused(string observed) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"{observed} · MES 轮询暂停；仅可在数据库主机本地恢复。"
-        : $"{observed} · MES polling is paused; recovery is available only on the database host.";
-    public string StorageWarning => Language == WatchDisplayLanguage.SimplifiedChinese ? "存储空间严重告警" : "Critical storage-space warning";
-    public string StorageWarningDetail(string observed) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"{observed} · 低于 15% 告警阈值，尚未进入暂停。"
-        : $"{observed} · below the 15% warning threshold but not yet paused.";
-    public string StorageHealthy => Language == WatchDisplayLanguage.SimplifiedChinese ? "存储与历史保护正常" : "Storage and history protection healthy";
-    public string StorageHealthyDetail(string observed, string epoch) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"{observed} · 当前 HistoryEpoch {epoch}。"
-        : $"{observed} · current HistoryEpoch {epoch}.";
-    public string StorageNeedsAttention => Language == WatchDisplayLanguage.SimplifiedChinese ? "存储压力需处理" : "Storage pressure needs attention";
-    public string StorageNeedsAttentionDetail => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "打开接入告警查看剩余空间、是否已暂停、最后成功窗口与本地恢复指引。"
-        : "Open Ingest alerts for remaining space, pause state, the last successful window, and local recovery guidance.";
-    public string NoProtectionReported => Language == WatchDisplayLanguage.SimplifiedChinese ? "未报告存储或历史保护项" : "No storage or history protection item reported";
-    public string NoProtectionDetail(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"Host 快照 {catalog.FormatAbsoluteTime(snapshotAt)} 的当前关注分面中无 StoragePressure 或 HistoryReset。"
-        : $"Host snapshot {catalog.FormatAbsoluteTime(snapshotAt)} has no StoragePressure or HistoryReset facet.";
-    public string WaitingProtection => Language == WatchDisplayLanguage.SimplifiedChinese ? "等待保护状态" : "Waiting for protection status";
+        Format(WatchLegacyGeneratedText.Overview054, new object?[] { volume, availablePercent, catalog.FormatAbsoluteTime(observedAt) }, new object?[] { volume, availablePercent, catalog.FormatAbsoluteTime(observedAt) });
+    public string StoragePaused(string observed) => Format(WatchLegacyGeneratedText.Overview055, new object?[] { observed }, new object?[] { observed });
+    public string StorageWarning => Select(WatchLegacyGeneratedText.Overview056);
+    public string StorageWarningDetail(string observed) => Format(WatchLegacyGeneratedText.Overview057, new object?[] { observed }, new object?[] { observed });
+    public string StorageHealthy => Select(WatchLegacyGeneratedText.Overview058);
+    public string StorageHealthyDetail(string observed, string epoch) => Format(WatchLegacyGeneratedText.Overview059, new object?[] { observed, epoch }, new object?[] { observed, epoch });
+    public string StorageNeedsAttention => Select(WatchLegacyGeneratedText.Overview060);
+    public string StorageNeedsAttentionDetail => Select(WatchLegacyGeneratedText.Overview061);
+    public string NoProtectionReported => Select(WatchLegacyGeneratedText.Overview062);
+    public string NoProtectionDetail(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview063, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) }, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) });
+    public string WaitingProtection => Select(WatchLegacyGeneratedText.Overview064);
 
     public string HostStatus(WatchHostConnectionStatus status, bool hasRecentFailure) => (Language, status, hasRecentFailure) switch
     {
@@ -208,59 +161,45 @@ internal sealed partial class WatchOverviewText
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, null),
     };
 
-    public string ContractCompatible => Language == WatchDisplayLanguage.SimplifiedChinese ? "契约兼容" : "contract compatible";
-    public string AddressNotConfigured => Language == WatchDisplayLanguage.SimplifiedChinese ? "未配置地址" : "address not configured";
-    public string CannotConnectHost => Language == WatchDisplayLanguage.SimplifiedChinese ? "无法连接 Host" : "Cannot connect to Host";
-    public string ConnectingHost => Language == WatchDisplayLanguage.SimplifiedChinese ? "正在连接 Host" : "Connecting to Host";
-    public string ReadingOverview => Language == WatchDisplayLanguage.SimplifiedChinese ? "正在读取概览" : "Reading overview";
-    public string RefreshingOverview => Language == WatchDisplayLanguage.SimplifiedChinese ? "正在刷新概览" : "Refreshing overview";
-    public string OverviewReadFailed => Language == WatchDisplayLanguage.SimplifiedChinese ? "概览读取失败" : "Overview read failed";
-    public string OverviewRefreshFailedRetained => Language == WatchDisplayLanguage.SimplifiedChinese ? "概览刷新失败，已保留上次完整快照" : "Overview refresh failed; last complete snapshot retained";
-    public string CurrentScope => Language == WatchDisplayLanguage.SimplifiedChinese ? "当前显示范围" : "Current display scope";
-    public string ScopeHelp => Language == WatchDisplayLanguage.SimplifiedChinese ? "AREA 配置会同时影响两个数据页" : "The AREA profile scopes both data pages";
-    public string ManageAreaFilters => Language == WatchDisplayLanguage.SimplifiedChinese ? "管理 AREA 筛选" : "Manage AREA filters";
-    public string WaitingSeverityFacets => Language == WatchDisplayLanguage.SimplifiedChinese ? "等待严重度分面" : "Waiting for severity facets";
-    public string NoSeverityFacets => Language == WatchDisplayLanguage.SimplifiedChinese ? "Host 未返回严重度分面" : "Host returned no severity facets";
-    public string RecentEmptyExplanation => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "Host 在该快照窗口内没有报告重点转换；这不是健康结论。"
-        : "Host reported no highlighted transition in this snapshot window; this is not a health conclusion.";
-    public string OpenActivity(string heading) => Language == WatchDisplayLanguage.SimplifiedChinese ? $"打开重点动态 {heading}" : $"Open highlighted activity {heading}";
+    public string ContractCompatible => Select(WatchLegacyGeneratedText.Overview065);
+    public string AddressNotConfigured => Select(WatchLegacyGeneratedText.Overview066);
+    public string CannotConnectHost => Select(WatchLegacyGeneratedText.Overview067);
+    public string ConnectingHost => Select(WatchLegacyGeneratedText.Overview068);
+    public string ReadingOverview => Select(WatchLegacyGeneratedText.Overview069);
+    public string RefreshingOverview => Select(WatchLegacyGeneratedText.Overview070);
+    public string OverviewReadFailed => Select(WatchLegacyGeneratedText.Overview071);
+    public string OverviewRefreshFailedRetained => Select(WatchLegacyGeneratedText.Overview072);
+    public string CurrentScope => Select(WatchLegacyGeneratedText.Overview073);
+    public string ScopeHelp => Select(WatchLegacyGeneratedText.Overview074);
+    public string ManageAreaFilters => Select(WatchLegacyGeneratedText.Overview075);
+    public string WaitingSeverityFacets => Select(WatchLegacyGeneratedText.Overview076);
+    public string NoSeverityFacets => Select(WatchLegacyGeneratedText.Overview077);
+    public string RecentEmptyExplanation => Select(WatchLegacyGeneratedText.Overview078);
+    public string OpenActivity(string heading) => Format(WatchLegacyGeneratedText.Overview079, new object?[] { heading }, new object?[] { heading });
     public string AttentionFacet(string value) => value switch
     {
-        CurrentIngestAttentionKinds.SeriesError => Language == WatchDisplayLanguage.SimplifiedChinese ? "Series 错误" : "Series errors",
-        CurrentIngestAttentionKinds.PollRunFailure => Language == WatchDisplayLanguage.SimplifiedChinese ? "轮询失败" : "Poll failures",
-        CurrentIngestAttentionKinds.TaskTypeProtection => Language == WatchDisplayLanguage.SimplifiedChinese ? "任务类型保护" : "Task-type protection",
-        CurrentIngestAttentionKinds.UnassignedMesObservation => Language == WatchDisplayLanguage.SimplifiedChinese ? "未分配 MES" : "Unassigned MES",
-        CurrentIngestAttentionKinds.HistoryCleanupFailure => Language == WatchDisplayLanguage.SimplifiedChinese ? "历史清理失败" : "History cleanup failure",
-        CurrentIngestAttentionKinds.StoragePressure => Language == WatchDisplayLanguage.SimplifiedChinese ? "存储压力" : "Storage pressure",
-        CurrentIngestAttentionKinds.HistoryReset => Language == WatchDisplayLanguage.SimplifiedChinese ? "历史重置" : "History reset",
+        CurrentIngestAttentionKinds.SeriesError => Select(WatchLegacyGeneratedText.Overview080),
+        CurrentIngestAttentionKinds.PollRunFailure => Select(WatchLegacyGeneratedText.Overview081),
+        CurrentIngestAttentionKinds.TaskTypeProtection => Select(WatchLegacyGeneratedText.Overview045),
+        CurrentIngestAttentionKinds.UnassignedMesObservation => Select(WatchLegacyGeneratedText.Overview082),
+        CurrentIngestAttentionKinds.HistoryCleanupFailure => Select(WatchLegacyGeneratedText.Overview083),
+        CurrentIngestAttentionKinds.StoragePressure => Select(WatchLegacyGeneratedText.Overview084),
+        CurrentIngestAttentionKinds.HistoryReset => Select(WatchLegacyGeneratedText.Overview085),
         _ => value,
     };
-    public string WaitingAtomicSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese ? "等待 Host 返回原子快照。" : "Waiting for the atomic Host snapshot.";
-    public string RetainedDuringRefresh(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"刷新期间继续显示 Host 快照 {catalog.FormatAbsoluteTime(snapshotAt)}。"
-        : $"Refresh in progress; continues to show Host snapshot {catalog.FormatAbsoluteTime(snapshotAt)}.";
-    public string PriorFailureRetry(DateTimeOffset failedAt, WatchTextCatalog catalog) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $" 上次失败于 {catalog.FormatAbsoluteTime(failedAt)}；本次正在重试。"
-        : $" Previous attempt failed {catalog.FormatAbsoluteTime(failedAt)}; retry in progress.";
-    public string NoSuccessfulSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese ? "当前没有可显示的成功快照。" : "There is no successful snapshot to display.";
-    public string RetainedAfterFailure(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"继续显示 Host 快照 {catalog.FormatAbsoluteTime(snapshotAt)}；其范围不会被失败查询改写。"
-        : $"Continues to show Host snapshot {catalog.FormatAbsoluteTime(snapshotAt)}; the failed query did not rewrite its scope.";
-    public string FailedAt(DateTimeOffset failedAt, string retained, string failure, WatchTextCatalog catalog) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"失败于 {catalog.FormatAbsoluteTime(failedAt)}。{retained}{failure}"
-        : $"Failed {catalog.FormatAbsoluteTime(failedAt)}. {retained}{failure}";
-    public string ReplacementHostFailure(string failure) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"新 Host 未通过契约连接；旧 Host 数据已清空。{failure}"
-        : $"The replacement Host failed contract connection; old Host data was cleared.{failure}";
+    public string WaitingAtomicSnapshot => Select(WatchLegacyGeneratedText.Overview086);
+    public string RetainedDuringRefresh(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview087, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) }, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) });
+    public string PriorFailureRetry(DateTimeOffset failedAt, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview088, new object?[] { catalog.FormatAbsoluteTime(failedAt) }, new object?[] { catalog.FormatAbsoluteTime(failedAt) });
+    public string NoSuccessfulSnapshot => Select(WatchLegacyGeneratedText.Overview089);
+    public string RetainedAfterFailure(DateTimeOffset snapshotAt, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview090, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) }, new object?[] { catalog.FormatAbsoluteTime(snapshotAt) });
+    public string FailedAt(DateTimeOffset failedAt, string retained, string failure, WatchTextCatalog catalog) => Format(WatchLegacyGeneratedText.Overview091, new object?[] { catalog.FormatAbsoluteTime(failedAt), retained, failure }, new object?[] { catalog.FormatAbsoluteTime(failedAt), retained, failure });
+    public string ReplacementHostFailure(string failure) => Format(WatchLegacyGeneratedText.Overview092, new object?[] { failure }, new object?[] { failure });
     public string FailureMessage(string? message, string? correlationId)
     {
         var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : $" {message}";
         return string.IsNullOrWhiteSpace(correlationId)
             ? detail
-            : Language == WatchDisplayLanguage.SimplifiedChinese
-                ? $"{detail} 关联 ID {correlationId}。"
-                : $"{detail} Correlation ID {correlationId}.";
+            : Format(WatchLegacyGeneratedText.Overview093, new object?[] { detail, correlationId }, new object?[] { detail, correlationId });
     }
 
     public string LocalState(string raw) => (Language, raw) switch
@@ -272,24 +211,16 @@ internal sealed partial class WatchOverviewText
     };
 
     public string OverviewHostStatusAutomation(string status) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"概览 Host 状态：{status}"
-            : $"Overview Host status: {status}";
+        Format(WatchLegacyGeneratedText.Overview094, new object?[] { status }, new object?[] { status });
 
     public string HostNavigationAutomation(
         string status,
         string protectionDetail) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"Host 状态：{status}；{protectionDetail}；打开连接设置"
-            : $"Host status: {status}; {protectionDetail}; open connection settings";
+        Format(WatchLegacyGeneratedText.Overview095, new object?[] { status, protectionDetail }, new object?[] { status, protectionDetail });
 
     public string RecentPageReadFailure(DateTimeOffset failedAt, WatchTextCatalog catalog) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $" · 最近页面读取失败 {catalog.FormatAbsoluteTime(failedAt)}"
-            : $" · Recent page read failed {catalog.FormatAbsoluteTime(failedAt)}";
+        Format(WatchLegacyGeneratedText.Overview096, new object?[] { catalog.FormatAbsoluteTime(failedAt) }, new object?[] { catalog.FormatAbsoluteTime(failedAt) });
 
     public string SettingsHostStatusAutomation(string status) =>
-        Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"设置 Host 状态：{status}"
-            : $"Settings Host status: {status}";
+        Format(WatchLegacyGeneratedText.Overview097, new object?[] { status }, new object?[] { status });
 }
