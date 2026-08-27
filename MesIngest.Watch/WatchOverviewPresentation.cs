@@ -273,7 +273,7 @@ internal sealed record WatchOverviewPresentation(
             {
                 return new(
                     text.HistoryResetPending,
-                    text.HistoryResetDetail(ProjectEpoch(current.Snapshot.HistoryEpoch)),
+                    text.HistoryResetDetail(ProjectEpoch(current.Snapshot.HistoryEpoch, catalog)),
                     WatchPresentationSeverity.Error,
                     RequiresAttention: true);
             }
@@ -299,7 +299,7 @@ internal sealed record WatchOverviewPresentation(
                         RequiresAttention: true),
                     _ => new(
                         text.StorageHealthy,
-                        text.StorageHealthyDetail(observed, ProjectEpoch(storage.HistoryEpoch)),
+                        text.StorageHealthyDetail(observed, ProjectEpoch(storage.HistoryEpoch, catalog)),
                         WatchPresentationSeverity.Success,
                         RequiresAttention: false),
                 };
@@ -312,7 +312,7 @@ internal sealed record WatchOverviewPresentation(
             {
                 return new(
                     text.HistoryResetPending,
-                    text.HistoryResetOverviewDetail(ProjectEpoch(overview.Snapshot.HistoryEpoch)),
+                    text.HistoryResetOverviewDetail(ProjectEpoch(overview.Snapshot.HistoryEpoch, catalog)),
                     WatchPresentationSeverity.Error,
                     RequiresAttention: true);
             }
@@ -340,8 +340,8 @@ internal sealed record WatchOverviewPresentation(
             RequiresAttention: false);
     }
 
-    private static string ProjectEpoch(HistoryEpoch? historyEpoch) =>
-        historyEpoch?.ToString() ?? "—";
+    private static string ProjectEpoch(HistoryEpoch? historyEpoch, WatchTextCatalog catalog) =>
+        historyEpoch?.ToString() ?? catalog.Common.SystemUnknown;
 
     private static (string Status, string Detail, WatchPresentationSeverity Severity) ProjectHost(
         WatchV2WorkspaceState workspace,

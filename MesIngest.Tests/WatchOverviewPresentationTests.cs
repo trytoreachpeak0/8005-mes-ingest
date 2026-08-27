@@ -373,6 +373,40 @@ public sealed class WatchOverviewPresentationTests
     }
 
     [Fact]
+    public void Missing_history_epoch_uses_explicit_catalog_semantics()
+    {
+        var snapshot = OverviewSnapshot() with
+        {
+            Attention = OverviewSnapshot().Attention with
+            {
+                Types =
+                [
+                    new OverviewFacetSnapshot(
+                        CurrentIngestAttentionKinds.HistoryReset,
+                        1,
+                        new OverviewNavigationIntent(
+                            OverviewNavigationTargets.CurrentIngestAttention)),
+                ],
+            },
+        };
+
+        foreach (var (language, expectedMissing) in new[]
+        {
+            (WatchDisplayLanguage.SimplifiedChinese, "系统未知"),
+            (WatchDisplayLanguage.English, "Unknown to system"),
+        })
+        {
+            var presentation = WatchOverviewPresentation.Project(
+                ConnectedWorkspace(SuccessfulView(snapshot)),
+                WatchAreaDisplayContext.AllAreas,
+                WatchTextCatalog.For(language));
+
+            Assert.Contains(expectedMissing, presentation.Protection.Detail, StringComparison.Ordinal);
+            Assert.DoesNotContain("—", presentation.Protection.Detail, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Newer_overview_without_protection_facets_clears_an_older_reset_detail()
     {
         var epoch = HistoryEpoch.FromGuid(

@@ -96,19 +96,110 @@ internal sealed partial class WatchFeedbackText
 
     private string Get(string id) => Text(FeedbackEntries.Single(entry => entry.SemanticId == id));
 
-    internal static WatchLocalizedText Localized(string semanticId)
+    private enum FeedbackEntryKey
     {
-        var entry = FeedbackEntries.Single(entry => entry.SemanticId == semanticId);
-        return WatchLocalizedText.FromEntry(entry);
+        InformationSeverity = 0,
+        SuccessSeverity = 1,
+        ErrorSeverity = 3,
+        SettingsSaved = 22,
+        SettingsSavedDetail = 23,
+        SettingsSaveFailed = 24,
+        SettingsSaveFailedDetail = 25,
+        RetrySaveAction = 26,
+        RetryAction = 27,
+        RecoveredSeverity = 28,
+        ReadRecovered = 29,
+        ViewFaultAction = 31,
+        SelectionCleared = 34,
+        DemandSeriesSelectionCleared = 36,
+        TransportDemandSelectionCleared = 37,
+        ErrorSelectionCleared = 38,
+        AttentionSelectionCleared = 39,
+        ReadabilityOperationTitle = 40,
+        ReadabilityOperationAction = 41,
+        DemandSeriesOperationTitle = 42,
+        DemandSeriesOperationAction = 43,
+        OperationRetryMessage = 44,
+        HostAppliedTitle = 45,
+        HostAppliedMessage = 46,
+        HostFailedTitle = 47,
+        HostFailedMessage = 48,
+        LayoutRestoredTitle = 49,
+        LayoutRestoredMessage = 50,
+        LayoutFailedTitle = 51,
+        LayoutFailedMessage = 52,
+        DefaultsRestoredTitle = 53,
+        DefaultsRestoredMessage = 54,
+        DefaultsFailedTitle = 55,
+        DefaultsFailedMessage = 56,
+        HostConnectionFault = 57,
+        OverviewRefreshFault = 58,
+        OverviewProtectionFault = 59,
+        DemandRefreshFault = 60,
+        DemandDetailFault = 61,
+        ReadabilityRefreshFault = 62,
+        ReadabilityDetailFault = 63,
+        ErrorRefreshFault = 64,
+        ErrorDetailFault = 65,
+        AttentionRefreshFault = 66,
+        GenericFault = 67,
+        OpenSettingsAction = 68,
+        ViewPageAction = 69,
+        RecoveredMessage = 70,
+        BackgroundFaultTitle = 71,
+        BackgroundFaultMessage = 72,
+        FaultDetailsMessage = 73,
+        AuthenticationFailure = 74,
+        ContractFailure = 75,
+        HostTimeoutFailure = 76,
+        HostNetworkFailure = 77,
+        HostGenericFailure = 78,
+        TimeoutFailure = 79,
+        NetworkFailure = 80,
+        ServerQueryFailure = 81,
+        GenericFailure = 82,
     }
 
-    internal static WatchLocalizedText LocalizedFormat(string semanticId, params object?[] arguments)
-    {
-        var entry = FeedbackEntries.Single(entry => entry.SemanticId == semanticId);
-        return new WatchLocalizedText(
-            string.Format(CultureInfo.InvariantCulture, entry.SimplifiedChinese, arguments),
-            string.Format(CultureInfo.InvariantCulture, entry.English, arguments));
-    }
+    private static WatchLocalizedText From(FeedbackEntryKey key) =>
+        WatchLocalizedText.FromEntry(FeedbackEntries[(int)key]);
+
+    private static WatchLocalizedText FormatLocalized(
+        WatchLocalizedText template,
+        params object?[] arguments) => new(
+        string.Format(CultureInfo.InvariantCulture, template.SimplifiedChinese, arguments),
+        string.Format(CultureInfo.InvariantCulture, template.English, arguments));
+
+    internal static WatchLocalizedText InformationSeverity => From(FeedbackEntryKey.InformationSeverity);
+    internal static WatchLocalizedText SuccessSeverity => From(FeedbackEntryKey.SuccessSeverity);
+    internal static WatchLocalizedText ErrorSeverity => From(FeedbackEntryKey.ErrorSeverity);
+    internal static WatchLocalizedText SettingsSaved => From(FeedbackEntryKey.SettingsSaved);
+    internal static WatchLocalizedText SettingsSavedDetail => From(FeedbackEntryKey.SettingsSavedDetail);
+    internal static WatchLocalizedText SettingsSaveFailed => From(FeedbackEntryKey.SettingsSaveFailed);
+    internal static WatchLocalizedText SettingsSaveFailedDetail => From(FeedbackEntryKey.SettingsSaveFailedDetail);
+    internal static WatchLocalizedText RetrySaveAction => From(FeedbackEntryKey.RetrySaveAction);
+    internal static WatchLocalizedText RetryAction => From(FeedbackEntryKey.RetryAction);
+    internal static WatchLocalizedText SelectionCleared => From(FeedbackEntryKey.SelectionCleared);
+    internal static WatchLocalizedText DemandSeriesSelectionCleared => From(FeedbackEntryKey.DemandSeriesSelectionCleared);
+    internal static WatchLocalizedText TransportDemandSelectionCleared => From(FeedbackEntryKey.TransportDemandSelectionCleared);
+    internal static WatchLocalizedText ErrorSelectionCleared => From(FeedbackEntryKey.ErrorSelectionCleared);
+    internal static WatchLocalizedText AttentionSelectionCleared => From(FeedbackEntryKey.AttentionSelectionCleared);
+    internal static WatchLocalizedText ReadabilityOperationTitle => From(FeedbackEntryKey.ReadabilityOperationTitle);
+    internal static WatchLocalizedText ReadabilityOperationAction => From(FeedbackEntryKey.ReadabilityOperationAction);
+    internal static WatchLocalizedText DemandSeriesOperationTitle => From(FeedbackEntryKey.DemandSeriesOperationTitle);
+    internal static WatchLocalizedText DemandSeriesOperationAction => From(FeedbackEntryKey.DemandSeriesOperationAction);
+    internal static WatchLocalizedText OperationRetryMessage => From(FeedbackEntryKey.OperationRetryMessage);
+    internal static WatchLocalizedText HostAppliedTitle => From(FeedbackEntryKey.HostAppliedTitle);
+    internal static WatchLocalizedText HostAppliedMessage => From(FeedbackEntryKey.HostAppliedMessage);
+    internal static WatchLocalizedText HostFailedTitle => From(FeedbackEntryKey.HostFailedTitle);
+    internal static WatchLocalizedText HostFailedMessage => From(FeedbackEntryKey.HostFailedMessage);
+    internal static WatchLocalizedText LayoutRestoredTitle => From(FeedbackEntryKey.LayoutRestoredTitle);
+    internal static WatchLocalizedText LayoutRestoredMessage => From(FeedbackEntryKey.LayoutRestoredMessage);
+    internal static WatchLocalizedText LayoutFailedTitle => From(FeedbackEntryKey.LayoutFailedTitle);
+    internal static WatchLocalizedText LayoutFailedMessage => From(FeedbackEntryKey.LayoutFailedMessage);
+    internal static WatchLocalizedText DefaultsRestoredTitle => From(FeedbackEntryKey.DefaultsRestoredTitle);
+    internal static WatchLocalizedText DefaultsRestoredMessage => From(FeedbackEntryKey.DefaultsRestoredMessage);
+    internal static WatchLocalizedText DefaultsFailedTitle => From(FeedbackEntryKey.DefaultsFailedTitle);
+    internal static WatchLocalizedText DefaultsFailedMessage => From(FeedbackEntryKey.DefaultsFailedMessage);
 
     public string Severity(WatchNotificationSeverity severity) => severity switch
     {
@@ -144,42 +235,31 @@ internal sealed partial class WatchFeedbackText
     public string ConflictDialogBody(string profileName) => Format(WatchLegacyGeneratedText.Feedback026, new object?[] { profileName }, new object?[] { profileName });
     public string ConflictDialogBody2 => Get("feedback.dialog.conflict.body2");
 
-    internal static WatchLocalizedNotificationContent Localize(
-        WatchNotificationEvent notification) => new(
-        new(
-            WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Feedback.Severity(notification.Severity),
-            WatchTextCatalog.For(WatchDisplayLanguage.English).Feedback.Severity(notification.Severity)),
-        new(notification.Title, notification.Title),
-        new(notification.Message, notification.Message),
-        notification.ActionLabel is null
-            ? null
-            : new WatchLocalizedText(notification.ActionLabel, notification.ActionLabel));
-
     internal static WatchLocalizedNotificationContent ContinuingFault(
         string sourceKey,
         WatchHostFailureKind failureKind)
     {
-        var title = Localized(sourceKey switch
+        var title = sourceKey switch
         {
-            "host.connection" => "feedback.fault.host-connection",
-            "overview.refresh" => "feedback.fault.overview-refresh",
-            "overview.protection" => "feedback.fault.overview-protection",
-            "demand-series.refresh" => "feedback.fault.demand-refresh",
-            "demand-series.detail" => "feedback.fault.demand-detail",
-            "readability.refresh" => "feedback.fault.readability-refresh",
-            "readability.detail" => "feedback.fault.readability-detail",
-            "error-search.refresh" => "feedback.fault.error-search-refresh",
-            "error-search.detail" => "feedback.fault.error-search-detail",
-            "attention.refresh" => "feedback.fault.attention-refresh",
-            _ => "feedback.fault.generic",
-        });
+            "host.connection" => From(FeedbackEntryKey.HostConnectionFault),
+            "overview.refresh" => From(FeedbackEntryKey.OverviewRefreshFault),
+            "overview.protection" => From(FeedbackEntryKey.OverviewProtectionFault),
+            "demand-series.refresh" => From(FeedbackEntryKey.DemandRefreshFault),
+            "demand-series.detail" => From(FeedbackEntryKey.DemandDetailFault),
+            "readability.refresh" => From(FeedbackEntryKey.ReadabilityRefreshFault),
+            "readability.detail" => From(FeedbackEntryKey.ReadabilityDetailFault),
+            "error-search.refresh" => From(FeedbackEntryKey.ErrorRefreshFault),
+            "error-search.detail" => From(FeedbackEntryKey.ErrorDetailFault),
+            "attention.refresh" => From(FeedbackEntryKey.AttentionRefreshFault),
+            _ => From(FeedbackEntryKey.GenericFault),
+        };
         var isHostConnection = sourceKey == "host.connection";
         var message = FailureMessage(failureKind, isHostConnection);
-        var action = Localized(isHostConnection
-            ? "feedback.action.open-settings"
-            : "feedback.action.view-page");
+        var action = From(isHostConnection
+            ? FeedbackEntryKey.OpenSettingsAction
+            : FeedbackEntryKey.ViewPageAction);
         return new WatchLocalizedNotificationContent(
-            Localized("feedback.severity.error"),
+            ErrorSeverity,
             title,
             message,
             action);
@@ -187,32 +267,32 @@ internal sealed partial class WatchFeedbackText
 
     internal static WatchLocalizedNotificationContent Recovered(
         WatchLocalizedText faultTitle) => new(
-        Localized("feedback.recovered"),
-        Localized("feedback.read-recovered"),
+        From(FeedbackEntryKey.RecoveredSeverity),
+        From(FeedbackEntryKey.ReadRecovered),
         new WatchLocalizedText(
-            string.Format(CultureInfo.InvariantCulture, Localized("feedback.recovered.message").SimplifiedChinese, faultTitle.SimplifiedChinese),
-            string.Format(CultureInfo.InvariantCulture, Localized("feedback.recovered.message").English, faultTitle.English)));
+            string.Format(CultureInfo.InvariantCulture, From(FeedbackEntryKey.RecoveredMessage).SimplifiedChinese, faultTitle.SimplifiedChinese),
+            string.Format(CultureInfo.InvariantCulture, From(FeedbackEntryKey.RecoveredMessage).English, faultTitle.English)));
 
     internal static WatchLocalizedNotificationContent BackgroundFaultSummary(
         int count,
         WatchLocalizedText mostSevereTitle) => new(
-        Localized("feedback.severity.error"),
-        Localized("feedback.background-fault.title"),
+        ErrorSeverity,
+        From(FeedbackEntryKey.BackgroundFaultTitle),
         count == 1
             ? mostSevereTitle
-            : LocalizedFormat("feedback.background-fault.message", count),
-        Localized("feedback.action.view-fault"));
+            : FormatLocalized(From(FeedbackEntryKey.BackgroundFaultMessage), count),
+        From(FeedbackEntryKey.ViewFaultAction));
 
     internal static WatchLocalizedNotificationContent FaultDetails(
         int count,
         WatchLocalizedNotificationContent fault) => new(
-        Localized("feedback.severity.error"),
+        ErrorSeverity,
         fault.Title,
         count == 1
             ? fault.Message
             : new WatchLocalizedText(
-                string.Format(CultureInfo.InvariantCulture, Localized("feedback.fault-details.message").SimplifiedChinese, count, fault.Message.SimplifiedChinese),
-                string.Format(CultureInfo.InvariantCulture, Localized("feedback.fault-details.message").English, count, fault.Message.English)));
+                string.Format(CultureInfo.InvariantCulture, From(FeedbackEntryKey.FaultDetailsMessage).SimplifiedChinese, count, fault.Message.SimplifiedChinese),
+                string.Format(CultureInfo.InvariantCulture, From(FeedbackEntryKey.FaultDetailsMessage).English, count, fault.Message.English)));
 
     internal static (string Text, string Detail, string Automation) FaultHeader(
         WatchDisplayLanguage language,
@@ -239,23 +319,23 @@ internal sealed partial class WatchFeedbackText
         bool isHostConnection) => (failureKind, isHostConnection) switch
     {
         (WatchHostFailureKind.Authentication, _) =>
-            Localized("feedback.failure.authentication"),
+            From(FeedbackEntryKey.AuthenticationFailure),
         (WatchHostFailureKind.Contract or WatchHostFailureKind.Decode, _) =>
-            Localized("feedback.failure.contract"),
+            From(FeedbackEntryKey.ContractFailure),
         (WatchHostFailureKind.Timeout, true) =>
-            Localized("feedback.failure.host-timeout"),
+            From(FeedbackEntryKey.HostTimeoutFailure),
         (WatchHostFailureKind.Network or WatchHostFailureKind.Http, true) =>
-            Localized("feedback.failure.host-network"),
+            From(FeedbackEntryKey.HostNetworkFailure),
         (_, true) =>
-            Localized("feedback.failure.host-generic"),
+            From(FeedbackEntryKey.HostGenericFailure),
         (WatchHostFailureKind.Timeout, false) =>
-            Localized("feedback.failure.timeout"),
+            From(FeedbackEntryKey.TimeoutFailure),
         (WatchHostFailureKind.Network or WatchHostFailureKind.Http, false) =>
-            Localized("feedback.failure.network"),
+            From(FeedbackEntryKey.NetworkFailure),
         (WatchHostFailureKind.ServerQuery, false) =>
-            Localized("feedback.failure.server-query"),
+            From(FeedbackEntryKey.ServerQueryFailure),
         _ =>
-            Localized("feedback.failure.generic"),
+            From(FeedbackEntryKey.GenericFailure),
     };
 
 }

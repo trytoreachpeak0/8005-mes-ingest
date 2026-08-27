@@ -58,6 +58,11 @@ public sealed partial class WatchTextCatalogContractTests
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static)),
             method => method.Name == "Pick");
         Assert.DoesNotContain(
+            typeof(WatchFeedbackText).GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static),
+            method => method.ReturnType == typeof(WatchLocalizedText)
+                && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(string)));
+        Assert.DoesNotContain(
             publicMembers.OfType<PropertyInfo>(),
             property => property.GetIndexParameters().Any(parameter => parameter.ParameterType == typeof(string)));
         Assert.DoesNotContain(
@@ -94,6 +99,58 @@ public sealed partial class WatchTextCatalogContractTests
     }
 
     [Fact]
+    public void Typed_feedback_members_remain_bound_to_their_named_catalog_entries()
+    {
+        var expectedEnglish = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            [nameof(WatchFeedbackText.InformationSeverity)] = "Information",
+            [nameof(WatchFeedbackText.SuccessSeverity)] = "Success",
+            [nameof(WatchFeedbackText.ErrorSeverity)] = "Error",
+            [nameof(WatchFeedbackText.SettingsSaved)] = "Local settings saved",
+            [nameof(WatchFeedbackText.SettingsSavedDetail)] = "Auto-refresh remains enabled; the current Host session was not rebuilt.",
+            [nameof(WatchFeedbackText.SettingsSaveFailed)] = "Could not save local settings",
+            [nameof(WatchFeedbackText.SettingsSaveFailedDetail)] = "The local settings file could not be written. Check file permissions and try again.",
+            [nameof(WatchFeedbackText.RetrySaveAction)] = "Retry save",
+            [nameof(WatchFeedbackText.RetryAction)] = "Retry",
+            [nameof(WatchFeedbackText.SelectionCleared)] = "Refresh cleared the previous selection; details remain unselected. Select an item again.",
+            [nameof(WatchFeedbackText.DemandSeriesSelectionCleared)] = "The previous demand series is no longer in the refreshed results",
+            [nameof(WatchFeedbackText.TransportDemandSelectionCleared)] = "The previous transport demand is no longer in the refreshed results",
+            [nameof(WatchFeedbackText.ErrorSelectionCleared)] = "The previous error item is no longer in the refreshed results",
+            [nameof(WatchFeedbackText.AttentionSelectionCleared)] = "The previous attention item is no longer in the refreshed results",
+            [nameof(WatchFeedbackText.ReadabilityOperationTitle)] = "Unable to complete the eligibility-audit operation",
+            [nameof(WatchFeedbackText.ReadabilityOperationAction)] = "Return to eligibility audit",
+            [nameof(WatchFeedbackText.DemandSeriesOperationTitle)] = "Unable to complete the demand-series operation",
+            [nameof(WatchFeedbackText.DemandSeriesOperationAction)] = "Return to demand series",
+            [nameof(WatchFeedbackText.OperationRetryMessage)] = "Check the input or current snapshot and try again.",
+            [nameof(WatchFeedbackText.HostAppliedTitle)] = "Host settings applied",
+            [nameof(WatchFeedbackText.HostAppliedMessage)] = "The contract is compatible; overview was read and auto-refresh resumed.",
+            [nameof(WatchFeedbackText.HostFailedTitle)] = "Unable to apply Host settings",
+            [nameof(WatchFeedbackText.HostFailedMessage)] = "Check the address format, timeout range, or local settings file and try again.",
+            [nameof(WatchFeedbackText.LayoutRestoredTitle)] = "Default layout restored",
+            [nameof(WatchFeedbackText.LayoutRestoredMessage)] = "The window was restored to 1440×900 with a compact navigation rail; refresh intervals and the Host session are unchanged.",
+            [nameof(WatchFeedbackText.LayoutFailedTitle)] = "Unable to restore the default layout",
+            [nameof(WatchFeedbackText.LayoutFailedMessage)] = "The local layout settings could not be written. Check file permissions and try again.",
+            [nameof(WatchFeedbackText.DefaultsRestoredTitle)] = "Default settings restored",
+            [nameof(WatchFeedbackText.DefaultsRestoredMessage)] = "The window was restored to 1440×900 with a compact navigation rail; all five data views keep 10-second auto-refresh. The Host session was not rebuilt.",
+            [nameof(WatchFeedbackText.DefaultsFailedTitle)] = "Unable to restore default settings",
+            [nameof(WatchFeedbackText.DefaultsFailedMessage)] = "The local settings could not be written. Check file permissions and try again.",
+        };
+        var typedProperties = typeof(WatchFeedbackText)
+            .GetProperties(BindingFlags.Static | BindingFlags.NonPublic)
+            .Where(property => property.PropertyType == typeof(WatchLocalizedText))
+            .ToDictionary(property => property.Name, StringComparer.Ordinal);
+
+        Assert.Equal(expectedEnglish.Keys.Order(), typedProperties.Keys.Order());
+        Assert.All(expectedEnglish, pair =>
+        {
+            var localized = Assert.IsType<WatchLocalizedText>(
+                typedProperties[pair.Key].GetValue(null));
+            Assert.Equal(pair.Value, localized.English);
+            Assert.False(string.IsNullOrWhiteSpace(localized.SimplifiedChinese));
+        });
+    }
+
+    [Fact]
     public void Production_visible_copy_cannot_bypass_typed_enumerable_catalog_entries()
     {
         var watchDirectory = FindWatchSourceDirectory();
@@ -112,6 +169,36 @@ public sealed partial class WatchTextCatalogContractTests
         Assert.DoesNotContain(sources, pair => pair.Value.Contains(
             ".Pick(",
             StringComparison.Ordinal));
+        Assert.DoesNotContain(sources, pair => pair.Value.Contains(
+            "WatchFeedbackText.Localized(",
+            StringComparison.Ordinal));
+        var productionNotificationSource = sources.Single(pair => string.Equals(
+            Path.GetFileName(pair.Key),
+            "WatchWorkspaceWindow.Notifications.cs",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "LocalizedContent = WatchFeedbackText",
+            productionNotificationSource.Value,
+            StringComparison.Ordinal);
+
+        var productionSources = sources
+            .Where(pair => !Path.GetFileName(pair.Key).StartsWith(
+                "WatchTextCatalog.",
+                StringComparison.Ordinal))
+            .ToArray();
+        var forbiddenMonolingualEscapes = new[]
+        {
+            "概览快照、客户端读取时间与自动刷新策略",
+            "正在验证新 Host 契约",
+            "展开或折叠主导航",
+            "最小化窗口",
+            "资格审计紧凑快照事实",
+            "当前冻结审计快照中的全部外部可见资格检查通过",
+        };
+        Assert.All(forbiddenMonolingualEscapes, forbidden =>
+            Assert.DoesNotContain(
+                productionSources,
+                pair => pair.Value.Contains(forbidden, StringComparison.Ordinal)));
 
         var inlineLocalizedLiteral = new Regex(
             "new\\s*(?:WatchLocalizedText)?\\s*\\(\\s*\"[^\"]*[\\p{IsCJKUnifiedIdeographs}][^\"]*\"\\s*,\\s*\"",

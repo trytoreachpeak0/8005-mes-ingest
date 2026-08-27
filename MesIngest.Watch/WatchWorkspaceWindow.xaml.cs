@@ -1113,18 +1113,19 @@ internal partial class WatchWorkspaceWindow : IDisposable
         RecentActivityHeadingText.Text = presentation.RecentActivityHeading;
         AutomationProperties.SetName(
             OverviewContextText,
-            $"概览快照、客户端读取时间与自动刷新策略：{OverviewContextText.Text}");
+            overviewText.ContextAutomation(OverviewContextText.Text));
         AutomationProperties.SetName(
             OverviewInfoBar,
-            presentation.IsInfoOpen
-                ? $"{presentation.InfoTitle}。{presentation.InfoMessage}"
-                : "概览读取状态：当前无活动通知");
+            overviewText.ReadStateAutomation(
+                presentation.InfoTitle,
+                presentation.InfoMessage,
+                presentation.IsInfoOpen));
         StaleNoticeText.Text = presentation.IsStale
             ? overviewText.StaleSnapshot
             : string.Empty;
         AutomationProperties.SetName(
             StaleNoticeText,
-            presentation.IsStale ? StaleNoticeText.Text : "概览数据未标记为陈旧");
+            overviewText.StaleAutomation(StaleNoticeText.Text, presentation.IsStale));
         SetNavigationAction(SeriesSummaryAction, presentation.SeriesNavigation);
         SetNavigationAction(ReadabilitySummaryAction, presentation.ReadabilityNavigation);
         SetNavigationAction(ErrorsSummaryAction, presentation.ErrorsNavigation);
@@ -1165,26 +1166,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 ? emphasizedBrush
                 : "TextFillColorTertiaryBrush");
 
-    private static string FormatConciseHostAreaScope(
+    private string FormatConciseHostAreaScope(
         IReadOnlyList<string>? mesAreas,
-        bool hasSnapshot)
-    {
-        if (!hasSnapshot)
-        {
-            return "Host 尚无范围";
-        }
-
-        if (mesAreas is null || mesAreas.Count == 0)
-        {
-            return "Host 全部 AREA";
-        }
-
-        const int visibleAreaCount = 2;
-        var visibleAreas = string.Join('、', mesAreas.Take(visibleAreaCount));
-        return mesAreas.Count <= visibleAreaCount
-            ? $"Host {visibleAreas}"
-            : $"Host {visibleAreas} 等 {mesAreas.Count:N0} 个 AREA";
-    }
+        bool hasSnapshot) =>
+        _displayLanguageState.Catalog.Overview.ConciseHostAreaScope(mesAreas, hasSnapshot);
 
     private void RenderDemandSeries(WatchV2WorkspaceState state)
     {
@@ -1379,10 +1364,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
         AttentionSummaryFacetText.Text = summary;
         AutomationProperties.SetName(
             AttentionSummaryFacetText,
-            $"存储与历史保护状态：{protection.Status}。{protection.Detail}。接入告警严重度精确分面：{severitySummary}");
+            text.AttentionAutomation(protection.Status, protection.Detail, severitySummary));
         AutomationProperties.SetName(
             AttentionSummaryCard,
-            $"概览健康区：{protection.Status}。{protection.Detail}");
+            text.HealthAutomation(protection.Status, protection.Detail));
     }
 
     private void RenderRecentActivity(WatchOverviewPresentation presentation)
@@ -1544,19 +1529,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         OverviewHostStatusText.Text =
             HostNavigationItem.Content?.ToString() ?? shell.HostDisconnected;
         OverviewHostStatusIcon.Symbol = HostNavigationIcon.Symbol;
-        var hostStatusStyleKey = state.ConnectionStatus switch
-        {
-            WatchHostConnectionStatus.Connected
-                when hasProtectionIssue
-                     && overview.Protection.Severity == WatchPresentationSeverity.Error =>
-                "StatusPillCritical",
-            WatchHostConnectionStatus.Connected when hasViewFailure => "StatusPillCaution",
-            WatchHostConnectionStatus.Connected when hasProtectionIssue => "StatusPillCaution",
-            WatchHostConnectionStatus.Connected => "StatusPillSuccess",
-            WatchHostConnectionStatus.Connecting => "StatusPillAccent",
-            WatchHostConnectionStatus.Failed => "StatusPillCritical",
-            _ => "StatusPill",
-        };
+        var hostStatusStyleKey = HostStatusStyleKey(
+            state.ConnectionStatus,
+            hasViewFailure,
+            hasProtectionIssue,
+            overview.Protection.Severity);
         OverviewHostStatusPill.Style = (Style)FindResource(hostStatusStyleKey);
         SettingsHostStatusPill.Style = (Style)FindResource(hostStatusStyleKey);
         SettingsHostStatusText.Text = OverviewHostStatusText.Text;
@@ -1574,7 +1551,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             WatchHostConnectionStatus.Connected =>
                 ("SystemFillColorSuccessBackgroundBrush", "SystemFillColorSuccessBrush"),
             WatchHostConnectionStatus.Connecting =>
-                ("AccentFillColorTertiaryBrush", "AccentTextFillColorPrimaryBrush"),
+                ("ControlFillColorSecondaryBrush", "TextFillColorSecondaryBrush"),
             WatchHostConnectionStatus.Failed =>
                 ("SystemFillColorCriticalBackgroundBrush", "SystemFillColorCriticalBrush"),
             _ => ("ControlFillColorSecondaryBrush", "TextFillColorSecondaryBrush"),
@@ -1603,6 +1580,24 @@ internal partial class WatchWorkspaceWindow : IDisposable
             SettingsHostStatusPill,
             catalog.Overview.SettingsHostStatusAutomation(SettingsHostStatusText.Text));
     }
+
+    internal static string HostStatusStyleKey(
+        WatchHostConnectionStatus connectionStatus,
+        bool hasViewFailure,
+        bool hasProtectionIssue,
+        WatchPresentationSeverity protectionSeverity) => connectionStatus switch
+    {
+        WatchHostConnectionStatus.Connected
+            when hasProtectionIssue
+                 && protectionSeverity == WatchPresentationSeverity.Error =>
+            "StatusPillCritical",
+        WatchHostConnectionStatus.Connected when hasViewFailure => "StatusPillCaution",
+        WatchHostConnectionStatus.Connected when hasProtectionIssue => "StatusPillCaution",
+        WatchHostConnectionStatus.Connected => "StatusPillSuccess",
+        WatchHostConnectionStatus.Connecting => "StatusPill",
+        WatchHostConnectionStatus.Failed => "StatusPillCritical",
+        _ => "StatusPill",
+    };
 
     private static void SetNavigationAction(
         Wpf.Ui.Controls.Button button,
@@ -1854,6 +1849,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
     private async void OnApplyHostClick(object sender, RoutedEventArgs e)
     {
+        var settingsText = _displayLanguageState.Catalog.Settings;
         try
         {
             var credential = string.IsNullOrWhiteSpace(HostCredentialInput.Password)
@@ -1862,15 +1858,17 @@ internal partial class WatchWorkspaceWindow : IDisposable
             if (!int.TryParse(RequestTimeoutInput.Text, out var timeoutSeconds)
                 || timeoutSeconds is < 1 or > 300)
             {
-                throw new ArgumentException("请求超时必须是 1–300 秒之间的整数。");
+                throw new ArgumentException(settingsText.TimeoutValidation);
             }
 
             var settings = new WatchHostSettings(
                 HostBaseUrlInput.Text,
                 credential,
                 timeoutSeconds);
-            SettingsHostStateText.Text = "正在验证新 Host 契约；旧 Host 业务状态已清空。";
-            if (!await ApplyHostAsync(settings, _lifetimeCancellation.Token).ConfigureAwait(true))
+            var applyTask = ApplyHostAsync(settings, _lifetimeCancellation.Token);
+            SettingsHostStateText.Text = settingsText.ValidatingHost;
+            AutomationProperties.SetName(SettingsHostStateText, settingsText.ValidatingHost);
+            if (!await applyTask.ConfigureAwait(true))
             {
                 return;
             }
@@ -1881,8 +1879,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 PresentSettingsFeedback(
                     WatchNotificationSeverity.Success,
                     "host.apply",
-                    WatchFeedbackText.Localized("feedback.settings.host-applied.title"),
-                    WatchFeedbackText.Localized("feedback.settings.host-applied.message"));
+                    WatchFeedbackText.HostAppliedTitle,
+                    WatchFeedbackText.HostAppliedMessage);
             }
         }
         catch (OperationCanceledException) when (_lifetimeCancellation.IsCancellationRequested)
@@ -1891,7 +1889,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
         catch (ArgumentException exception)
         {
-            var validationMessage = $"无法应用 Host 设置。{exception.Message}";
+            var validationMessage = settingsText.ApplyValidation(exception.Message);
             SettingsHostStateText.Text = validationMessage;
             AutomationProperties.SetName(SettingsHostStateText, validationMessage);
             AutomationProperties.SetHelpText(RequestTimeoutInput, exception.Message);
@@ -1900,8 +1898,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             PresentSettingsFailure(
                 "host.apply",
-                WatchFeedbackText.Localized("feedback.settings.host-failed.title"),
-                WatchFeedbackText.Localized("feedback.settings.host-failed.message"),
+                WatchFeedbackText.HostFailedTitle,
+                WatchFeedbackText.HostFailedMessage,
                 ApplyHostButton);
         }
         finally
@@ -1954,9 +1952,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     "workspace-preferences"),
                 WatchNotificationSeverity.Success,
                 new WatchLocalizedNotificationContent(
-                    WatchFeedbackText.Localized("feedback.severity.success"),
-                    WatchFeedbackText.Localized("feedback.settings.saved"),
-                    WatchFeedbackText.Localized("feedback.settings.saved-detail"))));
+                    WatchFeedbackText.SuccessSeverity,
+                    WatchFeedbackText.SettingsSaved,
+                    WatchFeedbackText.SettingsSavedDetail)));
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
@@ -1967,10 +1965,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                     "workspace-preferences"),
                 WatchNotificationSeverity.Error,
                 new WatchLocalizedNotificationContent(
-                    WatchFeedbackText.Localized("feedback.severity.error"),
-                    WatchFeedbackText.Localized("feedback.settings.save-failed"),
-                    WatchFeedbackText.Localized("feedback.settings.save-failed-detail"),
-                    WatchFeedbackText.Localized("feedback.action.retry-save")),
+                    WatchFeedbackText.ErrorSeverity,
+                    WatchFeedbackText.SettingsSaveFailed,
+                    WatchFeedbackText.SettingsSaveFailedDetail,
+                    WatchFeedbackText.RetrySaveAction),
                 () => SaveRefreshIntervalsButton.RaiseEvent(
                     new RoutedEventArgs(
                         System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
@@ -1996,15 +1994,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentSettingsFeedback(
                 WatchNotificationSeverity.Success,
                 "layout.restore-default",
-                WatchFeedbackText.Localized("feedback.settings.layout-restored.title"),
-                WatchFeedbackText.Localized("feedback.settings.layout-restored.message"));
+                WatchFeedbackText.LayoutRestoredTitle,
+                WatchFeedbackText.LayoutRestoredMessage);
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
             PresentSettingsFailure(
                 "layout.restore-default",
-                WatchFeedbackText.Localized("feedback.settings.layout-failed.title"),
-                WatchFeedbackText.Localized("feedback.settings.layout-failed.message"),
+                WatchFeedbackText.LayoutFailedTitle,
+                WatchFeedbackText.LayoutFailedMessage,
                 RestoreDefaultLayoutButton);
         }
     }
@@ -2030,15 +2028,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentSettingsFeedback(
                 WatchNotificationSeverity.Success,
                 "settings.restore-default",
-                WatchFeedbackText.Localized("feedback.settings.defaults-restored.title"),
-                WatchFeedbackText.Localized("feedback.settings.defaults-restored.message"));
+                WatchFeedbackText.DefaultsRestoredTitle,
+                WatchFeedbackText.DefaultsRestoredMessage);
         }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
         {
             PresentSettingsFailure(
                 "settings.restore-default",
-                WatchFeedbackText.Localized("feedback.settings.defaults-failed.title"),
-                WatchFeedbackText.Localized("feedback.settings.defaults-failed.message"),
+                WatchFeedbackText.DefaultsFailedTitle,
+                WatchFeedbackText.DefaultsFailedMessage,
                 RestoreDefaultSettingsButton);
         }
     }
@@ -2061,8 +2059,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             severity,
             new WatchLocalizedNotificationContent(
                 severity == WatchNotificationSeverity.Success
-                    ? WatchFeedbackText.Localized("feedback.severity.success")
-                    : WatchFeedbackText.Localized("feedback.severity.information"),
+                    ? WatchFeedbackText.SuccessSeverity
+                    : WatchFeedbackText.InformationSeverity,
                 title,
                 message)));
 
@@ -2078,10 +2076,10 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 identity),
             WatchNotificationSeverity.Error,
             new WatchLocalizedNotificationContent(
-                WatchFeedbackText.Localized("feedback.severity.error"),
+                WatchFeedbackText.ErrorSeverity,
                 title,
                 message,
-                WatchFeedbackText.Localized("feedback.action.retry")),
+                WatchFeedbackText.RetryAction),
             () => retryButton.RaiseEvent(new RoutedEventArgs(
                 System.Windows.Controls.Primitives.ButtonBase.ClickEvent))));
 
@@ -2436,9 +2434,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
             PresentOperationFailure(
                 WatchWorkspacePage.DemandSeries,
                 "demand-series.operation",
-                WatchFeedbackText.Localized("feedback.operation.demand-series.title"),
-                WatchFeedbackText.Localized("feedback.operation.retry-message"),
-                WatchFeedbackText.Localized("feedback.operation.demand-series.action"));
+                WatchFeedbackText.DemandSeriesOperationTitle,
+                WatchFeedbackText.OperationRetryMessage,
+                WatchFeedbackText.DemandSeriesOperationAction);
         }
     }
 
@@ -2521,6 +2519,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
+        ApplyLocalizedNavigationToggle(navigation);
+    }
+
+    private void ApplyLocalizedNavigationToggle(Wpf.Ui.Controls.NavigationView navigation)
+    {
         navigation.ApplyTemplate();
         var toggle = FindVisualDescendant<FrameworkElement>(
             navigation,
@@ -2533,11 +2536,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
             return;
         }
 
-        const string accessibleName = "展开或折叠主导航";
+        var shell = _displayLanguageState.Catalog.Shell;
+        var accessibleName = shell.NavigationToggle;
         AutomationProperties.SetName(toggle, accessibleName);
         AutomationProperties.SetHelpText(
             toggle,
-            "在 48 epx 紧凑导航与 224 epx 展开导航之间切换");
+            shell.NavigationToggleHelp);
         ToolTipService.SetToolTip(toggle, accessibleName);
     }
 
@@ -2725,8 +2729,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
 
         titleBar.ApplyTemplate();
-        ConfigureTitleBarButton(titleBar, "PART_MinimizeButton", "最小化窗口");
-        ConfigureTitleBarButton(titleBar, "PART_CloseButton", "关闭窗口");
+        var shell = _displayLanguageState.Catalog.Shell;
+        ConfigureTitleBarButton(titleBar, "PART_MinimizeButton", shell.MinimizeWindow);
+        ConfigureTitleBarButton(titleBar, "PART_CloseButton", shell.CloseWindow);
         UpdateMaximizeButtonAccessibility(titleBar);
         StateChanged -= OnWindowStateChangedForTitleBar;
         StateChanged += OnWindowStateChangedForTitleBar;
@@ -2739,7 +2744,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
         ConfigureTitleBarButton(
             titleBar,
             "PART_MaximizeButton",
-            WindowState == WindowState.Maximized ? "还原窗口" : "最大化窗口");
+            WindowState == WindowState.Maximized
+                ? _displayLanguageState.Catalog.Shell.RestoreWindow
+                : _displayLanguageState.Catalog.Shell.MaximizeWindow);
 
     private static void ConfigureTitleBarButton(
         TitleBar titleBar,

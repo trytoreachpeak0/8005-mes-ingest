@@ -226,6 +226,42 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
+    public void English_language_reprojects_area_rename_and_delete_confirmation_copy_and_uia() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            window.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+            window.UpdateLayout();
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            list.SelectedItem = Assert.Single(Rows(list), row => row.ProfileName == "西区");
+            var prompt = Assert.IsAssignableFrom<Wpf.Ui.Controls.TextBlock>(
+                window.FindName("AreaProfileFileOperationPromptText"));
+            var panel = Assert.IsType<Border>(window.FindName("AreaProfileFileOperationPanel"));
+            var confirm = Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("AreaProfileFileOperationConfirmButton"));
+            var cancel = Assert.IsAssignableFrom<ButtonBase>(
+                window.FindName("AreaProfileFileOperationCancelButton"));
+
+            FileCommand(window, "西区", "AreaProfileRenameMenuItem")
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.Equal("Rename “西区.txt”", prompt.Text);
+            Assert.Equal("Rename", confirm.Content);
+            Assert.Equal("Confirm rename 西区.txt", AutomationProperties.GetName(confirm));
+            Assert.Equal(prompt.Text, AutomationProperties.GetName(panel));
+            Assert.DoesNotContain("重命名", prompt.Text, StringComparison.Ordinal);
+
+            cancel.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+            FileCommand(window, "西区", "AreaProfileDeleteMenuItem")
+                .RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+
+            Assert.StartsWith("Confirm deletion of “西区.txt”", prompt.Text, StringComparison.Ordinal);
+            Assert.Equal("Confirm delete", confirm.Content);
+            Assert.Equal("Confirm delete 西区.txt", AutomationProperties.GetName(confirm));
+            Assert.Equal(prompt.Text, AutomationProperties.GetName(panel));
+            Assert.DoesNotContain("删除", prompt.Text, StringComparison.Ordinal);
+        });
+
+    [Fact]
     public void A_profile_dropped_into_the_directory_joins_the_list_without_any_user_action() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {

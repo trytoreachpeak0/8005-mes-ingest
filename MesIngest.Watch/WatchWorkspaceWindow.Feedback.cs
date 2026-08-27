@@ -61,22 +61,22 @@ internal partial class WatchWorkspaceWindow
             WatchWorkspacePage.DemandSeries,
             state.DemandSeries.SelectionNotice,
             $"{state.HostGeneration}:{state.DemandSeries.SelectionGeneration}",
-            WatchFeedbackText.Localized("feedback.selection.demand-series"));
+            WatchFeedbackText.DemandSeriesSelectionCleared);
         PublishSelectionFeedback(
             WatchWorkspacePage.ReadabilityAudit,
             state.ReadabilityAudit.SelectionNotice,
             $"{state.HostGeneration}:{state.ReadabilityAudit.SelectionGeneration}",
-            WatchFeedbackText.Localized("feedback.selection.transport-demand"));
+            WatchFeedbackText.TransportDemandSelectionCleared);
         PublishSelectionFeedback(
             WatchWorkspacePage.ErrorSearch,
             state.ErrorSearch.SelectionNotice,
             $"{state.HostGeneration}:{state.ErrorSearch.SelectionGeneration}",
-            WatchFeedbackText.Localized("feedback.selection.error"));
+            WatchFeedbackText.ErrorSelectionCleared);
         PublishSelectionFeedback(
             WatchWorkspacePage.CurrentAttention,
             _currentAttentionSelectionNotice,
             _currentAttentionSelectionNotice ?? string.Empty,
-            WatchFeedbackText.Localized("feedback.selection.attention"));
+            WatchFeedbackText.AttentionSelectionCleared);
     }
 
     private void PublishSelectionFeedback(
@@ -98,9 +98,9 @@ internal partial class WatchWorkspaceWindow
 
         _selectionFeedbackTokens[page] = token;
         var localized = new WatchLocalizedNotificationContent(
-            WatchFeedbackText.Localized("feedback.severity.information"),
+            WatchFeedbackText.InformationSeverity,
             title,
-            WatchFeedbackText.Localized("feedback.selection-cleared"));
+            WatchFeedbackText.SelectionCleared);
         PresentNotification(WatchNotificationEvent.CreateLocalized(
             new WatchNotificationSource(
                 "refresh.selection-cleared",
@@ -317,7 +317,7 @@ internal partial class WatchWorkspaceWindow
         WatchLocalizedText actionLabel)
     {
         var localized = new WatchLocalizedNotificationContent(
-            WatchFeedbackText.Localized("feedback.severity.error"),
+            WatchFeedbackText.ErrorSeverity,
             title,
             controlledMessage,
             actionLabel);

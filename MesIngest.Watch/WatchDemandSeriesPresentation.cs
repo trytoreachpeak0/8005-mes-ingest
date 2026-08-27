@@ -300,18 +300,19 @@ internal sealed record WatchDemandSeriesPresentation(
 
         var compared = new List<string>();
         var differences = new List<string>();
-        Compare("WorkType", source.WorkType, target.WorkType, compared, differences);
-        Compare("SUBLOT", source.Sublot, target.Sublot, compared, differences);
-        Compare(text.GenerationLabel, source.Generation, target.Generation, compared, differences);
-        Compare(text.DemandStateLabel, source.DemandStatus, target.DemandStatus, compared, differences);
-        Compare(text.LifecycleLabel, source.Lifecycle, target.Lifecycle, compared, differences);
-        Compare(text.PresenceLabel, source.CurrentPresence, target.CurrentPresence, compared, differences);
+        Compare("WorkType", source.WorkType, target.WorkType, compared, differences, text.SourceNotProvided);
+        Compare("SUBLOT", source.Sublot, target.Sublot, compared, differences, text.SourceNotProvided);
+        Compare(text.GenerationLabel, source.Generation, target.Generation, compared, differences, text.SourceNotProvided);
+        Compare(text.DemandStateLabel, source.DemandStatus, target.DemandStatus, compared, differences, text.SourceNotProvided);
+        Compare(text.LifecycleLabel, source.Lifecycle, target.Lifecycle, compared, differences, text.SourceNotProvided);
+        Compare(text.PresenceLabel, source.CurrentPresence, target.CurrentPresence, compared, differences, text.SourceNotProvided);
         Compare(
             text.ReadabilityLabel,
             source.ExternalReadabilityState,
             target.ExternalReadabilityState,
             compared,
-            differences);
+            differences,
+            text.SourceNotProvided);
         if (source.ReadabilityBlockers is not null)
         {
             var sourceBlockers = string.Join('、', source.ReadabilityBlockers.Order(StringComparer.Ordinal));
@@ -337,7 +338,7 @@ internal sealed record WatchDemandSeriesPresentation(
         T? target,
         ICollection<string> compared,
         ICollection<string> differences,
-        string emptyLabel = "—")
+        string emptyLabel)
     {
         if (source is null)
         {

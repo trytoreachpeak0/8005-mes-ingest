@@ -268,18 +268,19 @@ internal partial class WatchWorkspaceWindow
         WatchV2WorkspaceState state)
     {
         var text = _displayLanguageState.Catalog.ReadabilityAudit;
+        var common = _displayLanguageState.Catalog.Common;
         var snapshot = state.ReadabilityAudit.Snapshot;
         ReadabilityCatalogRevisionText.Text = snapshot is null
-            ? "Catalog Revision —"
+            ? text.RevisionNotLoaded
             : $"Catalog Revision {snapshot.Snapshot.CatalogRevision:N0}";
         AutomationProperties.SetName(
             ReadabilityCatalogRevisionPill,
-            $"Host {ReadabilityCatalogRevisionText.Text}");
+            text.RevisionAutomation(ReadabilityCatalogRevisionText.Text));
         var readabilityHeaderFullFacts = string.Join(
             " · ",
             new[]
             {
-                $"本机 AREA：{presentation.LocalAreaHeading}",
+                text.LocalAreaHeader(presentation.LocalAreaHeading),
                 presentation.LocalAreaDetail,
                 presentation.HostAreaScope,
                 presentation.SnapshotFacts,
@@ -294,22 +295,23 @@ internal partial class WatchWorkspaceWindow
             ? _displayLanguageState.Catalog.Common.NotLoaded
             : _displayLanguageState.Catalog.FormatAbsoluteTime(snapshot.Snapshot.ProjectionCommittedAt);
         ReadabilityHeaderFactsText.Text =
-            $"本机 {presentation.LocalAreaHeading} · {conciseHostAreaScope} · {readabilityFreshness}";
+            text.HeaderFacts(
+                presentation.LocalAreaHeading,
+                conciseHostAreaScope,
+                readabilityFreshness);
         ReadabilityHeaderFactsText.ToolTip = readabilityHeaderFullFacts;
         AutomationProperties.SetHelpText(
             ReadabilityHeaderFactsText,
             readabilityHeaderFullFacts);
         AutomationProperties.SetName(
             ReadabilityHeaderFactsText,
-            $"资格审计 AREA 与更新时间：{readabilityHeaderFullFacts}");
+            text.HeaderAutomation(readabilityHeaderFullFacts));
 
         var compactSnapshotFacts = string.Join(
             " · ",
             new[]
             {
-                snapshot is null
-                    ? "SnapshotReference 尚无快照"
-                    : $"SnapshotReference {snapshot.SnapshotReference}",
+                text.SnapshotReference(snapshot?.SnapshotReference),
                 presentation.SnapshotFacts,
                 presentation.ClientAttemptFacts,
                 presentation.HostAreaScope,
@@ -325,41 +327,36 @@ internal partial class WatchWorkspaceWindow
             ExternalReadabilityStates.NotReadable,
             StringComparison.Ordinal))?.DemandCount ?? 0;
         ReadabilityStateAllButton.Content = snapshot is null
-            ? $"{text.All} —"
-            : $"{text.All} {snapshot.ExactTotalDemandCount:N0}";
+            ? text.StateCount(text.All, common.NotLoaded)
+            : text.StateCount(text.All, $"{snapshot.ExactTotalDemandCount:N0}");
         ReadabilityStateReadableButton.Content = snapshot is null
-            ? $"{text.Readable} —"
-            : $"{text.Readable} {readableCount:N0}";
+            ? text.StateCount(text.Readable, common.NotLoaded)
+            : text.StateCount(text.Readable, $"{readableCount:N0}");
         ReadabilityStateNotReadableButton.Content = snapshot is null
-            ? $"{text.NotReadable} —"
-            : $"{text.NotReadable} {notReadableCount:N0}";
+            ? text.StateCount(text.NotReadable, common.NotLoaded)
+            : text.StateCount(text.NotReadable, $"{notReadableCount:N0}");
         ReadabilityNotReadableCountText.Text = snapshot is null
-            ? $"— {text.NotReadable}"
-            : $"{notReadableCount:N0} {text.NotReadable}";
+            ? text.StateCount(common.NotLoaded, text.NotReadable)
+            : text.StateCount($"{notReadableCount:N0}", text.NotReadable);
         AutomationProperties.SetName(
             ReadabilityNotReadableCountPill,
-            $"Host 精确 {ReadabilityNotReadableCountText.Text}");
+            text.ExactCountAutomation(ReadabilityNotReadableCountText.Text));
         ReadabilityMasterHeadingText.Text = text.MasterHeading;
 
-        ReadabilityBlockerFacetSummaryText.Text = snapshot is null
-            ? "阻断原因精确分面：尚无快照"
-            : presentation.BlockerFacets.Count == 0
-                ? "阻断原因精确分面：无命中"
-                : "阻断原因精确分面：" + string.Join(
-                    " · ",
-                    presentation.BlockerFacets.Select(facet =>
-                        $"{facet.Code} {facet.DemandCount:N0}"));
+        ReadabilityBlockerFacetSummaryText.Text = text.BlockerFacetSummary(
+            presentation.BlockerFacets,
+            snapshot is not null);
         ReadabilityCompactFactsText.Text = string.Join(
             " · ",
             new[]
             {
-                "原因可重叠；不可见总数按运输需求代次去重",
+                text.CompactOverlap,
                 compactSnapshotFacts,
                 ReadabilityBlockerFacetSummaryText.Text,
             }.Where(value => !string.IsNullOrWhiteSpace(value)));
         AutomationProperties.SetName(
             ReadabilityCompactFactsText,
-            $"资格审计紧凑快照事实：{ReadabilityCompactFactsText.Text}");
+            text.CompactAutomation(ReadabilityCompactFactsText.Text));
         AutomationProperties.SetHelpText(
             ReadabilityCompactFactsText,
             ReadabilityCompactFactsText.Text);
@@ -389,11 +386,13 @@ internal partial class WatchWorkspaceWindow
         ReadabilityDetailInfoBar.Title = isReadable
             ? text.DetailConclusion(detail.DemandId, readable: true)
             : text.DetailConclusion(detail.DemandId, readable: false);
-        ReadabilityDetailInfoBar.Message = isReadable
-            ? "当前冻结审计快照中的全部外部可见资格检查通过。"
-            : $"当前冻结审计快照的阻断条件：{detail.AllBlockersSummary}。";
+        ReadabilityDetailInfoBar.Message = text.DetailMessage(
+            isReadable,
+            detail.AllBlockersSummary);
         AutomationProperties.SetName(
             ReadabilityDetailInfoBar,
-            $"{ReadabilityDetailInfoBar.Title}。{ReadabilityDetailInfoBar.Message}");
+            text.DetailInfoAutomation(
+                ReadabilityDetailInfoBar.Title,
+                ReadabilityDetailInfoBar.Message));
     }
 }

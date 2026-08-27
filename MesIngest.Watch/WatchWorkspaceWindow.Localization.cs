@@ -168,6 +168,8 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(
             HostNavigationItem,
             shell.HostSettingsAutomationName);
+        ApplyLocalizedNavigationToggle(WorkspaceNavigation);
+        OnWindowTitleBarLoaded(WindowTitleBar, new RoutedEventArgs());
 
         AutomationProperties.SetName(SettingsPage, settings.PageAutomationName);
         SettingsPageTitleText.Text = settings.PageTitle;

@@ -292,6 +292,12 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetHelpText(
                 AreaProfileFileOperationConfirmButton,
                 AreaProfileFileOperationPromptText.Text);
+            AutomationProperties.SetName(
+                AreaProfileFileOperationConfirmButton,
+                AreaFileOperationAutomationName(
+                    confirmation.Operation,
+                    confirmation.SourceProfileName ?? string.Empty,
+                    text));
         }
 
         if (AreaProfileList.Resources["AreaProfileFileContextMenu"] is ContextMenu menu
@@ -1844,20 +1850,20 @@ internal partial class WatchWorkspaceWindow
             sourceProfileName,
             sourceFileFingerprint,
             invoker);
+        var text = _displayLanguageState.Catalog.AreaFilter;
         AreaProfileFileOperationPromptText.Text = operation switch
         {
-            AreaProfileFileOperation.Rename => $"重命名“{sourceProfileName}.txt”",
-            AreaProfileFileOperation.Delete =>
-                $"再次确认删除“{sourceProfileName}.txt”；若该配置为当前应用，删除后已应用 AREA 快照与显示范围仍生效",
+            AreaProfileFileOperation.Rename => text.RenamePrompt(sourceProfileName),
+            AreaProfileFileOperation.Delete => text.DeletePrompt(sourceProfileName),
             _ => prompt,
         };
         AreaProfileFileOperationConfirmButton.Content = operation switch
         {
-            AreaProfileFileOperation.Create => "确认名称",
-            AreaProfileFileOperation.SaveAs => "另存为",
-            AreaProfileFileOperation.Rename => "重命名",
-            AreaProfileFileOperation.Delete => "确认删除",
-            _ => "确认",
+            AreaProfileFileOperation.Create => text.ConfirmName,
+            AreaProfileFileOperation.SaveAs => text.SaveAs,
+            AreaProfileFileOperation.Rename => text.Rename,
+            AreaProfileFileOperation.Delete => text.ConfirmDelete,
+            _ => text.Confirm,
         };
         AreaProfileTargetNameInput.Visibility = operation == AreaProfileFileOperation.Delete
             ? Visibility.Collapsed
@@ -1873,14 +1879,7 @@ internal partial class WatchWorkspaceWindow
             AreaProfileFileOperationPromptText.Text);
         AutomationProperties.SetName(
             AreaProfileFileOperationConfirmButton,
-            operation switch
-            {
-                AreaProfileFileOperation.Rename => $"确认重命名 {sourceProfileName}.txt",
-                AreaProfileFileOperation.Delete => $"确认删除 {sourceProfileName}.txt",
-                AreaProfileFileOperation.Create => "确认新建 AREA 配置名称",
-                AreaProfileFileOperation.SaveAs => "确认另存 AREA TXT 配置",
-                _ => "确认 AREA 文件操作",
-            });
+            AreaFileOperationAutomationName(operation, sourceProfileName ?? string.Empty, text));
         if (AreaProfileTargetNameInput.Visibility == Visibility.Visible)
         {
             AreaProfileTargetNameInput.Focus();
@@ -2311,6 +2310,18 @@ internal partial class WatchWorkspaceWindow
         ProjectAreaProfileInfoBar(AreaProfileInfoBar, content);
         AreaProfileInfoBar.IsOpen = true;
     }
+
+    private static string AreaFileOperationAutomationName(
+        AreaProfileFileOperation operation,
+        string sourceProfileName,
+        WatchAreaFilterText text) => operation switch
+    {
+        AreaProfileFileOperation.Rename => text.ConfirmRenameAutomation(sourceProfileName),
+        AreaProfileFileOperation.Delete => text.ConfirmDeleteAutomation(sourceProfileName),
+        AreaProfileFileOperation.Create => text.ConfirmCreateAutomation,
+        AreaProfileFileOperation.SaveAs => text.ConfirmSaveAsAutomation,
+        _ => text.ConfirmFileAutomation,
+    };
 
     private void ReprojectAreaProfileInfoBars()
     {

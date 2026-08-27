@@ -17,6 +17,38 @@ public sealed class WatchNotificationSpineTests
     private static readonly DateTimeOffset StartedAt =
         DateTimeOffset.Parse("2026-08-26T08:00:00Z");
 
+    [Fact]
+    public void Production_window_rejects_notifications_without_typed_bilingual_content() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory("typed-contract");
+            WatchWorkspaceWindow? window = null;
+            try
+            {
+                window = CreateWorkspace(root, new ManualTimerTimeProvider(StartedAt));
+                var notification = new WatchNotificationEvent(
+                    new WatchNotificationSource(
+                        "test.untyped",
+                        WatchNotificationScope.Global,
+                        "untyped"),
+                    WatchNotificationSeverity.Warning,
+                    "警告",
+                    "未类型化通知",
+                    "不得进入生产窗口");
+
+                var error = Assert.Throws<ArgumentException>(() =>
+                    window.PresentNotification(notification));
+
+                Assert.Contains("typed bilingual", error.Message, StringComparison.Ordinal);
+                Assert.Empty(NotificationItems(window).Items);
+            }
+            finally
+            {
+                window?.Close();
+                DeleteDirectory(root);
+            }
+        });
+
     [Theory]
     [InlineData((int)WatchNotificationSeverity.Information, 3)]
     [InlineData((int)WatchNotificationSeverity.Success, 3)]
@@ -510,16 +542,17 @@ public sealed class WatchNotificationSpineTests
             try
             {
                 window = CreateWorkspace(root, new ManualTimerTimeProvider(StartedAt));
-                window.PresentNotification(new WatchNotificationEvent(
+                window.PresentNotification(WatchNotificationEvent.CreateLocalized(
                     new WatchNotificationSource(
                         "test.semantic-event",
                         WatchNotificationScope.ForPage(WatchWorkspacePage.Settings),
                         "uia"),
                     WatchNotificationSeverity.Warning,
-                    "警告",
-                    "AREA 配置需要确认",
-                    "磁盘版本已经改变，请选择下一步。",
-                    "查看详情",
+                    WatchLocalizedNotificationContent.Create(
+                        ("警告", "Warning"),
+                        ("AREA 配置需要确认", "AREA profile requires confirmation"),
+                        ("磁盘版本已经改变，请选择下一步。", "The disk version changed. Choose the next step."),
+                        ("查看详情", "View details")),
                     () => { }));
 
                 var items = NotificationItems(window);
@@ -643,16 +676,17 @@ public sealed class WatchNotificationSpineTests
                 var invoked = 0;
                 var clock = new ManualTimerTimeProvider(StartedAt);
                 window = CreateWorkspace(root, clock);
-                window.PresentNotification(new WatchNotificationEvent(
+                window.PresentNotification(WatchNotificationEvent.CreateLocalized(
                     new WatchNotificationSource(
                         "test.semantic-event",
                         WatchNotificationScope.Global,
                         "dispose"),
                     WatchNotificationSeverity.Error,
-                    "错误",
-                    "窗口即将关闭",
-                    "关闭后不得继续回调。",
-                    "执行动作",
+                    WatchLocalizedNotificationContent.Create(
+                        ("错误", "Error"),
+                        ("窗口即将关闭", "Window is closing"),
+                        ("关闭后不得继续回调。", "Callbacks must stop after closing."),
+                        ("执行动作", "Run action")),
                     () => invoked++));
                 var command = TemplateElement<ButtonBase>(
                     window,
@@ -700,21 +734,26 @@ public sealed class WatchNotificationSpineTests
         WatchNotificationSeverity severity,
         string title,
         string message = "受控通知说明",
-        WatchNotificationScope? scope = null) => new(
-        new WatchNotificationSource(
-            "test.semantic-event",
-            scope ?? WatchNotificationScope.ForPage(WatchWorkspacePage.Overview),
-            identity),
-        severity,
-        severity switch
+        WatchNotificationScope? scope = null)
+    {
+        var severityText = severity switch
         {
-            WatchNotificationSeverity.Success => "成功",
-            WatchNotificationSeverity.Warning => "警告",
-            WatchNotificationSeverity.Error => "错误",
-            _ => "信息",
-        },
-        title,
-        message);
+            WatchNotificationSeverity.Success => new WatchLocalizedText("成功", "Success"),
+            WatchNotificationSeverity.Warning => new WatchLocalizedText("警告", "Warning"),
+            WatchNotificationSeverity.Error => new WatchLocalizedText("错误", "Error"),
+            _ => new WatchLocalizedText("信息", "Information"),
+        };
+        return WatchNotificationEvent.CreateLocalized(
+            new WatchNotificationSource(
+                "test.semantic-event",
+                scope ?? WatchNotificationScope.ForPage(WatchWorkspacePage.Overview),
+                identity),
+            severity,
+            WatchLocalizedNotificationContent.Create(
+                severityText,
+                new WatchLocalizedText(title, title),
+                new WatchLocalizedText(message, message)));
+    }
 
     private static Grid NotificationOverlay(WatchWorkspaceWindow window) =>
         Assert.IsType<Grid>(window.FindName("NotificationOverlay"));

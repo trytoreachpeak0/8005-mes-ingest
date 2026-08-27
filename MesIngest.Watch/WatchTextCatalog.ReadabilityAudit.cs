@@ -56,6 +56,21 @@ internal sealed partial class WatchReadabilityAuditText
     private static readonly WatchTextCatalogEntry NotLoadedHelpEntry = E("audit.value.notLoaded.help", "详情仍在加载", "Detail is still loading");
     private static readonly WatchTextCatalogEntry EmptyResultHelpEntry = E("audit.value.emptyResult.help", "成功返回 0 条", "Successful result: 0 rows");
     private static readonly WatchTextCatalogEntry ReadFailedHelpEntry = E("audit.value.readFailed.help", "读取失败；保留上次成功值及其时点", "Read failed; last successful value and its timestamp retained");
+    private static readonly WatchTextCatalogEntry LocalAreaHeaderEntry = E("audit.header.localArea", "本机 AREA：{0}", "Local AREA: {0}");
+    private static readonly WatchTextCatalogEntry HeaderFactsEntry = E("audit.header.facts", "本机 {0} · {1} · {2}", "Local {0} · {1} · {2}");
+    private static readonly WatchTextCatalogEntry HeaderAutomationEntry = E("audit.header.automation", "资格审计 AREA 与更新时间：{0}", "Eligibility-audit AREA scope and update time: {0}");
+    private static readonly WatchTextCatalogEntry SnapshotNotLoadedEntry = E("audit.snapshot.notLoaded", "SnapshotReference 尚无快照", "SnapshotReference is not loaded");
+    private static readonly WatchTextCatalogEntry SnapshotReferenceEntry = E("audit.snapshot.reference", "SnapshotReference {0}", "SnapshotReference {0}");
+    private static readonly WatchTextCatalogEntry StateCountEntry = E("audit.state.count", "{0} {1}", "{0} {1}");
+    private static readonly WatchTextCatalogEntry ExactCountAutomationEntry = E("audit.state.exactAutomation", "Host 精确 {0}", "Exact Host count: {0}");
+    private static readonly WatchTextCatalogEntry BlockerFacetNotLoadedEntry = E("audit.facets.notLoaded", "阻断原因精确分面：尚无快照", "Exact blocker facets: snapshot not loaded");
+    private static readonly WatchTextCatalogEntry BlockerFacetEmptyEntry = E("audit.facets.empty", "阻断原因精确分面：无命中", "Exact blocker facets: no matches");
+    private static readonly WatchTextCatalogEntry BlockerFacetSummaryEntry = E("audit.facets.summary", "阻断原因精确分面：{0}", "Exact blocker facets: {0}");
+    private static readonly WatchTextCatalogEntry CompactOverlapEntry = E("audit.compact.overlap", "原因可重叠；不可见总数按运输需求代次去重", "Reasons may overlap; the not-readable total is distinct by transport-demand generation");
+    private static readonly WatchTextCatalogEntry CompactAutomationEntry = E("audit.compact.automation", "资格审计紧凑快照事实：{0}", "Compact eligibility-audit snapshot facts: {0}");
+    private static readonly WatchTextCatalogEntry ReadableDetailMessageEntry = E("audit.detail.readableMessage", "当前冻结审计快照中的全部外部可见资格检查通过。", "All external-readability qualification checks pass in the current frozen audit snapshot.");
+    private static readonly WatchTextCatalogEntry BlockedDetailMessageEntry = E("audit.detail.blockedMessage", "当前冻结审计快照的阻断条件：{0}。", "Blocking conditions in the current frozen audit snapshot: {0}.");
+    private static readonly WatchTextCatalogEntry DetailInfoAutomationEntry = E("audit.detail.infoAutomation", "{0}。{1}", "{0}. {1}");
 
     private static readonly IReadOnlyDictionary<string, WatchTextCatalogEntry> BlockerEntries =
         new Dictionary<string, WatchTextCatalogEntry>(StringComparer.Ordinal)
@@ -83,6 +98,11 @@ internal sealed partial class WatchReadabilityAuditText
         SelectDemandEntry, NoBlockerEntry, UnknownBlockerEntry, SourceNotProvidedHelpEntry,
         SystemUnknownHelpEntry, NotApplicableHelpEntry, NotLoadedHelpEntry,
         EmptyResultHelpEntry, ReadFailedHelpEntry,
+        LocalAreaHeaderEntry, HeaderFactsEntry, HeaderAutomationEntry,
+        SnapshotNotLoadedEntry, SnapshotReferenceEntry, StateCountEntry,
+        ExactCountAutomationEntry, BlockerFacetNotLoadedEntry, BlockerFacetEmptyEntry,
+        BlockerFacetSummaryEntry, CompactOverlapEntry, CompactAutomationEntry,
+        ReadableDetailMessageEntry, BlockedDetailMessageEntry, DetailInfoAutomationEntry,
         .. BlockerEntries.Values,
     ];
 
@@ -180,9 +200,13 @@ internal sealed partial class WatchReadabilityAuditText
         ? Select(WatchLegacyGeneratedText.ReadabilityAudit105)
         : Format(WatchLegacyGeneratedText.ReadabilityAudit106, new object?[] { string.Join('、', areas) }, new object?[] { string.Join(", ", areas) });
 
-    public string LocalAreaDetail(string state, IReadOnlyList<string> areas) => areas.Count == 0
-        ? Format(WatchLegacyGeneratedText.ReadabilityAudit107, new object?[] { state }, new object?[] { state })
-        : $"{state} · {string.Join(Select(WatchLegacyGeneratedText.ReadabilityAudit108), areas)}";
+    public string LocalAreaDetail(string state, IReadOnlyList<string> areas)
+    {
+        var localizedState = WatchTextCatalog.For(Language).Overview.LocalState(state);
+        return areas.Count == 0
+            ? Format(WatchLegacyGeneratedText.ReadabilityAudit107, new object?[] { localizedState }, new object?[] { localizedState })
+            : $"{localizedState} · {string.Join(Select(WatchLegacyGeneratedText.ReadabilityAudit108), areas)}";
+    }
 
     public string ClientAttempts(DateTimeOffset? successfulAt, DateTimeOffset? failedAt)
     {
@@ -367,6 +391,47 @@ internal sealed partial class WatchReadabilityAuditText
             : WatchLegacyGeneratedText.ReadabilityDetailLoadingMessage,
         [demandId],
         [demandId]);
+    public string LocalAreaHeader(string heading) => string.Format(Text(LocalAreaHeaderEntry), heading);
+    public string LocalAreaHeading(string heading) =>
+        string.Equals(
+            heading,
+            WatchAreaDisplayContext.AllAreas.ProfileName,
+            StringComparison.Ordinal)
+            ? WatchTextCatalog.For(Language).Overview.AllArea
+            : heading;
+    public string HeaderFacts(string localArea, string hostScope, string freshness) =>
+        string.Format(Text(HeaderFactsEntry), localArea, hostScope, freshness);
+    public string HeaderAutomation(string facts) => string.Format(Text(HeaderAutomationEntry), facts);
+    public string SnapshotReference(string? snapshotReference) => string.IsNullOrWhiteSpace(snapshotReference)
+        ? Text(SnapshotNotLoadedEntry)
+        : string.Format(Text(SnapshotReferenceEntry), snapshotReference);
+    public string StateCount(string label, string value) => string.Format(Text(StateCountEntry), label, value);
+    public string ExactCountAutomation(string value) => string.Format(Text(ExactCountAutomationEntry), value);
+    public string BlockerFacetSummary(IReadOnlyList<WatchReadabilityBlockerFacetPresentation>? facets, bool hasSnapshot)
+    {
+        if (!hasSnapshot)
+        {
+            return Text(BlockerFacetNotLoadedEntry);
+        }
+
+        if (facets is null || facets.Count == 0)
+        {
+            return Text(BlockerFacetEmptyEntry);
+        }
+
+        return string.Format(
+            Text(BlockerFacetSummaryEntry),
+            string.Join(
+                WatchTextCatalog.For(Language).Common.ListSeparator,
+                facets.Select(facet => $"{facet.Code} {facet.DemandCount:N0}")));
+    }
+    public string CompactOverlap => Text(CompactOverlapEntry);
+    public string CompactAutomation(string facts) => string.Format(Text(CompactAutomationEntry), facts);
+    public string DetailMessage(bool readable, string blockers) => readable
+        ? Text(ReadableDetailMessageEntry)
+        : string.Format(Text(BlockedDetailMessageEntry), blockers);
+    public string DetailInfoAutomation(string title, string message) =>
+        string.Format(Text(DetailInfoAutomationEntry), title, message);
 
     private string TextFor(WatchDisplayValueKind kind) => kind switch
     {

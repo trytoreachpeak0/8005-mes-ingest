@@ -48,6 +48,9 @@ internal sealed class WatchSettingsText(WatchDisplayLanguage language)
     private static readonly WatchTextCatalogEntry OffEntry = E("settings.common.off", "关", "Off");
     private static readonly WatchTextCatalogEntry SaveEntry = E("settings.save", "保存刷新与显示设置", "Save refresh and display settings");
     private static readonly WatchTextCatalogEntry SecondsChoiceEntry = E("settings.refresh.seconds", "{0} 秒", "{0} seconds");
+    private static readonly WatchTextCatalogEntry ValidatingHostEntry = E("settings.host.validating", "正在验证新 Host 契约；旧 Host 业务状态已清空。", "Validating the new Host contract; the old Host business state has been cleared.");
+    private static readonly WatchTextCatalogEntry TimeoutValidationEntry = E("settings.host.timeoutValidation", "请求超时必须是 1–300 秒之间的整数。", "Request timeout must be an integer from 1 to 300 seconds.");
+    private static readonly WatchTextCatalogEntry ApplyValidationEntry = E("settings.host.applyValidation", "无法应用 Host 设置。{0}", "Unable to apply Host settings. {0}");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -94,6 +97,9 @@ internal sealed class WatchSettingsText(WatchDisplayLanguage language)
         OffEntry,
         SaveEntry,
         SecondsChoiceEntry,
+        ValidatingHostEntry,
+        TimeoutValidationEntry,
+        ApplyValidationEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -140,4 +146,7 @@ internal sealed class WatchSettingsText(WatchDisplayLanguage language)
     public string Off => Text(OffEntry);
     public string Save => Text(SaveEntry);
     public string FormatSeconds(int seconds) => string.Format(Text(SecondsChoiceEntry), seconds);
+    public string ValidatingHost => Text(ValidatingHostEntry);
+    public string TimeoutValidation => Text(TimeoutValidationEntry);
+    public string ApplyValidation(string detail) => string.Format(Text(ApplyValidationEntry), detail);
 }

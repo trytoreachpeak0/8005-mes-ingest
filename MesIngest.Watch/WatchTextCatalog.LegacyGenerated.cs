@@ -1,5 +1,9 @@
 namespace MesIngest.Watch;
 
+// Source-controlled catalog entries, not build output. These entries were
+// migrated once from legacy catalog branches. Keep each semantic ID stable and
+// edit both language templates here when visible copy changes.
+
 internal static class WatchLegacyGeneratedText
 {
     internal static readonly WatchTextCatalogEntry ReadabilityFacetOverlapHelp =

@@ -22,13 +22,17 @@ internal partial class WatchWorkspaceWindow
     private readonly Func<bool> _notificationReducedMotionProvider;
     private long _notificationTransitionVersion;
 
-    internal void PresentNotification(WatchNotificationEvent notification) =>
-        _notificationCoordinator.Present(notification.LocalizedContent is null
-            ? notification with
-            {
-                LocalizedContent = WatchFeedbackText.Localize(notification),
-            }
-            : notification);
+    internal void PresentNotification(WatchNotificationEvent notification)
+    {
+        if (notification.LocalizedContent is null)
+        {
+            throw new ArgumentException(
+                "Production notifications require typed bilingual localized content.",
+                nameof(notification));
+        }
+
+        _notificationCoordinator.Present(notification);
+    }
 
     private void InitializeNotifications()
     {

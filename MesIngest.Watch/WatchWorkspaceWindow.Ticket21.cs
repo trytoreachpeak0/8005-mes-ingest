@@ -739,9 +739,9 @@ internal partial class WatchWorkspaceWindow
             PresentOperationFailure(
                 WatchWorkspacePage.ReadabilityAudit,
                 "readability.operation",
-                WatchFeedbackText.Localized("feedback.operation.readability.title"),
-                WatchFeedbackText.Localized("feedback.operation.retry-message"),
-                WatchFeedbackText.Localized("feedback.operation.readability.action"));
+                WatchFeedbackText.ReadabilityOperationTitle,
+                WatchFeedbackText.OperationRetryMessage,
+                WatchFeedbackText.ReadabilityOperationAction);
         }
     }
 }

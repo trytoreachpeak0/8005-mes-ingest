@@ -21,6 +21,12 @@ internal sealed class WatchShellText(WatchDisplayLanguage language)
     private static readonly WatchTextCatalogEntry HostFailedEntry = E("shell.host.failed", "Host 连接失败", "Host connection failed");
     private static readonly WatchTextCatalogEntry ReadFailedEntry = E("shell.host.readFailed", "读取失败", "read failed");
     private static readonly WatchTextCatalogEntry HostNotConnectedTooltipEntry = E("shell.host.notConnectedTooltip", "Host 尚未连接", "Host is not connected");
+    private static readonly WatchTextCatalogEntry NavigationToggleEntry = E("shell.navigation.toggle", "展开或折叠主导航", "Expand or collapse primary navigation");
+    private static readonly WatchTextCatalogEntry NavigationToggleHelpEntry = E("shell.navigation.toggleHelp", "在 48 epx 紧凑导航与 224 epx 展开导航之间切换", "Switch between the compact 48 epx navigation rail and the expanded 224 epx navigation pane");
+    private static readonly WatchTextCatalogEntry MinimizeWindowEntry = E("shell.window.minimize", "最小化窗口", "Minimize window");
+    private static readonly WatchTextCatalogEntry MaximizeWindowEntry = E("shell.window.maximize", "最大化窗口", "Maximize window");
+    private static readonly WatchTextCatalogEntry RestoreWindowEntry = E("shell.window.restore", "还原窗口", "Restore window");
+    private static readonly WatchTextCatalogEntry CloseWindowEntry = E("shell.window.close", "关闭窗口", "Close window");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -40,6 +46,12 @@ internal sealed class WatchShellText(WatchDisplayLanguage language)
         HostFailedEntry,
         ReadFailedEntry,
         HostNotConnectedTooltipEntry,
+        NavigationToggleEntry,
+        NavigationToggleHelpEntry,
+        MinimizeWindowEntry,
+        MaximizeWindowEntry,
+        RestoreWindowEntry,
+        CloseWindowEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => CatalogEntries;
@@ -58,5 +70,11 @@ internal sealed class WatchShellText(WatchDisplayLanguage language)
     public string HostFailed => Text(HostFailedEntry);
     public string ReadFailed => Text(ReadFailedEntry);
     public string HostNotConnectedTooltip => Text(HostNotConnectedTooltipEntry);
+    public string NavigationToggle => Text(NavigationToggleEntry);
+    public string NavigationToggleHelp => Text(NavigationToggleHelpEntry);
+    public string MinimizeWindow => Text(MinimizeWindowEntry);
+    public string MaximizeWindow => Text(MaximizeWindowEntry);
+    public string RestoreWindow => Text(RestoreWindowEntry);
+    public string CloseWindow => Text(CloseWindowEntry);
     public string NavigationName(string label) => string.Format(Text(NavigationSuffixEntry), label);
 }

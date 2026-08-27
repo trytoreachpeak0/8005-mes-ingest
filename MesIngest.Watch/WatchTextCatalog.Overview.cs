@@ -32,6 +32,16 @@ internal sealed partial class WatchOverviewText
     private static readonly WatchTextCatalogEntry ProtectionEntry = E("overview.section.protection", "存储与历史保护", "Storage and history protection");
     private static readonly WatchTextCatalogEntry SnapshotEntry = E("overview.section.snapshot", "概览快照事实", "Overview snapshot facts");
     private static readonly WatchTextCatalogEntry AllAreaEntry = E("overview.area.all", "全部 AREA", "All AREA");
+    private static readonly WatchTextCatalogEntry ContextAutomationEntry = E("overview.automation.context", "概览快照、客户端读取时间与自动刷新策略：{0}", "Overview snapshot, client read time, and auto-refresh policy: {0}");
+    private static readonly WatchTextCatalogEntry NoReadNoticeEntry = E("overview.automation.noReadNotice", "概览读取状态：当前无活动通知", "Overview read state: no active notice");
+    private static readonly WatchTextCatalogEntry ReadNoticeEntry = E("overview.automation.readNotice", "{0}。{1}", "{0}. {1}");
+    private static readonly WatchTextCatalogEntry NoStaleEntry = E("overview.automation.notStale", "概览数据未标记为陈旧", "Overview data is not marked stale");
+    private static readonly WatchTextCatalogEntry AttentionAutomationEntry = E("overview.automation.attention", "存储与历史保护状态：{0}。{1}。接入告警严重度精确分面：{2}", "Storage and history protection: {0}. {1}. Exact ingest-alert severity facets: {2}");
+    private static readonly WatchTextCatalogEntry HealthAutomationEntry = E("overview.automation.health", "概览健康区：{0}。{1}", "Overview health region: {0}. {1}");
+    private static readonly WatchTextCatalogEntry ConciseNoScopeEntry = E("overview.concise.noScope", "Host 尚无范围", "Host scope is not loaded");
+    private static readonly WatchTextCatalogEntry ConciseAllScopeEntry = E("overview.concise.allScope", "Host 全部 AREA", "All Host AREA values");
+    private static readonly WatchTextCatalogEntry ConciseSomeScopeEntry = E("overview.concise.someScope", "Host {0}", "Host {0}");
+    private static readonly WatchTextCatalogEntry ConciseManyScopeEntry = E("overview.concise.manyScope", "Host {0} 等 {1:N0} 个 AREA", "Host {0} and {1:N0} AREA values total");
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
@@ -40,6 +50,9 @@ internal sealed partial class WatchOverviewText
         PriorSevenDaysEntry, RecentEntry, RecentHelpEntry, DescendingEntry, NoRecentEntry, SeriesUnitEntry,
         DemandUnitEntry, ErrorSeriesUnitEntry, AttentionUnitEntry, NoHostSnapshotEntry,
         WaitingEntry, HostNoScopeEntry, ProtectionEntry, SnapshotEntry, AllAreaEntry,
+        ContextAutomationEntry, NoReadNoticeEntry, ReadNoticeEntry, NoStaleEntry,
+        AttentionAutomationEntry, HealthAutomationEntry, ConciseNoScopeEntry,
+        ConciseAllScopeEntry, ConciseSomeScopeEntry, ConciseManyScopeEntry,
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
@@ -71,6 +84,35 @@ internal sealed partial class WatchOverviewText
     public string Protection => Text(ProtectionEntry);
     public string Snapshot => Text(SnapshotEntry);
     public string AllArea => Text(AllAreaEntry);
+    public string ContextAutomation(string context) => string.Format(Text(ContextAutomationEntry), context);
+    public string ReadStateAutomation(string title, string message, bool isOpen) => isOpen
+        ? string.Format(Text(ReadNoticeEntry), title, message)
+        : Text(NoReadNoticeEntry);
+    public string StaleAutomation(string staleText, bool isStale) => isStale
+        ? staleText
+        : Text(NoStaleEntry);
+    public string AttentionAutomation(string status, string detail, string facets) =>
+        string.Format(Text(AttentionAutomationEntry), status, detail, facets);
+    public string HealthAutomation(string status, string detail) =>
+        string.Format(Text(HealthAutomationEntry), status, detail);
+    public string ConciseHostAreaScope(IReadOnlyList<string>? areas, bool hasSnapshot)
+    {
+        if (!hasSnapshot)
+        {
+            return Text(ConciseNoScopeEntry);
+        }
+
+        if (areas is null || areas.Count == 0)
+        {
+            return Text(ConciseAllScopeEntry);
+        }
+
+        const int visibleAreaCount = 2;
+        var visible = string.Join(WatchTextCatalog.For(Language).Common.ListSeparator, areas.Take(visibleAreaCount));
+        return areas.Count <= visibleAreaCount
+            ? string.Format(Text(ConciseSomeScopeEntry), visible)
+            : string.Format(Text(ConciseManyScopeEntry), visible, areas.Count);
+    }
 
     public string LocalAreaDetail(string state, IReadOnlyList<string> areas, DateTimeOffset? updatedAt, WatchTextCatalog catalog)
     {

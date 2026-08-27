@@ -1,5 +1,9 @@
 namespace MesIngest.Watch;
 
+// Source-controlled catalog entries, not build output. These entries were
+// migrated once from production presentation call sites. Keep each semantic ID
+// stable and edit both language templates here when visible copy changes.
+
 internal static class WatchGeneratedText
 {
     internal static readonly WatchTextCatalogEntry CurrentAttentionPresentation001 =

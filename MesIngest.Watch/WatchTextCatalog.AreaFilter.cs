@@ -108,6 +108,11 @@ internal sealed partial class WatchAreaFilterText
         new("area.diagnostic.profileNameUnchanged", "新的 AREA 配置名称未改变。", "The new AREA profile name is unchanged."),
         new("area.diagnostic.activeMarkerWriteFailed", "无法写入已应用 AREA 标记。", "The applied AREA marker could not be written."),
         new("area.diagnostic.unknown", "{0}: {1}", "AREA profile diagnostic {0}.{1}"),
+        new("area.operation.confirmRenameAutomation", "确认重命名 {0}.txt", "Confirm rename {0}.txt"),
+        new("area.operation.confirmDeleteAutomation", "确认删除 {0}.txt", "Confirm delete {0}.txt"),
+        new("area.operation.confirmCreateAutomation", "确认新建 AREA 配置名称", "Confirm new AREA profile name"),
+        new("area.operation.confirmSaveAsAutomation", "确认另存 AREA TXT 配置", "Confirm saving the AREA TXT profile as a new file"),
+        new("area.operation.confirmFileAutomation", "确认 AREA 文件操作", "Confirm AREA file operation"),
     ];
 
     public override IReadOnlyList<WatchTextCatalogEntry> Entries =>
@@ -371,6 +376,11 @@ internal sealed partial class WatchAreaFilterText
 
     public string RenamePrompt(string? profileName) => Format(WatchLegacyGeneratedText.AreaFilter016, new object?[] { profileName }, new object?[] { profileName });
     public string DeletePrompt(string? profileName) => Format(WatchLegacyGeneratedText.AreaFilter017, new object?[] { profileName }, new object?[] { profileName });
+    public string ConfirmRenameAutomation(string profileName) => string.Format(Get("area.operation.confirmRenameAutomation"), profileName);
+    public string ConfirmDeleteAutomation(string profileName) => string.Format(Get("area.operation.confirmDeleteAutomation"), profileName);
+    public string ConfirmCreateAutomation => Get("area.operation.confirmCreateAutomation");
+    public string ConfirmSaveAsAutomation => Get("area.operation.confirmSaveAsAutomation");
+    public string ConfirmFileAutomation => Get("area.operation.confirmFileAutomation");
     public string FileNameTooltip => Select(WatchLegacyGeneratedText.AreaFilter018);
     public string SearchAutomation => Select(WatchLegacyGeneratedText.AreaFilter019);
     public string ListAutomation => Select(WatchLegacyGeneratedText.AreaFilter020);

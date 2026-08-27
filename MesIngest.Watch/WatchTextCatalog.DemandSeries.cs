@@ -336,6 +336,7 @@ internal sealed partial class WatchDemandSeriesText
     public string ReadabilityLabel => Text(ReadabilityLabelEntry);
     public string BlockersLabel => Text(BlockersLabelEntry);
     public string None => Text(NoneEntry);
+    public string SourceNotProvided => WatchTextCatalog.For(Language).Common.SourceNotProvided;
     public string FormatFilterChoiceName(string label, string choice) => F(FilterChoiceNameEntry, label, choice);
     public string DescribeSource(string sourceName) => sourceName switch
     {

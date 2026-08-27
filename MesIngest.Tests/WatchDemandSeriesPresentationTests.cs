@@ -374,6 +374,74 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.Contains("来源对象事实", presentation.SourceSnapshotSummary, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Source_comparison_uses_explicit_source_semantics_when_the_target_fact_is_null()
+    {
+        var at = DateTimeOffset.Parse("2026-08-14T05:00:00Z");
+        var sourceFacts = new WatchDemandSeriesObjectFacts(
+            "series-target-null",
+            "demand-target-null",
+            "WIRE_TO_GATE",
+            "SL-series-target-null",
+            Generation: 2,
+            DemandStatus: "VISIBLE",
+            Lifecycle: "TRACKING",
+            CurrentPresence: "VISIBLE",
+            ExternalReadabilityState: "READABLE",
+            ReadabilityBlockers: []);
+        var navigation = new WatchDemandSeriesNavigationContext(
+            "资格审计",
+            sourceFacts.SeriesId,
+            sourceFacts.DemandId,
+            "commit-source-null",
+            30,
+            at,
+            at,
+            [],
+            sourceFacts);
+        var targetItem = Item(sourceFacts.SeriesId, "TRACKING", "VISIBLE", "READABLE", []) with
+        {
+            CurrentDemandStatus = null!,
+        };
+        var snapshot = EmptyListSnapshot(
+            "commit-target-null",
+            31,
+            at.AddMinutes(1),
+            "poll-target-null",
+            []) with
+        {
+            ExactTotalCount = 1,
+            TotalPages = 1,
+            Items = [targetItem],
+        };
+        var view = WatchV2ViewState<DemandSeriesListSnapshot, DemandSeriesDetailSnapshot>
+            .Empty(81) with
+        {
+            PendingQueryKey = "target-null",
+            CommittedQueryKey = "target-null",
+            Snapshot = snapshot,
+            LastSuccessfulAt = at.AddMinutes(2),
+        };
+
+        foreach (var (language, expectedMissing) in new[]
+        {
+            (WatchDisplayLanguage.SimplifiedChinese, "来源未提供"),
+            (WatchDisplayLanguage.English, "Not provided by source"),
+        })
+        {
+            var presentation = WatchDemandSeriesPresentation.Project(
+                Workspace(view),
+                new DemandSeriesBrowseQuery(snapshot.Filter),
+                WatchAreaDisplayContext.AllAreas,
+                navigation,
+                focusedDemandId: null,
+                text: WatchTextCatalog.For(language).DemandSeries);
+
+            Assert.Contains(expectedMissing, presentation.SourceComparisonMessage, StringComparison.Ordinal);
+            Assert.DoesNotContain("—", presentation.SourceComparisonMessage, StringComparison.Ordinal);
+        }
+    }
+
     [Theory]
     [InlineData(30, "commit-source", "SameProjection", "Success", "同一投影提交")]
     [InlineData(29, "commit-target-older", "TargetOlder", "Warning", "早于来源快照")]

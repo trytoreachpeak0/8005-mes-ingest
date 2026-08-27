@@ -6,6 +6,8 @@ using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 using NavigationView = Wpf.Ui.Controls.NavigationView;
 using NavigationViewItem = Wpf.Ui.Controls.NavigationViewItem;
+using TitleBar = Wpf.Ui.Controls.TitleBar;
+using TitleBarButton = Wpf.Ui.Controls.TitleBarButton;
 
 namespace MesIngest.Tests;
 
@@ -334,6 +336,29 @@ public sealed class WatchBilingualFoundationProductionTests
                 Assert.Equal(
                     "Missing-value and query semantics",
                     Assert.IsAssignableFrom<TextBlock>(window.FindName("ReadabilityMissingSemanticsHeadingText")).Text);
+                var revision = Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("ReadabilityCatalogRevisionText"));
+                Assert.Equal("Catalog Revision Not loaded", revision.Text);
+                Assert.DoesNotContain("—", revision.Text, StringComparison.Ordinal);
+                var allState = Assert.IsAssignableFrom<ButtonBase>(
+                    window.FindName("ReadabilityStateAllButton"));
+                Assert.Contains("Not loaded", allState.Content?.ToString(), StringComparison.Ordinal);
+                Assert.DoesNotContain("—", allState.Content?.ToString(), StringComparison.Ordinal);
+                var header = Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("ReadabilityHeaderFactsText"));
+                var compact = Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("ReadabilityCompactFactsText"));
+                Assert.False(ContainsHan(header.Text));
+                Assert.False(ContainsHan(AutomationProperties.GetName(header)));
+                Assert.False(ContainsHan(compact.Text));
+                Assert.False(ContainsHan(AutomationProperties.GetName(compact)));
+                var readabilityText = composition.DisplayLanguageState.Catalog.ReadabilityAudit;
+                Assert.False(ContainsHan(readabilityText.DetailMessage(
+                    readable: true,
+                    blockers: string.Empty)));
+                Assert.False(ContainsHan(readabilityText.DetailMessage(
+                    readable: false,
+                    blockers: "Source field missing")));
 
                 window.Close();
             }
@@ -371,6 +396,90 @@ public sealed class WatchBilingualFoundationProductionTests
                 Assert.Equal(
                     "Recent highlights",
                     Assert.IsAssignableFrom<TextBlock>(window.FindName("RecentActivityHeadingText")).Text);
+
+                window.Close();
+            }
+            finally
+            {
+                DeleteDirectory(root);
+            }
+        });
+
+    [Fact]
+    public void English_language_reprojects_window_chrome_overview_uia_and_host_apply_validation() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory();
+            var client = new RecordingClient(blockContractVerification: true);
+            try
+            {
+                using var composition = CreateComposition(root, client);
+                var window = composition.CreateMainWindow(initializeOnLoaded: false);
+                window.Show();
+                window.UpdateLayout();
+
+                composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+                window.UpdateLayout();
+
+                var navigation = Assert.IsType<NavigationView>(
+                    window.FindName("WorkspaceNavigation"));
+                navigation.ApplyTemplate();
+                var toggle = Assert.IsAssignableFrom<FrameworkElement>(
+                    FindVisualDescendant<FrameworkElement>(navigation, element =>
+                        AutomationProperties.GetAutomationId(element) == "NavigationToggleButton"));
+                Assert.Equal("Expand or collapse primary navigation", AutomationProperties.GetName(toggle));
+                Assert.Equal(
+                    "Switch between the compact 48 epx navigation rail and the expanded 224 epx navigation pane",
+                    AutomationProperties.GetHelpText(toggle));
+
+                var titleBar = Assert.IsType<TitleBar>(window.FindName("WindowTitleBar"));
+                var expectedButtons = new Dictionary<string, string>
+                {
+                    ["PART_MinimizeButton"] = "Minimize window",
+                    ["PART_MaximizeButton"] = "Maximize window",
+                    ["PART_CloseButton"] = "Close window",
+                };
+                foreach (var (partName, expectedName) in expectedButtons)
+                {
+                    var button = Assert.IsType<TitleBarButton>(
+                        titleBar.Template.FindName(partName, titleBar));
+                    Assert.Equal(expectedName, AutomationProperties.GetName(button));
+                }
+
+                var context = Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("OverviewContextText"));
+                var contextName = AutomationProperties.GetName(context);
+                Assert.Contains("Overview snapshot", contextName, StringComparison.Ordinal);
+                Assert.False(ContainsHan(contextName));
+                Assert.False(ContainsHan(AutomationProperties.GetName(
+                    Assert.IsAssignableFrom<FrameworkElement>(window.FindName("AttentionSummaryCard")))));
+                Assert.Equal(
+                    "StatusPill",
+                    WatchWorkspaceWindow.HostStatusStyleKey(
+                        WatchHostConnectionStatus.Connecting,
+                        hasViewFailure: false,
+                        hasProtectionIssue: false,
+                        WatchPresentationSeverity.Informational));
+
+                Click(window, "SettingsNavigationItem");
+                Assert.IsType<TextBox>(window.FindName("HostBaseUrlInput")).Text = "http://host-b";
+                Assert.IsType<TextBox>(window.FindName("RequestTimeoutInput")).Text = "30";
+                Click(window, "ApplyHostButton");
+                var hostState = Assert.IsAssignableFrom<TextBlock>(
+                    window.FindName("SettingsHostStateText"));
+                Assert.Equal(
+                    "Validating the new Host contract; the old Host business state has been cleared.",
+                    hostState.Text);
+                Assert.False(ContainsHan(hostState.Text));
+
+                client.CompleteContractVerification();
+                window.Dispatcher.Invoke(
+                    static () => { },
+                    System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                Assert.IsType<TextBox>(window.FindName("RequestTimeoutInput")).Text = "0";
+                Click(window, "ApplyHostButton");
+                Assert.StartsWith("Unable to apply Host settings.", hostState.Text, StringComparison.Ordinal);
+                Assert.False(ContainsHan(hostState.Text));
 
                 window.Close();
             }
@@ -465,6 +574,31 @@ public sealed class WatchBilingualFoundationProductionTests
             .Select(Assert.IsType<string>)
             .ToArray();
 
+    private static T? FindVisualDescendant<T>(
+        DependencyObject root,
+        Predicate<T> predicate)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
+            if (child is T candidate && predicate(candidate))
+            {
+                return candidate;
+            }
+
+            if (FindVisualDescendant(child, predicate) is { } descendant)
+            {
+                return descendant;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool ContainsHan(string value) => value.Any(character =>
+        character is >= '\u3400' and <= '\u9fff');
+
     private static string PreferencesPath(string root) =>
         Path.Combine(root, "workspace.json");
 
@@ -485,17 +619,30 @@ public sealed class WatchBilingualFoundationProductionTests
             DateTimeOffset.Parse("2026-08-27T14:05:06+08:00");
         private readonly bool _includeDemandRow;
 
-        internal RecordingClient(bool includeDemandRow = false)
+        private readonly TaskCompletionSource? _contractVerificationGate;
+
+        internal RecordingClient(
+            bool includeDemandRow = false,
+            bool blockContractVerification = false)
         {
             _includeDemandRow = includeDemandRow;
+            _contractVerificationGate = blockContractVerification
+                ? new TaskCompletionSource()
+                : null;
         }
 
         public int TotalRequestCount { get; private set; }
 
-        public Task VerifyContractAsync(CancellationToken cancellationToken)
+        internal void CompleteContractVerification() =>
+            _contractVerificationGate?.TrySetResult();
+
+        public async Task VerifyContractAsync(CancellationToken cancellationToken)
         {
             TotalRequestCount++;
-            return Task.CompletedTask;
+            if (_contractVerificationGate is not null)
+            {
+                await _contractVerificationGate.Task.WaitAsync(cancellationToken);
+            }
         }
 
         public Task<WatchOverviewSnapshot> FetchOverviewAsync(
