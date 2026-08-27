@@ -2,6 +2,19 @@
 
 本说明随 `pack/Publish-MesIngest.ps1` 输出到安装根目录 `UPGRADE.md`。首次安装仍以 `INSTALL.md` 为准。
 
+## v2.2 到 v2.3 的唯一原位身份迁移
+
+`2026.08.new-mes-ingest.v2.3` 只新增只读 `SUBLOT_BOX_COUNT` Oracle 能力，SQL Server
+schema 仍为 `29`。新版 Host 在持有既有 schema applock 和 serializable 事务时，仅允许
+一个精确的原位迁移：数据库必须是完整通过结构校验的 v2.2/schema 29，且 key comparison、
+HistoryEpoch、签名密钥及全部表、列、约束、索引均匹配；随后只把
+`mesingest.SchemaInfo.ContractVersion` 从 v2.2 更新为 v2.3。HistoryEpoch、签名密钥和历史
+业务记录保持不变。
+
+未知 contract version、其它 schema version 或任何结构漂移仍拒绝启动，不会部分更新身份。
+该单步迁移不授权 v1/退役契约、任意旧版或结构差异数据库原位升级；以下空库切换规则继续
+适用于这些情况。
+
 ## 这不是就地升级
 
 按 ADR-mes-0017，本版本以**空数据库整体替换**上线，不做就地升级：
