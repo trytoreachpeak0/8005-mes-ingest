@@ -238,7 +238,9 @@ public sealed class SublotBoxCountTests : IClassFixture<WebApplicationFactory<Pr
     private WebApplicationFactory<Program> CreateFactory(ISublotBoxCountReader reader) =>
         factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            // This is an API-surface fixture with an injected reader, not a
+            // long-lived production Host with a current MES producer.
+            builder.UseEnvironment(Environments.Development);
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false");

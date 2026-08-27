@@ -705,15 +705,21 @@ public sealed class NewMesIngestOpenApiContractTests
         string? connectionString = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment(Environments.Production);
+            var isolatedContractFixture = connectionString is null;
+            builder.UseEnvironment(
+                isolatedContractFixture ? Environments.Production : Environments.Development);
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 connectionString
                     ?? "Server=contract.invalid;Database=contract;Integrated Security=true;Encrypt=false");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:SnapshotSource",
-                MesIngestHostOptions.NoRoundSource);
-            builder.UseSetting($"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled", "false");
+                isolatedContractFixture
+                    ? MesIngestHostOptions.OracleRoundSource
+                    : MesIngestHostOptions.NoRoundSource);
+            builder.UseSetting(
+                $"{MesIngestHostOptions.SectionName}:ContinuousPollEnabled",
+                isolatedContractFixture ? "true" : "false");
             builder.UseSetting($"{MesIngestHostOptions.SectionName}:RunOneShotOnStartup", "false");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:SharedSecret",
@@ -725,6 +731,8 @@ public sealed class NewMesIngestOpenApiContractTests
             {
                 builder.ConfigureTestServices(services =>
                 {
+                    // The startup configuration is a valid Production producer,
+                    // but this in-memory contract fixture must not contact SQL or Oracle.
                     services.RemoveAll<IHostedService>();
                     services.RemoveAll<MesIngestHostOptions>();
                     services.AddSingleton(new MesIngestHostOptions
