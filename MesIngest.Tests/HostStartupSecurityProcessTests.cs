@@ -8,6 +8,10 @@ namespace MesIngest.Tests;
 
 public sealed class HostStartupSecurityProcessTests
 {
+    // The deadline includes scheduling and CLR startup under the parallel Tier 1 load;
+    // timeout still fails and kills the exact Host process rather than accepting output alone.
+    private static readonly TimeSpan FailClosedProcessExitTimeout = TimeSpan.FromMinutes(1);
+
     [Fact]
     public async Task Process_rejects_Kestrel_endpoint_before_it_can_override_loopback_MesIngest_urls()
     {
@@ -24,7 +28,7 @@ public sealed class HostStartupSecurityProcessTests
             ["Kestrel__Endpoints__Remote__Url"] = $"http://0.0.0.0:{overridingPort}",
         });
 
-        var result = await WaitForExitAsync(process, TimeSpan.FromSeconds(15));
+        var result = await WaitForExitAsync(process, FailClosedProcessExitTimeout);
 
         Assert.False(result.TimedOut, result.Output);
         Assert.NotEqual(0, result.ExitCode);
@@ -83,7 +87,7 @@ public sealed class HostStartupSecurityProcessTests
             ["MesIngest__RunOneShotOnStartup"] = "false",
         });
 
-        var result = await WaitForExitAsync(process, TimeSpan.FromSeconds(15));
+        var result = await WaitForExitAsync(process, FailClosedProcessExitTimeout);
 
         Assert.False(result.TimedOut, result.Output);
         Assert.NotEqual(0, result.ExitCode);
@@ -128,23 +132,32 @@ public sealed class HostStartupSecurityProcessTests
     private static Process StartHost(IReadOnlyDictionary<string, string?> environment)
     {
         var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent?.Name ?? "Debug";
+        var hostOutputDirectory = Path.Combine(
+            RepositoryPaths.CSharpRoot,
+            "MesIngest.Host",
+            "bin",
+            configuration,
+            "net8.0");
+        var hostAssemblyPath = Path.Combine(hostOutputDirectory, "MesIngest.Host.dll");
+        if (!File.Exists(hostAssemblyPath))
+        {
+            throw new FileNotFoundException(
+                "The built MesIngest.Host assembly is required for the startup process test.",
+                hostAssemblyPath);
+        }
+
         var start = new ProcessStartInfo("dotnet")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            WorkingDirectory = RepositoryPaths.CSharpRoot,
+            WorkingDirectory = hostOutputDirectory,
         };
-        start.ArgumentList.Add("run");
-        start.ArgumentList.Add("--no-build");
-        start.ArgumentList.Add("--no-launch-profile");
-        start.ArgumentList.Add("--configuration");
-        start.ArgumentList.Add(configuration);
-        start.ArgumentList.Add("--project");
-        start.ArgumentList.Add(Path.Combine(
-            RepositoryPaths.CSharpRoot,
-            "MesIngest.Host",
-            "MesIngest.Host.csproj"));
+        // Observe the Host process itself. `dotnet run` adds an SDK/MSBuild wrapper
+        // whose lifetime can outlast a child that has already failed closed under
+        // full-suite process contention, turning the expected startup rejection
+        // into a false timeout.
+        start.ArgumentList.Add(hostAssemblyPath);
 
         foreach (var key in start.Environment.Keys
                      .Where(key => key.StartsWith("MesIngest__", StringComparison.OrdinalIgnoreCase)
