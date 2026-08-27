@@ -164,7 +164,7 @@
                         AutomationProperties.Name="DemandSeries Inspector 调查任务"
                         AutomationProperties.AutomationId="DemandSeriesInspectorTabs">
                 <TabItem x:Name="DemandSeriesInspectorGenerationTab"
-                         Header="世代分析"
+                         Header=""
                          AutomationProperties.Name="世代分析"
                          AutomationProperties.AutomationId="DemandSeriesInspectorGenerationTab">
                     <ScrollViewer x:Name="DemandSeriesInspectorGenerationScrollViewer"
@@ -198,7 +198,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHeadingText" Text="运输需求代次"
+                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHeadingText" Text=""
                                                       Style="{StaticResource SectionTitleText}" />
                                         <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHelpText" Margin="0,3,0,0"
                                                       Text="滚动并选择 DemandId"
@@ -228,7 +228,7 @@
                                          VirtualizingStackPanel.IsVirtualizing="True"
                                          VirtualizingStackPanel.VirtualizationMode="Recycling"
                                          KeyboardNavigation.TabIndex="10"
-                                         AutomationProperties.Name="运输需求代次导航"
+                                         AutomationProperties.Name=""
                                          AutomationProperties.AutomationId="DemandSeriesInspectorGenerationList">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
@@ -335,7 +335,7 @@
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationIdentityText"
                                                           Style="{StaticResource SectionTitleText}"
                                                           TextTrimming="CharacterEllipsis"
-                                                          AutomationProperties.Name="选中运输需求代次身份"
+                                                          AutomationProperties.Name=""
                                                           AutomationProperties.AutomationId="DemandSeriesInspectorGenerationIdentity" />
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationSummaryText"
                                                           Grid.Column="1"
@@ -427,7 +427,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel>
-                                            <ui:TextBlock x:Name="DemandSeriesInspectorMesHeadingText" Text="选中世代的 MES 查询前后差异"
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorMesHeadingText" Text=""
                                                           Style="{StaticResource SectionTitleText}" />
                                             <ui:TextBlock x:Name="DemandSeriesInspectorMesHelpText" Margin="0,3,0,0"
                                                           Text="左侧切换 DemandId 时，此处原子切换为对应边界的原始值"
@@ -465,10 +465,10 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="105" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:TextBlock x:Name="DemandSeriesInspectorNativeFieldHeaderText" Margin="12,7" Text="MES 原生字段" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock x:Name="DemandSeriesInspectorBeforeValueHeaderText" Grid.Column="1" Margin="10,7" Text="前驱最后查询值" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock x:Name="DemandSeriesInspectorAfterValueHeaderText" Grid.Column="2" Margin="10,7" Text="选中世代首次查询值" FontSize="12" FontWeight="SemiBold" />
-                                            <ui:TextBlock x:Name="DemandSeriesInspectorChangeHeaderText" Grid.Column="3" Margin="10,7" Text="变化" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorNativeFieldHeaderText" Margin="12,7" Text="" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorBeforeValueHeaderText" Grid.Column="1" Margin="10,7" Text="" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorAfterValueHeaderText" Grid.Column="2" Margin="10,7" Text="" FontSize="12" FontWeight="SemiBold" />
+                                            <ui:TextBlock x:Name="DemandSeriesInspectorChangeHeaderText" Grid.Column="3" Margin="10,7" Text="" FontSize="12" FontWeight="SemiBold" />
                                         </Grid>
                                         <ItemsControl x:Name="DemandSeriesInspectorMesScalarFields"
                                                       Grid.Row="2"
@@ -587,7 +587,7 @@
                 </TabItem>
 
                 <TabItem x:Name="DemandSeriesInspectorEventsTab"
-                         Header="事件"
+                         Header=""
                          AutomationProperties.Name="事件"
                          AutomationProperties.AutomationId="DemandSeriesInspectorEventsTab">
                     <TabItem.HeaderTemplate>
@@ -623,7 +623,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <ui:TextBlock x:Name="DemandSeriesInspectorEventHeadingText" Text="永久事件" Style="{StaticResource SectionTitleText}" />
+                                <ui:TextBlock x:Name="DemandSeriesInspectorEventHeadingText" Text="" Style="{StaticResource SectionTitleText}" />
                                 <ui:TextBlock x:Name="DemandSeriesInspectorEventContextText"
                                               Margin="0,3,0,0"
                                               Style="{StaticResource SecondaryText}"
@@ -660,7 +660,7 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <StackPanel Margin="16,12">
-                                    <ui:TextBlock x:Name="DemandSeriesInspectorEventLogHeadingText" Text="事件日志" FontWeight="SemiBold" />
+                                    <ui:TextBlock x:Name="DemandSeriesInspectorEventLogHeadingText" Text="" FontWeight="SemiBold" />
                                     <ui:TextBlock x:Name="DemandSeriesInspectorEventLogHelpText" Margin="0,3,0,0"
                                                   Text="事件是冻结审计事实；切换过滤不会改变世代分析中的选择"
                                                   Style="{StaticResource CaptionText}" />
