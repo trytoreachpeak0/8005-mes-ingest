@@ -1,4 +1,5 @@
 using System.IO;
+using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
 using System.Text.Json;
 
@@ -1085,7 +1086,8 @@ internal sealed record WatchV2CurrentAttentionWire(
     IReadOnlyList<string> Severities,
     IReadOnlyList<WatchV2CurrentAttentionItemWire> Items,
     WatchV2HistoryCleanupStateWire HistoryCleanup,
-    WatchV2StoragePressureStateWire StoragePressure)
+    WatchV2StoragePressureStateWire StoragePressure,
+    WatchV2PollSchedulerStateWire? PollScheduler)
 {
     public CurrentIngestAttentionSnapshot ToCore() => new(
         Snapshot.ToCore(),
@@ -1099,5 +1101,32 @@ internal sealed record WatchV2CurrentAttentionWire(
         Severities,
         Items.Select(item => item.ToCore()).ToArray(),
         HistoryCleanup.ToCore(),
-        StoragePressure.ToCore());
+        StoragePressure.ToCore(),
+        (PollScheduler ?? throw new JsonException(
+            "The current-ingest-attention response is missing pollScheduler."))
+            .ToCore());
+}
+
+internal sealed record WatchV2PollSchedulerStateWire(
+    int ConsecutiveFailures,
+    int BackoffLevel,
+    DateTimeOffset? NextAllowedStart,
+    DateTimeOffset? LastSuccessAt,
+    string? PollTraceId)
+{
+    public PollSchedulerStateSnapshot ToCore()
+    {
+        if (ConsecutiveFailures < 0 || BackoffLevel is < 0 or > 3)
+        {
+            throw new JsonException(
+                "The pollScheduler failure count or backoff level is outside the published contract.");
+        }
+
+        return new PollSchedulerStateSnapshot(
+            ConsecutiveFailures,
+            BackoffLevel,
+            NextAllowedStart,
+            LastSuccessAt,
+            PollTraceId);
+    }
 }

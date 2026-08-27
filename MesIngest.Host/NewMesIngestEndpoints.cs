@@ -205,6 +205,12 @@ internal static class NewMesIngestEndpoints
                 new NewMesIngestErrorDto(IngestNotCurrentException.ErrorCode, exception.Message),
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
+        catch (HistoryEpochMismatchException exception)
+        {
+            return Results.Json(
+                HistoryEpochMismatchErrorDto.From(exception),
+                statusCode: StatusCodes.Status409Conflict);
+        }
         var etag = CreateCatalogEtag(read.Identity);
         response.Headers.ETag = etag;
         response.Headers.CacheControl = "private, no-cache";
@@ -267,26 +273,24 @@ internal static class NewMesIngestEndpoints
         $"W/\"{ExternallyReadableDemandCatalogEtagCodec.FormatOpaqueTag(identity)}\"";
 
     private static async Task<IResult> GetDemandSeriesByKeyAsync(
-        string workType,
-        string sublot,
         HttpRequest request,
         IMesIngestProjection projection,
         CancellationToken cancellationToken)
     {
-        if (!TryValidateRequiredText(
-                workType,
+        if (!TryReadRequiredDemandSeriesKey(
+                request.Query,
+                "workType",
                 128,
-                nameof(workType),
-                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var workType,
                 out var workTypeError))
         {
             return Results.BadRequest(workTypeError);
         }
-        if (!TryValidateRequiredText(
-                sublot,
+        if (!TryReadRequiredDemandSeriesKey(
+                request.Query,
+                "sublot",
                 256,
-                nameof(sublot),
-                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                out var sublot,
                 out var sublotError))
         {
             return Results.BadRequest(sublotError);
@@ -330,6 +334,39 @@ internal static class NewMesIngestEndpoints
         {
             return ToBrowseError(exception);
         }
+    }
+
+    private static bool TryReadRequiredDemandSeriesKey(
+        IQueryCollection query,
+        string name,
+        int maximumLength,
+        out string value,
+        out NewMesIngestErrorDto error)
+    {
+        if (!query.TryGetValue(name, out var values) || values.Count == 0)
+        {
+            value = string.Empty;
+            error = new NewMesIngestErrorDto(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} is required and may be supplied once.");
+            return false;
+        }
+        if (values.Count != 1)
+        {
+            value = string.Empty;
+            error = new NewMesIngestErrorDto(
+                DemandSeriesBrowseErrorCodes.InvalidQuery,
+                $"{name} may be supplied once.");
+            return false;
+        }
+
+        value = values[0] ?? string.Empty;
+        return TryValidateRequiredText(
+            value,
+            maximumLength,
+            name,
+            DemandSeriesBrowseErrorCodes.InvalidQuery,
+            out error);
     }
 
     private static async Task<IResult> GetDemandSeriesAsync(
@@ -1025,17 +1062,18 @@ internal static class NewMesIngestEndpoints
         return snapshot;
     }
 
-    private static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
+    internal static ParsedErrorSearchRawEvidenceRequest ParseErrorSearchRawEvidenceRequest(
         IQueryCollection query)
     {
         var allowedKeys = AllowedQueryParameters("GetErrorSearchRawEvidence");
         var snapshot = ParseRequiredErrorSearchSnapshot(query, allowedKeys);
 
-        var fieldsValue = ReadErrorSearchSingle(query, "fields");
-        IReadOnlyList<string> fields = fieldsValue is null
+        IReadOnlyList<string> fields = !query.TryGetValue("fields", out var fieldValues)
             ? ErrorSearchRawEvidenceFields.All
-            : fieldsValue
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            : fieldValues
+                .SelectMany(value => (value ?? string.Empty).Split(
+                    ',',
+                    StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
         var unsupportedField = fields.FirstOrDefault(field => !ErrorSearchRawEvidenceFields.All.Contains(
@@ -1362,6 +1400,20 @@ internal sealed record ParsedErrorSearchRawEvidenceRequest(
 
 internal sealed record NewMesIngestErrorDto(string Code, string Error);
 
+internal sealed record HistoryEpochMismatchErrorDto(
+    string Code,
+    string Error,
+    string CurrentHistoryEpoch,
+    string SuppliedHistoryEpoch)
+{
+    public static HistoryEpochMismatchErrorDto From(HistoryEpochMismatchException exception) =>
+        new(
+            exception.Code,
+            exception.Message,
+            exception.CurrentHistoryEpoch.Value.ToString("D"),
+            exception.SuppliedHistoryEpoch.Value.ToString("D"));
+}
+
 internal sealed record HistoricalReadErrorDto(
     string Code,
     string Error,
@@ -1560,8 +1612,6 @@ internal sealed record CurrentIngestAttentionDto(
                 ?? throw new InvalidOperationException("Storage pressure diagnostics are missing.")));
 }
 
-// Ticket 3 field landing: the frozen CurrentIngestAttention OpenAPI schema remains on
-// CurrentIngestAttentionDto until Ticket 4 performs the exact versioned contract cutover.
 /// <summary>
 /// Current operational attention plus the process-owned poll scheduler seam.
 /// </summary>

@@ -118,6 +118,7 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
     public async Task Conditional_catalog_identity_from_an_old_history_epoch_is_rejected()
     {
         string oldEtag;
+        Guid oldHistoryEpoch;
         await using (var oldDatabase = await Ticket01SqlServerDatabase.CreateAsync())
         {
             using var oldEnvironment = ConfigureProductionV2Environment(oldDatabase.ConnectionString);
@@ -126,6 +127,7 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
 
             var oldCatalog = await GetCatalogAsync(oldClient);
             oldEtag = oldCatalog.ETag;
+            oldHistoryEpoch = Guid.Parse(oldCatalog.Body.GetProperty("historyEpoch").GetString()!);
             AssertDatabaseEvidence(oldDatabase);
         }
 
@@ -133,11 +135,26 @@ public sealed class ExternallyReadableDemandCatalogTests : IClassFixture<WebAppl
         using var newEnvironment = ConfigureProductionV2Environment(newDatabase.ConnectionString);
         await using var newFactory = CreateFactory();
         using var newClient = newFactory.CreateClient();
+        var currentCatalog = await GetCatalogAsync(newClient);
+        var currentHistoryEpoch = Guid.Parse(
+            currentCatalog.Body.GetProperty("historyEpoch").GetString()!);
         using var request = new HttpRequestMessage(HttpMethod.Get, CatalogUri);
         request.Headers.TryAddWithoutValidation("If-None-Match", oldEtag);
 
-        await Assert.ThrowsAsync<HistoryEpochMismatchException>(
-            () => newClient.SendAsync(request));
+        using var response = await newClient.SendAsync(request);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(
+            HistoryEpochMismatchException.ErrorCode,
+            body.RootElement.GetProperty("code").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(body.RootElement.GetProperty("error").GetString()));
+        Assert.Equal(
+            currentHistoryEpoch,
+            body.RootElement.GetProperty("currentHistoryEpoch").GetGuid());
+        Assert.Equal(
+            oldHistoryEpoch,
+            body.RootElement.GetProperty("suppliedHistoryEpoch").GetGuid());
         AssertDatabaseEvidence(newDatabase);
     }
 

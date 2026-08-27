@@ -182,6 +182,21 @@ public sealed class ErrorSearchDetailTests : IClassFixture<WebApplicationFactory
                 .Contains("[REDACTED]", StringComparison.Ordinal));
         Assert.DoesNotContain("secret-password-ticket12", raw.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("secret-ticket12", raw.GetRawText(), StringComparison.Ordinal);
+
+        using var repeatedAndComma = await SendAuthorizedAsync(
+            client,
+            RawUri(seriesId, evidenceId, snapshotReference, "workType", 20)
+                + "&fields=package,workType");
+        var repeatedRaw = await ReadSuccessJsonAsync(repeatedAndComma);
+        Assert.Equal(
+            ["workType", "package"],
+            repeatedRaw.GetProperty("includedFields").EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.All(
+            repeatedRaw.GetProperty("items").EnumerateArray(),
+            rawItem => Assert.Equal(
+                ["workType", "package"],
+                rawItem.GetProperty("fields").EnumerateObject().Select(property => property.Name)));
         AssertDatabaseEvidence(database);
     }
 

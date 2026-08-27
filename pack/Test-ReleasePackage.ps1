@@ -44,7 +44,7 @@ $sublotBoxCountQueryVersion = "$sublotBoxCountQueryId/sha256:$sublotBoxCountQuer
 $sublotBoxCountQueryRelativePath = 'service/queries/sublot-box-count/query.sql'
 $sublotBoxCountQueryManifestRelativePath = 'service/queries/sublot-box-count/query.manifest.json'
 $canonicalOpenApiRelativePath = 'openapi/v2.json'
-$expectedContractVersion = '2026.08.new-mes-ingest.v2.3'
+$expectedContractVersion = '2026.08.new-mes-ingest.v2.4'
 $expectedContractSchemaVersion = 29
 $expectedOpenApiPaths = @(
     '/api/v2/absence-authority',

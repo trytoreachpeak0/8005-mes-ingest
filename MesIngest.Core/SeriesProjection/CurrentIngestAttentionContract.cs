@@ -169,7 +169,8 @@ public sealed record CurrentIngestAttentionSnapshot(
     IReadOnlyList<string> Severities,
     IReadOnlyList<CurrentIngestAttentionItemSnapshot> Items,
     HistoryCleanupStateSnapshot? HistoryCleanup = null,
-    StoragePressureStateSnapshot? StoragePressure = null);
+    StoragePressureStateSnapshot? StoragePressure = null,
+    MesIngest.Core.PollSchedulerStateSnapshot? PollScheduler = null);
 
 public static class CurrentIngestAttentionErrorCodes
 {
