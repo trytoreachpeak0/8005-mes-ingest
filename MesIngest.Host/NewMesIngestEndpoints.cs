@@ -1,3 +1,4 @@
+using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
 using Microsoft.AspNetCore.Http.HttpResults;
 
@@ -1066,6 +1067,7 @@ internal static class NewMesIngestEndpoints
     private static async Task<IResult> ListCurrentIngestAttentionAsync(
         HttpRequest request,
         IMesIngestProjection projection,
+        PollSchedulerState pollSchedulerState,
         CancellationToken cancellationToken)
     {
         try
@@ -1074,7 +1076,9 @@ internal static class NewMesIngestEndpoints
             var snapshot = await projection.ReadCurrentIngestAttentionAsync(
                 query,
                 cancellationToken);
-            return Results.Ok(CurrentIngestAttentionDto.From(snapshot));
+            return Results.Ok(CurrentIngestAttentionOperationalDto.From(
+                snapshot,
+                pollSchedulerState.Current));
         }
         catch (CurrentIngestAttentionException exception)
         {
@@ -1554,6 +1558,65 @@ internal sealed record CurrentIngestAttentionDto(
                 snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun),
             StoragePressureStateDto.From(snapshot.StoragePressure
                 ?? throw new InvalidOperationException("Storage pressure diagnostics are missing.")));
+}
+
+// Ticket 3 field landing: the frozen CurrentIngestAttention OpenAPI schema remains on
+// CurrentIngestAttentionDto until Ticket 4 performs the exact versioned contract cutover.
+/// <summary>
+/// Current operational attention plus the process-owned poll scheduler seam.
+/// </summary>
+internal sealed record CurrentIngestAttentionOperationalDto(
+    OperationalSnapshotIdentityDto Snapshot,
+    long ExactTotalItemCount,
+    CurrentIngestAttentionFacetsDto Facets,
+    string Order,
+    int PageSize,
+    int PageNumber,
+    int TotalPages,
+    IReadOnlyList<string> Kinds,
+    IReadOnlyList<string> Severities,
+    IReadOnlyList<CurrentIngestAttentionItemDto> Items,
+    HistoryCleanupStateDto HistoryCleanup,
+    StoragePressureStateDto StoragePressure,
+    PollSchedulerStateDto PollScheduler)
+{
+    public static CurrentIngestAttentionOperationalDto From(
+        CurrentIngestAttentionSnapshot snapshot,
+        PollSchedulerStateSnapshot pollScheduler)
+    {
+        var current = CurrentIngestAttentionDto.From(snapshot);
+        return new(
+            current.Snapshot,
+            current.ExactTotalItemCount,
+            current.Facets,
+            current.Order,
+            current.PageSize,
+            current.PageNumber,
+            current.TotalPages,
+            current.Kinds,
+            current.Severities,
+            current.Items,
+            current.HistoryCleanup,
+            current.StoragePressure,
+            PollSchedulerStateDto.From(pollScheduler));
+    }
+}
+
+/// <summary>Current process-owned poll scheduler state.</summary>
+internal sealed record PollSchedulerStateDto(
+    int ConsecutiveFailures,
+    int BackoffLevel,
+    DateTimeOffset? NextAllowedStart,
+    DateTimeOffset? LastSuccessAt,
+    string? PollTraceId)
+{
+    public static PollSchedulerStateDto From(PollSchedulerStateSnapshot snapshot) =>
+        new(
+            snapshot.ConsecutiveFailures,
+            snapshot.BackoffLevel,
+            snapshot.NextAllowedStart,
+            snapshot.LastSuccessAt,
+            snapshot.PollTraceId);
 }
 
 internal sealed record StoragePressureStateDto(

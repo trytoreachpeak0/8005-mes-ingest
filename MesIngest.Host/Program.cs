@@ -75,6 +75,9 @@ var replayedRoundExecutor = ReleaseSmokeRoundReplay.Resolve(configured);
 builder.Services.AddSingleton(configured);
 builder.Services.AddSingleton(bindingSecurityPolicy);
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<PollSchedulerState>();
+builder.Services.AddSingleton<IPollSchedulerStateObserver>(sp =>
+    sp.GetRequiredService<PollSchedulerState>());
 if (projectionEnabled)
 {
     builder.Services.AddSingleton<IWatchOverviewReadBoundaryObserver>(

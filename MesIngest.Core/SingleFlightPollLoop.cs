@@ -69,7 +69,51 @@ public static class SingleFlightPollLoop
         CancellationToken cancellationToken,
         Func<DateTimeOffset>? utcNow,
         Func<TimeSpan, CancellationToken, Task>? delay,
+        Func<DateTimeOffset?>? roundStartedAt,
+        Func<string?> pollTraceId,
+        IPollSchedulerStateObserver stateObserver)
+    {
+        ArgumentNullException.ThrowIfNull(pollTraceId);
+        ArgumentNullException.ThrowIfNull(stateObserver);
+        await RunCoreAsync(
+            runRound,
+            pollStartInterval,
+            cancellationToken,
+            utcNow,
+            delay,
+            roundStartedAt,
+            pollTraceId,
+            stateObserver).ConfigureAwait(false);
+    }
+
+    public static async Task RunAsync(
+        Func<CancellationToken, Task<bool>> runRound,
+        TimeSpan pollStartInterval,
+        CancellationToken cancellationToken,
+        Func<DateTimeOffset>? utcNow,
+        Func<TimeSpan, CancellationToken, Task>? delay,
         Func<DateTimeOffset?>? roundStartedAt)
+    {
+        await RunCoreAsync(
+            runRound,
+            pollStartInterval,
+            cancellationToken,
+            utcNow,
+            delay,
+            roundStartedAt,
+            pollTraceId: null,
+            stateObserver: null).ConfigureAwait(false);
+    }
+
+    private static async Task RunCoreAsync(
+        Func<CancellationToken, Task<bool>> runRound,
+        TimeSpan pollStartInterval,
+        CancellationToken cancellationToken,
+        Func<DateTimeOffset>? utcNow,
+        Func<TimeSpan, CancellationToken, Task>? delay,
+        Func<DateTimeOffset?>? roundStartedAt,
+        Func<string?>? pollTraceId,
+        IPollSchedulerStateObserver? stateObserver)
     {
         ArgumentNullException.ThrowIfNull(runRound);
         if (pollStartInterval <= TimeSpan.Zero)
@@ -81,6 +125,7 @@ public static class SingleFlightPollLoop
         delay ??= static (wait, ct) => Task.Delay(wait, ct);
         var nextScheduledStart = utcNow();
         var consecutiveFailures = 0;
+        DateTimeOffset? lastSuccessAt = null;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -106,9 +151,16 @@ public static class SingleFlightPollLoop
             }
 
             var completedAt = utcNow();
+            var observedPollTraceId = pollTraceId?.Invoke();
+            var hasObservedPollTrace = !string.IsNullOrWhiteSpace(observedPollTraceId);
+            var backoffLevel = 0;
             if (succeeded)
             {
                 consecutiveFailures = 0;
+                if (hasObservedPollTrace)
+                {
+                    lastSuccessAt = completedAt;
+                }
                 var observedStart = roundStartedAt?.Invoke();
                 var cadenceStart = observedStart is not null
                     && observedStart.Value >= scheduledStart
@@ -127,8 +179,16 @@ public static class SingleFlightPollLoop
                 var backoffIndex = Math.Min(
                     consecutiveFailures - 1,
                     FailureBackoffDelays.Count - 1);
+                backoffLevel = backoffIndex + 1;
                 nextScheduledStart = completedAt + FailureBackoffDelays[backoffIndex];
             }
+
+            stateObserver?.OnStateChanged(new PollSchedulerStateSnapshot(
+                consecutiveFailures,
+                backoffLevel,
+                nextScheduledStart,
+                lastSuccessAt,
+                hasObservedPollTrace ? observedPollTraceId : null));
 
             var wait = nextScheduledStart - utcNow();
             if (wait < TimeSpan.Zero)
