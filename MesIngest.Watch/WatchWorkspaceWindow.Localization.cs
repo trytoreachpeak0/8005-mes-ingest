@@ -12,11 +12,11 @@ internal partial class WatchWorkspaceWindow
         }
 
         var focusedElement = System.Windows.Input.Keyboard.FocusedElement;
+        var gridViewStates = CaptureLocalizedGridViewStates();
+        var pageViewStates = CaptureLocalizedPageViewStates();
         var areaEditorViewState = AreaProfileEditor is null
             ? null
             : CaptureAreaProfileEditorViewState();
-        var demandSeriesVerticalOffset = DemandSeriesScrollViewer.VerticalOffset;
-        var demandSeriesHorizontalOffset = DemandSeriesScrollViewer.HorizontalOffset;
         ApplyLocalizedShellAndSettingsText();
         ApplyLocalizedAreaFilterStaticText();
         RenderAreaProfiles(editorViewState: areaEditorViewState);
@@ -24,15 +24,131 @@ internal partial class WatchWorkspaceWindow
         DisplayLanguageInput.SelectedValue = _displayLanguageState.Current;
 
         RenderWorkspace();
-        DemandSeriesScrollViewer.ScrollToVerticalOffset(demandSeriesVerticalOffset);
-        DemandSeriesScrollViewer.ScrollToHorizontalOffset(demandSeriesHorizontalOffset);
+        RestoreLocalizedPageViewStates(pageViewStates);
+        RestoreLocalizedGridViewStates(gridViewStates);
 
-        if (focusedElement is System.Windows.IInputElement focusTarget
+        if (!gridViewStates.Any(state => state.HadKeyboardFocus)
+            && focusedElement is System.Windows.IInputElement focusTarget
             && focusTarget.Focusable)
         {
             focusTarget.Focus();
         }
     }
+
+    private IReadOnlyList<LocalizedGridViewState> CaptureLocalizedGridViewStates() =>
+        LocalizedDataGrids()
+            .Select(grid =>
+            {
+                var viewport = FindVisualDescendant<System.Windows.Controls.ScrollViewer>(
+                    grid,
+                    static _ => true);
+                return new LocalizedGridViewState(
+                    grid,
+                    grid.SelectedIndex,
+                    grid.CurrentColumn?.DisplayIndex,
+                    viewport?.HorizontalOffset ?? 0,
+                    viewport?.VerticalOffset ?? 0,
+                    grid.IsKeyboardFocusWithin);
+            })
+            .ToArray();
+
+    private void RestoreLocalizedGridViewStates(
+        IReadOnlyList<LocalizedGridViewState> states)
+    {
+        foreach (var state in states)
+        {
+            var grid = state.Grid;
+            grid.UpdateLayout();
+            if (state.SelectedIndex >= 0 && state.SelectedIndex < grid.Items.Count)
+            {
+                grid.SelectedIndex = state.SelectedIndex;
+            }
+
+            if (grid.SelectedItem is not null && state.CurrentColumnDisplayIndex is int displayIndex)
+            {
+                var column = grid.Columns.FirstOrDefault(candidate =>
+                    candidate.DisplayIndex == displayIndex);
+                if (column is not null)
+                {
+                    grid.CurrentCell = new System.Windows.Controls.DataGridCellInfo(
+                        grid.SelectedItem,
+                        column);
+                }
+            }
+
+            grid.UpdateLayout();
+            var viewport = FindVisualDescendant<System.Windows.Controls.ScrollViewer>(
+                grid,
+                static _ => true);
+            viewport?.ScrollToHorizontalOffset(state.HorizontalOffset);
+            viewport?.ScrollToVerticalOffset(state.VerticalOffset);
+            if (state.HadKeyboardFocus)
+            {
+                grid.Focus();
+            }
+        }
+    }
+
+    private IReadOnlyList<LocalizedPageViewState> CaptureLocalizedPageViewStates() =>
+        LocalizedPageViewports()
+            .Select(viewport => new LocalizedPageViewState(
+                viewport,
+                viewport.HorizontalOffset,
+                viewport.VerticalOffset))
+            .ToArray();
+
+    private static void RestoreLocalizedPageViewStates(
+        IReadOnlyList<LocalizedPageViewState> states)
+    {
+        foreach (var state in states)
+        {
+            state.Viewport.ScrollToHorizontalOffset(state.HorizontalOffset);
+            state.Viewport.ScrollToVerticalOffset(state.VerticalOffset);
+        }
+    }
+
+    private System.Windows.Controls.DataGrid[] LocalizedDataGrids() =>
+    [
+        DemandSeriesGrid,
+        ReadabilityStateFacetGrid,
+        ReadabilityBlockerFacetGrid,
+        ReadabilityAuditGrid,
+        ReadabilityQualificationGrid,
+        ReadabilityBlockerEvidenceGrid,
+        ReadabilityRawObservationGrid,
+        ErrorSearchActivityStateFacetGrid,
+        ErrorSearchSeriesGrid,
+        ErrorSearchPeriodGrid,
+        ErrorSearchEvidenceGrid,
+        ErrorSearchRawEvidenceGrid,
+        CurrentAttentionKindFacetGrid,
+        CurrentAttentionSeverityFacetGrid,
+        CurrentAttentionGrid,
+        CurrentAttentionEvidenceGrid,
+    ];
+
+    private System.Windows.Controls.ScrollViewer[] LocalizedPageViewports() =>
+    [
+        OverviewPage,
+        DemandSeriesScrollViewer,
+        ReadabilityAuditPage,
+        ErrorSearchBodyScrollViewer,
+        CurrentAttentionPage,
+        SettingsPage,
+    ];
+
+    private sealed record LocalizedGridViewState(
+        System.Windows.Controls.DataGrid Grid,
+        int SelectedIndex,
+        int? CurrentColumnDisplayIndex,
+        double HorizontalOffset,
+        double VerticalOffset,
+        bool HadKeyboardFocus);
+
+    private sealed record LocalizedPageViewState(
+        System.Windows.Controls.ScrollViewer Viewport,
+        double HorizontalOffset,
+        double VerticalOffset);
 
     private void ApplyLocalizedShellAndSettingsText()
     {

@@ -163,11 +163,11 @@ internal sealed partial class WatchReadabilityAuditText
 
     public string PageSummary(long total, int page, int pages) =>
         Language == WatchDisplayLanguage.SimplifiedChinese
-            ? $"精确 {total:N0} 个 Demand 世代 · 第 {page:N0} / {pages:N0} 页"
+            ? $"精确 {total:N0} 个运输需求代次 · 第 {page:N0} / {pages:N0} 页"
             : $"Exactly {total:N0} Demands · page {page:N0} of {pages:N0}";
 
     public string EmptyResult(long total) => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? $"查询成功；Host 在当前已提交条件下精确 {total:N0} 个 Demand 世代命中。"
+        ? $"查询成功；Host 在当前已提交条件下精确 {total:N0} 个运输需求代次命中。"
         : $"Query succeeded; exactly {total:N0} Demands matched the committed Host conditions.";
 
     public string HostOrder(string order) => Language == WatchDisplayLanguage.SimplifiedChinese
@@ -185,7 +185,7 @@ internal sealed partial class WatchReadabilityAuditText
             : $"Pending query conditions: {conditions}";
 
     public string AllDemands => Language == WatchDisplayLanguage.SimplifiedChinese
-        ? "全部 Demand 世代"
+        ? "全部运输需求代次"
         : "All Demands";
 
     public string HostAreaScope(IReadOnlyList<string> areas) => areas.Count == 0
@@ -345,6 +345,147 @@ internal sealed partial class WatchReadabilityAuditText
         (WatchDisplayLanguage.SimplifiedChinese, "MES_FIELD_FORMAT_VALID") => "全部已提供 MES 字段符合领域格式",
         _ => fallbackEnglish,
     };
+
+    public string CannotConnectHost => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "无法连接 Host"
+        : "Cannot connect to Host";
+    public string ReplacementHostFailure(string failure) => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? $"新 Host 未通过契约连接；旧 Host 数据已清空。{failure}"
+        : $"The replacement Host failed contract connection; old Host data was cleared. {failure}";
+    public string ConnectingHost => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "正在连接 Host"
+        : "Connecting to Host";
+    public string ConnectingMessage => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "连接成功后将读取一份冻结的资格审计快照。"
+        : "A frozen eligibility-audit snapshot will be read after connection succeeds.";
+    public string WaitingFrozenSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "等待 Host 返回冻结快照。"
+        : "Waiting for the Host to return a frozen snapshot.";
+    public string RetainedDuringRefresh(DateTimeOffset committedAt, WatchTextCatalog catalog) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"刷新期间继续显示 Host 快照 {catalog.FormatAbsoluteTime(committedAt)}。"
+            : $"Refresh in progress; continues to show Host snapshot {catalog.FormatAbsoluteTime(committedAt)}.";
+    public string PriorFailureRetry(DateTimeOffset failedAt, WatchTextCatalog catalog) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $" 上次失败于 {catalog.FormatAbsoluteTime(failedAt)}；本次正在重试。"
+            : $" Previous attempt failed {catalog.FormatAbsoluteTime(failedAt)}; retry in progress.";
+    public string LoadingTitle(bool hasSnapshot) => (Language, hasSnapshot) switch
+    {
+        (WatchDisplayLanguage.SimplifiedChinese, false) => "正在读取资格审计",
+        (WatchDisplayLanguage.SimplifiedChinese, true) => "正在刷新资格审计",
+        (WatchDisplayLanguage.English, false) => "Loading eligibility audit",
+        _ => "Refreshing eligibility audit",
+    };
+    public string NoSuccessfulSnapshot => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "当前没有可显示的成功快照。"
+        : "There is no successful snapshot to display.";
+    public string RetainedAfterFailure(DateTimeOffset committedAt, WatchTextCatalog catalog) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"继续显示 Host 快照 {catalog.FormatAbsoluteTime(committedAt)}；其筛选、精确分面和 AREA 范围不会被失败查询改写。"
+            : $"Continues to show Host snapshot {catalog.FormatAbsoluteTime(committedAt)}; the failed query did not rewrite its filters, exact facets, or AREA scope.";
+    public string FailureTitle(bool hasSnapshot) => (Language, hasSnapshot) switch
+    {
+        (WatchDisplayLanguage.SimplifiedChinese, false) => "资格审计读取失败",
+        (WatchDisplayLanguage.SimplifiedChinese, true) => "资格审计刷新失败，已保留上次快照",
+        (WatchDisplayLanguage.English, false) => "Eligibility-audit read failed",
+        _ => "Eligibility-audit refresh failed; previous snapshot retained",
+    };
+    public string FailedAt(DateTimeOffset failedAt, string retained, string failure, WatchTextCatalog catalog) =>
+        Language == WatchDisplayLanguage.SimplifiedChinese
+            ? $"失败于 {catalog.FormatAbsoluteTime(failedAt)}。{retained}{failure}"
+            : $"Failed {catalog.FormatAbsoluteTime(failedAt)}. {retained}{failure}";
+    public string SelectionLostTitle => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "原选择已不在刷新结果中"
+        : "Previous selection is no longer in the refreshed results";
+    public string SelectionLostMessage => Language == WatchDisplayLanguage.SimplifiedChinese
+        ? "刷新成功，但原运输需求代次已不在当前冻结结果中；已清除详情，请重新选择。"
+        : "Refresh succeeded, but the previous demand generation is no longer in the frozen results. Details were cleared; select another item.";
+    public string FailureMessage(string? message, string? correlationId)
+    {
+        var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : $" {message}";
+        return string.IsNullOrWhiteSpace(correlationId)
+            ? detail
+            : Language == WatchDisplayLanguage.SimplifiedChinese
+                ? $"{detail} 关联 ID {correlationId}。"
+                : $"{detail} Correlation ID {correlationId}.";
+    }
+
+    public string ReadStateAutomation(string title, string message, bool isOpen) => isOpen
+        ? Language == WatchDisplayLanguage.English ? $"{title}. {message}" : $"{title}。{message}"
+        : Language == WatchDisplayLanguage.English
+            ? "Eligibility-audit read state: no active notification"
+            : "资格审计读取状态：当前无活动通知";
+    public string PageSummaryAutomation(string summary) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit exact total and page: {summary}"
+        : $"资格审计精确总数与页码：{summary}";
+    public string AreaScopeAutomation(string scope) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit AREA scope: {scope}"
+        : $"资格审计 AREA 范围：{scope}";
+    public string NonEmptyOrUnread => Language == WatchDisplayLanguage.English
+        ? "Eligibility-audit results are nonempty or have not been read successfully"
+        : "资格审计结果不为空或尚未成功读取";
+    public string DetailEvidence(string facts, string blockers) => Language == WatchDisplayLanguage.English
+        ? $"{facts} · All blockers {blockers}"
+        : $"{facts} · 全部阻断 {blockers}";
+    public string LiveMesFieldsAutomation(
+        string area, string eqp, string step, string dates, string package) =>
+        Language == WatchDisplayLanguage.English
+            ? $"Eligibility-audit last trusted MES fields: AREA {area}; EQP {eqp}; STEP {step}; DATES {dates}; PACKAGE {package}"
+            : $"资格审计最后可信 MES 字段：AREA {area}；EQP {eqp}；STEP {step}；DATES {dates}；PACKAGE {package}";
+    public string FieldAutomation(string field, string value) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit MES {field} {value}"
+        : $"资格审计 MES {field} {value}";
+    public string BusinessIdentityAutomation(string value) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit business identity: {value}"
+        : $"资格审计业务身份：{value}";
+    public string SeriesFactsAutomation(string value) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit demand-series facts: {value}"
+        : $"资格审计所属需求系列事实：{value}";
+    public string ObservationAutomation(string value) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit MES observation: {value}"
+        : $"资格审计 MES 观测说明：{value}";
+    public string SelectPrimaryEvidence => Language == WatchDisplayLanguage.English
+        ? "Select an item to view primary blocker evidence."
+        : "选择后显示首要阻断证据。";
+    public string NoBlockerEvidence => Language == WatchDisplayLanguage.English
+        ? "The current qualification checks returned no blocker evidence."
+        : "当前资格检查未返回阻断证据。";
+    public string MissingStructuredEvidence => Language == WatchDisplayLanguage.English
+        ? "Host returned no structured evidence for the primary blocker."
+        : "Host 未返回首要阻断的结构化证据。";
+    public string ObservedValue(string subjectKind, string value, string at) => Language == WatchDisplayLanguage.English
+        ? $"{subjectKind} · Observed value {value} · {at}"
+        : $"{subjectKind} · 观测值 {value} · {at}";
+    public string Rule(string rule) => Language == WatchDisplayLanguage.English ? $"Rule: {rule}" : $"规则：{rule}";
+    public string PrimaryBlockerAutomation(string code, string evidence, string rule) =>
+        Language == WatchDisplayLanguage.English
+            ? $"Primary blocker: {code}; {evidence}; {rule}"
+            : $"首要阻断：{code}；{evidence}；{rule}";
+    public string RevisionPrompt => Language == WatchDisplayLanguage.English
+        ? "Select a transport demand to view the complete Catalog revision and frozen-snapshot chain."
+        : "选择运输需求后显示完整 Catalog 修订与冻结快照链。";
+    public string RevisionNotLoaded => $"Catalog Revision {WatchTextCatalog.For(Language).Common.NotLoaded}";
+    public string RevisionAutomation(string value) => Language == WatchDisplayLanguage.English
+        ? $"Eligibility-audit Catalog revision facts: {value}"
+        : $"资格审计修订目录事实：{value}";
+    public string DetailStatusTitle(bool selectionLost, bool selected, bool failed) =>
+        (Language, selectionLost, selected, failed) switch
+        {
+            (WatchDisplayLanguage.English, true, _, _) => "Previous selection cleared",
+            (WatchDisplayLanguage.SimplifiedChinese, true, _, _) => "原选择已清除",
+            (_, _, false, _) => NotSelected,
+            (WatchDisplayLanguage.English, _, true, true) => "Could not read same-snapshot details",
+            (WatchDisplayLanguage.SimplifiedChinese, _, true, true) => "无法读取同快照详情",
+            (WatchDisplayLanguage.English, _, true, false) => "Loading same-snapshot details",
+            _ => "正在读取同快照详情",
+        };
+    public string DetailStatusMessage(string demandId, bool failed) => Language == WatchDisplayLanguage.English
+        ? failed
+            ? $"Details for transport demand {demandId} failed to load; the list still belongs to the frozen snapshot shown above."
+            : $"Transport demand {demandId} is selected; loading details for the current snapshotReference."
+        : failed
+            ? $"运输需求 {demandId} 的详情读取失败；列表仍属于上方标明的冻结快照。"
+            : $"已选择运输需求 {demandId}；正在读取当前 snapshotReference 的详情。";
 
     private string TextFor(WatchDisplayValueKind kind) => kind switch
     {

@@ -5,6 +5,39 @@ namespace MesIngest.Tests;
 public sealed class WatchBilingualNotificationTests
 {
     [Fact]
+    public void Continuing_fault_reprojects_every_visible_field_from_the_typed_catalog()
+    {
+        var clock = new ManualTimerTimeProvider(DateTimeOffset.Parse("2026-08-27T09:00:00+08:00"));
+        var language = new WatchDisplayLanguageState(WatchDisplayLanguage.SimplifiedChinese);
+        using var coordinator = new WatchWindowNotificationCoordinator(clock, language);
+        var localized = WatchFeedbackText.ContinuingFault(
+            "readability.refresh",
+            WatchHostFailureKind.Timeout);
+        coordinator.Present(new WatchNotificationEvent(
+            new WatchNotificationSource(
+                "readability.refresh",
+                WatchNotificationScope.ForPage(WatchWorkspacePage.ReadabilityAudit),
+                "continuing"),
+            WatchNotificationSeverity.Error,
+            localized.SeverityText.SimplifiedChinese,
+            localized.Title.SimplifiedChinese,
+            localized.Message.SimplifiedChinese,
+            localized.ActionLabel?.SimplifiedChinese,
+            static () => { },
+            LocalizedContent: localized));
+
+        language.ApplyCommitted(WatchDisplayLanguage.English);
+
+        var projected = coordinator.GetSnapshot().Single();
+        Assert.Equal("Error", projected.SeverityText);
+        Assert.Equal("Eligibility-audit read keeps failing", projected.Title);
+        Assert.Contains("timed out", projected.Message, StringComparison.Ordinal);
+        Assert.Equal("View page", projected.ActionLabel);
+        Assert.DoesNotContain("持续失败", projected.Title, StringComparison.Ordinal);
+        Assert.DoesNotContain("查看页面", projected.ActionLabel, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Language_reprojection_keeps_occurrence_expiry_action_and_suppresses_announcement()
     {
         var clock = new ManualTimerTimeProvider(DateTimeOffset.Parse("2026-08-27T09:00:00+08:00"));

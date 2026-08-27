@@ -100,6 +100,108 @@ internal sealed partial class WatchFeedbackText
             ? null
             : new WatchLocalizedText(notification.ActionLabel, TranslateKnownChinese(notification.ActionLabel)));
 
+    internal static WatchLocalizedNotificationContent ContinuingFault(
+        string sourceKey,
+        WatchHostFailureKind failureKind)
+    {
+        var title = sourceKey switch
+        {
+            "host.connection" => ("Host 连接持续失败", "Host connection keeps failing"),
+            "overview.refresh" => ("概览读取持续失败", "Overview read keeps failing"),
+            "overview.protection" => ("保护状态读取持续失败", "Protection-state read keeps failing"),
+            "demand-series.refresh" => ("需求系列读取持续失败", "Demand-series read keeps failing"),
+            "demand-series.detail" => ("需求系列详情读取持续失败", "Demand-series detail read keeps failing"),
+            "readability.refresh" => ("资格审计读取持续失败", "Eligibility-audit read keeps failing"),
+            "readability.detail" => ("资格审计详情读取持续失败", "Eligibility-audit detail read keeps failing"),
+            "error-search.refresh" => ("错误检索读取持续失败", "Error Search read keeps failing"),
+            "error-search.detail" => ("错误详情读取持续失败", "Error-detail read keeps failing"),
+            "attention.refresh" => ("接入告警读取持续失败", "Current-ingest-attention read keeps failing"),
+            _ => ("读取持续失败", "Read keeps failing"),
+        };
+        var isHostConnection = sourceKey == "host.connection";
+        var message = FailureMessage(failureKind, isHostConnection);
+        var action = isHostConnection
+            ? ("打开设置", "Open settings")
+            : ("查看页面", "View page");
+        return new WatchLocalizedNotificationContent(
+            new("错误", "Error"),
+            new(title.Item1, title.Item2),
+            new(message.Chinese, message.English),
+            new(action.Item1, action.Item2));
+    }
+
+    internal static WatchLocalizedNotificationContent Recovered(
+        WatchLocalizedText faultTitle) => new(
+        new("恢复", "Recovered"),
+        new("读取已恢复", "Read recovered"),
+        new(
+            $"{faultTitle.SimplifiedChinese}已恢复；稳定故障状态已清除。",
+            $"{faultTitle.English} recovered; the continuing-fault state was cleared."));
+
+    internal static WatchLocalizedNotificationContent BackgroundFaultSummary(
+        int count,
+        WatchLocalizedText mostSevereTitle) => new(
+        new("错误", "Error"),
+        new("后台期间出现新的持续故障", "New continuing fault occurred in the background"),
+        count == 1
+            ? mostSevereTitle
+            : new WatchLocalizedText(
+                $"仍有 {count} 个新故障活动；请查看页面标题状态。",
+                $"{count} new faults remain active; review the page-header status."),
+        new("查看故障", "View fault"));
+
+    internal static WatchLocalizedNotificationContent FaultDetails(
+        int count,
+        WatchLocalizedNotificationContent fault) => new(
+        new("错误", "Error"),
+        fault.Title,
+        count == 1
+            ? fault.Message
+            : new WatchLocalizedText(
+                $"当前共有 {count} 个持续故障。{fault.Message.SimplifiedChinese}",
+                $"There are currently {count} continuing faults. {fault.Message.English}"));
+
+    internal static (string Text, string Detail, string Automation) FaultHeader(
+        WatchDisplayLanguage language,
+        IReadOnlyList<WatchContinuingFault> faults)
+    {
+        var projected = faults.Select(fault => fault.Project(language)).ToArray();
+        var text = language == WatchDisplayLanguage.English
+            ? $"Error · {faults.Count} faults"
+            : $"错误 · {faults.Count} 个故障";
+        var detail = string.Join(
+            language == WatchDisplayLanguage.English ? "; " : "；",
+            projected.Select(item => item.Title));
+        var automation = language == WatchDisplayLanguage.English
+            ? $"{text}. {detail}. Open fault details"
+            : $"{text}。{detail}。打开故障详情";
+        return (text, detail, automation);
+    }
+
+    private static (string Chinese, string English) FailureMessage(
+        WatchHostFailureKind failureKind,
+        bool isHostConnection) => (failureKind, isHostConnection) switch
+    {
+        (WatchHostFailureKind.Authentication, _) =>
+            ("Host 拒绝了当前凭据；请在设置中更新凭据后重试。", "Host rejected the current credential. Update it in Settings and try again."),
+        (WatchHostFailureKind.Contract or WatchHostFailureKind.Decode, _) =>
+            ("Host 返回内容与当前 Watch 不兼容；请核对 Host 版本。", "Host returned content incompatible with this Watch version. Check the Host version."),
+        (WatchHostFailureKind.Timeout, true) =>
+            ("Host 连接验证超时；请检查连接设置后重试。", "Host connection validation timed out. Check the connection settings and try again."),
+        (WatchHostFailureKind.Network or WatchHostFailureKind.Http, true) =>
+            ("Host 暂时不可达；请检查连接设置后重试。", "Host is temporarily unreachable. Check the connection settings and try again."),
+        (_, true) =>
+            ("Host 连接验证失败；请检查连接设置后重试。", "Host connection validation failed. Check the connection settings and try again."),
+        (WatchHostFailureKind.Timeout, false) =>
+            ("请求超时；页面保持当前稳定状态，自动刷新仍会继续。", "The request timed out. The page keeps its stable state and auto-refresh continues."),
+        (WatchHostFailureKind.Network or WatchHostFailureKind.Http, false) =>
+            ("Host 暂时不可达；页面保持当前稳定状态，自动刷新仍会继续。", "Host is temporarily unreachable. The page keeps its stable state and auto-refresh continues."),
+        (WatchHostFailureKind.ServerQuery, false) =>
+            ("Host 查询失败；页面保持当前稳定状态，自动刷新仍会继续。", "The Host query failed. The page keeps its stable state and auto-refresh continues."),
+        _ =>
+            ("读取暂时失败；页面保持当前稳定状态，自动刷新仍会继续。", "The read temporarily failed. The page keeps its stable state and auto-refresh continues."),
+    };
+
     internal static string TranslateKnownChinese(string chinese)
     {
         if (KnownEnglish.TryGetValue(chinese, out var translated))

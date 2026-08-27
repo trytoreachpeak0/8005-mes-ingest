@@ -6,7 +6,17 @@ internal sealed record WatchContinuingFault(
     WatchNotificationSeverity Severity,
     string Title,
     string Message,
-    string ActionLabel);
+    string ActionLabel,
+    WatchLocalizedNotificationContent? LocalizedContent = null)
+{
+    internal (string Title, string Message, string ActionLabel) Project(
+        WatchDisplayLanguage language) => LocalizedContent is null
+        ? (Title, Message, ActionLabel)
+        : (
+            LocalizedContent.Title.In(language),
+            LocalizedContent.Message.In(language),
+            LocalizedContent.ActionLabel?.In(language) ?? ActionLabel);
+}
 
 internal sealed record WatchFeedbackLifecycleChange(
     IReadOnlyList<WatchContinuingFault> Started,

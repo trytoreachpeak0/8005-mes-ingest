@@ -17,11 +17,11 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry GenerationAnalysisEntry = E("inspector.tab.generations", "世代分析", "Generation analysis");
     private static readonly WatchTextCatalogEntry EventsEntry = E("inspector.tab.events", "事件", "Events");
     private static readonly WatchTextCatalogEntry InvestigationTasksEntry = E("inspector.tabs.automation", "需求系列调查任务", "Demand series investigation tasks");
-    private static readonly WatchTextCatalogEntry DemandGenerationsEntry = E("inspector.generations.heading", "Demand 世代", "Demand generations");
+    private static readonly WatchTextCatalogEntry DemandGenerationsEntry = E("inspector.generations.heading", "运输需求代次", "Demand generations");
     private static readonly WatchTextCatalogEntry GenerationHelpEntry = E("inspector.generations.help", "滚动并选择 DemandId", "Scroll and select a DemandId");
     private static readonly WatchTextCatalogEntry GenerationCountEntry = E("inspector.generations.count", "{0} 个世代", "{0} generations");
     private static readonly WatchTextCatalogEntry LoadingGenerationsEntry = E("inspector.generations.loading", "正在读取世代", "Loading generations");
-    private static readonly WatchTextCatalogEntry GenerationNavigationEntry = E("inspector.generations.navigation", "Demand 世代导航", "Demand generation navigation");
+    private static readonly WatchTextCatalogEntry GenerationNavigationEntry = E("inspector.generations.navigation", "运输需求代次导航", "Demand generation navigation");
     private static readonly WatchTextCatalogEntry CurrentEntry = E("inspector.generation.current", "当前", "Current");
     private static readonly WatchTextCatalogEntry CurrentGenerationEntry = E("inspector.generation.currentMarker", "当前世代", "Current generation");
     private static readonly WatchTextCatalogEntry HistoricalGenerationEntry = E("inspector.generation.historicalMarker", "历史世代", "Historical generation");
@@ -29,7 +29,7 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry GenerationIdentityEntry = E("inspector.generation.identity", "DemandId {0} · 第 {1} 代 · {2}", "DemandId {0} · generation {1} · {2}");
     private static readonly WatchTextCatalogEntry GenerationIdentityNameEntry = E("inspector.generation.identityName", "选中世代：DemandId {0}；第 {1} 代；状态 {2}；{3}", "Selected generation: DemandId {0}; generation {1}; status {2}; {3}");
     private static readonly WatchTextCatalogEntry PredecessorEntry = E("inspector.generation.predecessor", "前驱 {0}", "Predecessor {0}");
-    private static readonly WatchTextCatalogEntry FirstGenerationEntry = E("inspector.generation.first", "需求系列首个 Demand 世代", "First Demand generation in the series");
+    private static readonly WatchTextCatalogEntry FirstGenerationEntry = E("inspector.generation.first", "需求系列首个运输需求代次", "First Demand generation in the series");
     private static readonly WatchTextCatalogEntry RelatedEventsEntry = E("inspector.generation.relatedEvents", "相关事件", "Related events");
     private static readonly WatchTextCatalogEntry RelatedEventsAutomationEntry = E("inspector.generation.relatedEventsAutomation", "查看选中世代的相关事件", "Show events related to the selected generation");
     private static readonly WatchTextCatalogEntry FormationReasonEntry = E("inspector.formation.reason", "形成原因", "Formation reason");
@@ -75,7 +75,7 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry SourceNotProvidedEntry = E("inspector.value.sourceNotProvided", "来源未提供", "Source not provided");
     private static readonly WatchTextCatalogEntry NotApplicableEntry = E("inspector.value.notApplicable", "不适用", "Not applicable");
     private static readonly WatchTextCatalogEntry MesExplanationEntry = E("inspector.mes.explanation", "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。", "MES field differences are observations on each side of the boundary; they are not the reason a TransportDemand/DemandId was formed.");
-    private static readonly WatchTextCatalogEntry FirstConclusionEntry = E("inspector.mes.firstConclusion", "{0} 是该需求系列的首个 Demand 世代；{1}", "{0} is the first Demand generation in this series; {1}");
+    private static readonly WatchTextCatalogEntry FirstConclusionEntry = E("inspector.mes.firstConclusion", "{0} 是该需求系列的首个运输需求代次；{1}", "{0} is the first Demand generation in this series; {1}");
     private static readonly WatchTextCatalogEntry LaterConclusionEntry = E("inspector.mes.laterConclusion", "{0}形成第 {1} 代；{2}", "{0} formed generation {1}; {2}");
     private static readonly WatchTextCatalogEntry RawRowsEntry = E("inspector.rawRows.name", "MES 边界原始行", "MES boundary raw rows");
     private static readonly WatchTextCatalogEntry RawRowsHelpEntry = E("inspector.rawRows.help", "保留 Assignment、SeriesId、DemandId、七个 MES 原生字段、PollTrace 与 ProjectionCommit；不挑选 canonical row。", "Preserves Assignment, SeriesId, DemandId, seven native MES fields, PollTrace, and ProjectionCommit; no canonical row is selected.");
@@ -102,7 +102,7 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry SeriesContextEntry = E("inspector.context.series", "Series {0}", "SeriesId {0}");
     private static readonly WatchTextCatalogEntry ContextNameFormatEntry = E("inspector.context.nameFormat", "{0}；{1}；{2}；{3}", "{0}; {1}; {2}; {3}");
     private static readonly WatchTextCatalogEntry StatusNameEntry = E("inspector.state.name", "{0}。{1}", "{0}. {1}");
-    private static readonly WatchTextCatalogEntry DetailStateNameEntry = E("inspector.state.detailName", "所选 Series 详情{0}", "Selected demand series detail {0}");
+    private static readonly WatchTextCatalogEntry DetailStateNameEntry = E("inspector.state.detailName", "所选需求系列详情{0}", "Selected demand series detail {0}");
     private static readonly WatchTextCatalogEntry FormationStateNameEntry = E("inspector.state.formationName", "Demand 形成原因{0}", "Demand formation reason {0}");
     private static readonly WatchTextCatalogEntry FormationFactsStateNameEntry = E("inspector.state.formationFactsName", "Demand 形成事实{0}", "Demand formation facts {0}");
     private static readonly WatchTextCatalogEntry ScalarBoundaryStateNameEntry = E("inspector.state.scalarBoundaryName", "MES 标量对比边界来源{0}", "MES scalar comparison boundary source {0}");
@@ -120,7 +120,7 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry RefreshingRetainedEntry = E("inspector.state.refreshingRetained", "正在刷新详情，已保留上次证据", "Refreshing detail; previous evidence retained");
     private static readonly WatchTextCatalogEntry SnapshotPendingEntry = E("inspector.state.snapshotPending", "详情尚未与最新快照同步，已保留上次证据", "Detail is not yet synchronized with the latest snapshot; previous evidence retained");
     private static readonly WatchTextCatalogEntry RefreshFailedEntry = E("inspector.state.refreshFailed", "刷新失败，已保留上次证据", "Refresh failed; previous evidence retained");
-    private static readonly WatchTextCatalogEntry ReadingSelectionEntry = E("inspector.state.readingSelection", "正在读取所选 Series 详情", "Reading selected Series detail");
+    private static readonly WatchTextCatalogEntry ReadingSelectionEntry = E("inspector.state.readingSelection", "正在读取所选需求系列详情", "Reading selected demand series detail");
     private static readonly WatchTextCatalogEntry SourceComparisonEntry = E("inspector.state.sourceComparison", "来源快照比较", "Source snapshot comparison");
     private static readonly WatchTextCatalogEntry PausedSnapshotEntry = E("inspector.state.pausedSnapshot", "保留冻结快照 {0}；返回 DemandSeries 页面后恢复刷新。", "Frozen snapshot {0} is retained; refresh resumes after returning to the DemandSeries page.");
     private static readonly WatchTextCatalogEntry MissingCreationEntry = E("inspector.reason.missingCreation", "（创建事件缺失）", "(creation event missing)");

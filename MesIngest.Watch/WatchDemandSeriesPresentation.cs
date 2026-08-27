@@ -76,6 +76,7 @@ internal sealed record WatchDemandSeriesPresentation(
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(areaContext);
         text ??= WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).DemandSeries;
+        var catalog = WatchTextCatalog.For(text.DisplayLanguage);
         var localArea = areaContext.NormalizeAndValidate();
 
         var view = workspace.DemandSeries;
@@ -145,7 +146,7 @@ internal sealed record WatchDemandSeriesPresentation(
             !committedAreas.SequenceEqual(localArea.MesAreas, StringComparer.Ordinal),
             snapshot.TotalPages > 0 && snapshot.PageNumber > 1,
             snapshot.TotalPages > 0 && snapshot.PageNumber < snapshot.TotalPages,
-            snapshot.Items.Select(item => ProjectRow(item, text)).ToArray());
+            snapshot.Items.Select(item => ProjectRow(item, catalog)).ToArray());
     }
 
     private static (
@@ -485,20 +486,27 @@ internal sealed record WatchDemandSeriesPresentation(
 
     private static WatchDemandSeriesRowPresentation ProjectRow(
         DemandSeriesListItemSnapshot item,
-        WatchDemandSeriesText text) => new(
+        WatchTextCatalog catalog)
+    {
+        var text = catalog.DemandSeries;
+        return new(
         item.SeriesId,
         item.WorkType,
         item.Sublot,
-        ProjectTime(item.StartedAt),
-        ProjectTime(item.ArchivedAt),
+        ProjectTime(item.StartedAt, catalog),
+        item.ArchivedAt is null
+            ? catalog.Common.NotApplicable
+            : ProjectTime(item.ArchivedAt, catalog),
         $"{text.DescribeLifecycle(item.Lifecycle)} · {text.DescribePresence(item.CurrentPresence)}",
         item.CurrentDemandId,
         item.CurrentGeneration,
         item.CurrentDemandStatus,
-        ProjectTime(item.DemandLastSeenAt),
-        ProjectTime(item.GoneConfirmedAt),
+        ProjectTime(item.DemandLastSeenAt, catalog),
+        item.GoneConfirmedAt is null
+            ? catalog.Common.NotApplicable
+            : ProjectTime(item.GoneConfirmedAt, catalog),
         item.LastSeriesSequence,
-        ProjectLiveMesFields(item.LiveMesFields),
+        ProjectLiveMesFields(item.LiveMesFields, catalog),
         item.ExternalReadabilityState,
         item.ReadabilityBlockers,
         item.ReadabilityBlockers.Count == 0
@@ -506,24 +514,26 @@ internal sealed record WatchDemandSeriesPresentation(
             : string.Join('、', item.ReadabilityBlockers),
         item.LatestPollTraceId,
         item.LatestProjectionCommitId);
+    }
 
     private static WatchLiveMesFieldSetPresentation? ProjectLiveMesFields(
-        LiveMesFieldSetSnapshot? fields) => fields is null
+        LiveMesFieldSetSnapshot? fields,
+        WatchTextCatalog catalog) => fields is null
         ? null
         : new WatchLiveMesFieldSetPresentation(
-            ProjectText(fields.Area),
-            ProjectText(fields.Eqp),
-            ProjectText(fields.Step),
-            ProjectTime(fields.MesSourceDate),
-            ProjectText(fields.Package));
+            ProjectText(fields.Area, catalog),
+            ProjectText(fields.Eqp, catalog),
+            ProjectText(fields.Step, catalog),
+            ProjectTime(fields.MesSourceDate, catalog),
+            ProjectText(fields.Package, catalog));
 
-    private static string ProjectText(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "—" : value;
+    private static string ProjectText(string? value, WatchTextCatalog catalog) =>
+        string.IsNullOrWhiteSpace(value) ? catalog.Common.SourceNotProvided : value;
 
-    private static string ProjectTime(DateTimeOffset? value) =>
+    private static string ProjectTime(DateTimeOffset? value, WatchTextCatalog catalog) =>
         value is null || value == default
-            ? "—"
-            : WatchTimeDisplay.Format(value.Value);
+            ? catalog.Common.SourceNotProvided
+            : catalog.FormatAbsoluteTime(value.Value);
 
     private static string ProjectLocalAreaDetail(
         WatchAreaDisplayContext context,

@@ -352,7 +352,7 @@ internal partial class WatchWorkspaceWindow
             " · ",
             new[]
             {
-                "原因可重叠；不可见总数按 Demand 世代去重",
+                "原因可重叠；不可见总数按运输需求代次去重",
                 compactSnapshotFacts,
                 ReadabilityBlockerFacetSummaryText.Text,
             }.Where(value => !string.IsNullOrWhiteSpace(value)));

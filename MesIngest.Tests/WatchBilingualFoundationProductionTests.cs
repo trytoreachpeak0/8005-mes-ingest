@@ -259,6 +259,45 @@ public sealed class WatchBilingualFoundationProductionTests
         });
 
     [Fact]
+    public void Switching_language_preserves_selected_grid_row_current_column_and_grid_focus() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory();
+            var client = new RecordingClient(includeDemandRow: true);
+            try
+            {
+                using var composition = CreateComposition(root, client);
+                var window = composition.CreateMainWindow(initializeOnLoaded: false);
+                window.InitializeAsync().GetAwaiter().GetResult();
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.DemandSeries,
+                    PageNumber: 1));
+                window.DemandSeriesNavigationTask.GetAwaiter().GetResult();
+                window.Show();
+                window.UpdateLayout();
+                var grid = Assert.IsType<DataGrid>(window.FindName("DemandSeriesGrid"));
+                grid.SelectedIndex = 0;
+                grid.CurrentCell = new DataGridCellInfo(grid.SelectedItem, grid.Columns[2]);
+                Assert.True(grid.Focus());
+                var selectedSeriesId = Assert.IsType<WatchDemandSeriesRowPresentation>(
+                    grid.SelectedItem).SeriesId;
+
+                composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+
+                Assert.Equal(0, grid.SelectedIndex);
+                Assert.Equal(selectedSeriesId, Assert.IsType<WatchDemandSeriesRowPresentation>(
+                    grid.SelectedItem).SeriesId);
+                Assert.Equal(2, grid.CurrentColumn.DisplayIndex);
+                Assert.True(grid.IsKeyboardFocusWithin);
+                window.Close();
+            }
+            finally
+            {
+                DeleteDirectory(root);
+            }
+        });
+
+    [Fact]
     public void Switching_language_reprojects_variant_a_audit_without_changing_canonical_filters_or_requesting_host() =>
         StaTestRunner.Run(() =>
         {
@@ -443,6 +482,12 @@ public sealed class WatchBilingualFoundationProductionTests
     {
         private static readonly DateTimeOffset At =
             DateTimeOffset.Parse("2026-08-27T14:05:06+08:00");
+        private readonly bool _includeDemandRow;
+
+        internal RecordingClient(bool includeDemandRow = false)
+        {
+            _includeDemandRow = includeDemandRow;
+        }
 
         public int TotalRequestCount { get; private set; }
 
@@ -475,6 +520,30 @@ public sealed class WatchBilingualFoundationProductionTests
             CancellationToken cancellationToken = default)
         {
             TotalRequestCount++;
+            var items = _includeDemandRow
+                ? new[]
+                {
+                    new DemandSeriesListItemSnapshot(
+                        "series-grid-state",
+                        "WIRE_TO_GATE",
+                        "SL-GRID",
+                        "TRACKING",
+                        "VISIBLE",
+                        At.AddHours(-2),
+                        ArchivedAt: null,
+                        "demand-grid-state",
+                        CurrentGeneration: 2,
+                        CurrentDemandStatus: "VISIBLE",
+                        At.AddMinutes(-1),
+                        GoneConfirmedAt: null,
+                        new LiveMesFieldSetSnapshot("A1-1", "EQP-01", "STEP-01", At, "PKG-01"),
+                        "READABLE",
+                        [],
+                        LastSeriesSequence: 42,
+                        LatestPollTraceId: "poll-grid-state",
+                        LatestProjectionCommitId: "commit-grid-state"),
+                }
+                : [];
             return Task.FromResult(new DemandSeriesListSnapshot(
                 new DemandSeriesSnapshotIdentity(
                     HistoryEpoch.FromGuid(Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")),
@@ -485,12 +554,12 @@ public sealed class WatchBilingualFoundationProductionTests
                 "demand-snapshot",
                 query.Filter,
                 query.Order,
-                0,
-                new DemandSeriesFacets(0, 0, 0, 0, 0),
+                items.Length,
+                new DemandSeriesFacets(items.Length, 0, items.Length, 0, 0),
                 query.PageSize,
                 query.PageNumber,
-                0,
-                [],
+                items.Length == 0 ? 0 : 1,
+                items,
                 NextCursor: null,
                 HasMore: false));
         }

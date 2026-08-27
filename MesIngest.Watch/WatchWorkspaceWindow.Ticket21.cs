@@ -415,9 +415,10 @@ internal partial class WatchWorkspaceWindow
             ReadabilityAuditInfoBar.Message = presentation.InfoMessage;
             AutomationProperties.SetName(
                 ReadabilityAuditInfoBar,
-                presentation.IsInfoOpen
-                    ? $"{presentation.InfoTitle}。{presentation.InfoMessage}"
-                    : "资格审计读取状态：当前无活动通知");
+                text.ReadStateAutomation(
+                    presentation.InfoTitle,
+                    presentation.InfoMessage,
+                    presentation.IsInfoOpen));
             ReadabilitySnapshotFactsText.Text = presentation.SnapshotFacts;
             ReadabilityClientAttemptText.Text = presentation.ClientAttemptFacts;
             ReadabilityAreaScopeText.Text =
@@ -427,10 +428,10 @@ internal partial class WatchWorkspaceWindow
             ReadabilityPageSummaryText.Text = presentation.PageSummary;
             AutomationProperties.SetName(
                 ReadabilityPageSummaryText,
-                $"资格审计精确总数与页码：{presentation.PageSummary}");
+                text.PageSummaryAutomation(presentation.PageSummary));
             AutomationProperties.SetName(
                 ReadabilityAreaScopeText,
-                $"资格审计 AREA 范围：{ReadabilityAreaScopeText.Text}");
+                text.AreaScopeAutomation(ReadabilityAreaScopeText.Text));
 
             ReadabilityStateFacetGrid.ItemsSource = presentation.StateFacets;
             ReadabilityBlockerFacetGrid.ItemsSource = presentation.BlockerFacets;
@@ -450,8 +451,11 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetName(
                 ReadabilityEmptyInfoBar,
                 presentation.EmptyResultMessage.Length > 0
-                    ? $"{ReadabilityEmptyInfoBar.Title}。{presentation.EmptyResultMessage}"
-                    : "资格审计结果不为空或尚未成功读取");
+                    ? text.ReadStateAutomation(
+                        ReadabilityEmptyInfoBar.Title,
+                        presentation.EmptyResultMessage,
+                        isOpen: true)
+                    : text.NonEmptyOrUnread);
             ReadabilityPreviousPageButton.IsEnabled = presentation.CanGoPrevious
                 && !presentation.IsRefreshing;
             ReadabilityNextPageButton.IsEnabled = presentation.CanGoNext
@@ -466,7 +470,7 @@ internal partial class WatchWorkspaceWindow
             var detailEvidence = detail is null
                 ? presentation.SelectionNotice
                     ?? text.SelectDemand
-                : $"{detail.Facts} · 全部阻断 {detail.AllBlockersSummary}";
+                : text.DetailEvidence(detail.Facts, detail.AllBlockersSummary);
             ReadabilityDetailFactsText.Text = detail?.BusinessIdentity ?? detailEvidence;
             ReadabilityDetailFactsText.ToolTip = detailEvidence;
             ReadabilitySeriesFactsText.Text = detail?.SeriesFacts ?? text.NotSelected;
@@ -490,33 +494,38 @@ internal partial class WatchWorkspaceWindow
             ReadabilityLiveMesFieldsGrid.ToolTip = liveMesEvidence;
             AutomationProperties.SetName(
                 ReadabilityLiveMesFieldsGrid,
-                $"资格审计最后可信 MES 字段：AREA {ReadabilityLiveMesAreaText.Text}；EQP {ReadabilityLiveMesEqpText.Text}；STEP {ReadabilityLiveMesStepText.Text}；DATES {ReadabilityLiveMesDateText.Text}；PACKAGE {ReadabilityLiveMesPackageText.Text}");
+                text.LiveMesFieldsAutomation(
+                    ReadabilityLiveMesAreaText.Text,
+                    ReadabilityLiveMesEqpText.Text,
+                    ReadabilityLiveMesStepText.Text,
+                    ReadabilityLiveMesDateText.Text,
+                    ReadabilityLiveMesPackageText.Text));
             AutomationProperties.SetHelpText(ReadabilityLiveMesFieldsGrid, liveMesEvidence);
             AutomationProperties.SetName(
                 ReadabilityLiveMesAreaText,
-                $"资格审计 MES AREA {ReadabilityLiveMesAreaText.Text}");
+                text.FieldAutomation("AREA", ReadabilityLiveMesAreaText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesEqpText,
-                $"资格审计 MES EQP {ReadabilityLiveMesEqpText.Text}");
+                text.FieldAutomation("EQP", ReadabilityLiveMesEqpText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesStepText,
-                $"资格审计 MES STEP {ReadabilityLiveMesStepText.Text}");
+                text.FieldAutomation("STEP", ReadabilityLiveMesStepText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesDateText,
-                $"资格审计 MES DATES {ReadabilityLiveMesDateText.Text}");
+                text.FieldAutomation("DATES", ReadabilityLiveMesDateText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesPackageText,
-                $"资格审计 MES PACKAGE {ReadabilityLiveMesPackageText.Text}");
+                text.FieldAutomation("PACKAGE", ReadabilityLiveMesPackageText.Text));
             AutomationProperties.SetName(
                 ReadabilityDetailFactsText,
-                $"资格审计业务身份：{ReadabilityDetailFactsText.Text}");
+                text.BusinessIdentityAutomation(ReadabilityDetailFactsText.Text));
             AutomationProperties.SetHelpText(ReadabilityDetailFactsText, detailEvidence);
             AutomationProperties.SetName(
                 ReadabilitySeriesFactsText,
-                $"资格审计所属 Series 事实：{ReadabilitySeriesFactsText.Text}");
+                text.SeriesFactsAutomation(ReadabilitySeriesFactsText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesFactsText,
-                $"资格审计 MES 观测说明：{ReadabilityLiveMesFactsText.Text}");
+                text.ObservationAutomation(ReadabilityLiveMesFactsText.Text));
             AutomationProperties.SetHelpText(ReadabilityLiveMesFactsText, liveMesEvidence);
             var primaryBlocker = detail?.PrimaryBlockerEvidence;
             var readabilitySemanticState = detail?.SemanticState ?? "Neutral";
@@ -528,17 +537,23 @@ internal partial class WatchWorkspaceWindow
                     : text.NoBlocker;
             ReadabilityPrimaryBlockerEvidenceText.Text = primaryBlocker is null
                 ? detail is null
-                    ? "选择后显示首要阻断证据。"
+                    ? text.SelectPrimaryEvidence
                     : string.IsNullOrWhiteSpace(detail.LeadReadabilityBlocker)
-                        ? "当前资格检查未返回阻断证据。"
-                        : "Host 未返回首要阻断的结构化证据。"
-                : $"{primaryBlocker.SubjectKind} · 观测值 {primaryBlocker.ObservedValue} · {primaryBlocker.ObservedAt}";
+                        ? text.NoBlockerEvidence
+                        : text.MissingStructuredEvidence
+                : text.ObservedValue(
+                    primaryBlocker.SubjectKind,
+                    primaryBlocker.ObservedValue,
+                    primaryBlocker.ObservedAt);
             ReadabilityPrimaryBlockerRuleText.Text = primaryBlocker is null
                 ? string.Empty
-                : $"规则：{primaryBlocker.ExpectedRule}";
+                : text.Rule(primaryBlocker.ExpectedRule);
             AutomationProperties.SetName(
                 ReadabilityPrimaryBlockerCard,
-                $"首要阻断：{ReadabilityPrimaryBlockerCodeText.Text}；{ReadabilityPrimaryBlockerEvidenceText.Text}；{ReadabilityPrimaryBlockerRuleText.Text}");
+                text.PrimaryBlockerAutomation(
+                    ReadabilityPrimaryBlockerCodeText.Text,
+                    ReadabilityPrimaryBlockerEvidenceText.Text,
+                    ReadabilityPrimaryBlockerRuleText.Text));
             ReadabilityQualificationChecklist.ItemsSource = detail?.QualificationChecks;
             ReadabilityQualificationConclusionCard.Tag = readabilitySemanticState;
             ReadabilityQualificationConclusionText.Text = detail is null
@@ -546,15 +561,15 @@ internal partial class WatchWorkspaceWindow
                 : text.QualificationConclusion(detail.ExternalReadabilityState);
             ReadabilityValueSemanticsItems.ItemsSource = text.ValueSemantics;
             var revisionEvidence = detail is null
-                ? "选择 Demand 后显示完整 Catalog 修订与冻结快照链。"
+                ? text.RevisionPrompt
                 : $"Catalog Revision {detail.CatalogRevision:N0} · Snapshot {detail.SnapshotReference} · Projection {detail.ProjectionSequence:N0} · {detail.ProjectionCommitId} · PollTrace {detail.PollTraceId}";
             ReadabilityRevisionFactsText.Text = detail is null
-                ? "Catalog Revision —"
+                ? text.RevisionNotLoaded
                 : $"Catalog Revision {detail.CatalogRevision:N0}";
             ReadabilityRevisionFactsText.ToolTip = revisionEvidence;
             AutomationProperties.SetName(
                 ReadabilityRevisionFactsText,
-                $"资格审计修订目录事实：{ReadabilityRevisionFactsText.Text}");
+                text.RevisionAutomation(ReadabilityRevisionFactsText.Text));
             AutomationProperties.SetHelpText(ReadabilityRevisionFactsText, revisionEvidence);
             ReadabilityQualificationGrid.ItemsSource = detail?.QualificationChecks;
             ReadabilityBlockerEvidenceGrid.ItemsSource = detail?.BlockerEvidence;
@@ -568,22 +583,20 @@ internal partial class WatchWorkspaceWindow
                 || detailReadFailed
                     ? InfoBarSeverity.Warning
                     : InfoBarSeverity.Informational;
-            ReadabilityDetailInfoBar.Title = presentation.SelectionNotice is not null
-                ? "原选择已清除"
-                : selectedDemandId is null
-                    ? text.NotSelected
-                    : detailReadFailed
-                        ? "无法读取同快照详情"
-                        : "正在读取同快照详情";
+            ReadabilityDetailInfoBar.Title = text.DetailStatusTitle(
+                presentation.SelectionNotice is not null,
+                selectedDemandId is not null,
+                detailReadFailed);
             ReadabilityDetailInfoBar.Message = presentation.SelectionNotice
                 ?? (selectedDemandId is null
                     ? text.SelectDemand
-                    : detailReadFailed
-                        ? $"Demand {selectedDemandId} 的详情读取失败；列表仍属于上方标明的冻结快照。"
-                        : $"已选择 Demand {selectedDemandId}；正在读取当前 snapshotReference 的详情。");
+                    : text.DetailStatusMessage(selectedDemandId, detailReadFailed));
             AutomationProperties.SetName(
                 ReadabilityDetailInfoBar,
-                $"{ReadabilityDetailInfoBar.Title}。{ReadabilityDetailInfoBar.Message}");
+                text.ReadStateAutomation(
+                    ReadabilityDetailInfoBar.Title,
+                    ReadabilityDetailInfoBar.Message,
+                    isOpen: true));
             RenderSelectedReadabilityAudit(presentation, state);
         }
         finally

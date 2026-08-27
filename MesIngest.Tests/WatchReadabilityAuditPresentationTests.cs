@@ -61,6 +61,11 @@ public sealed class WatchReadabilityAuditPresentationTests
             workspace,
             new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
             WatchAreaDisplayContext.AllAreas);
+        var english = WatchReadabilityAuditPresentation.Project(
+            workspace,
+            new ReadabilityAuditQuery(new ReadabilityAuditFilter()),
+            WatchAreaDisplayContext.AllAreas,
+            WatchTextCatalog.For(WatchDisplayLanguage.English));
 
         Assert.False(presentation.HasSnapshot);
         Assert.True(presentation.IsRefreshing);
@@ -78,6 +83,9 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Null(presentation.Detail);
         Assert.False(presentation.CanGoPrevious);
         Assert.False(presentation.CanGoNext);
+        Assert.Equal("Loading eligibility audit", english.InfoTitle);
+        Assert.Contains("waiting for Host", english.InfoMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("正在", english.InfoTitle, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -150,7 +158,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Contains("序列 321", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("PollTrace poll-audit-21", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("CatalogRevision 9", presentation.SnapshotFacts, StringComparison.Ordinal);
-        Assert.Equal("精确 3 个 Demand 世代 · 第 2 / 2 页", presentation.PageSummary);
+        Assert.Equal("精确 3 个运输需求代次 · 第 2 / 2 页", presentation.PageSummary);
         Assert.Empty(presentation.EmptyResultMessage);
         Assert.Equal($"Host 固定排序：{ReadabilityAuditOrder.Default}", presentation.OrderSummary);
         Assert.Contains("资格 NOT_READABLE", presentation.HostFilterSummary, StringComparison.Ordinal);
@@ -189,8 +197,8 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Equal(ExternalReadabilityStates.Readable, readableGone.ExternalReadabilityState);
         Assert.Equal("GONE", readableGone.DemandStatus);
         Assert.Equal("GONE", readableGone.SeriesCurrentPresence);
-        Assert.Equal("—", readableGone.LeadReadabilityBlocker);
-        Assert.Equal("无", readableGone.AllBlockersSummary);
+        Assert.Equal("来源未提供", readableGone.LeadReadabilityBlocker);
+        Assert.Equal("无阻断条件", readableGone.AllBlockersSummary);
     }
 
     [Fact]
@@ -639,9 +647,9 @@ public sealed class WatchReadabilityAuditPresentationTests
             new ReadabilityAuditQuery(filter),
             new WatchAreaDisplayContext("封装车间", ["A1-1"], "本机已应用", at));
 
-        Assert.Equal("精确 0 个 Demand 世代 · 第 0 / 0 页", presentation.PageSummary);
+        Assert.Equal("精确 0 个运输需求代次 · 第 0 / 0 页", presentation.PageSummary);
         Assert.Equal(
-            "查询成功；Host 在当前已提交条件下精确 0 个 Demand 世代命中。",
+            "查询成功；Host 在当前已提交条件下精确 0 个运输需求代次命中。",
             presentation.EmptyResultMessage);
         Assert.DoesNotContain("健康", presentation.EmptyResultMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("无异常", presentation.EmptyResultMessage, StringComparison.Ordinal);

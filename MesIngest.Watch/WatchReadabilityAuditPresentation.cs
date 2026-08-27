@@ -177,7 +177,7 @@ internal sealed record WatchReadabilityAuditPresentation(
         var localArea = areaContext.NormalizeAndValidate();
         var view = workspace.ReadabilityAudit;
         var snapshot = view.Snapshot;
-        var info = ProjectInfo(workspace, view);
+        var info = ProjectInfo(workspace, view, catalog);
         if (snapshot is null)
         {
             return new WatchReadabilityAuditPresentation(
@@ -252,15 +252,19 @@ internal sealed record WatchReadabilityAuditPresentation(
     private static (bool IsOpen, WatchPresentationSeverity Severity, string Title, string Message)
         ProjectInfo(
             WatchV2WorkspaceState workspace,
-            WatchV2ViewState<ReadabilityAuditListSnapshot, ReadabilityAuditDetailSnapshot> view)
+            WatchV2ViewState<ReadabilityAuditListSnapshot, ReadabilityAuditDetailSnapshot> view,
+            WatchTextCatalog catalog)
     {
+        var text = catalog.ReadabilityAudit;
         if (workspace.ConnectionStatus == WatchHostConnectionStatus.Failed)
         {
             return (
                 true,
                 WatchPresentationSeverity.Error,
-                "无法连接 Host",
-                $"新 Host 未通过契约连接；旧 Host 数据已清空。{FailureMessage(workspace.ErrorMessage, workspace.CorrelationId)}");
+                text.CannotConnectHost,
+                text.ReplacementHostFailure(text.FailureMessage(
+                    workspace.ErrorMessage,
+                    workspace.CorrelationId)));
         }
 
         if (workspace.ConnectionStatus == WatchHostConnectionStatus.Connecting)
@@ -268,39 +272,45 @@ internal sealed record WatchReadabilityAuditPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Informational,
-                "正在连接 Host",
-                "连接成功后将读取一份冻结的资格审计快照。");
+                text.ConnectingHost,
+                text.ConnectingMessage);
         }
 
         if (view.IsRefreshing)
         {
             var retained = view.Snapshot is null
-                ? "等待 Host 返回冻结快照。"
-                : $"刷新期间继续显示 Host 快照 {WatchTimeDisplay.Format(view.Snapshot.Snapshot.ProjectionCommittedAt)}。";
+                ? text.WaitingFrozenSnapshot
+                : text.RetainedDuringRefresh(
+                    view.Snapshot.Snapshot.ProjectionCommittedAt,
+                    catalog);
             var priorFailure = view.LastFailureAt is { } priorFailedAt
-                ? $" 上次失败于 {WatchTimeDisplay.Format(priorFailedAt)}；本次正在重试。"
+                ? text.PriorFailureRetry(priorFailedAt, catalog)
                 : string.Empty;
             return (
                 true,
                 WatchPresentationSeverity.Informational,
-                view.Snapshot is null ? "正在读取资格审计" : "正在刷新资格审计",
+                text.LoadingTitle(view.Snapshot is not null),
                 $"{retained}{priorFailure}");
         }
 
         if (view.LastFailureAt is { } failedAt)
         {
             var retained = view.Snapshot is null
-                ? "当前没有可显示的成功快照。"
-                : $"继续显示 Host 快照 {WatchTimeDisplay.Format(view.Snapshot.Snapshot.ProjectionCommittedAt)}；其筛选、精确分面和 AREA 范围不会被失败查询改写。";
+                ? text.NoSuccessfulSnapshot
+                : text.RetainedAfterFailure(
+                    view.Snapshot.Snapshot.ProjectionCommittedAt,
+                    catalog);
             return (
                 true,
                 view.Snapshot is null
                     ? WatchPresentationSeverity.Error
                     : WatchPresentationSeverity.Warning,
-                view.Snapshot is null
-                    ? "资格审计读取失败"
-                    : "资格审计刷新失败，已保留上次快照",
-                $"失败于 {WatchTimeDisplay.Format(failedAt)}。{retained}{FailureMessage(view.ErrorMessage, view.CorrelationId)}");
+                text.FailureTitle(view.Snapshot is not null),
+                text.FailedAt(
+                    failedAt,
+                    retained,
+                    text.FailureMessage(view.ErrorMessage, view.CorrelationId),
+                    catalog));
         }
 
         if (string.Equals(
@@ -311,8 +321,8 @@ internal sealed record WatchReadabilityAuditPresentation(
             return (
                 true,
                 WatchPresentationSeverity.Warning,
-                "原选择已不在刷新结果中",
-                "刷新成功，但原 Demand 世代已不在当前冻结结果中；已清除详情，请重新选择。");
+                text.SelectionLostTitle,
+                text.SelectionLostMessage);
         }
 
         return (false, WatchPresentationSeverity.None, string.Empty, string.Empty);
@@ -339,17 +349,17 @@ internal sealed record WatchReadabilityAuditPresentation(
                 observation.PollTraceId,
                 observation.ProjectionCommitId,
                 observation.Assignment.ToString(),
-                ProjectText(observation.SeriesId),
-                ProjectText(observation.DemandId),
-                ProjectText(observation.WorkType),
-                ProjectText(observation.Sublot),
-                ProjectText(observation.Area),
-                ProjectText(observation.Eqp),
-                ProjectText(observation.Step),
-                ProjectTime(observation.MesSourceDate),
-                ProjectText(observation.Package),
-                ProjectTime(observation.ObservedAt),
-                ProjectText(observation.MesSourceDateRaw)))
+                ProjectText(observation.SeriesId, catalog),
+                ProjectText(observation.DemandId, catalog),
+                ProjectText(observation.WorkType, catalog),
+                ProjectText(observation.Sublot, catalog),
+                ProjectText(observation.Area, catalog),
+                ProjectText(observation.Eqp, catalog),
+                ProjectText(observation.Step, catalog),
+                ProjectTime(observation.MesSourceDate, catalog),
+                ProjectText(observation.Package, catalog),
+                ProjectTime(observation.ObservedAt, catalog),
+                ProjectText(observation.MesSourceDateRaw, catalog)))
             .ToArray();
         var observationSummary = text.ObservationSummary(
             rawObservations.Length,
@@ -363,10 +373,10 @@ internal sealed record WatchReadabilityAuditPresentation(
             demand.LeadReadabilityBlocker,
             $"{demand.DemandId} · {demand.WorkType}",
             text.BusinessIdentity(
-                ProjectText(demand.Sublot),
-                ProjectText(demand.SeriesId),
+                ProjectText(demand.Sublot, catalog),
+                ProjectText(demand.SeriesId, catalog),
                 demand.Generation,
-                ProjectTime(demand.DemandLastSeenAt)),
+                ProjectTime(demand.DemandLastSeenAt, catalog)),
             text.DetailFacts(
                 detail.SnapshotReference,
                 identity.ProjectionCommittedAt,
@@ -383,10 +393,10 @@ internal sealed record WatchReadabilityAuditPresentation(
                 detail.Series.Lifecycle,
                 detail.Series.CurrentPresence,
                 detail.Series.CurrentDemandId,
-                ProjectTime(detail.Series.StartedAt),
+                ProjectTime(detail.Series.StartedAt, catalog),
                 detail.Series.ArchivedAt is null
                     ? catalog.Common.NotApplicable
-                    : ProjectTime(detail.Series.ArchivedAt)),
+                    : ProjectTime(detail.Series.ArchivedAt, catalog)),
             liveMes is null
                 ? text.NoTrustedLiveMes
                 : text.TrustedLiveMes(liveMes),
@@ -418,9 +428,9 @@ internal sealed record WatchReadabilityAuditPresentation(
                         blocker.Priority,
                         index + 1,
                         evidence.SubjectKind,
-                        ProjectText(evidence.ObservedValue),
+                        ProjectText(evidence.ObservedValue, catalog),
                         evidence.ExpectedRule,
-                        ProjectTime(evidence.ObservedAt),
+                        ProjectTime(evidence.ObservedAt, catalog),
                         evidence.PollTraceId,
                         evidence.ProjectionCommitId)))
                 .ToArray(),
@@ -429,8 +439,8 @@ internal sealed record WatchReadabilityAuditPresentation(
                 pollTrace.PollTraceId,
                 pollTrace.QueryVersion,
                 pollTrace.Outcome,
-                ProjectTime(pollTrace.StartedAt),
-                ProjectTime(pollTrace.CompletedAt),
+                ProjectTime(pollTrace.StartedAt, catalog),
+                ProjectTime(pollTrace.CompletedAt, catalog),
                 pollTrace.RowCount,
                 pollTrace.ContentDigest,
                 pollTrace.ProjectionCommitId,
@@ -470,28 +480,30 @@ internal sealed record WatchReadabilityAuditPresentation(
         item.WorkType,
         item.Sublot,
         item.Generation,
-        ProjectText(item.PredecessorDemandId),
+        ProjectText(item.PredecessorDemandId, catalog),
         item.DemandStatus,
         item.SeriesLifecycle,
         item.SeriesCurrentPresence,
         item.IsCurrentGeneration,
-        ProjectTime(item.DemandCreatedAt),
-        ProjectTime(item.DemandLastSeenAt),
-        ProjectTime(item.GoneConfirmedAt),
+        ProjectTime(item.DemandCreatedAt, catalog),
+        ProjectTime(item.DemandLastSeenAt, catalog),
+        item.GoneConfirmedAt is null
+            ? catalog.Common.NotApplicable
+            : ProjectTime(item.GoneConfirmedAt, catalog),
         ProjectLiveMesFields(item.LiveMesFields, catalog),
         item.LiveMesFields is null
             ? catalog.Common.SystemUnknown
             : ProjectSourceText(item.LiveMesFields.Area, catalog),
         item.CurrentRawObservationCount,
         item.ExternalReadabilityState,
-        ProjectText(item.LeadReadabilityBlocker),
+        ProjectText(item.LeadReadabilityBlocker, catalog),
         item.ReadabilityBlockers,
         item.ReadabilityBlockers.Count == 0
-            ? "无"
+            ? catalog.ReadabilityAudit.NoBlocker
             : string.Join('、', item.ReadabilityBlockers),
         item.LatestObservationPollTraceId,
         item.LatestObservationProjectionCommitId,
-        ProjectTime(item.LatestObservationAt),
+        ProjectTime(item.LatestObservationAt, catalog),
         catalog.ReadabilityAudit.DemandIdLabel,
         catalog.ReadabilityAudit.WorkTypeLabel,
         catalog.ReadabilityAudit.SublotLabel,
@@ -510,76 +522,19 @@ internal sealed record WatchReadabilityAuditPresentation(
             ProjectSourceText(fields.Step, catalog),
             fields.MesSourceDate is null || fields.MesSourceDate == default
                 ? catalog.Common.SourceNotProvided
-                : WatchTimeDisplay.Format(fields.MesSourceDate.Value),
+                : catalog.FormatAbsoluteTime(fields.MesSourceDate.Value),
             ProjectSourceText(fields.Package, catalog));
 
     private static string ProjectSourceText(string? value, WatchTextCatalog catalog) =>
         string.IsNullOrWhiteSpace(value) ? catalog.Common.SourceNotProvided : value;
 
-    private static string ProjectFilter(ReadabilityAuditFilter filter)
-    {
-        var conditions = new List<string>();
-        AddMany("资格", filter.ReadabilityStates);
-        AddMany("WorkType", filter.WorkTypes);
-        AddMany("阻断", filter.Blockers);
-        Add("DemandId", filter.DemandId);
-        Add("SUBLOT 包含", filter.SublotContains);
-        AddMany("AREA", filter.MesAreas);
-        return conditions.Count == 0
-            ? "全部 Demand 世代"
-            : string.Join(" · ", conditions);
+    private static string ProjectText(string? value, WatchTextCatalog catalog) =>
+        string.IsNullOrWhiteSpace(value)
+            ? catalog.Common.SourceNotProvided
+            : value;
 
-        void AddMany(string label, IReadOnlyList<string> values)
-        {
-            if (values.Count > 0)
-            {
-                conditions.Add($"{label} {string.Join('、', values)}");
-            }
-        }
-
-        void Add(string label, string? value)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                conditions.Add($"{label} {value}");
-            }
-        }
-    }
-
-    private static string ProjectClientAttempts(
-        WatchV2ViewState<ReadabilityAuditListSnapshot, ReadabilityAuditDetailSnapshot> view)
-    {
-        var successful = view.LastSuccessfulAt is { } lastSuccessfulAt
-            ? $"Watch 最近成功 {WatchTimeDisplay.Format(lastSuccessfulAt)}"
-            : "Watch 尚无成功读取";
-        return view.LastFailureAt is { } lastFailureAt
-            ? $"{successful} · 最近失败 {WatchTimeDisplay.Format(lastFailureAt)}"
-            : successful;
-    }
-
-    private static string FailureMessage(string? message, string? correlationId)
-    {
-        var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : $" {message}";
-        return string.IsNullOrWhiteSpace(correlationId)
-            ? detail
-            : $"{detail} 关联 ID {correlationId}。";
-    }
-
-    private static string ProjectLocalAreaDetail(WatchAreaDisplayContext context) =>
-        context.MesAreas.Count == 0
-            ? $"{context.LocalState} · 未限制 Host AREA 查询"
-            : $"{context.LocalState} · {string.Join('、', context.MesAreas)}";
-
-    private static string ProjectHostAreas(IReadOnlyList<string> mesAreas) =>
-        mesAreas.Count == 0
-            ? "Host 已提交范围：全部 AREA"
-            : $"Host 已提交范围：{string.Join('、', mesAreas)}";
-
-    private static string ProjectText(string? value) =>
-        string.IsNullOrWhiteSpace(value) ? "—" : value;
-
-    private static string ProjectTime(DateTimeOffset? value) =>
+    private static string ProjectTime(DateTimeOffset? value, WatchTextCatalog catalog) =>
         value is null || value == default
-            ? "—"
-            : WatchTimeDisplay.Format(value.Value);
+            ? catalog.Common.SourceNotProvided
+            : catalog.FormatAbsoluteTime(value.Value);
 }

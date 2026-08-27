@@ -25,6 +25,8 @@ internal abstract class WatchTextCatalogSection(WatchDisplayLanguage language)
 {
     protected WatchDisplayLanguage Language { get; } = language;
 
+    internal WatchDisplayLanguage DisplayLanguage => Language;
+
     public abstract IReadOnlyList<WatchTextCatalogEntry> Entries { get; }
 
     protected string Text(WatchTextCatalogEntry entry) => entry.In(Language);

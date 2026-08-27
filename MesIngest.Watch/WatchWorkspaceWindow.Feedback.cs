@@ -114,33 +114,30 @@ internal partial class WatchWorkspaceWindow
         var faults = new List<WatchContinuingFault>();
         if (state.ConnectionStatus == WatchHostConnectionStatus.Failed)
         {
-            faults.Add(new WatchContinuingFault(
+            faults.Add(CreateFault(
                 "host.connection",
                 WatchNotificationScope.Global,
-                WatchNotificationSeverity.Error,
-                "Host 连接持续失败",
-                ControlledHostFailureMessage(state.FailureKind),
-                "打开设置"));
+                state.FailureKind));
         }
 
         AddViewFault(faults, "overview.refresh", WatchWorkspacePage.Overview,
-            "概览读取持续失败", state.Overview.LastFailureAt, state.Overview.FailureKind);
+            state.Overview.LastFailureAt, state.Overview.FailureKind);
         AddViewFault(faults, "overview.protection", WatchWorkspacePage.Overview,
-            "保护状态读取持续失败", state.Protection.LastFailureAt, state.Protection.FailureKind);
+            state.Protection.LastFailureAt, state.Protection.FailureKind);
         AddViewFault(faults, "demand-series.refresh", WatchWorkspacePage.DemandSeries,
-            "DemandSeries 读取持续失败", state.DemandSeries.LastFailureAt, state.DemandSeries.FailureKind);
+            state.DemandSeries.LastFailureAt, state.DemandSeries.FailureKind);
         AddViewFault(faults, "demand-series.detail", WatchWorkspacePage.DemandSeries,
-            "DemandSeries 详情读取持续失败", state.DemandSeries.DetailLastFailureAt, state.DemandSeries.DetailFailureKind);
+            state.DemandSeries.DetailLastFailureAt, state.DemandSeries.DetailFailureKind);
         AddViewFault(faults, "readability.refresh", WatchWorkspacePage.ReadabilityAudit,
-            "资格审计读取持续失败", state.ReadabilityAudit.LastFailureAt, state.ReadabilityAudit.FailureKind);
+            state.ReadabilityAudit.LastFailureAt, state.ReadabilityAudit.FailureKind);
         AddViewFault(faults, "readability.detail", WatchWorkspacePage.ReadabilityAudit,
-            "资格审计详情读取持续失败", state.ReadabilityAudit.DetailLastFailureAt, state.ReadabilityAudit.DetailFailureKind);
+            state.ReadabilityAudit.DetailLastFailureAt, state.ReadabilityAudit.DetailFailureKind);
         AddViewFault(faults, "error-search.refresh", WatchWorkspacePage.ErrorSearch,
-            "错误检索读取持续失败", state.ErrorSearch.LastFailureAt, state.ErrorSearch.FailureKind);
+            state.ErrorSearch.LastFailureAt, state.ErrorSearch.FailureKind);
         AddViewFault(faults, "error-search.detail", WatchWorkspacePage.ErrorSearch,
-            "错误详情读取持续失败", state.ErrorSearch.DetailLastFailureAt, state.ErrorSearch.DetailFailureKind);
+            state.ErrorSearch.DetailLastFailureAt, state.ErrorSearch.DetailFailureKind);
         AddViewFault(faults, "attention.refresh", WatchWorkspacePage.CurrentAttention,
-            "接入告警读取持续失败", state.CurrentAttention.LastFailureAt, state.CurrentAttention.FailureKind);
+            state.CurrentAttention.LastFailureAt, state.CurrentAttention.FailureKind);
         return faults;
     }
 
@@ -148,7 +145,6 @@ internal partial class WatchWorkspaceWindow
         ICollection<WatchContinuingFault> faults,
         string sourceKey,
         WatchWorkspacePage page,
-        string title,
         DateTimeOffset? failedAt,
         WatchHostFailureKind failureKind)
     {
@@ -160,53 +156,24 @@ internal partial class WatchWorkspaceWindow
         faults.Add(CreateFault(
             sourceKey,
             WatchNotificationScope.ForPage(page),
-            failureKind,
-            title,
-            "查看页面"));
+            failureKind));
     }
 
     private static WatchContinuingFault CreateFault(
         string sourceKey,
         WatchNotificationScope scope,
-        WatchHostFailureKind failureKind,
-        string title,
-        string actionLabel) => new(
+        WatchHostFailureKind failureKind)
+    {
+        var content = WatchFeedbackText.ContinuingFault(sourceKey, failureKind);
+        return new WatchContinuingFault(
             sourceKey,
             scope,
             WatchNotificationSeverity.Error,
-            title,
-            ControlledFailureMessage(failureKind),
-            actionLabel);
-
-    private static string ControlledFailureMessage(WatchHostFailureKind failureKind) =>
-        failureKind switch
-        {
-            WatchHostFailureKind.Authentication =>
-                "Host 拒绝了当前凭据；请在设置中更新凭据后重试。",
-            WatchHostFailureKind.Contract or WatchHostFailureKind.Decode =>
-                "Host 返回内容与当前 Watch 不兼容；请核对 Host 版本。",
-            WatchHostFailureKind.Timeout =>
-                "请求超时；页面保持当前稳定状态，自动刷新仍会继续。",
-            WatchHostFailureKind.Network or WatchHostFailureKind.Http =>
-                "Host 暂时不可达；页面保持当前稳定状态，自动刷新仍会继续。",
-            WatchHostFailureKind.ServerQuery =>
-                "Host 查询失败；页面保持当前稳定状态，自动刷新仍会继续。",
-            _ => "读取暂时失败；页面保持当前稳定状态，自动刷新仍会继续。",
-        };
-
-    private static string ControlledHostFailureMessage(WatchHostFailureKind failureKind) =>
-        failureKind switch
-        {
-            WatchHostFailureKind.Authentication =>
-                "Host 拒绝了当前凭据；请在设置中更新凭据后重试。",
-            WatchHostFailureKind.Contract or WatchHostFailureKind.Decode =>
-                "Host 返回内容与当前 Watch 不兼容；请核对 Host 版本。",
-            WatchHostFailureKind.Timeout =>
-                "Host 连接验证超时；请检查连接设置后重试。",
-            WatchHostFailureKind.Network or WatchHostFailureKind.Http =>
-                "Host 暂时不可达；请检查连接设置后重试。",
-            _ => "Host 连接验证失败；请检查连接设置后重试。",
-        };
+            content.Title.SimplifiedChinese,
+            content.Message.SimplifiedChinese,
+            content.ActionLabel!.SimplifiedChinese,
+            content);
+    }
 
     private void ApplyFeedbackLifecycleChange(WatchFeedbackLifecycleChange change)
     {
@@ -218,33 +185,41 @@ internal partial class WatchWorkspaceWindow
         foreach (var fault in change.Recovered)
         {
             _notificationCoordinator.Dismiss(FaultNotificationSource(fault).Key);
+            var localizedTitle = fault.LocalizedContent?.Title
+                ?? new WatchLocalizedText(fault.Title, fault.Title);
+            var localized = WatchFeedbackText.Recovered(localizedTitle);
             PresentNotification(new WatchNotificationEvent(
                 new WatchNotificationSource(
                     "continuing-fault.recovered",
                     fault.Scope,
                     fault.SourceKey),
                 WatchNotificationSeverity.Success,
-                "恢复",
-                "读取已恢复",
-                $"{fault.Title}已恢复；稳定故障状态已清除。"));
+                localized.SeverityText.SimplifiedChinese,
+                localized.Title.SimplifiedChinese,
+                localized.Message.SimplifiedChinese,
+                LocalizedContent: localized));
         }
 
         if (change.ForegroundSummary.Count > 0)
         {
             var mostSevere = change.ForegroundSummary[0];
+            var mostSevereTitle = mostSevere.LocalizedContent?.Title
+                ?? new WatchLocalizedText(mostSevere.Title, mostSevere.Title);
+            var localized = WatchFeedbackText.BackgroundFaultSummary(
+                change.ForegroundSummary.Count,
+                mostSevereTitle);
             PresentNotification(new WatchNotificationEvent(
                 new WatchNotificationSource(
                     "continuing-fault.background-summary",
                     WatchNotificationScope.Global,
                     "active-new-faults"),
                 mostSevere.Severity,
-                "错误",
-                "后台期间出现新的持续故障",
-                change.ForegroundSummary.Count == 1
-                    ? mostSevere.Title
-                    : $"仍有 {change.ForegroundSummary.Count} 个新故障活动；请查看页面标题状态。",
-                "查看故障",
-                () => NavigateToFault(mostSevere)));
+                localized.SeverityText.SimplifiedChinese,
+                localized.Title.SimplifiedChinese,
+                localized.Message.SimplifiedChinese,
+                localized.ActionLabel!.SimplifiedChinese,
+                () => NavigateToFault(mostSevere),
+                localized));
         }
 
         RenderFaultHeaders(change.Active);
@@ -260,7 +235,8 @@ internal partial class WatchWorkspaceWindow
             fault.Title,
             fault.Message,
             fault.ActionLabel,
-            () => NavigateToFault(fault)));
+            () => NavigateToFault(fault),
+            fault.LocalizedContent));
     }
 
     private static WatchNotificationSource FaultNotificationSource(
@@ -301,11 +277,14 @@ internal partial class WatchWorkspaceWindow
         }
 
         pill.Style = (Style)FindResource("StatusPillCritical");
-        text.Text = $"错误 · {faults.Length} 个故障";
-        var detail = string.Join("；", faults.Select(item => item.Title));
+        var header = WatchFeedbackText.FaultHeader(
+            _displayLanguageState.Current,
+            faults);
+        text.Text = header.Text;
+        var detail = header.Detail;
         button.Tag = page;
         button.ToolTip = detail;
-        AutomationProperties.SetName(button, $"{text.Text}。{detail}。打开故障详情");
+        AutomationProperties.SetName(button, header.Automation);
         AutomationProperties.SetHelpText(button, detail);
     }
 
@@ -323,17 +302,27 @@ internal partial class WatchWorkspaceWindow
         }
 
         var fault = faults[0];
+        var localizedFault = fault.LocalizedContent
+            ?? WatchFeedbackText.Localize(new WatchNotificationEvent(
+                new WatchNotificationSource(
+                    "continuing-fault.details",
+                    WatchNotificationScope.ForPage(page),
+                    page.ToString()),
+                fault.Severity,
+                "错误",
+                fault.Title,
+                fault.Message));
+        var localized = WatchFeedbackText.FaultDetails(faults.Length, localizedFault);
         PresentNotification(new WatchNotificationEvent(
             new WatchNotificationSource(
                 "continuing-fault.details",
                 WatchNotificationScope.ForPage(page),
                 page.ToString()),
             fault.Severity,
-            "错误",
-            fault.Title,
-            faults.Length == 1
-                ? fault.Message
-                : $"当前共有 {faults.Length} 个持续故障。{fault.Message}"));
+            localized.SeverityText.SimplifiedChinese,
+            localized.Title.SimplifiedChinese,
+            localized.Message.SimplifiedChinese,
+            LocalizedContent: localized));
     }
 
     private void PresentOperationFailure(

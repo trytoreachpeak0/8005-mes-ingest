@@ -198,7 +198,7 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHeadingText" Text="Demand 世代"
+                                        <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHeadingText" Text="运输需求代次"
                                                       Style="{StaticResource SectionTitleText}" />
                                         <ui:TextBlock x:Name="DemandSeriesInspectorGenerationHelpText" Margin="0,3,0,0"
                                                       Text="滚动并选择 DemandId"
@@ -228,7 +228,7 @@
                                          VirtualizingStackPanel.IsVirtualizing="True"
                                          VirtualizingStackPanel.VirtualizationMode="Recycling"
                                          KeyboardNavigation.TabIndex="10"
-                                         AutomationProperties.Name="Demand 世代导航"
+                                         AutomationProperties.Name="运输需求代次导航"
                                          AutomationProperties.AutomationId="DemandSeriesInspectorGenerationList">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
@@ -335,7 +335,7 @@
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationIdentityText"
                                                           Style="{StaticResource SectionTitleText}"
                                                           TextTrimming="CharacterEllipsis"
-                                                          AutomationProperties.Name="选中 Demand 世代身份"
+                                                          AutomationProperties.Name="选中运输需求代次身份"
                                                           AutomationProperties.AutomationId="DemandSeriesInspectorGenerationIdentity" />
                                             <ui:TextBlock x:Name="DemandSeriesInspectorGenerationSummaryText"
                                                           Grid.Column="1"

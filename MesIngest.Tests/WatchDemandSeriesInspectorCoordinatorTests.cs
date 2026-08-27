@@ -297,7 +297,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.False(Assert.IsType<TabControl>(
                 window.FindName("DemandSeriesInspectorTabs")).IsEnabled);
             Assert.Equal(
-                "所选 Series 详情不可用",
+                "所选需求系列详情不可用",
                 AutomationProperties.GetName(Assert.IsAssignableFrom<TextBlock>(
                     window.FindName("DemandSeriesInspectorGenerationIdentityText"))));
             var reason = Assert.IsAssignableFrom<TextBlock>(
