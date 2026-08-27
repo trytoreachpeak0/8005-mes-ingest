@@ -166,7 +166,7 @@ public interface IHistoryCleanupOperations
         DateTimeOffset nextCheckAt,
         CancellationToken cancellationToken = default);
 
-    Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+    Task<bool> TryFailHistoryCleanupRunAsync(
         string runId,
         DateTimeOffset failedAt,
         DateTimeOffset nextCheckAt,

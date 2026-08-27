@@ -68,6 +68,24 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    [Theory]
+    [InlineData(ContractPath)]
+    [InlineData("/api/v2/error-search/series/evidence/evidence/raw-observations")]
+    public async Task Non_localhost_unauthorized_paths_return_bearer_challenge(string path)
+    {
+        await using var factory = CreateFactory(
+            urls: "http://0.0.0.0:5088",
+            sharedSecret: "plant-secret");
+        var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(path);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        var challenge = Assert.Single(response.Headers.WwwAuthenticate);
+        Assert.Equal("Bearer", challenge.Scheme);
+        Assert.Null(challenge.Parameter);
+    }
+
     [Fact]
     public async Task Non_localhost_binding_accepts_correct_bearer_shared_secret()
     {

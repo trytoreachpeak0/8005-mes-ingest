@@ -273,6 +273,56 @@ public sealed class HistoryCleanupPolicyTests
     }
 
     [Fact]
+    public async Task Begin_commits_running_then_throws_reconciles_the_same_run_to_failed()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 7, 25, 0, TimeSpan.Zero);
+        var operations = new UncertainBeginCleanupOperations(
+            _ => new IOException("response lost after commit"));
+        var runner = new HistoryCleanupBatchRunner(
+            operations,
+            new MesIngestHostOptions(),
+            new AdjustableTimeProvider(now),
+            new IngestWorkPriorityGate(),
+            NullLogger<HistoryCleanupBatchRunner>.Instance);
+
+        var nextCheckAt = await runner.RunBatchAsync(now, CancellationToken.None);
+
+        Assert.Equal(now.AddHours(1), nextCheckAt);
+        Assert.Equal(HistoryCleanupRunStatuses.Failed, operations.State.Status);
+        Assert.Equal(HistoryCleanupFailureCodes.BatchFailed, operations.State.LastFailureCode);
+        Assert.Equal(nameof(IOException), operations.State.LastFailureReason);
+        Assert.Equal(operations.BegunRunId, operations.FailedRunId);
+        Assert.Equal(1, operations.FailCalls);
+    }
+
+    [Fact]
+    public async Task Begin_commits_running_then_caller_is_cancelled_reconciles_the_same_run_to_failed()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 7, 27, 0, TimeSpan.Zero);
+        using var cancellation = new CancellationTokenSource();
+        var operations = new UncertainBeginCleanupOperations(token =>
+        {
+            cancellation.Cancel();
+            return new OperationCanceledException(token);
+        });
+        var runner = new HistoryCleanupBatchRunner(
+            operations,
+            new MesIngestHostOptions(),
+            new AdjustableTimeProvider(now),
+            new IngestWorkPriorityGate(),
+            NullLogger<HistoryCleanupBatchRunner>.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            runner.RunBatchAsync(now, cancellation.Token));
+
+        Assert.Equal(HistoryCleanupRunStatuses.Failed, operations.State.Status);
+        Assert.Equal(HistoryCleanupFailureCodes.BatchFailed, operations.State.LastFailureCode);
+        Assert.Equal(nameof(OperationCanceledException), operations.State.LastFailureReason);
+        Assert.Equal(operations.BegunRunId, operations.FailedRunId);
+        Assert.Equal(1, operations.FailCalls);
+    }
+
+    [Fact]
     public async Task One_poll_trace_cannot_exceed_the_hard_cleanup_transaction_bound()
     {
         var projection = new SqlServerMesIngestProjection(
@@ -368,14 +418,76 @@ public sealed class HistoryCleanupPolicyTests
             return Task.FromResult(State);
         }
 
-        public Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+        public Task<bool> TryFailHistoryCleanupRunAsync(
             string runId,
             DateTimeOffset failedAt,
             DateTimeOffset nextCheckAt,
             string failureCode,
             string failureReason,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromException<bool>(new NotSupportedException());
+
+        public Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(
+            CancellationToken cancellationToken = default) => Task.FromResult(State);
+    }
+
+    private sealed class UncertainBeginCleanupOperations(
+        Func<CancellationToken, Exception> exceptionFactory) : IHistoryCleanupOperations
+    {
+        public int FailCalls { get; private set; }
+
+        public string? BegunRunId { get; private set; }
+
+        public string? FailedRunId { get; private set; }
+
+        public HistoryCleanupStateSnapshot State { get; private set; } =
+            HistoryCleanupStateSnapshot.NotRun;
+
+        public Task<HistoryCleanupStateSnapshot> BeginHistoryCleanupRunAsync(
+            string runId,
+            DateTimeOffset startedAt,
+            DateTimeOffset nextCheckAt,
+            CancellationToken cancellationToken = default)
+        {
+            BegunRunId = runId;
+            State = State.Begin(runId, startedAt, nextCheckAt);
+            return Task.FromException<HistoryCleanupStateSnapshot>(
+                exceptionFactory(cancellationToken));
+        }
+
+        public Task<HistoryRawCleanupBatchResult> AdvanceHistoryRetentionBatchAsync(
+            string runId,
+            int maximumRawObservationRows,
+            int maximumPollTraces,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Begin did not return to the caller.");
+
+        public Task<RetentionEligibleSeriesCleanupResult?> CleanupNextRetentionEligibleSeriesAsync(
+            string runId,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Begin did not return to the caller.");
+
+        public Task<HistoryCleanupStateSnapshot> CompleteHistoryCleanupRunAsync(
+            string runId,
+            string status,
+            DateTimeOffset completedAt,
+            DateTimeOffset nextCheckAt,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("An uncertain Begin must use safe reconciliation.");
+
+        public Task<bool> TryFailHistoryCleanupRunAsync(
+            string runId,
+            DateTimeOffset failedAt,
+            DateTimeOffset nextCheckAt,
+            string failureCode,
+            string failureReason,
+            CancellationToken cancellationToken = default)
+        {
+            FailCalls++;
+            FailedRunId = runId;
+            State = State.Fail(failedAt, nextCheckAt, failureCode, failureReason);
+            return Task.FromResult(true);
+        }
 
         public Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(State);
@@ -458,14 +570,14 @@ public sealed class HistoryCleanupPolicyTests
             return Task.FromResult(State);
         }
 
-        public Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+        public Task<bool> TryFailHistoryCleanupRunAsync(
             string runId,
             DateTimeOffset failedAt,
             DateTimeOffset nextCheckAt,
             string failureCode,
             string failureReason,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromException<bool>(new NotSupportedException());
 
         public Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(State);
@@ -553,14 +665,14 @@ public sealed class HistoryCleanupPolicyTests
             return State;
         }
 
-        public Task<HistoryCleanupStateSnapshot> FailHistoryCleanupRunAsync(
+        public Task<bool> TryFailHistoryCleanupRunAsync(
             string runId,
             DateTimeOffset failedAt,
             DateTimeOffset nextCheckAt,
             string failureCode,
             string failureReason,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromException<bool>(new NotSupportedException());
 
         public Task<HistoryCleanupStateSnapshot> ReadHistoryCleanupStateAsync(
             CancellationToken cancellationToken = default) => Task.FromResult(State);

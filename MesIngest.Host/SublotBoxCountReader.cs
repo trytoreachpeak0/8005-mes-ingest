@@ -78,6 +78,14 @@ internal sealed class OracleSublotBoxCountReader(
                 exception.Failure);
             return Unavailable("SUBLOT_BOX_COUNT_QUERY_INVALID");
         }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            logger.LogError(
+                exception,
+                "The canonical SUBLOT_BOX_COUNT artifact could not be read ({ExceptionType}).",
+                exception.GetType().Name);
+            return Unavailable("SUBLOT_BOX_COUNT_QUERY_INVALID");
+        }
 
         OracleStatementResult result;
         try

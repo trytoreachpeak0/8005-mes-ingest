@@ -27,6 +27,7 @@ internal sealed class HostRequestLatencyMiddleware
 
         var sw = Stopwatch.StartNew();
         string? stageOverride = null;
+        int? statusCodeOverride = null;
         try
         {
             await _next(context);
@@ -34,6 +35,12 @@ internal sealed class HostRequestLatencyMiddleware
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
             stageOverride = LatencyStages.HostAbort;
+            statusCodeOverride = 499;
+            throw;
+        }
+        catch (Exception)
+        {
+            statusCodeOverride = StatusCodes.Status500InternalServerError;
             throw;
         }
         finally
@@ -44,7 +51,7 @@ internal sealed class HostRequestLatencyMiddleware
                 correlationId,
                 sw.ElapsedMilliseconds,
                 stageOverride,
-                statusCode: stageOverride == LatencyStages.HostAbort ? 499 : context.Response.StatusCode);
+                statusCode: statusCodeOverride ?? context.Response.StatusCode);
             LatencyCorrelation.Id = null;
         }
     }

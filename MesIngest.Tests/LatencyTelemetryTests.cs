@@ -1,7 +1,9 @@
 using System.Net;
 using System.Text;
 using MesIngest.Core;
+using MesIngest.Host;
 using MesIngest.Watch;
+using Microsoft.AspNetCore.Http;
 
 namespace MesIngest.Tests;
 
@@ -12,6 +14,25 @@ namespace MesIngest.Tests;
 /// </summary>
 public class LatencyTelemetryTests
 {
+    [Fact]
+    public async Task Host_middleware_records_unhandled_downstream_exception_as_500_http_error()
+    {
+        var telemetry = new RecordingLatencyTelemetry();
+        var middleware = new HostRequestLatencyMiddleware(
+            _ => throw new InvalidOperationException("simulated unhandled failure"),
+            telemetry);
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/v2/contract";
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => middleware.InvokeAsync(context));
+
+        var evt = Assert.Single(telemetry.Events);
+        Assert.Equal(500, evt.StatusCode);
+        Assert.Equal(LatencyStages.HttpError, evt.Stage);
+        Assert.Equal(LatencyComponents.Host, evt.Component);
+        Assert.Equal("/api/v2/contract", evt.Endpoint);
+    }
+
     [Fact]
     public async Task Watch_latency_file_telemetry_swallows_io_and_reports_write_failure()
     {

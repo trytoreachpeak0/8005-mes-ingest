@@ -176,6 +176,7 @@ app.Use(async (context, next) =>
     if (!SharedSecretAuth.IsAuthorized(context.Request, policy))
     {
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.Headers.WWWAuthenticate = "Bearer";
         await context.Response.WriteAsJsonAsync(new NewMesIngestErrorDto(
             "UNAUTHORIZED",
             "Bearer SharedSecret is required."));
