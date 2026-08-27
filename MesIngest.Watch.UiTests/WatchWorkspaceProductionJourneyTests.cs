@@ -83,6 +83,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private const string AuditSnapshotReference = "audit-preview-snapshot-21";
     private const string ErrorSnapshotReference = "error-search-snapshot-22";
     private const string PreviewErrorSeriesId = "SERIES-ATTENTION-22";
+    private const string BilingualPreviewDemandId = "D-001846";
     /// <summary>
     /// Optional journey client size in effective pixels, as <c>WIDTHxHEIGHT</c>.
     /// </summary>
@@ -106,6 +107,25 @@ public sealed class WatchWorkspaceProductionJourneyTests
     private static readonly TimeSpan PreviewStateTimeout = TimeSpan.FromSeconds(35);
     private static readonly DateTimeOffset PreviewErrorAsOf =
         DateTimeOffset.Parse("2026-08-14T07:08:10Z", CultureInfo.InvariantCulture);
+
+    [Fact]
+    public void Bilingual_preview_fixture_pins_the_variant_a_identity_and_missing_area_semantics()
+    {
+        var query = new ReadabilityAuditQuery(new ReadabilityAuditFilter());
+        var list = CreateJourneyAuditList(query);
+        var selected = Assert.Single(
+            list.Items,
+            item => item.DemandId == BilingualPreviewDemandId);
+        var detail = CreateJourneyAuditDetail(list.SnapshotReference);
+
+        Assert.Equal("DIE_TO_OVEN", selected.WorkType);
+        Assert.Equal("B240811-19", selected.Sublot);
+        Assert.Null(selected.LiveMesFields);
+        Assert.Equal(selected.DemandId, detail.Demand.DemandId);
+        Assert.Equal(selected.SeriesId, detail.Series.SeriesId);
+        Assert.Null(detail.Demand.LiveMesFields);
+        Assert.Contains(detail.LatestRawObservations, observation => observation.Area is null);
+    }
 
     [Fact]
     public void Error_detail_fixture_tracks_the_committed_query_and_requested_identity()
@@ -1447,8 +1467,20 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Assert.Equal("SERIES-ATTENTION-22", latestErrorQuery.Filter.SeriesId);
             Assert.Null(latestErrorQuery.SnapshotReference);
             Assert.Null(latestErrorQuery.Cursor);
+
+            failedStep = "ticket-12-bilingual-production-preview";
+            var bilingualUiaEvidence = CaptureBilingualVariantAPreview(
+                window,
+                application,
+                automation,
+                evidence,
+                process.MainWindowHandle,
+                localAppData);
+
             evidence.RecordUiaTree(
                 chromeUiaEvidence
+                + Environment.NewLine
+                + bilingualUiaEvidence
                 + Environment.NewLine
                 + WatchWindowJourneySupport.DumpUiaTree(window, automation));
         }
@@ -1817,7 +1849,20 @@ public sealed class WatchWorkspaceProductionJourneyTests
             normalized,
             AuditSnapshotReference);
         var at = snapshot.Snapshot.ProjectionCommittedAt;
-        var baseItem = Assert.Single(snapshot.Items);
+        var baseItem = Assert.Single(snapshot.Items) with
+        {
+            DemandId = BilingualPreviewDemandId,
+            SeriesId = "SERIES-D-001846",
+            WorkType = "DIE_TO_OVEN",
+            Sublot = "B240811-19",
+            LiveMesFields = null,
+            LeadReadabilityBlocker = "REQUIRED_MES_FIELD_MISSING",
+            ReadabilityBlockers =
+            [
+                "REQUIRED_MES_FIELD_MISSING",
+                "INVALID_MES_FIELD_FORMAT",
+            ],
+        };
         var areas = normalized.Filter.MesAreas.Count == 0
             ? ["A1-1", "A1-2", "A2-1", "B1-1", "B2-1"]
             : normalized.Filter.MesAreas;
@@ -1924,6 +1969,38 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     new ReadabilityBlockerFacetSnapshot("DEMAND_GONE", 1),
                 ]),
             Items = items,
+        };
+    }
+
+    internal static ReadabilityAuditDetailSnapshot CreateJourneyAuditDetail(
+        string snapshotReference)
+    {
+        var detail = WatchReadabilityAuditProductionIntegrationTests.CreateAuditDetail(
+            snapshotReference);
+        var demand = detail.Demand with
+        {
+            DemandId = BilingualPreviewDemandId,
+            SeriesId = "SERIES-D-001846",
+            WorkType = "DIE_TO_OVEN",
+            Sublot = "B240811-19",
+            LiveMesFields = null,
+            LeadReadabilityBlocker = "REQUIRED_MES_FIELD_MISSING",
+            ReadabilityBlockers =
+            [
+                "REQUIRED_MES_FIELD_MISSING",
+                "INVALID_MES_FIELD_FORMAT",
+            ],
+        };
+        return detail with
+        {
+            Demand = demand,
+            Series = detail.Series with
+            {
+                SeriesId = demand.SeriesId,
+                WorkType = demand.WorkType,
+                Sublot = demand.Sublot,
+                CurrentDemandId = demand.DemandId,
+            },
         };
     }
 
@@ -2129,8 +2206,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             ReadabilityAuditDetail = FakeHostReply.Select<
                 FakeHostV2DetailRequest,
                 ReadabilityAuditDetailSnapshot>(request => FakeHostReply.Return(
-                    WatchReadabilityAuditProductionIntegrationTests.CreateAuditDetail(
-                        request.SnapshotReference))),
+                    CreateJourneyAuditDetail(request.SnapshotReference))),
             ErrorSearch = FakeHostReply.Select<ErrorSearchQuery, ErrorSearchListSnapshot>(query =>
             {
                 var normalized = query.NormalizeAndValidate();
@@ -2967,9 +3043,14 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     private static AutomationElement? FindAreaWriteConflictDialog(
         FlaUI.Core.AutomationElements.Window window) =>
+        FindAreaWriteConflictDialog(window, "AREA 文件已被其他程序修改");
+
+    private static AutomationElement? FindAreaWriteConflictDialog(
+        FlaUI.Core.AutomationElements.Window window,
+        string title) =>
         window.FindFirstDescendant(
             window.ConditionFactory.ByControlType(ControlType.Window)
-                .And(window.ConditionFactory.ByName("AREA 文件已被其他程序修改")));
+                .And(window.ConditionFactory.ByName(title)));
 
     private static FlaUI.Core.AutomationElements.ToggleButton FindRequiredButtonByName(
         FlaUI.Core.AutomationElements.Window window,
@@ -3035,6 +3116,295 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 ? $"Timed out after {timeout.TotalSeconds:0.#}s waiting for {description}."
                 : $"Timed out after {timeout.TotalSeconds:0.#}s waiting for {description}. "
                   + $"Last error: {lastException.Message}");
+    }
+
+    private static string CaptureBilingualVariantAPreview(
+        FlaUI.Core.AutomationElements.Window window,
+        FlaUIApplication application,
+        UIA3Automation automation,
+        WatchJourneyEvidence evidence,
+        IntPtr windowHandle,
+        string localAppData)
+    {
+        var viewport = JourneyClientEpx is { } epx
+            ? $"{epx.Width}x{epx.Height}epx"
+            : "1440x900";
+        var uiaEvidence = new StringBuilder();
+
+        SetDisplayLanguage(
+            window,
+            "简体中文",
+            expectedPageTitle: "设置",
+            expectedNotification: "本机设置已保存");
+        ApplyJourneyClientSize(windowHandle);
+        CaptureBilingualMainPages(
+            window,
+            evidence,
+            windowHandle,
+            localAppData,
+            languageTag: "zh-CN",
+            viewport,
+            conflictTitle: "AREA 文件已被其他程序修改",
+            conflictReload: "重新载入文件");
+        uiaEvidence.AppendLine("=== Ticket 12 zh-CN main window ===");
+        uiaEvidence.AppendLine(WatchWindowJourneySupport.DumpUiaTree(window, automation));
+
+        Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
+        var demandGrid = WaitForRows(
+            window,
+            "DemandSeriesGrid",
+            "Ticket 12 Chinese DemandSeries rows");
+        demandGrid.Select(0);
+        FindRequiredById(window, "DemandSeriesOpenInspectorButton").AsButton().Invoke();
+        FlaUI.Core.AutomationElements.Window? inspector = null;
+        WaitUntil(
+            () =>
+            {
+                inspector = application.GetAllTopLevelWindows(automation)
+                    .FirstOrDefault(candidate => string.Equals(
+                        candidate.AutomationId,
+                        "DemandSeriesInspectorWindow",
+                        StringComparison.Ordinal));
+                return inspector is not null;
+            },
+            "Ticket 12 bilingual DemandSeries Inspector",
+            StepTimeout);
+        var inspectorHandle = new IntPtr(
+            inspector!.Properties.NativeWindowHandle.ValueOrDefault);
+        ApplyJourneyClientSize(inspectorHandle);
+        var generationList = FindRequiredById(
+                inspector,
+                "DemandSeriesInspectorGenerationList")
+            .AsListBox();
+        WaitUntil(
+            () => generationList.Items.Length == 2,
+            "Ticket 12 Inspector generations",
+            StepTimeout);
+        generationList.Items[1].Select();
+        WaitUntil(
+            () => TextValue(FindRequiredById(
+                    inspector,
+                    "DemandSeriesInspectorFormationReason"))
+                .Contains("归档前消失后再现", StringComparison.Ordinal),
+            "Ticket 12 Chinese Inspector projection",
+            StepTimeout);
+        Capture(
+            evidence,
+            inspectorHandle,
+            $"bilingual-zh-CN-03-inspector-{viewport}");
+        uiaEvidence.AppendLine("=== Ticket 12 zh-CN Inspector ===");
+        uiaEvidence.AppendLine(WatchWindowJourneySupport.DumpUiaTree(inspector, automation));
+
+        // The Inspector stays open with the same selected generation while Settings commits
+        // English. This proves that the shared language state reprojects all open windows
+        // without changing the Host, selection, or viewport.
+        SetDisplayLanguage(
+            window,
+            "English",
+            expectedPageTitle: "Settings",
+            expectedNotification: "Local settings saved");
+        WaitUntil(
+            () => TextValue(FindRequiredById(
+                    inspector,
+                    "DemandSeriesInspectorFormationReason"))
+                .Contains("Reappeared before archive", StringComparison.Ordinal),
+            "Ticket 12 English Inspector reprojection",
+            StepTimeout);
+        Assert.True(generationList.Items[1].IsSelected);
+        Capture(
+            evidence,
+            inspectorHandle,
+            $"bilingual-en-US-03-inspector-{viewport}");
+        uiaEvidence.AppendLine("=== Ticket 12 en-US Inspector ===");
+        uiaEvidence.AppendLine(WatchWindowJourneySupport.DumpUiaTree(inspector, automation));
+        inspector.Close();
+
+        ApplyJourneyClientSize(windowHandle);
+        CaptureBilingualMainPages(
+            window,
+            evidence,
+            windowHandle,
+            localAppData,
+            languageTag: "en-US",
+            viewport,
+            conflictTitle: "AREA file was modified by another program",
+            conflictReload: "Reload file");
+
+        uiaEvidence.AppendLine("=== Ticket 12 en-US main window ===");
+        uiaEvidence.AppendLine(WatchWindowJourneySupport.DumpUiaTree(window, automation));
+        return uiaEvidence.ToString();
+    }
+
+    private static void CaptureBilingualMainPages(
+        FlaUI.Core.AutomationElements.Window window,
+        WatchJourneyEvidence evidence,
+        IntPtr windowHandle,
+        string localAppData,
+        string languageTag,
+        string viewport,
+        string conflictTitle,
+        string conflictReload)
+    {
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-08-settings-notification-{viewport}");
+
+        Navigate(window, "OverviewNavigationItem", "OverviewPage");
+        Capture(evidence, windowHandle, $"bilingual-{languageTag}-01-overview-{viewport}");
+
+        Navigate(window, "ReadabilityAuditNavigationItem", "ReadabilityAuditPage");
+        var auditGrid = WaitForRows(
+            window,
+            "ReadabilityAuditGrid",
+            $"Ticket 12 {languageTag} readability rows");
+        Assert.Contains(BilingualPreviewDemandId, GridText(auditGrid), StringComparison.Ordinal);
+        auditGrid.Select(0);
+        WaitUntil(
+            () => SubtreeText(FindRequiredById(window, "ReadabilityDetailRegion"))
+                .Contains(BilingualPreviewDemandId, StringComparison.Ordinal),
+            $"Ticket 12 {languageTag} {BilingualPreviewDemandId} detail",
+            StepTimeout);
+        EnsureVisibleIfOffscreen(
+            window,
+            FindRequiredById(window, "ReadabilityQualificationChecklist"),
+            $"Ticket 12 {languageTag} readability detail");
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-02-readability-D-001846-area-missing-{viewport}");
+
+        Navigate(window, "DemandSeriesNavigationItem", "DemandSeriesScrollViewer");
+        var demandGrid = WaitForRows(
+            window,
+            "DemandSeriesGrid",
+            $"Ticket 12 {languageTag} DemandSeries rows");
+        demandGrid.Select(0);
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-03-demand-series-{viewport}");
+
+        Navigate(window, "ErrorSearchNavigationItem", "ErrorSearchFreshnessText");
+        var errorGrid = WaitForRows(
+            window,
+            "ErrorSearchSeriesGrid",
+            $"Ticket 12 {languageTag} ErrorSearch rows");
+        errorGrid.Select(0);
+        var periodGrid = WaitForRows(
+            window,
+            "ErrorSearchPeriodGrid",
+            $"Ticket 12 {languageTag} ErrorSearch periods");
+        periodGrid.Select(0);
+        WaitForRows(
+            window,
+            "ErrorSearchEvidenceGrid",
+            $"Ticket 12 {languageTag} ErrorSearch evidence");
+        PrepareRepresentativeFirstScreen(
+            window,
+            "ErrorSearchFreshnessText",
+            "ErrorSearchCategoryList",
+            $"Ticket 12 {languageTag} ErrorSearch");
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-04-error-search-{viewport}");
+
+        Navigate(window, "AreaFilterNavigationItem", "AreaFilterPage");
+        var profileList = FindRequiredById(window, "AreaProfileList").AsListBox();
+        WaitUntil(
+            () => profileList.Items.Any(item =>
+                TextValue(item).Contains("东区", StringComparison.Ordinal)),
+            $"Ticket 12 {languageTag} AREA fixture",
+            StepTimeout);
+        var eastProfile = Assert.Single(
+            profileList.Items,
+            item => TextValue(item).Contains("东区", StringComparison.Ordinal));
+        eastProfile.Select();
+        WaitUntil(
+            () => TextValue(FindRequiredById(window, "AreaProfileEditor"))
+                .Contains("A1-1", StringComparison.Ordinal),
+            $"Ticket 12 {languageTag} AREA editor selection",
+            StepTimeout);
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-05-area-editor-{viewport}");
+
+        var areaEditor = FindRequiredById(window, "AreaProfileEditor").AsTextBox();
+        areaEditor.Text += "Z9-9" + Environment.NewLine;
+        var eastProfilePath = Path.Combine(
+            localAppData,
+            "MesIngest.Watch",
+            "area-filters",
+            "东区.txt");
+        const string externalContent = "# Ticket 12 bilingual external version\nA1-1\nA1-2\n";
+        File.WriteAllText(
+            eastProfilePath,
+            externalContent,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        File.SetLastWriteTimeUtc(eastProfilePath, DateTime.UtcNow.AddMinutes(1));
+        WaitUntil(
+            () => FindAreaWriteConflictDialog(window, conflictTitle) is not null,
+            $"Ticket 12 {languageTag} AREA conflict dialog",
+            PreviewStateTimeout);
+        CaptureWindowIncludingPopups(
+            evidence,
+            window,
+            $"bilingual-{languageTag}-05b-area-conflict-{viewport}");
+        FindRequiredByName(window, conflictReload).AsButton().Invoke();
+        WaitUntil(
+            () => FindAreaWriteConflictDialog(window, conflictTitle) is null,
+            $"Ticket 12 {languageTag} resolved AREA conflict",
+            PreviewStateTimeout);
+
+        Navigate(window, "CurrentAttentionNavigationItem", "CurrentAttentionPage");
+        var attentionGrid = WaitForRows(
+            window,
+            "CurrentAttentionGrid",
+            $"Ticket 12 {languageTag} Current Attention rows");
+        attentionGrid.Select(0);
+        WaitForRows(
+            window,
+            "CurrentAttentionEvidenceGrid",
+            $"Ticket 12 {languageTag} Current Attention evidence");
+        PrepareRepresentativeFirstScreen(
+            window,
+            "CurrentAttentionSnapshotText",
+            "CurrentAttentionKindFilter",
+            $"Ticket 12 {languageTag} Current Attention");
+        Capture(
+            evidence,
+            windowHandle,
+            $"bilingual-{languageTag}-06-current-attention-{viewport}");
+    }
+
+    private static void SetDisplayLanguage(
+        FlaUI.Core.AutomationElements.Window window,
+        string languageOption,
+        string expectedPageTitle,
+        string expectedNotification)
+    {
+        Navigate(window, "SettingsNavigationItem", "SettingsPage");
+        var selector = FindRequiredById(window, "DisplayLanguageInput").AsComboBox();
+        EnsureVisibleIfOffscreen(window, selector, $"display language option {languageOption}");
+        selector.Expand();
+        var option = Assert.Single(
+            selector.Items,
+            item => string.Equals(item.Name, languageOption, StringComparison.Ordinal));
+        option.Select();
+        var save = FindRequiredById(window, "SaveRefreshIntervalsButton").AsButton();
+        EnsureVisibleIfOffscreen(window, save, $"save {languageOption} display language");
+        save.Invoke();
+        WaitUntil(
+            () => TextValue(FindRequiredById(window, "SettingsPageTitleText"))
+                    .Contains(expectedPageTitle, StringComparison.Ordinal)
+                && FindById(window, "NotificationItemsControl") is { } notifications
+                && SubtreeText(notifications).Contains(
+                    expectedNotification,
+                    StringComparison.Ordinal),
+            $"committed display language {languageOption}",
+            StepTimeout);
     }
 
     private static (int Width, int Height)? ParseClientEpx(string? value)
