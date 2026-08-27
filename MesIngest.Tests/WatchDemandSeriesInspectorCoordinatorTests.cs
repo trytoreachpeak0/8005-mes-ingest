@@ -302,6 +302,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                     window.FindName("DemandSeriesInspectorGenerationIdentityText"))));
             var reason = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorFormationReasonText"));
+            Assert.Equal("不可用", reason.Text);
             Assert.Equal(
                 "Demand 形成原因不可用",
                 AutomationProperties.GetName(reason));

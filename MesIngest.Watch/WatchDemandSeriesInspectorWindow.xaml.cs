@@ -356,7 +356,9 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorEventGrid.ItemsSource = null;
         DemandSeriesInspectorGenerationIdentityText.Text = _text.LoadingDetail;
         DemandSeriesInspectorGenerationSummaryText.Text = string.Empty;
-        DemandSeriesInspectorFormationReasonText.Text = "—";
+        DemandSeriesInspectorFormationReasonText.Text = _state?.IsLoading == true
+            ? _text.Loading
+            : _text.Unavailable;
         DemandSeriesInspectorFormationReasonText.ToolTip = null;
         DemandSeriesInspectorFormationReasonCodeText.Text = string.Empty;
         DemandSeriesInspectorScalarBoundaryEvidenceText.Text = string.Empty;
