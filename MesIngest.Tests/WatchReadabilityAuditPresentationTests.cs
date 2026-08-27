@@ -297,7 +297,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         var selected = Assert.IsType<WatchReadabilityAuditDetailPresentation>(presentation.Detail);
         Assert.Equal("demand-conflict · WIRE_TO_GATE", selected.Heading);
         Assert.Equal(
-            $"SL-demand-conflict · series-demand-conflict · Demand Generation 2 · 最后看见 {WatchTimeDisplay.Format(at)}",
+            $"SL-demand-conflict · series-demand-conflict · Demand Generation 2 · 最后看见 {WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(at)}",
             selected.BusinessIdentity);
         Assert.Equal("DUPLICATE_TRANSPORT_DEMAND_KEY", selected.LeadReadabilityBlocker);
         Assert.Equal("Blocked", selected.SemanticState);
@@ -472,7 +472,9 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Equal("A1-1", fields.Area);
         Assert.Equal("EQP-21", fields.Eqp);
         Assert.Equal("STEP-21", fields.Step);
-        Assert.Equal(WatchTimeDisplay.Format(at.AddDays(-1)), fields.MesSourceDate);
+        Assert.Equal(
+            WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(at.AddDays(-1)),
+            fields.MesSourceDate);
         Assert.Equal("PKG-21", fields.Package);
         Assert.Contains("可信 LiveMesFieldSet", selected.LiveMesFacts, StringComparison.Ordinal);
         Assert.Contains("当前可信 LiveMesFieldSet 可用", selected.ObservationSummary, StringComparison.Ordinal);
@@ -590,7 +592,10 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.True(failed.IsInfoOpen);
         Assert.Equal(WatchPresentationSeverity.Warning, failed.InfoSeverity);
         Assert.Contains("已保留上次快照", failed.InfoTitle, StringComparison.Ordinal);
-        Assert.Contains(WatchTimeDisplay.Format(failedAt), failed.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains(
+            WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(failedAt),
+            failed.InfoMessage,
+            StringComparison.Ordinal);
         Assert.Contains("timed out", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("correlation-ticket-21", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("最近失败", failed.ClientAttemptFacts, StringComparison.Ordinal);

@@ -82,7 +82,7 @@ public sealed class WatchDemandSeriesPresentationTests
             presentation.Rows[3].Attention);
         Assert.Equal(4, presentation.Rows.Count);
         var firstRow = presentation.Rows[0];
-        Assert.Equal(WatchTimeDisplay.Format(DateTimeOffset.Parse("2026-08-14T04:00:00Z")), firstRow.StartedAt);
+        Assert.Equal("2026-08-14 04:00:00 +00:00", firstRow.StartedAt);
         Assert.Equal("demand-series-tracking", firstRow.CurrentDemandId);
         Assert.Equal(2, firstRow.CurrentGeneration);
         Assert.Equal(42, firstRow.LastSeriesSequence);

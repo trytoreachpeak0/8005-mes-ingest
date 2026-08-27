@@ -54,7 +54,7 @@ public sealed class WatchOverviewPresentationTests
         Assert.True(presentation.IsStale);
         Assert.Contains("last complete snapshot retained", presentation.InfoTitle, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("continues to show Host snapshot", presentation.InfoMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(WatchTimeDisplay.Format(snapshot.Snapshot.SnapshotAsOf), presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains(DisplayTime(snapshot.Snapshot.SnapshotAsOf), presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("18 seconds ago", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Equal("Demand series", presentation.SeriesUnit);
         Assert.Equal("Demands", presentation.ReadabilityUnit);
@@ -719,5 +719,5 @@ public sealed class WatchOverviewPresentationTests
     }
 
     private static string DisplayTime(DateTimeOffset value) =>
-        value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
+        value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
 }
