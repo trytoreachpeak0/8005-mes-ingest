@@ -386,6 +386,10 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 window.FindName("DemandSeriesInspectorGenerationSummaryText"));
             var generationActions = Assert.IsType<StackPanel>(
                 window.FindName("DemandSeriesInspectorGenerationActions"));
+            var generationReasonCode = Assert.IsAssignableFrom<TextBlock>(
+                window.FindName("DemandSeriesInspectorFormationReasonCodeText"));
+            var generationFacts = Assert.IsType<ItemsControl>(
+                window.FindName("DemandSeriesInspectorFormationFacts"));
             var eventHeader = Assert.IsType<Grid>(
                 window.FindName("DemandSeriesInspectorEventHeader"));
             var eventFilters = Assert.IsType<StackPanel>(
@@ -410,6 +414,22 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal(1, Grid.GetRow(generationSummary));
             Assert.Equal(0, Grid.GetColumn(generationActions));
             Assert.Equal(1, Grid.GetRow(generationActions));
+            Assert.Equal(1, Grid.GetRow(generationReasonCode));
+            Assert.Equal(3, Grid.GetRow(generationFacts));
+            var headerBottom = generationHeader.TranslatePoint(
+                new Point(0, generationHeader.ActualHeight),
+                detail).Y;
+            var reasonTop = generationReasonCode.TranslatePoint(new Point(), detail).Y;
+            var reasonBottom = reasonTop + generationReasonCode.ActualHeight;
+            var factsTop = generationFacts.TranslatePoint(new Point(), detail).Y;
+            Assert.True(
+                reasonTop >= headerBottom - 1,
+                $"The compact raw formation reason must start below the generation header; "
+                + $"reasonTop={reasonTop:0.##}, headerBottom={headerBottom:0.##}.");
+            Assert.True(
+                factsTop >= reasonBottom - 1,
+                $"The compact formation facts must start below the raw reason; "
+                + $"factsTop={factsTop:0.##}, reasonBottom={reasonBottom:0.##}.");
             Assert.Equal(2, eventHeader.RowDefinitions.Count);
             Assert.Equal(0, Grid.GetColumn(eventFilters));
             Assert.Equal(1, Grid.GetRow(eventFilters));

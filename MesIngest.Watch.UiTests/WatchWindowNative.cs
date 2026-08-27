@@ -173,8 +173,62 @@ internal static class WatchWindowNative
         }
     }
 
+    public static IDisposable OverrideClientAreaAnimation(bool enabled)
+    {
+        var original = GetClientAreaAnimation();
+        SetClientAreaAnimation(enabled);
+        return new ClientAreaAnimationOverride(original);
+    }
+
+    public static bool GetClientAreaAnimation()
+    {
+        if (!SystemParametersInfo(
+                SpiGetClientAreaAnimation,
+                0,
+                out var enabled,
+                0))
+        {
+            throw new InvalidOperationException(
+                $"Reading the Windows client-area animation setting failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        return enabled;
+    }
+
+    private static void SetClientAreaAnimation(bool enabled)
+    {
+        if (!SystemParametersInfo(
+                SpiSetClientAreaAnimation,
+                0,
+                enabled ? new IntPtr(1) : IntPtr.Zero,
+                SpifSendChange))
+        {
+            throw new InvalidOperationException(
+                $"Changing the Windows client-area animation setting failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+    }
+
     private const uint PrintWindowClientOnly = 0x00000001;
     private const uint PrintWindowFullContent = 0x00000002;
+    private const uint SpiGetClientAreaAnimation = 0x1042;
+    private const uint SpiSetClientAreaAnimation = 0x1043;
+    private const uint SpifSendChange = 0x0002;
+
+    private sealed class ClientAreaAnimationOverride(bool original) : IDisposable
+    {
+        private bool _disposed;
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            SetClientAreaAnimation(original);
+            _disposed = true;
+        }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeRect(int left, int top, int right, int bottom)
@@ -239,4 +293,20 @@ internal static class WatchWindowNative
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(
+        uint action,
+        uint parameter,
+        [MarshalAs(UnmanagedType.Bool)] out bool value,
+        uint flags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(
+        uint action,
+        uint parameter,
+        IntPtr value,
+        uint flags);
 }

@@ -32,6 +32,9 @@ public sealed class WatchBilingualFoundationProductionTests
                 Assert.Equal(WatchDisplayLanguage.SimplifiedChinese, window.DisplayLanguageState.Current);
                 Assert.Equal(WatchDisplayLanguage.SimplifiedChinese, selector.SelectedValue);
                 Assert.Equal(["简体中文", "English"], ChoiceLabels(selector));
+                Assert.Equal(
+                    ["简体中文", "English"],
+                    selector.Items.Cast<object>().Select(item => item.ToString()));
                 Assert.Equal("主导航", AutomationProperties.GetName(navigation));
                 Assert.Equal(
                     "设置",
