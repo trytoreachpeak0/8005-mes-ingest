@@ -21,8 +21,7 @@ internal partial class WatchWorkspaceWindow
         InitializeIntervalInputs();
         DisplayLanguageInput.SelectedValue = _displayLanguageState.Current;
 
-        var overview = WatchOverviewPresentation.Project(_session.State, _areaContext);
-        RenderHostFooter(_session.State, overview);
+        RenderWorkspace();
 
         if (focusedElement is System.Windows.IInputElement focusTarget
             && focusTarget.Focusable)
@@ -148,6 +147,8 @@ internal partial class WatchWorkspaceWindow
         SaveRefreshIntervalsButton.Content = settings.Save;
         AutomationProperties.SetName(SaveRefreshIntervalsButton, settings.Save);
         ApplyLocalizedAreaFilterStaticText();
+        ApplyLocalizedOverviewText();
+        ApplyLocalizedReadabilityAuditText();
     }
 
     private static void ApplyNavigationText(

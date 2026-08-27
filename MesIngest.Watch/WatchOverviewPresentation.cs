@@ -74,12 +74,16 @@ internal sealed record WatchOverviewPresentation(
     string SnapshotFacts,
     string ClientAttemptFacts,
     string SeriesValue,
+    string SeriesUnit,
     string SeriesDetail,
     string ReadabilityValue,
+    string ReadabilityUnit,
     string ReadabilityDetail,
     string ErrorsValue,
+    string ErrorsUnit,
     string ErrorsDetail,
     string AttentionValue,
+    string AttentionUnit,
     string AttentionDetail,
     WatchProtectionStatusPresentation Protection,
     string LocalAreaHeading,
@@ -94,24 +98,26 @@ internal sealed record WatchOverviewPresentation(
 {
     public static WatchOverviewPresentation Project(
         WatchV2WorkspaceState workspace,
-        WatchAreaDisplayContext localAreaContext)
+        WatchAreaDisplayContext localAreaContext,
+        WatchTextCatalog? catalog = null,
+        DateTimeOffset? now = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(localAreaContext);
+        catalog ??= WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese);
+        var text = catalog.Overview;
         var local = localAreaContext.NormalizeAndValidate();
         var view = workspace.Overview;
         var snapshot = view.Snapshot;
-        var host = ProjectHost(workspace, view);
-        var info = ProjectInfo(workspace, view);
-        var protection = ProjectProtection(workspace, snapshot);
+        var host = ProjectHost(workspace, view, text);
+        var info = ProjectInfo(workspace, view, text, catalog);
+        var protection = ProjectProtection(workspace, snapshot, text, catalog);
 
-        var localAreaDetail = local.MesAreas.Count == 0
-            ? $"{local.LocalState} · 未限制 Host AREA 查询"
-            : $"{local.LocalState} · {local.MesAreas.Count} 个 AREA";
-        if (local.LastUpdatedAt is { } localUpdatedAt)
-        {
-            localAreaDetail += $" · 本机更新 {FormatTime(localUpdatedAt)}";
-        }
+        var localAreaDetail = text.LocalAreaDetail(
+            local.LocalState,
+            local.MesAreas,
+            local.LastUpdatedAt,
+            catalog);
 
         if (snapshot is null)
         {
@@ -126,21 +132,27 @@ internal sealed record WatchOverviewPresentation(
                 HasSnapshot: false,
                 view.IsRefreshing,
                 IsStale: false,
-                "尚无 Host 业务快照",
-                ProjectClientAttempts(view),
-                "—",
-                "等待 Host 概览",
-                "—",
-                "等待 Host 概览",
-                "—",
-                "等待 Host 概览",
-                "—",
-                "等待 Host 概览",
+                text.NoHostSnapshot,
+                text.ClientAttempts(view.LastSuccessfulAt, view.LastFailureAt, catalog),
+                catalog.Common.NotLoaded,
+                text.SeriesUnit,
+                text.WaitingForHost,
+                catalog.Common.NotLoaded,
+                text.DemandUnit,
+                text.WaitingForHost,
+                catalog.Common.NotLoaded,
+                text.ErrorSeriesUnit,
+                text.WaitingForHost,
+                catalog.Common.NotLoaded,
+                text.AttentionUnit,
+                text.WaitingForHost,
                 protection,
-                local.ProfileName,
+                local.MesAreas.Count == 0 && local.ProfileName == WatchAreaDisplayContext.AllAreas.ProfileName
+                    ? text.AllArea
+                    : local.ProfileName,
                 localAreaDetail,
-                "Host 已提交范围：尚无快照",
-                "近期重点动态",
+                text.HostNoScope,
+                text.RecentHighlights,
                 [],
                 null,
                 null,
@@ -151,15 +163,15 @@ internal sealed record WatchOverviewPresentation(
         var activities = snapshot.RecentActivity
             .Take(5)
             .Select(activity => new WatchOverviewActivityPresentation(
-                $"{ActivityKind(activity.Kind)} · {activity.EventType}",
+                $"{text.ActivityKind(activity.Kind)} · {activity.EventType}",
                 ActivityDetail(activity),
-                FormatTime(activity.OccurredAt),
+                catalog.FormatAbsoluteTime(activity.OccurredAt),
                 ActivitySeverity(activity.Severity),
                 activity.Navigation))
             .ToArray();
         var recentActivityHeading = activities.Length == 0
-            ? snapshot.EmptyStateMessage ?? WatchOverviewRecentActivityStates.NoRecentHighlightsMessage
-            : "近期重点动态";
+            ? text.NoRecentHighlights
+            : text.RecentHighlights;
 
         return new WatchOverviewPresentation(
             host.Status,
@@ -172,20 +184,31 @@ internal sealed record WatchOverviewPresentation(
             HasSnapshot: true,
             view.IsRefreshing,
             view.IsStale,
-            $"Host 快照 {FormatTime(snapshot.Snapshot.SnapshotAsOf)} · 投影提交 {FormatTime(snapshot.Snapshot.ProjectionCommittedAt)} · 序列 {snapshot.Snapshot.ProjectionSequence}",
-            ProjectClientAttempts(view),
+            text.SnapshotFacts(
+                snapshot.Snapshot.SnapshotAsOf,
+                snapshot.Snapshot.ProjectionCommittedAt,
+                snapshot.Snapshot.ProjectionSequence,
+                now ?? DateTimeOffset.Now,
+                catalog),
+            text.ClientAttempts(view.LastSuccessfulAt, view.LastFailureAt, catalog),
             snapshot.Series.ExactTotalSeriesCount.ToString("N0", CultureInfo.InvariantCulture),
-            $"{snapshot.Series.TrackingCount:N0} Tracking · {snapshot.Series.ArchivedCount:N0} Archived · {snapshot.Series.GoneCount:N0} GONE · {snapshot.Series.LongGoneButVisibleCount:N0} 归档后仍可见",
+            text.SeriesUnit,
+            text.SeriesDetail(snapshot.Series.TrackingCount, snapshot.Series.ArchivedCount, snapshot.Series.GoneCount, snapshot.Series.LongGoneButVisibleCount),
             $"{snapshot.Readability.ReadableCount:N0} / {snapshot.Readability.ExactTotalDemandGenerationCount:N0}",
-            $"当前外部可读 · {snapshot.Readability.NotReadableCount:N0} 个不可见或阻断",
+            text.DemandUnit,
+            text.ReadabilityDetail(snapshot.Readability.NotReadableCount),
             snapshot.Errors.ActiveSeriesCount.ToString("N0", CultureInfo.InvariantCulture),
-            $"活动错误 Series · 近 7 天 {snapshot.Errors.Prior7DaysSeriesCount:N0} 个 Series",
+            text.ErrorSeriesUnit,
+            text.ErrorsDetail(snapshot.Errors.Prior7DaysSeriesCount),
             snapshot.Attention.ExactTotalItemCount.ToString("N0", CultureInfo.InvariantCulture),
-            ProjectAttentionDetail(snapshot.Attention),
+            text.AttentionUnit,
+            ProjectAttentionDetail(snapshot.Attention, text),
             protection,
-            local.ProfileName,
+            local.MesAreas.Count == 0 && local.ProfileName == WatchAreaDisplayContext.AllAreas.ProfileName
+                ? text.AllArea
+                : local.ProfileName,
             localAreaDetail,
-            ProjectHostAreas(snapshot.MesAreas),
+            text.HostAreas(snapshot.MesAreas),
             recentActivityHeading,
             activities,
             snapshot.Series.Navigation,
@@ -196,13 +219,15 @@ internal sealed record WatchOverviewPresentation(
 
     private static WatchProtectionStatusPresentation ProjectProtection(
         WatchV2WorkspaceState workspace,
-        WatchOverviewSnapshot? overview)
+        WatchOverviewSnapshot? overview,
+        WatchOverviewText text,
+        WatchTextCatalog catalog)
     {
         if (workspace.ConnectionStatus != WatchHostConnectionStatus.Connected)
         {
             return new(
-                "保护状态不可用",
-                "连接 Host 后读取 StoragePressure 与 HistoryEpoch 保护状态。",
+                text.ProtectionUnavailable,
+                text.ProtectionUnavailableDetail,
                 WatchPresentationSeverity.Informational,
                 RequiresAttention: false);
         }
@@ -247,30 +272,34 @@ internal sealed record WatchOverviewPresentation(
             if (historyReset is not null)
             {
                 return new(
-                    "历史重置待确认",
-                    $"HistoryEpoch {ProjectEpoch(current.Snapshot.HistoryEpoch)} · 外部当前读取 503 INGEST_NOT_CURRENT · 仅可在数据库主机本地提交 HistoryResetAcknowledgement。",
+                    text.HistoryResetPending,
+                    text.HistoryResetDetail(ProjectEpoch(current.Snapshot.HistoryEpoch)),
                     WatchPresentationSeverity.Error,
                     RequiresAttention: true);
             }
 
             if (current.StoragePressure is { } storage)
             {
-                var observed = $"卷 {storage.Space.VolumeRoot} 可用 {storage.Space.AvailablePercent:0.###}% · 观测 {FormatTime(storage.ObservedAt)}";
+                var observed = text.StorageObserved(
+                    storage.Space.VolumeRoot,
+                    storage.Space.AvailablePercent,
+                    storage.ObservedAt,
+                    catalog);
                 return storage.Status switch
                 {
                     StoragePressureStatuses.Paused => new(
                         "StoragePressurePause",
-                        $"{observed} · MES 轮询暂停；仅可在数据库主机本地恢复。",
+                        text.StoragePaused(observed),
                         WatchPresentationSeverity.Error,
                         RequiresAttention: true),
                     StoragePressureStatuses.Warning => new(
-                        "存储空间严重告警",
-                        $"{observed} · 低于 15% 告警阈值，尚未进入暂停。",
+                        text.StorageWarning,
+                        text.StorageWarningDetail(observed),
                         WatchPresentationSeverity.Warning,
                         RequiresAttention: true),
                     _ => new(
-                        "存储与历史保护正常",
-                        $"{observed} · 当前 HistoryEpoch {ProjectEpoch(storage.HistoryEpoch)}。",
+                        text.StorageHealthy,
+                        text.StorageHealthyDetail(observed, ProjectEpoch(storage.HistoryEpoch)),
                         WatchPresentationSeverity.Success,
                         RequiresAttention: false),
                 };
@@ -282,8 +311,8 @@ internal sealed record WatchOverviewPresentation(
             if (overviewKinds.Contains(CurrentIngestAttentionKinds.HistoryReset))
             {
                 return new(
-                    "历史重置待确认",
-                    $"HistoryEpoch {ProjectEpoch(overview.Snapshot.HistoryEpoch)} · 打开接入告警查看新纪元建立进度、503 原因与本地确认指引。",
+                    text.HistoryResetPending,
+                    text.HistoryResetOverviewDetail(ProjectEpoch(overview.Snapshot.HistoryEpoch)),
                     WatchPresentationSeverity.Error,
                     RequiresAttention: true);
             }
@@ -291,22 +320,22 @@ internal sealed record WatchOverviewPresentation(
             if (overviewKinds.Contains(CurrentIngestAttentionKinds.StoragePressure))
             {
                 return new(
-                    "存储压力需处理",
-                    "打开接入告警查看剩余空间、是否已暂停、最后成功窗口与本地恢复指引。",
+                    text.StorageNeedsAttention,
+                    text.StorageNeedsAttentionDetail,
                     WatchPresentationSeverity.Warning,
                     RequiresAttention: true);
             }
 
             return new(
-                "未报告存储或历史保护项",
-                $"Host 快照 {FormatTime(overview.Snapshot.SnapshotAsOf)} 的当前关注分面中无 StoragePressure 或 HistoryReset。",
+                text.NoProtectionReported,
+                text.NoProtectionDetail(overview.Snapshot.SnapshotAsOf, catalog),
                 WatchPresentationSeverity.Success,
                 RequiresAttention: false);
         }
 
         return new(
-            "等待保护状态",
-            "等待 Host 概览快照。",
+            text.WaitingProtection,
+            text.WaitingForHost,
             WatchPresentationSeverity.Informational,
             RequiresAttention: false);
     }
@@ -316,108 +345,90 @@ internal sealed record WatchOverviewPresentation(
 
     private static (string Status, string Detail, WatchPresentationSeverity Severity) ProjectHost(
         WatchV2WorkspaceState workspace,
-        WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> overview)
+        WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> overview,
+        WatchOverviewText text)
     {
-        var baseUrl = workspace.BaseUrl ?? "未配置地址";
+        var baseUrl = workspace.BaseUrl ?? text.AddressNotConfigured;
         return workspace.ConnectionStatus switch
         {
             WatchHostConnectionStatus.NotConfigured =>
-                ("Host 未连接", baseUrl, WatchPresentationSeverity.Informational),
+                (text.HostStatus(workspace.ConnectionStatus, false), baseUrl, WatchPresentationSeverity.Informational),
             WatchHostConnectionStatus.Connecting =>
-                ("Host 连接中", baseUrl, WatchPresentationSeverity.Informational),
+                (text.HostStatus(workspace.ConnectionStatus, false), baseUrl, WatchPresentationSeverity.Informational),
             WatchHostConnectionStatus.Failed =>
-                ("Host 连接失败", $"{baseUrl} · {FailureLabel(workspace.FailureKind, workspace.FailureCode)}", WatchPresentationSeverity.Error),
+                (text.HostStatus(workspace.ConnectionStatus, false), $"{baseUrl} · {FailureLabel(workspace.FailureKind, workspace.FailureCode)}", WatchPresentationSeverity.Error),
             WatchHostConnectionStatus.Connected when overview.LastFailureAt is not null =>
-                ("Host 已连接 · 最近读取失败", $"{baseUrl} · {FailureLabel(overview.FailureKind, overview.FailureCode)}", WatchPresentationSeverity.Warning),
+                (text.HostStatus(workspace.ConnectionStatus, true), $"{baseUrl} · {FailureLabel(overview.FailureKind, overview.FailureCode)}", WatchPresentationSeverity.Warning),
             WatchHostConnectionStatus.Connected =>
-                ("Host 已连接", $"{baseUrl} · 契约兼容", WatchPresentationSeverity.Success),
+                (text.HostStatus(workspace.ConnectionStatus, false), $"{baseUrl} · {text.ContractCompatible}", WatchPresentationSeverity.Success),
             _ => throw new ArgumentOutOfRangeException(nameof(workspace.ConnectionStatus)),
         };
     }
 
     private static (bool IsOpen, WatchPresentationSeverity Severity, string Title, string Message) ProjectInfo(
         WatchV2WorkspaceState workspace,
-        WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> view)
+        WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> view,
+        WatchOverviewText text,
+        WatchTextCatalog catalog)
     {
         if (workspace.ConnectionStatus == WatchHostConnectionStatus.Failed)
         {
             return (
                 true,
                 WatchPresentationSeverity.Error,
-                "无法连接 Host",
-                $"新 Host 未通过契约连接；旧 Host 数据已清空。{FailureMessage(workspace.ErrorMessage, workspace.CorrelationId)}");
+                text.CannotConnectHost,
+                text.ReplacementHostFailure(text.FailureMessage(workspace.ErrorMessage, workspace.CorrelationId)));
         }
 
         if (workspace.ConnectionStatus == WatchHostConnectionStatus.Connecting)
         {
-            return (true, WatchPresentationSeverity.Informational, "正在连接 Host", "连接成功后将读取同一份原子概览快照。");
+            return (true, WatchPresentationSeverity.Informational, text.ConnectingHost, text.WaitingForHost);
         }
 
         if (view.IsRefreshing)
         {
             var retained = view.Snapshot is null
-                ? "等待 Host 返回原子快照。"
-                : $"刷新期间继续显示 Host 快照 {FormatTime(view.Snapshot.Snapshot.SnapshotAsOf)}。";
+                ? text.WaitingAtomicSnapshot
+                : text.RetainedDuringRefresh(view.Snapshot.Snapshot.SnapshotAsOf, catalog);
             var priorFailure = view.LastFailureAt is { } priorFailedAt
-                ? $" 上次失败于 {FormatTime(priorFailedAt)}；本次正在重试。"
+                ? text.PriorFailureRetry(priorFailedAt, catalog)
                 : string.Empty;
             return (
                 true,
                 WatchPresentationSeverity.Informational,
-                view.Snapshot is null ? "正在读取概览" : "正在刷新概览",
+                view.Snapshot is null ? text.ReadingOverview : text.RefreshingOverview,
                 $"{retained}{priorFailure}");
         }
 
         if (view.LastFailureAt is { } failedAt)
         {
             var retained = view.Snapshot is null
-                ? "当前没有可显示的成功快照。"
-                : $"继续显示 Host 快照 {FormatTime(view.Snapshot.Snapshot.SnapshotAsOf)}；其范围不会被失败查询改写。";
+                ? text.NoSuccessfulSnapshot
+                : text.RetainedAfterFailure(view.Snapshot.Snapshot.SnapshotAsOf, catalog);
             return (
                 true,
                 view.Snapshot is null ? WatchPresentationSeverity.Error : WatchPresentationSeverity.Warning,
-                view.Snapshot is null ? "概览读取失败" : "概览刷新失败，已保留上次完整快照",
-                $"失败于 {FormatTime(failedAt)}。{retained}{FailureMessage(view.ErrorMessage, view.CorrelationId)}");
+                view.Snapshot is null ? text.OverviewReadFailed : text.OverviewRefreshFailedRetained,
+                text.FailedAt(
+                    failedAt,
+                    retained,
+                    text.FailureMessage(view.ErrorMessage, view.CorrelationId),
+                    catalog));
         }
 
         return (false, WatchPresentationSeverity.None, string.Empty, string.Empty);
     }
 
-    private static string ProjectClientAttempts(
-        WatchV2ViewState<WatchOverviewSnapshot, WatchNoDetail> view)
-    {
-        var successful = view.LastSuccessfulAt is { } lastSuccessfulAt
-            ? $"Watch 最近成功 {FormatTime(lastSuccessfulAt)}"
-            : "Watch 尚无成功读取";
-        return view.LastFailureAt is { } lastFailureAt
-            ? $"{successful} · 最近失败 {FormatTime(lastFailureAt)}"
-            : successful;
-    }
-
-    private static string ProjectHostAreas(IReadOnlyList<string> mesAreas) =>
-        mesAreas.Count == 0
-            ? "Host 已提交范围：全部 AREA"
-            : mesAreas.Count <= 4
-                ? $"Host 已提交范围：{string.Join("、", mesAreas)}"
-                : $"Host 已提交范围：{mesAreas.Count} 个 AREA（{string.Join("、", mesAreas.Take(3))}…）";
-
-    private static string ProjectAttentionDetail(WatchOverviewAttentionSummary attention)
+    private static string ProjectAttentionDetail(
+        WatchOverviewAttentionSummary attention,
+        WatchOverviewText text)
     {
         var errors = attention.Severities.FirstOrDefault(item =>
             string.Equals(item.Value, CurrentIngestAttentionSeverities.Error, StringComparison.Ordinal))?.Count ?? 0;
         var warnings = attention.Severities.FirstOrDefault(item =>
             string.Equals(item.Value, CurrentIngestAttentionSeverities.Warning, StringComparison.Ordinal))?.Count ?? 0;
-        return $"当前接入关注项 · {errors:N0} ERROR · {warnings:N0} WARNING";
+        return text.AttentionDetail(errors, warnings);
     }
-
-    private static string ActivityKind(string kind) => kind switch
-    {
-        CurrentIngestAttentionKinds.SeriesError => "错误检索",
-        CurrentIngestAttentionKinds.PollRunFailure => "轮询运行",
-        CurrentIngestAttentionKinds.TaskTypeProtection => "任务类型保护",
-        CurrentIngestAttentionKinds.UnassignedMesObservation => "未分配 MES 观测",
-        _ => kind,
-    };
 
     private static string ActivityDetail(WatchOverviewActivitySnapshot activity)
     {
@@ -443,14 +454,4 @@ internal sealed record WatchOverviewPresentation(
     private static string FailureLabel(WatchHostFailureKind kind, string? code) =>
         code is null ? kind.ToString() : $"{kind} / {code}";
 
-    private static string FailureMessage(string? message, string? correlationId)
-    {
-        var detail = string.IsNullOrWhiteSpace(message) ? string.Empty : $" {message}";
-        return string.IsNullOrWhiteSpace(correlationId)
-            ? detail
-            : $"{detail} 关联 ID {correlationId}。";
-    }
-
-    private static string FormatTime(DateTimeOffset value) =>
-        value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.CurrentCulture);
 }

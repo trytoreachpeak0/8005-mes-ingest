@@ -7,8 +7,8 @@ internal abstract class WatchEmptyTextSection(WatchDisplayLanguage language)
         Array.Empty<WatchTextCatalogEntry>();
 }
 
-internal sealed class WatchOverviewText(WatchDisplayLanguage language)
-    : WatchEmptyTextSection(language);
+internal sealed partial class WatchOverviewText(WatchDisplayLanguage language)
+    : WatchTextCatalogSection(language);
 
 internal sealed class WatchDemandSeriesText(WatchDisplayLanguage language)
     : WatchEmptyTextSection(language);

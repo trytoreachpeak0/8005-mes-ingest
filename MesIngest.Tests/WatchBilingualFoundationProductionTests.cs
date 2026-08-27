@@ -258,6 +258,88 @@ public sealed class WatchBilingualFoundationProductionTests
             }
         });
 
+    [Fact]
+    public void Switching_language_reprojects_variant_a_audit_without_changing_canonical_filters_or_requesting_host() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory();
+            var client = new RecordingClient();
+            try
+            {
+                using var composition = CreateComposition(root, client);
+                var window = composition.CreateMainWindow(initializeOnLoaded: false);
+                window.NavigateFromOverview(new OverviewNavigationIntent(
+                    OverviewNavigationTargets.ReadabilityAudit,
+                    PageNumber: 1,
+                    ReadabilityStates: [ExternalReadabilityStates.NotReadable],
+                    WorkType: "DIE_TO_OVEN",
+                    MesAreas: ["A1-1"]));
+                var stateButton = Assert.IsAssignableFrom<ButtonBase>(
+                    window.FindName("ReadabilityStateNotReadableButton"));
+                var workType = Assert.IsType<ComboBox>(window.FindName("ReadabilityWorkTypeFilter"));
+                var requestsBefore = client.TotalRequestCount;
+
+                composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+
+                Assert.Equal(WatchWorkspacePage.ReadabilityAudit, window.ActivePage);
+                Assert.Equal(requestsBefore, client.TotalRequestCount);
+                Assert.Equal("NOT_READABLE", stateButton.Tag);
+                Assert.Equal("DIE_TO_OVEN", workType.Text);
+                Assert.Equal(
+                    "Eligibility audit",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("ReadabilityPageTitleText")).Text);
+                Assert.Equal(
+                    "Current unique MES observation",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("ReadabilityCurrentObservationHeadingText")).Text);
+                Assert.Equal(
+                    "Missing-value and query semantics",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("ReadabilityMissingSemanticsHeadingText")).Text);
+
+                window.Close();
+            }
+            finally
+            {
+                DeleteDirectory(root);
+            }
+        });
+
+    [Fact]
+    public void Switching_language_reprojects_overview_titles_units_and_actions_without_requesting_host() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = NewTempDirectory();
+            var client = new RecordingClient();
+            try
+            {
+                using var composition = CreateComposition(root, client);
+                var window = composition.CreateMainWindow(initializeOnLoaded: false);
+                var requestsBefore = client.TotalRequestCount;
+
+                composition.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+
+                Assert.Equal(WatchWorkspacePage.Overview, window.ActivePage);
+                Assert.Equal(requestsBefore, client.TotalRequestCount);
+                Assert.Equal(
+                    "Overview",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("OverviewPageTitleText")).Text);
+                Assert.Equal(
+                    "Demand series",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("SeriesSummaryTitleText")).Text);
+                Assert.Equal(
+                    "View →",
+                    Assert.IsAssignableFrom<ButtonBase>(window.FindName("SeriesSummaryAction")).Content);
+                Assert.Equal(
+                    "Recent highlights",
+                    Assert.IsAssignableFrom<TextBlock>(window.FindName("RecentActivityHeadingText")).Text);
+
+                window.Close();
+            }
+            finally
+            {
+                DeleteDirectory(root);
+            }
+        });
+
     private static WatchV2ApplicationComposition CreateComposition(
         string root,
         IWatchV2ApiClient? client = null) =>

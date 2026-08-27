@@ -1062,20 +1062,26 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         var state = _session.State;
         SynchronizeContinuingFeedback(state);
-        var presentation = WatchOverviewPresentation.Project(state, _areaContext);
+        var catalog = _displayLanguageState.Catalog;
+        var overviewText = catalog.Overview;
+        var presentation = WatchOverviewPresentation.Project(state, _areaContext, catalog);
         OverviewContextText.Text =
-            $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts} · 自动刷新 {_preferences.RefreshIntervals.Overview.IntervalSeconds} 秒";
+            $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts} · {overviewText.RefreshPolicy(_preferences.RefreshIntervals.Overview.IntervalSeconds)}";
         OverviewInfoBar.IsOpen = false;
         OverviewInfoBar.Severity = ToInfoBarSeverity(presentation.InfoSeverity);
         OverviewInfoBar.Title = presentation.InfoTitle;
         OverviewInfoBar.Message = presentation.InfoMessage;
         SeriesSummaryValue.Text = presentation.SeriesValue;
+        SeriesSummaryUnitText.Text = presentation.SeriesUnit;
         SeriesSummaryDetail.Text = presentation.SeriesDetail;
         ReadabilitySummaryValue.Text = presentation.ReadabilityValue;
+        ReadabilitySummaryUnitText.Text = presentation.ReadabilityUnit;
         ReadabilitySummaryDetail.Text = presentation.ReadabilityDetail;
         ErrorsSummaryValue.Text = presentation.ErrorsValue;
+        ErrorsSummaryUnitText.Text = presentation.ErrorsUnit;
         ErrorsSummaryDetail.Text = presentation.ErrorsDetail;
         AttentionSummaryValue.Text = presentation.AttentionValue;
+        AttentionSummaryUnitText.Text = presentation.AttentionUnit;
         AttentionSummaryDetail.Text = presentation.AttentionDetail;
         var overviewSnapshot = state.Overview.Snapshot;
         SetOverviewMetricState(
@@ -1101,7 +1107,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 ? $"{presentation.InfoTitle}。{presentation.InfoMessage}"
                 : "概览读取状态：当前无活动通知");
         StaleNoticeText.Text = presentation.IsStale
-            ? "数据可能已过期；卡片仍属于上方标明的 Host 已提交范围。"
+            ? overviewText.StaleSnapshot
             : string.Empty;
         AutomationProperties.SetName(
             StaleNoticeText,
@@ -1341,14 +1347,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
         WatchOverviewAttentionSummary? attention,
         WatchProtectionStatusPresentation protection)
     {
+        var text = _displayLanguageState.Catalog.Overview;
         var severitySummary = attention is null
-            ? "等待严重度分面"
+            ? text.WaitingSeverityFacets
             : attention.Severities.Count == 0
-                ? "Host 未返回严重度分面"
+                ? text.NoSeverityFacets
                 : string.Join(
                     " · ",
                     attention.Severities.Select(facet =>
-                        $"{facet.Count:N0} {AttentionFacetLabel(facet.Value)}"));
+                        $"{facet.Count:N0} {text.AttentionFacet(facet.Value)}"));
         var summary = $"{protection.Status} · {severitySummary}";
         AttentionSummaryFacetText.Text = summary;
         AutomationProperties.SetName(
@@ -1366,7 +1373,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             var waiting = new Wpf.Ui.Controls.TextBlock
             {
-                Text = "等待 Host 概览快照。",
+                Text = _displayLanguageState.Catalog.Overview.WaitingForHost,
                 FontTypography = Wpf.Ui.Controls.FontTypography.Body,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(16, 13, 16, 0),
@@ -1379,7 +1386,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
         {
             var empty = new Wpf.Ui.Controls.TextBlock
             {
-                Text = "Host 在该快照窗口内没有报告重点转换；这不是健康结论。",
+                Text = _displayLanguageState.Catalog.Overview.RecentEmptyExplanation,
                 FontTypography = Wpf.Ui.Controls.FontTypography.Body,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(16, 13, 16, 0),
@@ -1447,7 +1454,9 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(0),
             };
-            AutomationProperties.SetName(action, $"打开重点动态 {activity.Heading}");
+            AutomationProperties.SetName(
+                action,
+                _displayLanguageState.Catalog.Overview.OpenActivity(activity.Heading));
             action.Click += OnOverviewIntentClick;
             var row = new Border
             {
@@ -1580,20 +1589,6 @@ internal partial class WatchWorkspaceWindow : IDisposable
         button.Tag = intent;
         button.IsEnabled = intent is not null;
     }
-
-    private static string AttentionFacetLabel(string value) => value switch
-    {
-        CurrentIngestAttentionKinds.SeriesError => "Series 错误",
-        CurrentIngestAttentionKinds.PollRunFailure => "轮询失败",
-        CurrentIngestAttentionKinds.TaskTypeProtection => "任务类型保护",
-        CurrentIngestAttentionKinds.UnassignedMesObservation => "未分配观测",
-        CurrentIngestAttentionKinds.HistoryCleanupFailure => "历史清理失败",
-        CurrentIngestAttentionKinds.StoragePressure => "存储压力",
-        CurrentIngestAttentionKinds.HistoryReset => "历史重置",
-        CurrentIngestAttentionSeverities.Error => "ERROR",
-        CurrentIngestAttentionSeverities.Warning => "WARNING",
-        _ => value,
-    };
 
     private void ApplyNavigationIntent(OverviewNavigationIntent intent)
     {

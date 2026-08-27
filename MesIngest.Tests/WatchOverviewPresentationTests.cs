@@ -6,6 +6,62 @@ namespace MesIngest.Tests;
 
 public sealed class WatchOverviewPresentationTests
 {
+    [Fact]
+    public void English_overview_catalog_and_presenter_explain_unloaded_metrics_without_isolated_dashes()
+    {
+        var catalog = WatchTextCatalog.For(WatchDisplayLanguage.English);
+        var workspace = WatchV2WorkspaceState.Reset(
+            hostGeneration: 1,
+            baseUrl: "http://host-a",
+            WatchHostConnectionStatus.Connected);
+
+        var presentation = WatchOverviewPresentation.Project(
+            workspace,
+            WatchAreaDisplayContext.AllAreas,
+            catalog,
+            DateTimeOffset.Parse("2026-08-27T14:05:06+08:00"));
+
+        Assert.Equal("Overview", catalog.Overview.PageTitle);
+        Assert.Equal("No Host business snapshot", presentation.SnapshotFacts);
+        Assert.Equal("Not loaded", presentation.SeriesValue);
+        Assert.Equal("Demand series", presentation.SeriesUnit);
+        Assert.Equal("Not loaded", presentation.ReadabilityValue);
+        Assert.Equal("Demands", presentation.ReadabilityUnit);
+        Assert.Equal("Host committed scope: no snapshot", presentation.HostAreaScope);
+    }
+
+    [Fact]
+    public void English_failed_refresh_retains_one_complete_snapshot_with_offset_relative_time_units_and_navigation()
+    {
+        var snapshot = OverviewSnapshot();
+        var failedAt = snapshot.Snapshot.SnapshotAsOf.AddSeconds(25);
+        var view = SuccessfulView(snapshot) with
+        {
+            RequestGeneration = 2,
+            LastFailureAt = failedAt,
+            FailureKind = WatchHostFailureKind.Timeout,
+            FailureCode = "WATCH_TIMEOUT",
+            ErrorMessage = "The overview request timed out.",
+        };
+        var catalog = WatchTextCatalog.For(WatchDisplayLanguage.English);
+
+        var presentation = WatchOverviewPresentation.Project(
+            ConnectedWorkspace(view),
+            WatchAreaDisplayContext.AllAreas,
+            catalog,
+            snapshot.Snapshot.SnapshotAsOf.AddSeconds(18));
+
+        Assert.True(presentation.IsStale);
+        Assert.Contains("last complete snapshot retained", presentation.InfoTitle, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("continues to show Host snapshot", presentation.InfoMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(WatchTimeDisplay.Format(snapshot.Snapshot.SnapshotAsOf), presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("18 seconds ago", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Equal("Demand series", presentation.SeriesUnit);
+        Assert.Equal("Demands", presentation.ReadabilityUnit);
+        Assert.Same(snapshot.Readability.Navigation, presentation.ReadabilityNavigation);
+        Assert.Equal("All AREA", presentation.LocalAreaHeading);
+    }
+
     private const long HostGeneration = 19;
     private const string CommittedQueryKey = "area=A1-1";
 
@@ -214,10 +270,10 @@ public sealed class WatchOverviewPresentationTests
 
         Assert.False(presentation.HasSnapshot);
         Assert.False(presentation.IsStale);
-        Assert.Equal("—", presentation.SeriesValue);
-        Assert.Equal("—", presentation.ReadabilityValue);
-        Assert.Equal("—", presentation.ErrorsValue);
-        Assert.Equal("—", presentation.AttentionValue);
+        Assert.Equal("尚未加载", presentation.SeriesValue);
+        Assert.Equal("尚未加载", presentation.ReadabilityValue);
+        Assert.Equal("尚未加载", presentation.ErrorsValue);
+        Assert.Equal("尚未加载", presentation.AttentionValue);
         Assert.Equal("Host 已提交范围：尚无快照", presentation.HostAreaScope);
         Assert.Contains("旧 Host 数据已清空", presentation.InfoMessage, StringComparison.Ordinal);
         Assert.Null(presentation.SeriesNavigation);

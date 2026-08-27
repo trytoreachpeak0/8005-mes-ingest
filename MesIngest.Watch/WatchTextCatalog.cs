@@ -190,7 +190,7 @@ internal sealed class WatchTextCatalog
     }
 
     internal string FormatAbsoluteTime(DateTimeOffset value) =>
-        value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
+        WatchTimeDisplay.Format(value);
 
     internal string FormatRelativeTime(DateTimeOffset observedAt, DateTimeOffset now)
     {
