@@ -305,6 +305,50 @@ public sealed class WatchAreaProfileLiveListTests
         });
 
     [Fact]
+    public void English_language_projects_the_area_profile_master_list_without_catalog_chinese() =>
+        RunWithAreaProfileWindow((window, _, _, _) =>
+        {
+            window.DisplayLanguageState.ApplyCommitted(WatchDisplayLanguage.English);
+            window.UpdateLayout();
+
+            var list = Assert.IsType<ListBox>(window.FindName("AreaProfileList"));
+            list.UpdateLayout();
+            var allRows = AllRows(list);
+            var allAreas = Assert.Single(allRows, row => row.IsAllAreas);
+            var profile = Assert.Single(allRows, row => !row.IsAllAreas);
+
+            Assert.All(allRows, row =>
+                Assert.Equal(WatchDisplayLanguage.English, row.DisplayLanguage));
+            Assert.Equal("All AREA (no filter)", allAreas.ProfileName);
+            Assert.Equal("Display scope is unrestricted", allAreas.MetadataText);
+            Assert.Equal("west-area", profile.ProfileName);
+            Assert.Equal("Valid", profile.ValidityText);
+            Assert.StartsWith("2 AREA values · Modified ", profile.MetadataText, StringComparison.Ordinal);
+
+            var profileItem = Assert.IsType<ListBoxItem>(
+                list.ItemContainerGenerator.ContainerFromItem(profile));
+            var renderedText = VisualDescendants<Wpf.Ui.Controls.TextBlock>(profileItem)
+                .Select(text => text.Text)
+                .Where(text => !string.IsNullOrWhiteSpace(text))
+                .ToArray();
+            Assert.Contains("Valid", renderedText);
+            Assert.DoesNotContain("有效", renderedText);
+            Assert.Equal(profile.AutomationName, AutomationProperties.GetName(profileItem));
+
+            Assert.All(
+                new[]
+                {
+                    allAreas.ProfileName,
+                    allAreas.MetadataText,
+                    allAreas.AutomationName,
+                    profile.ValidityText,
+                    profile.MetadataText,
+                    profile.AutomationName,
+                },
+                value => Assert.DoesNotMatch("[\\u3400-\\u9fff]", value));
+        }, initialProfileName: "west-area");
+
+    [Fact]
     public void A_profile_dropped_into_the_directory_joins_the_list_without_any_user_action() =>
         RunWithAreaProfileWindow((window, directoryPath, events, clock) =>
         {
@@ -877,12 +921,31 @@ public sealed class WatchAreaProfileLiveListTests
         return null;
     }
 
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T candidate)
+            {
+                yield return candidate;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
     private static void RunWithAreaProfileWindow(
         Action<WatchWorkspaceWindow,
             string,
             ManualAreaProfileDirectoryEventSource,
             ManualTimerTimeProvider> assert,
-        string initialContent = "A1-1\nA1-2") =>
+        string initialContent = "A1-1\nA1-2",
+        string initialProfileName = "西区") =>
         StaTestRunner.Run(() =>
         {
             var root = Path.Combine(
@@ -890,7 +953,7 @@ public sealed class WatchAreaProfileLiveListTests
                 $"watch-area-live-list-{Guid.NewGuid():N}");
             var areaProfilesPath = Path.Combine(root, "area-filters");
             Directory.CreateDirectory(areaProfilesPath);
-            WriteProfile(areaProfilesPath, "西区", initialContent);
+            WriteProfile(areaProfilesPath, initialProfileName, initialContent);
             var clock = new ManualTimerTimeProvider(StartedAt);
             var events = new ManualAreaProfileDirectoryEventSource();
             try

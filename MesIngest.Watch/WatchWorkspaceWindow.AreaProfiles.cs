@@ -72,7 +72,7 @@ internal sealed class WatchAreaProfileDirectoryLauncher : IWatchAreaProfileDirec
 }
 
 internal sealed record WatchAreaFilterProfilePresentationRow(
-    string ProfileName,
+    string ProfileIdentity,
     IReadOnlyList<string> MesAreas,
     int DiagnosticCount,
     bool IsValid,
@@ -80,6 +80,8 @@ internal sealed record WatchAreaFilterProfilePresentationRow(
     DateTimeOffset? FileLastModifiedAt,
     WatchAreaFilterProfileAvailability Availability)
 {
+    public string ProfileName { get; init; } = ProfileIdentity;
+
     public WatchDisplayLanguage DisplayLanguage { get; init; } =
         WatchDisplayLanguage.SimplifiedChinese;
 
@@ -239,8 +241,6 @@ internal sealed record WatchAreaProfileApplyButtonState(
 
 internal partial class WatchWorkspaceWindow
 {
-    private const string AllAreasProfileDisplayName = "全部 AREA（不筛选）";
-
     private void ApplyLocalizedAreaFilterStaticText()
     {
         var text = _displayLanguageState.Catalog.AreaFilter;
@@ -641,6 +641,7 @@ internal partial class WatchWorkspaceWindow
         _isRenderingAreaProfiles = true;
         try
         {
+            var areaText = _displayLanguageState.Catalog.AreaFilter;
             WatchAppliedAreaFilterProfile applied;
             try
             {
@@ -683,6 +684,9 @@ internal partial class WatchWorkspaceWindow
                 .Select(row => row with
                 {
                     DisplayLanguage = _displayLanguageState.Current,
+                    ProfileName = row.IsAllAreas
+                        ? areaText.AllAreas
+                        : row.ProfileIdentity,
                     IsApplied = row.IsAllAreas
                         ? applied.IsAllAreas
                         : string.Equals(
@@ -738,7 +742,6 @@ internal partial class WatchWorkspaceWindow
             _areaProfileDraft ??= WatchAreaFilterProfileParser.Parse(
                 string.Empty,
                 string.Empty);
-            var areaText = _displayLanguageState.Catalog.AreaFilter;
             var applyState = EvaluateAreaProfileApplyState(applied, _areaProfileDraft) with
             {
                 DisplayLanguage = _displayLanguageState.Current,
@@ -747,9 +750,6 @@ internal partial class WatchWorkspaceWindow
                 _areaProfileRows,
                 applied,
                 _areaProfileDraft);
-            _areaProfileRows = _areaProfileRows.Select(row => row.IsAllAreas
-                ? row with { ProfileName = areaText.AllAreas }
-                : row).ToArray();
             var searchText = AreaProfileSearchInput.Text.Trim();
             var visibleRows = FilterAreaProfileRowsBySearch(_areaProfileRows);
             var fileCount = _areaProfileRows.Count(row => !row.IsAllAreas && !row.IsMissing);
@@ -1028,6 +1028,8 @@ internal partial class WatchWorkspaceWindow
         WatchAppliedAreaFilterProfile applied,
         bool reloadSelectedDraft = true)
     {
+        var displayLanguage = _displayLanguageState.Current;
+        var areaText = _displayLanguageState.Catalog.AreaFilter;
         var fileRows = _areaProfileStore
             .EnumerateProfiles()
             .Select(summary =>
@@ -1042,13 +1044,16 @@ internal partial class WatchWorkspaceWindow
                     parsed.IsValid,
                     summary.IsApplied,
                     summary.FileLastModifiedAt,
-                    summary.Availability);
+                    summary.Availability)
+                {
+                    DisplayLanguage = displayLanguage,
+                };
             })
             .ToArray();
         var rows = new[]
         {
             new WatchAreaFilterProfilePresentationRow(
-                AllAreasProfileDisplayName,
+                string.Empty,
                 [],
                 DiagnosticCount: 0,
                 IsValid: true,
@@ -1056,7 +1061,9 @@ internal partial class WatchWorkspaceWindow
                 FileLastModifiedAt: null,
                 WatchAreaFilterProfileAvailability.Present)
             {
+                DisplayLanguage = displayLanguage,
                 IsAllAreas = true,
+                ProfileName = areaText.AllAreas,
             },
         }.Concat(fileRows).ToArray();
 

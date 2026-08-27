@@ -215,6 +215,33 @@ public sealed partial class WatchTextCatalogContractTests
             runtimePresentationFiles,
             pair => runtimePresentationBypass.IsMatch(pair.Value));
 
+        var workspaceXaml = File.ReadAllText(Path.Combine(
+            watchDirectory,
+            "WatchWorkspaceWindow.xaml"));
+        Assert.DoesNotMatch(
+            "x:Name=\"AreaProfileRowValidStatus\"[\\s\\S]{0,160}?Text=\"有效\"",
+            workspaceXaml);
+        Assert.Contains(
+            "x:Name=\"AreaProfileRowValidStatus\"",
+            workspaceXaml,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Text=\"{Binding ValidityText}\"",
+            workspaceXaml,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Text=\"{Binding ProfileIdentity}\"",
+            workspaceXaml,
+            StringComparison.Ordinal);
+        var areaProfileSource = sources.Single(pair => string.Equals(
+            Path.GetFileName(pair.Key),
+            "WatchWorkspaceWindow.AreaProfiles.cs",
+            StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            "AllAreasProfileDisplayName",
+            areaProfileSource.Value,
+            StringComparison.Ordinal);
+
         var inlineLocalizedLiteral = new Regex(
             "new\\s*(?:WatchLocalizedText)?\\s*\\(\\s*\"[^\"]*[\\p{IsCJKUnifiedIdeographs}][^\"]*\"\\s*,\\s*\"",
             RegexOptions.CultureInvariant);

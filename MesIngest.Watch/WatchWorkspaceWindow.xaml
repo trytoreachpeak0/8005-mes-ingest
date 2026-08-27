@@ -2646,7 +2646,7 @@
                                                                               Style="{StaticResource BodyStrong}" />
                                                                 <Grid Grid.Column="1" VerticalAlignment="Center">
                                                                     <ui:TextBlock x:Name="AreaProfileRowValidStatus"
-                                                                                  Text="有效"
+                                                                                  Text="{Binding ValidityText}"
                                                                                   Style="{StaticResource CaptionText}"
                                                                                   Foreground="{DynamicResource SystemFillColorSuccessBrush}" />
                                                                     <Border x:Name="AreaProfileRowStatusPill"
