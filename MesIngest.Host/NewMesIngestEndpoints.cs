@@ -2883,46 +2883,6 @@ internal sealed record DemandSeriesErrorPeriodDto(
             snapshot.Evidence.Select(SeriesErrorPeriodEvidenceDto.From).ToArray());
 }
 
-internal sealed record DemandSeriesDto(
-    string SeriesId,
-    string WorkType,
-    string Sublot,
-    string Lifecycle,
-    string CurrentPresence,
-    DateTimeOffset? StartedAt,
-    DateTimeOffset? ArchivedAt,
-    string CreatedPollTraceId,
-    string CreatedProjectionCommitId,
-    string LatestProjectionCommitId,
-    long LastSeriesSequence,
-    TransportDemandV2Dto CurrentDemand,
-    IReadOnlyList<TransportDemandV2Dto> Demands,
-    IReadOnlyList<DemandRawObservationDto> RawObservations,
-    IReadOnlyList<DemandSeriesEventDto> Events,
-    IReadOnlyList<DemandSeriesCurrentConditionDto> CurrentConditions,
-    IReadOnlyList<DemandSeriesErrorPeriodDto> ErrorPeriods)
-{
-    public static DemandSeriesDto From(DemandSeriesSnapshot snapshot) =>
-        new(
-            snapshot.SeriesId,
-            snapshot.WorkType,
-            snapshot.Sublot,
-            snapshot.Lifecycle,
-            snapshot.CurrentPresence,
-            snapshot.StartedAt,
-            snapshot.ArchivedAt,
-            snapshot.CreatedPollTraceId,
-            snapshot.CreatedProjectionCommitId,
-            snapshot.LatestProjectionCommitId,
-            snapshot.LastSeriesSequence,
-            TransportDemandV2Dto.From(snapshot.CurrentDemand),
-            snapshot.Demands.Select(TransportDemandV2Dto.From).ToList(),
-            snapshot.RawObservations.Select(DemandRawObservationDto.From).ToList(),
-            snapshot.Events.Select(DemandSeriesEventDto.From).ToList(),
-            snapshot.CurrentConditions.Select(DemandSeriesCurrentConditionDto.From).ToList(),
-            snapshot.ErrorPeriods.Select(DemandSeriesErrorPeriodDto.From).ToList());
-}
-
 internal sealed record DemandSeriesSnapshotIdentityDto(
     string HistoryEpoch,
     string ProjectionCommitId,
