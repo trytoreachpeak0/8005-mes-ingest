@@ -26,6 +26,7 @@ internal partial class App : Application
             connectionPreferencesPath: processFileLocations.ConnectionPreferencesPath,
             workspacePreferencesPath: processFileLocations.WorkspacePreferencesPath,
             timeProvider: WatchProcessTimeProvider.Resolve(),
+            presentationTimeProvider: WatchProcessTimeProvider.ResolvePresentation(),
             areaFilterProfilesDirectoryPath: processFileLocations.AreaFilterProfilesDirectoryPath);
         _composition.CreateMainWindow().Show();
     }

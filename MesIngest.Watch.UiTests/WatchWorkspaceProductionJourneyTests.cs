@@ -714,6 +714,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
         startInfo.Environment["MESINGEST_WATCH_UI_TEST_MODE"] = "1";
         startInfo.Environment["MESINGEST_WATCH_UI_FIXED_UTC_NOW"] =
             "2026-08-14T05:08:00.0000000+00:00";
+        startInfo.Environment["MESINGEST_WATCH_UI_FIXED_PRESENTATION_UTC_NOW"] =
+            "2026-08-27T18:30:00.0000000+00:00";
 
         using var process = Process.Start(startInfo)
             ?? throw new Xunit.Sdk.XunitException("MesIngest.Watch process did not start.");

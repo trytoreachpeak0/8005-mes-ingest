@@ -45,6 +45,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private readonly WatchDemandSeriesInspectorCoordinator _demandSeriesInspectorCoordinator;
     private readonly WatchWindowNotificationCoordinator _notificationCoordinator;
     private readonly WatchDisplayLanguageState _displayLanguageState;
+    private readonly TimeProvider _timeProvider;
+    private readonly TimeProvider _presentationTimeProvider;
     private readonly string _connectionPreferencesPath;
     private readonly string _workspacePreferencesPath;
     private readonly CancellationTokenSource _lifetimeCancellation = new();
@@ -81,7 +83,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
         IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null,
         WatchDemandSeriesInspectorCoordinator? demandSeriesInspectorCoordinator = null,
         Func<bool>? notificationReducedMotionProvider = null,
-        WatchDisplayLanguageState? displayLanguageState = null)
+        WatchDisplayLanguageState? displayLanguageState = null,
+        TimeProvider? presentationTimeProvider = null)
     {
         _currentHostSettings = initialHostSettings
             ?? throw new ArgumentNullException(nameof(initialHostSettings));
@@ -96,13 +99,15 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
         _connectionPreferencesPath = Path.GetFullPath(connectionPreferencesPath);
         _workspacePreferencesPath = Path.GetFullPath(workspacePreferencesPath);
-        _session = new WatchV2WorkspaceSession(clientFactory, timeProvider);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _presentationTimeProvider = presentationTimeProvider ?? _timeProvider;
+        _session = new WatchV2WorkspaceSession(clientFactory, _timeProvider);
         _autoRefresh = new WatchV2AutoRefreshCoordinator(
             _session,
             preferences.RefreshIntervals,
-            timeProvider);
+            _timeProvider);
         _notificationCoordinator = new WatchWindowNotificationCoordinator(
-            timeProvider,
+            _timeProvider,
             _displayLanguageState);
         _notificationReducedMotionProvider = notificationReducedMotionProvider
             ?? (static () => !System.Windows.SystemParameters.ClientAreaAnimation);
@@ -116,7 +121,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             OnDemandSeriesInspectorGenerationFocusRequested;
         InitializeAreaFilterProfiles(
             areaFilterProfilesDirectoryPath,
-            timeProvider,
+            _timeProvider,
             areaProfileDirectoryLauncher,
             areaProfileDirectoryEventSource);
 
@@ -1077,7 +1082,11 @@ internal partial class WatchWorkspaceWindow : IDisposable
         SynchronizeContinuingFeedback(state);
         var catalog = _displayLanguageState.Catalog;
         var overviewText = catalog.Overview;
-        var presentation = WatchOverviewPresentation.Project(state, _areaContext, catalog);
+        var presentation = WatchOverviewPresentation.Project(
+            state,
+            _areaContext,
+            catalog,
+            _presentationTimeProvider.GetUtcNow());
         OverviewContextText.Text =
             $"{presentation.SnapshotFacts} · {presentation.ClientAttemptFacts} · {overviewText.RefreshPolicy(_preferences.RefreshIntervals.Overview.IntervalSeconds)}";
         OverviewInfoBar.IsOpen = false;

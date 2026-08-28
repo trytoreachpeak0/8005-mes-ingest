@@ -260,6 +260,7 @@ public sealed class WatchV2ProductionHostTests
     {
         const string credential = "production-host-secret";
         var overview = CreateOverviewSnapshot("overview-a", ["A1-1"]);
+        var clock = new FixedTimeProvider(DateTimeOffset.Parse("2026-08-14T07:06:07Z"));
         await using var host = await ScriptedFakeHost.StartV2Async(
             new FakeHostV2Scenario("production-host-a", credential)
             {
@@ -273,7 +274,8 @@ public sealed class WatchV2ProductionHostTests
             using var composition = WatchV2ApplicationComposition.Create(
                 CreateOptions(host.BaseUrl, credential),
                 connectionPreferencesPath: files.ConnectionPath,
-                workspacePreferencesPath: files.WorkspacePath);
+                workspacePreferencesPath: files.WorkspacePath,
+                timeProvider: clock);
             var window = composition.CreateMainWindow(initializeOnLoaded: false);
             try
             {
@@ -311,6 +313,7 @@ public sealed class WatchV2ProductionHostTests
                     Find<TextBlock>(window, "RecentActivityHeadingText").Text);
                 var overviewContext = Find<TextBlock>(window, "OverviewContextText");
                 Assert.Contains("Host 快照", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("2 小时前", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains("Watch 最近成功", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains("自动刷新 30 秒", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains(
@@ -873,6 +876,11 @@ public sealed class WatchV2ProductionHostTests
 
     private static T Find<T>(WatchWorkspaceWindow window, string name)
         where T : class => Assert.IsAssignableFrom<T>(window.FindName(name));
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
 
     private static Task RunInStaDispatcherAsync(Func<Task> action)
     {

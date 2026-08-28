@@ -19,6 +19,7 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
     private readonly IWatchAreaProfileDirectoryLauncher? _areaProfileDirectoryLauncher;
     private readonly IWatchAreaProfileDirectoryEventSource? _areaProfileDirectoryEventSource;
     private readonly TimeProvider? _timeProvider;
+    private readonly TimeProvider? _presentationTimeProvider;
     private WatchDisplayLanguageState? _displayLanguageState;
     private WatchWorkspaceWindow? _window;
     private bool _disposed;
@@ -31,7 +32,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
         TimeProvider? timeProvider,
         string? areaFilterProfilesDirectoryPath,
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher,
-        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource)
+        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource,
+        TimeProvider? presentationTimeProvider)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _clientFactory = clientFactory;
@@ -49,6 +51,7 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
                             nameof(workspacePreferencesPath)),
                     "area-filters"));
         _timeProvider = timeProvider;
+        _presentationTimeProvider = presentationTimeProvider;
         _areaProfileDirectoryLauncher = areaProfileDirectoryLauncher;
         _areaProfileDirectoryEventSource = areaProfileDirectoryEventSource;
 
@@ -66,7 +69,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
         TimeProvider? timeProvider = null,
         string? areaFilterProfilesDirectoryPath = null,
         IWatchAreaProfileDirectoryLauncher? areaProfileDirectoryLauncher = null,
-        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null) =>
+        IWatchAreaProfileDirectoryEventSource? areaProfileDirectoryEventSource = null,
+        TimeProvider? presentationTimeProvider = null) =>
         new(
             options,
             clientFactory,
@@ -75,7 +79,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             timeProvider,
             areaFilterProfilesDirectoryPath,
             areaProfileDirectoryLauncher,
-            areaProfileDirectoryEventSource);
+            areaProfileDirectoryEventSource,
+            presentationTimeProvider);
 
     internal WatchWorkspaceWindow CreateMainWindow(bool initializeOnLoaded = true)
     {
@@ -105,7 +110,8 @@ internal sealed class WatchV2ApplicationComposition : IDisposable
             _areaFilterProfilesDirectoryPath,
             _areaProfileDirectoryLauncher,
             _areaProfileDirectoryEventSource,
-            displayLanguageState: _displayLanguageState);
+            displayLanguageState: _displayLanguageState,
+            presentationTimeProvider: _presentationTimeProvider);
         return _window;
     }
 
