@@ -17,7 +17,10 @@ WebApplicationBuilder builder = WindowsServiceHelpers.IsWindowsService()
     })
     : WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService();
-builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+if (!builder.Configuration.GetValue<bool>("MesIngestHost:SkipLocalConfiguration"))
+{
+    builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+}
 // Local files are convenient defaults, but deployment environment variables are
 // the explicit operator override and must retain higher precedence.
 builder.Configuration.AddEnvironmentVariables();

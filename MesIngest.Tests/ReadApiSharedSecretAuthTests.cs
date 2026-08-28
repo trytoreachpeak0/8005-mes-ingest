@@ -220,6 +220,7 @@ public class ReadApiSharedSecretAuthTests : IClassFixture<WebApplicationFactory<
         _factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(Environments.Development);
+            builder.UseSetting("MesIngestHost:SkipLocalConfiguration", "true");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 "Server=auth.invalid;Database=auth;Integrated Security=true;Encrypt=false");

@@ -866,6 +866,7 @@ public sealed class NewMesIngestOpenApiContractTests
             var isolatedContractFixture = connectionString is null;
             builder.UseEnvironment(
                 isolatedContractFixture ? Environments.Production : Environments.Development);
+            builder.UseSetting("MesIngestHost:SkipLocalConfiguration", "true");
             builder.UseSetting(
                 $"{MesIngestHostOptions.SectionName}:NewSqlServerConnectionString",
                 connectionString
