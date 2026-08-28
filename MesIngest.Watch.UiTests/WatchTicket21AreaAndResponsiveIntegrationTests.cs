@@ -519,6 +519,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "2 个有效 AREA",
                     Find<TextBlock>(window, "AreaProfileValidCountText").Text,
                     StringComparison.Ordinal);
+                Assert.Equal(
+                    TextRenderingMode.Grayscale,
+                    TextOptions.GetTextRenderingMode(
+                        Find<TextBlock>(window, "AreaProfileValidCountText")));
                 Assert.Same(
                     window.FindResource("StatusPillSuccess"),
                     Find<Border>(window, "AreaProfileValidCountPill").Style);
