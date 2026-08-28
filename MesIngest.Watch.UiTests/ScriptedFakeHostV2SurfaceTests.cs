@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 
@@ -392,6 +393,9 @@ public sealed class ScriptedFakeHostV2SurfaceTests
             await session.RefreshCurrentAttentionAsync(
                 new CurrentIngestAttentionQuery(),
                 cancellationToken);
+            Assert.True(
+                session.State.CurrentAttention.LastFailureAt is null,
+                session.State.CurrentAttention.ErrorMessage);
             var presentation = WatchOverviewPresentation.Project(
                 session.State,
                 WatchAreaDisplayContext.AllAreas);
@@ -896,6 +900,7 @@ public sealed class ScriptedFakeHostV2SurfaceTests
                 storageStatus == StoragePressureStatuses.Paused
                     ? "database volume below pause threshold"
                     : null,
-                RecoveryAuditId: null));
+                RecoveryAuditId: null),
+            PollSchedulerStateSnapshot.NotStarted);
     }
 }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using System.Globalization;
+using MesIngest.Core;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 using Microsoft.AspNetCore.Builder;
@@ -800,6 +801,7 @@ internal sealed class ScriptedFakeHost : IAsyncDisposable
         snapshot.Severities,
         snapshot.Items,
         HistoryCleanup = snapshot.HistoryCleanup ?? HistoryCleanupStateSnapshot.NotRun,
+        PollScheduler = snapshot.PollScheduler ?? PollSchedulerStateSnapshot.NotStarted,
         StoragePressure = snapshot.StoragePressure is { } storage
             ? new
             {
