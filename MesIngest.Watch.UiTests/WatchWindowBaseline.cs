@@ -16,11 +16,14 @@ internal static class WatchWindowBaseline
         ArgumentNullException.ThrowIfNull(actual);
         ArgumentNullException.ThrowIfNull(textMask);
         ArgumentNullException.ThrowIfNull(evidence);
+        var actualFrame = ReadFrame(actual);
+        textMask.ValidateForFrame(actualFrame.Width, actualFrame.Height);
         if (string.Equals(
                 Environment.GetEnvironmentVariable("MESINGEST_WATCH_CAPTURE_WINDOW_CANDIDATES"),
                 "1",
                 StringComparison.Ordinal))
         {
+            evidence.RecordTextMask(baselineName, actual, textMask.Regions);
             File.WriteAllBytes(
                 Path.Combine(evidence.DirectoryPath, $"{baselineName}-1440x900.candidate.png"),
                 actual);
@@ -32,6 +35,9 @@ internal static class WatchWindowBaseline
 
         var directory = ResolveBaselineDirectory();
         var expectedPath = Path.Combine(directory, $"{baselineName}-1440x900.verified.png");
+        var expectedMaskPath = Path.Combine(
+            directory,
+            $"{baselineName}-1440x900.verified.text-mask.json");
         if (!File.Exists(expectedPath))
         {
             var receivedPath = Path.Combine(
@@ -42,7 +48,19 @@ internal static class WatchWindowBaseline
                 $"Window baseline is missing: {expectedPath}. Candidate: {receivedPath}");
         }
 
+        if (!File.Exists(expectedMaskPath))
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"Window baseline text mask is missing: {expectedMaskPath}.");
+        }
+
         var expected = File.ReadAllBytes(expectedPath);
+        var expectedMask = WatchWindowTextMask.Load(expectedMaskPath);
+        var ignoredRegions = expectedMask.UnionForComparison(
+            textMask,
+            actualFrame.Width,
+            actualFrame.Height);
+        evidence.RecordTextMask(baselineName, actual, ignoredRegions);
         if (expected.AsSpan().SequenceEqual(actual))
         {
             return;
@@ -54,7 +72,7 @@ internal static class WatchWindowBaseline
             expected,
             actual,
             options,
-            textMask.Regions);
+            ignoredRegions);
         var budgetRejection = string.Empty;
         if (report.AreEquivalent
             && WithinRunBudget(baselineName, report, evidence, options, out budgetRejection))
@@ -66,6 +84,7 @@ internal static class WatchWindowBaseline
                 report.Describe(),
                 report.Classification,
                 report.ConsumesOrdinaryBudget,
+                report.ConsumesOrdinaryBudget ? report.DifferingPixels : 0,
                 expected,
                 actual,
                 diff);
@@ -85,6 +104,13 @@ internal static class WatchWindowBaseline
         throw new Xunit.Sdk.XunitException(
             $"Window baseline mismatch for {baselineName}: {reason}. "
             + $"See {evidence.DirectoryPath}.");
+    }
+
+    private static Size ReadFrame(byte[] png)
+    {
+        using var stream = new MemoryStream(png);
+        using var bitmap = new Bitmap(stream);
+        return bitmap.Size;
     }
 
     /// <summary>

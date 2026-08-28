@@ -88,6 +88,7 @@ public sealed class WatchJourneyEvidenceTests
                 "ordinary regions",
                 "bounded-neutral",
                 consumesOrdinaryBudget: true,
+                budgetedDifferingPixels: 12,
                 [1],
                 [2],
                 [3]);
@@ -98,6 +99,7 @@ public sealed class WatchJourneyEvidenceTests
                 "edge regions",
                 "edge-raster-only",
                 consumesOrdinaryBudget: false,
+                budgetedDifferingPixels: 0,
                 [4],
                 [5],
                 [6]);
@@ -105,13 +107,14 @@ public sealed class WatchJourneyEvidenceTests
             Assert.Equal(2, evidence.AcceptedVisualEquivalenceSteps);
             Assert.Equal(700, evidence.AcceptedVisualEquivalencePixels);
             Assert.Equal(1, evidence.AcceptedBudgetedVisualEquivalenceSteps);
-            Assert.Equal(40, evidence.AcceptedBudgetedVisualEquivalencePixels);
+            Assert.Equal(12, evidence.AcceptedBudgetedVisualEquivalencePixels);
 
             var json = File.ReadAllText(
                 Path.Combine(evidence.DirectoryPath, "visual-equivalence-accepted.json"));
             Assert.Contains("\"classification\": \"bounded-neutral\"", json, StringComparison.Ordinal);
             Assert.Contains("\"classification\": \"edge-raster-only\"", json, StringComparison.Ordinal);
-            Assert.Contains("\"budgetedAcceptedPixels\": 40", json, StringComparison.Ordinal);
+            Assert.Contains("\"budgetedDifferingPixels\": 12", json, StringComparison.Ordinal);
+            Assert.Contains("\"budgetedAcceptedPixels\": 12", json, StringComparison.Ordinal);
         }
         finally
         {

@@ -328,4 +328,22 @@ public class InstallPackageLayoutTests
         Assert.True(cleanupGate >= 0 && cleanupGate < signoffPromotion);
         Assert.True(cleanupGate < zipPromotion);
     }
+
+    [Fact]
+    public void Watch_baseline_proposal_binds_text_mask_review_evidence_by_hash()
+    {
+        var proposal = File.ReadAllText(
+            Path.Combine(CSharpRoot, "New-WatchWindowBaselineProposal.ps1"));
+
+        Assert.Contains("[string]$CandidateTextMask", proposal, StringComparison.Ordinal);
+        Assert.Contains("[string]$CandidateTextMaskOverlay", proposal, StringComparison.Ordinal);
+        Assert.Contains("after.text-mask.json", proposal, StringComparison.Ordinal);
+        Assert.Contains("after.text-mask-overlay.png", proposal, StringComparison.Ordinal);
+        Assert.Contains("candidateTextMaskSha256=", proposal, StringComparison.Ordinal);
+        Assert.Contains("candidateTextMaskOverlaySha256=", proposal, StringComparison.Ordinal);
+        Assert.Contains(
+            "Assert-WatchPngDimensions -Path $candidateTextMaskOverlay",
+            proposal,
+            StringComparison.Ordinal);
+    }
 }

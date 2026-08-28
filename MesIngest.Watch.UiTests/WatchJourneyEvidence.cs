@@ -1,3 +1,5 @@
+using System.Drawing;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -102,6 +104,31 @@ internal sealed partial class WatchJourneyEvidence
         File.WriteAllBytes(Path.Combine(_directory, "diff.png"), diff);
     }
 
+    public void RecordTextMask(
+        string step,
+        byte[] png,
+        IReadOnlyList<Rectangle> regions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(step);
+        ArgumentNullException.ThrowIfNull(png);
+        ArgumentNullException.ThrowIfNull(regions);
+        using var input = new MemoryStream(png);
+        using var source = new Bitmap(input);
+        using var overlay = new Bitmap(source);
+        using var graphics = Graphics.FromImage(overlay);
+        using var fill = new SolidBrush(Color.FromArgb(72, 255, 0, 255));
+        using var border = new Pen(Color.Magenta, 1);
+        foreach (var region in regions)
+        {
+            graphics.FillRectangle(fill, region);
+            graphics.DrawRectangle(border, region);
+        }
+
+        overlay.Save(
+            Path.Combine(_directory, $"{SafeFileName(step)}.text-mask-overlay.png"),
+            ImageFormat.Png);
+    }
+
     /// <summary>Steps in this run whose capture was accepted as visually equivalent.</summary>
     public int AcceptedVisualEquivalenceSteps => _visualEquivalences.Count;
 
@@ -115,7 +142,7 @@ internal sealed partial class WatchJourneyEvidence
     public int AcceptedBudgetedVisualEquivalencePixels =>
         _visualEquivalences
             .Where(static entry => entry.ConsumesOrdinaryBudget)
-            .Sum(static entry => entry.Pixels);
+            .Sum(static entry => entry.BudgetedPixels);
 
     /// <summary>
     /// Records a capture that differed from its baseline but was accepted as visually
@@ -129,6 +156,7 @@ internal sealed partial class WatchJourneyEvidence
         string components,
         string classification,
         bool consumesOrdinaryBudget,
+        int budgetedDifferingPixels,
         byte[] expected,
         byte[] actual,
         byte[] diff)
@@ -141,7 +169,8 @@ internal sealed partial class WatchJourneyEvidence
             maxObservedDelta,
             components,
             classification,
-            consumesOrdinaryBudget));
+            consumesOrdinaryBudget,
+            budgetedDifferingPixels));
 
         var safeStep = SafeFileName(step);
         File.WriteAllBytes(
@@ -160,10 +189,11 @@ internal sealed partial class WatchJourneyEvidence
             builder.Append(string.Format(
                 CultureInfo.InvariantCulture,
                 "    {{ \"step\": \"{0}\", \"differingPixels\": {1}, "
-                + "\"maxAbsoluteDelta\": {2}, \"classification\": \"{3}\", "
-                + "\"regions\": \"{4}\" }}",
+                + "\"budgetedDifferingPixels\": {2}, \"maxAbsoluteDelta\": {3}, "
+                + "\"classification\": \"{4}\", \"regions\": \"{5}\" }}",
                 entry.Step,
                 entry.Pixels,
+                entry.BudgetedPixels,
                 entry.MaxDelta,
                 entry.Classification,
                 entry.Components));
@@ -199,7 +229,8 @@ internal sealed partial class WatchJourneyEvidence
         int MaxDelta,
         string Components,
         string Classification,
-        bool ConsumesOrdinaryBudget);
+        bool ConsumesOrdinaryBudget,
+        int BudgetedPixels);
 
     public void RecordReceivedXaml(string xaml) => WriteText("received.xaml", xaml);
 

@@ -121,16 +121,17 @@ internal sealed record WatchWindowVisualEquivalenceReport(
 {
     public int TotalDifferingPixels => DifferingPixels + IgnoredDifferingPixels;
 
-    public string Classification => (IgnoredDifferingPixels > 0, IsRasterizationOnly) switch
+    public string Classification => (IgnoredDifferingPixels > 0, DifferingPixels > 0, IsRasterizationOnly) switch
     {
-        (true, true) => "text-masked+edge-raster-only",
-        (true, false) => "text-masked",
-        (false, true) => "edge-raster-only",
+        (true, false, _) => "text-masked",
+        (true, true, true) => "text-masked+edge-raster-only",
+        (true, true, false) => "text-masked+bounded-neutral",
+        (false, _, true) => "edge-raster-only",
         _ => "bounded-neutral",
     };
 
     public bool ConsumesOrdinaryBudget =>
-        IgnoredDifferingPixels == 0 && !IsRasterizationOnly;
+        DifferingPixels > 0 && !IsRasterizationOnly;
 
     public string Describe() => AreEquivalent
         ? string.Format(
@@ -402,13 +403,21 @@ internal static class WatchWindowVisualEquivalence
 
         foreach (var region in ignoredRegions)
         {
-            var left = Math.Clamp(region.Left, 0, width);
-            var top = Math.Clamp(region.Top, 0, height);
-            var right = Math.Clamp(region.Right, 0, width);
-            var bottom = Math.Clamp(region.Bottom, 0, height);
-            for (var y = top; y < bottom; y++)
+            if (region.Width <= 0
+                || region.Height <= 0
+                || region.X < 0
+                || region.Y < 0
+                || (long)region.X + region.Width > width
+                || (long)region.Y + region.Height > height)
             {
-                Array.Fill(ignored, true, (y * width) + left, right - left);
+                throw new InvalidDataException(
+                    $"Ignored region [{region.X},{region.Y} {region.Width}x{region.Height}] "
+                    + $"is outside the {width}x{height} frame.");
+            }
+
+            for (var y = region.Y; y < region.Y + region.Height; y++)
+            {
+                Array.Fill(ignored, true, (y * width) + region.X, region.Width);
             }
         }
 

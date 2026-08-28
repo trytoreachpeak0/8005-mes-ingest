@@ -67,6 +67,42 @@ public sealed class WatchWindowVisualEquivalenceTests
     }
 
     [Fact]
+    public void Text_mask_plus_bounded_difference_still_consumes_ordinary_budget()
+    {
+        var expected = CreateCapture();
+        var actual = CreateCapture(mutate: bitmap =>
+        {
+            bitmap.SetPixel(340, 860, Color.Magenta);
+            bitmap.SetPixel(600, 500, Color.FromArgb(255, 253, 253, 253));
+        });
+
+        var report = WatchWindowVisualEquivalence.Compare(
+            expected,
+            actual,
+            ignoredRegions: [new Rectangle(324, 854, 32, 16)]);
+
+        Assert.True(report.AreEquivalent, report.Rejection);
+        Assert.Equal(1, report.DifferingPixels);
+        Assert.Equal(1, report.IgnoredDifferingPixels);
+        Assert.Equal("text-masked+bounded-neutral", report.Classification);
+        Assert.True(report.ConsumesOrdinaryBudget);
+    }
+
+    [Fact]
+    public void Invalid_text_mask_region_fails_closed()
+    {
+        var capture = CreateCapture();
+
+        var error = Assert.Throws<InvalidDataException>(() =>
+            WatchWindowVisualEquivalence.Compare(
+                capture,
+                capture,
+                ignoredRegions: [new Rectangle(-1, 0, 10, 10)]));
+
+        Assert.Contains("outside", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Antialiasing_jitter_on_a_glyph_is_equivalent()
     {
         // The real signature measured on the golden machine: a small block of grey text

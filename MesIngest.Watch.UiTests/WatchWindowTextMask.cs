@@ -13,6 +13,11 @@ internal sealed record WatchWindowTextMask(
 {
     private const int SchemaVersion = 1;
     private const int TextRasterPadding = 2;
+    private const double MaxFrameCoverage = 0.40;
+    private const double MaxRegionCoverage = 0.15;
+    private const double MaxComparisonCoverageGrowth = 0.05;
+    private const int MaxFrameDimension = 16_384;
+    private const long MaxFramePixels = 100_000_000;
 
     public static WatchWindowTextMask Capture(
         AutomationElement root,
@@ -75,7 +80,7 @@ internal sealed record WatchWindowTextMask(
         }
 
         Visit(root);
-        return new WatchWindowTextMask(
+        return CreateValidated(
             client.Width,
             client.Height,
             regions.OrderBy(static region => region.Y)
@@ -95,16 +100,19 @@ internal sealed record WatchWindowTextMask(
                 $"Unsupported text-mask schema {dto.SchemaVersion}: {path}");
         }
 
-        return new WatchWindowTextMask(
+        return CreateValidated(
             dto.FrameWidth,
             dto.FrameHeight,
-            dto.Regions.Select(static region =>
+            (dto.Regions ?? throw new InvalidDataException(
+                $"Text-mask regions are missing: {path}"))
+                .Select(static region =>
                     new Rectangle(region.X, region.Y, region.Width, region.Height))
                 .ToArray());
     }
 
     public void Save(string path)
     {
+        Validate();
         var dto = new TextMaskDto(
             SchemaVersion,
             FrameWidth,
@@ -117,9 +125,14 @@ internal sealed record WatchWindowTextMask(
             JsonSerializer.Serialize(dto, new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    public IReadOnlyList<Rectangle> Union(WatchWindowTextMask other)
+    public IReadOnlyList<Rectangle> UnionForComparison(
+        WatchWindowTextMask other,
+        int frameWidth,
+        int frameHeight)
     {
         ArgumentNullException.ThrowIfNull(other);
+        ValidateForFrame(frameWidth, frameHeight);
+        other.ValidateForFrame(frameWidth, frameHeight);
         if (FrameWidth != other.FrameWidth || FrameHeight != other.FrameHeight)
         {
             throw new InvalidDataException(
@@ -127,7 +140,104 @@ internal sealed record WatchWindowTextMask(
                 + $"{other.FrameWidth}x{other.FrameHeight}.");
         }
 
-        return Regions.Concat(other.Regions).Distinct().ToArray();
+        var union = Regions.Concat(other.Regions).Distinct().ToArray();
+        var referenceCoverage = CoveredPixels(Regions, frameWidth, frameHeight);
+        var unionCoverage = CoveredPixels(union, frameWidth, frameHeight);
+        var allowedGrowth = (long)Math.Ceiling(frameWidth * (double)frameHeight
+            * MaxComparisonCoverageGrowth);
+        if (unionCoverage - referenceCoverage > allowedGrowth)
+        {
+            throw new InvalidDataException(
+                $"Text-mask coverage grew by {unionCoverage - referenceCoverage} pixels; "
+                + $"limit is {allowedGrowth} for a {frameWidth}x{frameHeight} frame.");
+        }
+
+        return union;
+    }
+
+    public void ValidateForFrame(int frameWidth, int frameHeight)
+    {
+        if (FrameWidth != frameWidth || FrameHeight != frameHeight)
+        {
+            throw new InvalidDataException(
+                $"Text-mask frame is {FrameWidth}x{FrameHeight}; PNG frame is "
+                + $"{frameWidth}x{frameHeight}.");
+        }
+
+        Validate();
+    }
+
+    private static WatchWindowTextMask CreateValidated(
+        int frameWidth,
+        int frameHeight,
+        IReadOnlyList<Rectangle> regions)
+    {
+        var mask = new WatchWindowTextMask(frameWidth, frameHeight, regions);
+        mask.Validate();
+        return mask;
+    }
+
+    private void Validate()
+    {
+        if (FrameWidth <= 0
+            || FrameHeight <= 0
+            || FrameWidth > MaxFrameDimension
+            || FrameHeight > MaxFrameDimension
+            || (long)FrameWidth * FrameHeight > MaxFramePixels)
+        {
+            throw new InvalidDataException(
+                $"Text-mask frame is invalid or too large: {FrameWidth}x{FrameHeight}.");
+        }
+
+        foreach (var region in Regions)
+        {
+            if (region.Width <= 0
+                || region.Height <= 0
+                || region.X < 0
+                || region.Y < 0
+                || (long)region.X + region.Width > FrameWidth
+                || (long)region.Y + region.Height > FrameHeight)
+            {
+                throw new InvalidDataException(
+                    $"Text region [{region.X},{region.Y} {region.Width}x{region.Height}] "
+                    + $"is outside the {FrameWidth}x{FrameHeight} frame.");
+            }
+
+            var regionLimit = (long)Math.Ceiling(
+                FrameWidth * (double)FrameHeight * MaxRegionCoverage);
+            if ((long)region.Width * region.Height > regionLimit)
+            {
+                throw new InvalidDataException(
+                    $"Text region [{region.X},{region.Y} {region.Width}x{region.Height}] "
+                    + $"covers more than {MaxRegionCoverage:P0} of the frame.");
+            }
+        }
+
+        var covered = CoveredPixels(Regions, FrameWidth, FrameHeight);
+        var limit = (long)Math.Ceiling(FrameWidth * (double)FrameHeight * MaxFrameCoverage);
+        if (covered > limit)
+        {
+            throw new InvalidDataException(
+                $"Text mask covers {covered} pixels; limit is {limit} "
+                + $"({MaxFrameCoverage:P0} of the frame).");
+        }
+    }
+
+    private static long CoveredPixels(
+        IReadOnlyList<Rectangle> regions,
+        int frameWidth,
+        int frameHeight)
+    {
+        var covered = new bool[checked(frameWidth * frameHeight)];
+        foreach (var region in regions)
+        {
+            for (var y = region.Top; y < region.Bottom; y++)
+            {
+                Array.Fill(covered, true, (y * frameWidth) + region.Left, region.Width);
+            }
+        }
+
+        return covered.LongCount(static value => value);
     }
 
     private sealed record TextMaskDto(

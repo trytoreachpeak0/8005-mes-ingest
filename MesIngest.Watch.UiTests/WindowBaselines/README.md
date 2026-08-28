@@ -1,6 +1,7 @@
 # Real Watch window baselines
 
-This directory holds exactly 11 pixel-exact `1440x900` client-area PNGs produced by
+This directory holds 11 approved `1440x900` client-area PNGs and their UIA Text-region
+mask sidecars, produced by
 the formal production `MesIngest.Watch.exe` under the calibrated 100% DPI,
 light-theme, zh-CN, SoftwareOnly environment. The names match
 `WatchProductionBaselineMatrix` and cover Overview (normal, expanded navigation,
@@ -12,10 +13,10 @@ Missing or changed baselines fail and write candidates/evidence under the run's 
 directory. Tests never accept, rename, or overwrite a verified PNG.
 
 UIA `Text` element pixels are excluded from visual comparison through the per-capture
-`*.text-mask.json` evidence. Candidate pairs require both masks and compare their union;
-promoted runs use the current production window's mask. Text content remains asserted by
-UIA/localization/journey tests, while control borders, fills, spacing and layout stay in
-the PNG gate.
+`*.text-mask.json` evidence. Candidate pairs and promoted runs require both masks and
+compare their bounded union. Each capture also emits a magenta mask overlay for review.
+Text content remains asserted by UIA/localization/journey tests; invalid, oversized or
+unexpectedly expanded masks fail closed.
 
 A baseline proposal must include:
 
@@ -33,9 +34,11 @@ when the bounded visual-equivalence predicate accepts them; every accepted captu
 recorded in the evidence directory and must be reviewed alongside the previews. Use
 `New-WatchWindowBaselineProposal.ps1` to assemble the review package. Only after the
 recorded non-submitter review may a maintainer copy `after.png` to the matching
-`*.verified.png`. Run the same number of comparisons against the promoted matrix and
-require zero received files. Baseline approval does not establish the release gate; the
-complete gate needs 50 additional consecutive passes.
+`*.verified.png` and copy the proposal-bound `after.text-mask.json` to
+`*.verified.text-mask.json`. The proposal includes the candidate PNG, mask and magenta
+overlay plus a SHA-256 for each. Run the same number of comparisons against the promoted
+matrix and require zero received files. Baseline approval does not establish the release
+gate; the complete gate needs 50 additional consecutive passes.
 
 The proposal command requires a `ChangeType`. `Interaction`, `Copy`, `Hierarchy`, and
 `StateColor` proposals are rejected unless `-ProductOrBusinessConfirmed` is supplied.

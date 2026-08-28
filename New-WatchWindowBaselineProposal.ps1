@@ -19,6 +19,12 @@ param(
     [string]$CandidatePng,
 
     [Parameter(Mandatory = $true)]
+    [string]$CandidateTextMask,
+
+    [Parameter(Mandatory = $true)]
+    [string]$CandidateTextMaskOverlay,
+
+    [Parameter(Mandatory = $true)]
     [string]$EnvironmentManifest,
 
     [Parameter(Mandatory = $true)]
@@ -62,6 +68,8 @@ if ($ChangeType -in @("Interaction", "Copy", "Hierarchy", "StateColor") `
 }
 
 $candidate = [System.IO.Path]::GetFullPath($CandidatePng)
+$candidateTextMask = [System.IO.Path]::GetFullPath($CandidateTextMask)
+$candidateTextMaskOverlay = [System.IO.Path]::GetFullPath($CandidateTextMaskOverlay)
 $environment = [System.IO.Path]::GetFullPath($EnvironmentManifest)
 if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
     throw "CandidatePng does not exist: $candidate"
@@ -69,7 +77,14 @@ if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $environment -PathType Leaf)) {
     throw "EnvironmentManifest does not exist: $environment"
 }
+if (-not (Test-Path -LiteralPath $candidateTextMask -PathType Leaf)) {
+    throw "CandidateTextMask does not exist: $candidateTextMask"
+}
+if (-not (Test-Path -LiteralPath $candidateTextMaskOverlay -PathType Leaf)) {
+    throw "CandidateTextMaskOverlay does not exist: $candidateTextMaskOverlay"
+}
 Assert-WatchPngDimensions -Path $candidate -Width 1440 -Height 900
+Assert-WatchPngDimensions -Path $candidateTextMaskOverlay -Width 1440 -Height 900
 
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) {
@@ -89,6 +104,8 @@ if (Test-Path -LiteralPath $baseline -PathType Leaf) {
     Copy-Item -LiteralPath $candidate -Destination (Join-Path $output "diff.png")
 }
 Copy-Item -LiteralPath $candidate -Destination (Join-Path $output "after.png")
+Copy-Item -LiteralPath $candidateTextMask -Destination (Join-Path $output "after.text-mask.json")
+Copy-Item -LiteralPath $candidateTextMaskOverlay -Destination (Join-Path $output "after.text-mask-overlay.png")
 Copy-Item -LiteralPath $environment -Destination (Join-Path $output "environment.txt")
 
 @(
@@ -100,6 +117,8 @@ Copy-Item -LiteralPath $environment -Destination (Join-Path $output "environment
     "changeType=$ChangeType",
     "productOrBusinessConfirmed=$($ProductOrBusinessConfirmed.IsPresent)",
     "candidateSha256=$((Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash)",
+    "candidateTextMaskSha256=$((Get-FileHash -LiteralPath $candidateTextMask -Algorithm SHA256).Hash)",
+    "candidateTextMaskOverlaySha256=$((Get-FileHash -LiteralPath $candidateTextMaskOverlay -Algorithm SHA256).Hash)",
     "requiredConsecutiveCandidateRuns=$RequiredConsecutiveCandidateRuns",
     "approvalState=PENDING_NON_SUBMITTER_REVIEW"
 ) | Out-File -LiteralPath (Join-Path $output "proposal.txt") -Encoding utf8

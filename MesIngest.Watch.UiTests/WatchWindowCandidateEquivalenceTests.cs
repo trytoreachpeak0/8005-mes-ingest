@@ -1,3 +1,4 @@
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 
@@ -15,7 +16,8 @@ namespace MesIngest.Watch.UiTests;
 /// invokes this entry point with the two run directories.
 /// Each candidate must also carry the UIA Text-region mask captured with it. The union
 /// of both masks removes text pixels from visual judgement while leaving control and
-/// layout pixels under the same bounded predicate.
+/// layout pixels under the same bounded predicate. Both masks are validated against the
+/// PNG frame before even the byte-identical fast path can pass.
 /// </remarks>
 [Trait("Category", "watch-window-candidate-equivalence")]
 public sealed class WatchWindowCandidateEquivalenceTests
@@ -62,6 +64,15 @@ public sealed class WatchWindowCandidateEquivalenceTests
             var actualBytes = File.ReadAllBytes(actual[name]);
             var referenceMask = LoadTextMask(reference[name]);
             var actualMask = LoadTextMask(actual[name]);
+            var frame = ReadFrame(actualBytes);
+            var ignoredRegions = referenceMask.UnionForComparison(
+                actualMask,
+                frame.Width,
+                frame.Height);
+            evidence.RecordTextMask(
+                Path.GetFileNameWithoutExtension(name),
+                actualBytes,
+                ignoredRegions);
             if (expectedBytes.AsSpan().SequenceEqual(actualBytes))
             {
                 continue;
@@ -71,7 +82,7 @@ public sealed class WatchWindowCandidateEquivalenceTests
                 expectedBytes,
                 actualBytes,
                 options,
-                referenceMask.Union(actualMask));
+                ignoredRegions);
             if (!report.AreEquivalent)
             {
                 failures.Add($"{name}: {report.Rejection}");
@@ -92,6 +103,7 @@ public sealed class WatchWindowCandidateEquivalenceTests
                 report.Describe(),
                 report.Classification,
                 report.ConsumesOrdinaryBudget,
+                report.ConsumesOrdinaryBudget ? report.DifferingPixels : 0,
                 expectedBytes,
                 actualBytes,
                 WatchWindowBaseline.CreateDiff(expectedBytes, actualBytes));
@@ -131,6 +143,13 @@ public sealed class WatchWindowCandidateEquivalenceTests
             "WATCH_WINDOW_CANDIDATE_EQUIVALENCE_OK: tolerated={0} pixels={1}",
             toleratedSteps,
             toleratedPixels));
+    }
+
+    private static Size ReadFrame(byte[] png)
+    {
+        using var stream = new MemoryStream(png);
+        using var bitmap = new Bitmap(stream);
+        return bitmap.Size;
     }
 
     private static Dictionary<string, string> EnumerateCandidates(string directory)
