@@ -130,6 +130,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "回退",
                     AutomationProperties.GetName(warning),
                     StringComparison.Ordinal);
+                Assert.Equal(
+                    TextRenderingMode.Aliased,
+                    TextOptions.GetTextRenderingMode(
+                        Find<TextBlock>(window, "AreaProfileAppliedStateText")));
             }
             finally
             {
