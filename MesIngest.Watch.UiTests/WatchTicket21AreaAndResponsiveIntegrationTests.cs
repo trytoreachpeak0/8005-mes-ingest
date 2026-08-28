@@ -520,7 +520,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<TextBlock>(window, "AreaProfileValidCountText").Text,
                     StringComparison.Ordinal);
                 Assert.Equal(
-                    TextRenderingMode.Grayscale,
+                    TextRenderingMode.Aliased,
                     TextOptions.GetTextRenderingMode(
                         Find<TextBlock>(window, "AreaProfileValidCountText")));
                 Assert.Same(

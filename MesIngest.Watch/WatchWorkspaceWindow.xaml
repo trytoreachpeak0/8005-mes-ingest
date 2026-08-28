@@ -2867,7 +2867,7 @@
                                                     <ui:TextBlock x:Name="AreaProfileValidCountText"
                                                                   Text="尚无有效 AREA"
                                                                   FontTypography="BodyStrong"
-                                                                  TextOptions.TextRenderingMode="Grayscale"
+                                                                  TextOptions.TextRenderingMode="Aliased"
                                                                   AutomationProperties.Name="AREA 有效数量" />
                                                 </Border>
                                             </StackPanel>
