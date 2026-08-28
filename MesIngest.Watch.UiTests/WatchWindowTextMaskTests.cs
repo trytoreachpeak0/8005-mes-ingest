@@ -71,6 +71,7 @@ public sealed class WatchWindowTextMaskTests
                 new Rectangle(0, 0, 100, 14),
                 new Rectangle(0, 20, 100, 14),
                 new Rectangle(0, 40, 100, 14),
+                new Rectangle(0, 60, 100, 14),
             ]);
 
         var error = Assert.Throws<InvalidDataException>(() =>

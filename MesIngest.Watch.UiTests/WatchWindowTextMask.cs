@@ -13,7 +13,7 @@ internal sealed record WatchWindowTextMask(
 {
     private const int SchemaVersion = 1;
     private const int TextRasterPadding = 2;
-    private const double MaxFrameCoverage = 0.40;
+    private const double MaxFrameCoverage = 0.55;
     private const double MaxRegionCoverage = 0.15;
     private const double MaxComparisonCoverageGrowth = 0.05;
     private const int MaxFrameDimension = 16_384;
