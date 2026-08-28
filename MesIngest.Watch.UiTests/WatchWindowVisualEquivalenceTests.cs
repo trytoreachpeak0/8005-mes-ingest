@@ -61,6 +61,18 @@ public sealed class WatchWindowVisualEquivalenceTests
     }
 
     [Fact]
+    public void Edge_raster_jitter_above_one_percent_of_the_frame_is_rejected()
+    {
+        var expected = CreateTextHeavyCapture(columns: 18);
+        var actual = CreateTextHeavyCapture(mutateInk: true, columns: 18);
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+
+        Assert.False(report.AreEquivalent);
+        Assert.Contains("differing pixels", report.Rejection, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Coloured_text_edge_compositing_jitter_is_raster_equivalent()
     {
         var expected = CreateColouredGlyphCapture();
@@ -176,6 +188,18 @@ public sealed class WatchWindowVisualEquivalenceTests
     }
 
     [Fact]
+    public void A_tall_high_contrast_edge_jitter_is_rejected()
+    {
+        var expected = CreateTallEdgeCapture();
+        var actual = CreateTallEdgeCapture(mutateEdge: true);
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+
+        Assert.False(report.AreEquivalent);
+        Assert.Contains("differing region", report.Rejection, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Scattered_differences_are_rejected_by_the_component_limit()
     {
         var expected = CreateCapture();
@@ -245,7 +269,7 @@ public sealed class WatchWindowVisualEquivalenceTests
         return stream.ToArray();
     }
 
-    private static byte[] CreateTextHeavyCapture(bool mutateInk = false)
+    private static byte[] CreateTextHeavyCapture(bool mutateInk = false, int columns = 16)
     {
         using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
@@ -253,7 +277,7 @@ public sealed class WatchWindowVisualEquivalenceTests
 
         for (var row = 0; row < 8; row++)
         {
-            for (var column = 0; column < 16; column++)
+            for (var column = 0; column < columns; column++)
             {
                 var left = 80 + (column * 72);
                 var top = 80 + (row * 72);
@@ -311,6 +335,23 @@ public sealed class WatchWindowVisualEquivalenceTests
         for (var x = 100; x < 400; x++)
         {
             bitmap.SetPixel(x, 500, Color.FromArgb(255, value, value, value));
+        }
+
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateTallEdgeCapture(bool mutateEdge = false)
+    {
+        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.FromArgb(255, 254, 254, 254));
+        var value = mutateEdge ? 101 : 100;
+        for (var y = 300; y < 349; y++)
+        {
+            bitmap.SetPixel(600, y, Color.FromArgb(255, value, value, value));
+            bitmap.SetPixel(601, y, Color.FromArgb(255, value, value, value));
         }
 
         using var stream = new MemoryStream();

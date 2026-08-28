@@ -43,6 +43,10 @@ public sealed class WatchWindowCandidateEquivalenceTests
             + $"Unexpected: [{string.Join(", ", unexpected)}].");
 
         var options = WatchWindowVisualEquivalenceOptions.Default;
+        var evidence = new WatchJourneyEvidence(
+            WatchWindowJourneySupport.ResolveArtifactRoot(),
+            "candidate-equivalence",
+            []);
         var toleratedSteps = 0;
         var toleratedPixels = 0;
         var budgetedToleratedSteps = 0;
@@ -72,6 +76,15 @@ public sealed class WatchWindowCandidateEquivalenceTests
                 budgetedToleratedSteps++;
                 budgetedToleratedPixels += report.DifferingPixels;
             }
+            evidence.RecordVisualEquivalence(
+                Path.GetFileNameWithoutExtension(name),
+                report.DifferingPixels,
+                report.MaxObservedDelta,
+                report.Describe(),
+                report.IsRasterizationOnly,
+                expectedBytes,
+                actualBytes,
+                WatchWindowBaseline.CreateDiff(expectedBytes, actualBytes));
             Console.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
                 "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: candidate={0} pixels={1} "

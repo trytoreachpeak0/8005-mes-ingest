@@ -17,8 +17,8 @@ namespace MesIngest.Watch.UiTests;
 /// intensities between processes, leaving the glyph's pixel support untouched and moving
 /// individual grey levels by one or two.
 ///
-/// This type accepts only that class and nothing else. Every rule below has to hold; each
-/// one exists to reject a specific family of real regressions:
+/// The ordinary path accepts only that class. Every rule below has to hold; each one
+/// exists to reject a specific family of real regressions:
 ///
 ///   1. identical dimensions               - resize / DPI / layout container changes
 ///   2. ink-mask invariance                - backstop for rule 4 (see below)
@@ -73,7 +73,10 @@ internal sealed record WatchWindowVisualEquivalenceOptions
     /// <summary>Per-comparison pixel budget as a fraction of the frame.</summary>
     public double MaxDifferingPixelFraction { get; init; } = 0.0005;
 
-    /// <summary>Luminance below which a pixel counts as glyph ink on a light surface.</summary>
+    /// <summary>
+    /// Red-channel threshold used by the legacy achromatic ink-band backstop. With the
+    /// default magnitude of 3 the surrounding uncertainty band makes it unreachable.
+    /// </summary>
     public int InkThreshold { get; init; } = 250;
 
     /// <summary>How many capture steps in one run may be accepted by tolerance.</summary>

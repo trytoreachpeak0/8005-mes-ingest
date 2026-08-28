@@ -126,7 +126,7 @@ internal static class WatchWindowBaseline
             : Path.GetFullPath(configured);
     }
 
-    private static byte[] CreateDiff(byte[] expectedBytes, byte[] actualBytes)
+    internal static byte[] CreateDiff(byte[] expectedBytes, byte[] actualBytes)
     {
         using var expectedStream = new MemoryStream(expectedBytes);
         using var actualStream = new MemoryStream(actualBytes);
