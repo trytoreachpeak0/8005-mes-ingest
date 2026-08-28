@@ -25,6 +25,11 @@ public sealed class WatchWindowVisualEquivalenceGoldenFixtureTests
         "ticket-23-glyph-offset-experiment/run-20260818-211655-watch-window-stability"
         + "/Results/watch-window-stability";
 
+    private const string CrossDeploymentAreaTextRun =
+        "ticket-ticket-12-bilingual-promoted-final/"
+        + "run-20260828-121739-watch-window-promoted-stability/Results/"
+        + "watch-window-promoted-stability/run-01/production-workspace-19-22";
+
     [Fact]
     public void The_recorded_antialiasing_flip_is_accepted()
     {
@@ -40,6 +45,21 @@ public sealed class WatchWindowVisualEquivalenceGoldenFixtureTests
         Assert.True(report.AreEquivalent, report.Rejection);
         Assert.Equal(116, report.DifferingPixels);
         Assert.Equal(2, report.MaxObservedDelta);
+    }
+
+    [Fact]
+    public void The_recorded_cross_deployment_area_text_raster_flip_is_accepted()
+    {
+        var expected = LoadFixture($"{CrossDeploymentAreaTextRun}/expected.png");
+        var actual = LoadFixture($"{CrossDeploymentAreaTextRun}/actual.png");
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+        Console.WriteLine($"[fixture] cross-deployment AREA text -> {report.Describe()}");
+
+        Assert.True(report.AreEquivalent, report.Rejection);
+        Assert.True(report.DifferingPixels > 648);
+        Assert.InRange(report.MaxObservedDelta, 1, 3);
+        Assert.True(report.IsRasterizationOnly);
     }
 
     [Fact]

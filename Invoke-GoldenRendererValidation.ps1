@@ -463,6 +463,7 @@ try {
             'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_different_page_is_rejected',
             'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_one_pixel_control_geometry_change_is_rejected',
             'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.A_one_pixel_glyph_shift_is_rejected',
+            'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_cross_deployment_area_text_raster_flip_is_accepted',
             'MesIngest.Watch.UiTests.WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_antialiasing_flip_is_accepted'
         )
         $actualUiSkips = @(

@@ -109,6 +109,14 @@ internal sealed partial class WatchJourneyEvidence
     public int AcceptedVisualEquivalencePixels =>
         _visualEquivalences.Sum(static entry => entry.Pixels);
 
+    public int AcceptedBudgetedVisualEquivalenceSteps =>
+        _visualEquivalences.Count(static entry => !entry.IsRasterizationOnly);
+
+    public int AcceptedBudgetedVisualEquivalencePixels =>
+        _visualEquivalences
+            .Where(static entry => !entry.IsRasterizationOnly)
+            .Sum(static entry => entry.Pixels);
+
     /// <summary>
     /// Records a capture that differed from its baseline but was accepted as visually
     /// equivalent. Acceptance is never silent: it is written to the evidence directory as
@@ -119,13 +127,14 @@ internal sealed partial class WatchJourneyEvidence
         int differingPixels,
         int maxObservedDelta,
         string components,
+        bool isRasterizationOnly,
         byte[] expected,
         byte[] actual,
         byte[] diff)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(step);
         _visualEquivalences.Add(new VisualEquivalenceEntry(
-            step, differingPixels, maxObservedDelta, components));
+            step, differingPixels, maxObservedDelta, components, isRasterizationOnly));
 
         var safeStep = SafeFileName(step);
         File.WriteAllBytes(
@@ -144,10 +153,12 @@ internal sealed partial class WatchJourneyEvidence
             builder.Append(string.Format(
                 CultureInfo.InvariantCulture,
                 "    {{ \"step\": \"{0}\", \"differingPixels\": {1}, "
-                + "\"maxAbsoluteDelta\": {2}, \"regions\": \"{3}\" }}",
+                + "\"maxAbsoluteDelta\": {2}, \"classification\": \"{3}\", "
+                + "\"regions\": \"{4}\" }}",
                 entry.Step,
                 entry.Pixels,
                 entry.MaxDelta,
+                entry.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral",
                 entry.Components));
             builder.AppendLine(index == _visualEquivalences.Count - 1 ? string.Empty : ",");
         }
@@ -159,8 +170,16 @@ internal sealed partial class WatchJourneyEvidence
             AcceptedVisualEquivalenceSteps));
         builder.AppendLine(string.Format(
             CultureInfo.InvariantCulture,
-            "  \"totalAcceptedPixels\": {0}",
+            "  \"totalAcceptedPixels\": {0},",
             AcceptedVisualEquivalencePixels));
+        builder.AppendLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "  \"budgetedAcceptedSteps\": {0},",
+            AcceptedBudgetedVisualEquivalenceSteps));
+        builder.AppendLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "  \"budgetedAcceptedPixels\": {0}",
+            AcceptedBudgetedVisualEquivalencePixels));
         builder.AppendLine("}");
         WriteText("visual-equivalence-accepted.json", builder.ToString());
     }
@@ -171,7 +190,8 @@ internal sealed partial class WatchJourneyEvidence
         string Step,
         int Pixels,
         int MaxDelta,
-        string Components);
+        string Components,
+        bool IsRasterizationOnly);
 
     public void RecordReceivedXaml(string xaml) => WriteText("received.xaml", xaml);
 

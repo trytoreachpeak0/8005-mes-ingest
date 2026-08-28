@@ -298,6 +298,10 @@ public class InstallPackageLayoutTests
             "WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_antialiasing_flip_is_accepted",
             wrapper,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "WatchWindowVisualEquivalenceGoldenFixtureTests.The_recorded_cross_deployment_area_text_raster_flip_is_accepted",
+            wrapper,
+            StringComparison.Ordinal);
         Assert.Contains("skippedMatchesExpectedNamedSet", wrapper, StringComparison.Ordinal);
         Assert.Contains("$uiSkipDifference", wrapper, StringComparison.Ordinal);
         Assert.DoesNotContain("-Suite all", wrapper, StringComparison.Ordinal);

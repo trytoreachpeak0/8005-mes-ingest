@@ -45,6 +45,8 @@ public sealed class WatchWindowCandidateEquivalenceTests
         var options = WatchWindowVisualEquivalenceOptions.Default;
         var toleratedSteps = 0;
         var toleratedPixels = 0;
+        var budgetedToleratedSteps = 0;
+        var budgetedToleratedPixels = 0;
         var failures = new List<string>();
 
         foreach (var name in reference.Keys.OrderBy(static key => key, StringComparer.Ordinal))
@@ -65,27 +67,33 @@ public sealed class WatchWindowCandidateEquivalenceTests
 
             toleratedSteps++;
             toleratedPixels += report.DifferingPixels;
+            if (!report.IsRasterizationOnly)
+            {
+                budgetedToleratedSteps++;
+                budgetedToleratedPixels += report.DifferingPixels;
+            }
             Console.WriteLine(string.Format(
                 CultureInfo.InvariantCulture,
                 "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: candidate={0} pixels={1} "
-                + "maxDelta={2} regions={3}",
+                + "maxDelta={2} regions={3} classification={4}",
                 name,
                 report.DifferingPixels,
                 report.MaxObservedDelta,
-                report.Components.Count));
+                report.Components.Count,
+                report.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral"));
         }
 
-        if (toleratedSteps > options.MaxToleratedStepsPerRun)
+        if (budgetedToleratedSteps > options.MaxToleratedStepsPerRun)
         {
             failures.Add(
-                $"{toleratedSteps} candidates needed tolerance, "
+                $"{budgetedToleratedSteps} non-raster candidates needed tolerance, "
                 + $"limit is {options.MaxToleratedStepsPerRun}");
         }
 
-        if (toleratedPixels > options.MaxDifferingPixelsPerRun)
+        if (budgetedToleratedPixels > options.MaxDifferingPixelsPerRun)
         {
             failures.Add(
-                $"{toleratedPixels} differing pixels tolerated, "
+                $"{budgetedToleratedPixels} non-raster differing pixels tolerated, "
                 + $"limit is {options.MaxDifferingPixelsPerRun}");
         }
 

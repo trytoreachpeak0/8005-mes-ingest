@@ -2867,7 +2867,6 @@
                                                     <ui:TextBlock x:Name="AreaProfileValidCountText"
                                                                   Text="尚无有效 AREA"
                                                                   FontTypography="BodyStrong"
-                                                                  TextOptions.TextRenderingMode="Aliased"
                                                                   AutomationProperties.Name="AREA 有效数量" />
                                                 </Border>
                                             </StackPanel>
@@ -3050,7 +3049,6 @@
                                                 <ui:TextBlock x:Name="AreaProfileAppliedStateText"
                                                               Text="当前应用：全部 AREA"
                                                               Style="{StaticResource SecondaryText}"
-                                                              TextOptions.TextRenderingMode="Aliased"
                                                               Margin="7,0,0,0"
                                                               AutomationProperties.Name="当前应用 AREA 配置" />
                                             </StackPanel>

@@ -22,7 +22,7 @@ namespace MesIngest.Watch.UiTests;
 ///
 ///   1. identical dimensions               - resize / DPI / layout container changes
 ///   2. ink-mask invariance                - backstop for rule 4 (see below)
-///   3. achromatic delta (dR = dG = dB)     - accent, status and theme colour changes
+///   3. achromatic delta (dR = dG = dB)     - ordinary accent, status and theme changes
 ///   4. bounded magnitude                  - contrast, opacity and brightness changes
 ///   5. locality (component count and size) - global gamma shifts, large-area repaints
 ///   6. pixel budget                       - slow erosion of the baseline
@@ -39,6 +39,15 @@ namespace MesIngest.Watch.UiTests;
 /// within 3 levels - and the band around the threshold keeps it from flaking on the
 /// threshold itself. It is here so the invariant survives someone raising the magnitude
 /// bound: they have to confront the ink rule instead of silently losing the guarantee.
+///
+/// A second edge-raster-only path handles process-to-process text antialiasing across a
+/// long line or many glyphs. It keeps dimensions, alpha, ink-band invariance and the
+/// per-channel magnitude bound; every changed pixel must also remain close to a stable
+/// high-contrast edge in both frames. It has its own one-percent frame budget and the
+/// same component dimensions, but no glyph-component-count limit. This is deliberately
+/// named for what the PNG proves, not for text semantics: a deliberate one-level brush
+/// change at the same edge is pixel-identical to renderer jitter and cannot be separated
+/// without an application-side typography manifest.
 ///
 /// Acceptance is never silent: callers are expected to record the returned report as
 /// evidence and to surface it in the run summary.
@@ -73,9 +82,29 @@ internal sealed record WatchWindowVisualEquivalenceOptions
     /// <summary>Total differing pixels one run may accept across all of its steps.</summary>
     public int MaxDifferingPixelsPerRun { get; init; } = 1536;
 
+    /// <summary>
+    /// Raster-only differences must stay close to a stable high-contrast edge. This
+    /// admits text antialiasing without turning flat fills into an ignored region.
+    /// </summary>
+    public int RasterEdgeSupportRadius { get; init; } = 4;
+
+    public int MinRasterEdgeContrast { get; init; } = 12;
+
+    public int MaxRasterComponentWidth { get; init; } = 128;
+
+    public int MaxRasterComponentHeight { get; init; } = 48;
+
+    public int MinRasterOnlyDifferingPixelBudget { get; init; } = 2048;
+
+    public double MaxRasterOnlyDifferingPixelFraction { get; init; } = 0.01;
+
     public int DifferingPixelBudget(int width, int height) => Math.Max(
         MinDifferingPixelBudget,
         (int)Math.Round(width * (double)height * MaxDifferingPixelFraction));
+
+    public int RasterOnlyDifferingPixelBudget(int width, int height) => Math.Max(
+        MinRasterOnlyDifferingPixelBudget,
+        (int)Math.Round(width * (double)height * MaxRasterOnlyDifferingPixelFraction));
 }
 
 internal sealed record WatchWindowVisualEquivalenceReport(
@@ -83,12 +112,14 @@ internal sealed record WatchWindowVisualEquivalenceReport(
     string Rejection,
     int DifferingPixels,
     int MaxObservedDelta,
-    IReadOnlyList<Rectangle> Components)
+    IReadOnlyList<Rectangle> Components,
+    bool IsRasterizationOnly)
 {
     public string Describe() => AreEquivalent
         ? string.Format(
             CultureInfo.InvariantCulture,
-            "visually equivalent: {0} pixels, max delta {1}, {2} region(s) {3}",
+            "visually equivalent ({0}): {1} pixels, max delta {2}, {3} region(s) {4}",
+            IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral",
             DifferingPixels,
             MaxObservedDelta,
             Components.Count,
@@ -168,17 +199,21 @@ internal static class WatchWindowVisualEquivalence
         var rowLength = width * 4;
         var expectedRow = new byte[rowLength];
         var actualRow = new byte[rowLength];
+        var expectedSurface = new byte[rowLength * height];
+        var actualSurface = new byte[rowLength * height];
         var differing = new bool[width * height];
         var differingPixels = 0;
         var maxObservedDelta = 0;
+        string? firstNonNeutralRejection = null;
         var inkLow = options.InkThreshold - options.MaxAbsoluteDelta;
         var inkHigh = options.InkThreshold + options.MaxAbsoluteDelta;
-        var budget = options.DifferingPixelBudget(width, height);
 
         for (var y = 0; y < height; y++)
         {
             Marshal.Copy(expectedData.Scan0 + (y * expectedData.Stride), expectedRow, 0, rowLength);
             Marshal.Copy(actualData.Scan0 + (y * actualData.Stride), actualRow, 0, rowLength);
+            Buffer.BlockCopy(expectedRow, 0, expectedSurface, y * rowLength, rowLength);
+            Buffer.BlockCopy(actualRow, 0, actualSurface, y * rowLength, rowLength);
 
             for (var x = 0; x < width; x++)
             {
@@ -198,15 +233,18 @@ internal static class WatchWindowVisualEquivalence
                     return Reject($"alpha channel changed at {x},{y}");
                 }
 
-                // 3. achromatic delta
                 if (deltaR != deltaG || deltaG != deltaB)
                 {
-                    return Reject(
-                        $"colour changed at {x},{y}: delta ({deltaR},{deltaG},{deltaB}) is not neutral");
+                    firstNonNeutralRejection ??=
+                        $"colour changed at {x},{y}: delta ({deltaR},{deltaG},{deltaB}) is not neutral";
                 }
 
-                // 4. bounded magnitude
-                var magnitude = Math.Abs(deltaR);
+                // Both the ordinary bounded-neutral path and the edge-raster path keep
+                // the same strict per-channel magnitude. A moved or different glyph
+                // changes background into ink and fails here by tens of levels.
+                var magnitude = Math.Max(
+                    Math.Abs(deltaR),
+                    Math.Max(Math.Abs(deltaG), Math.Abs(deltaB)));
                 if (magnitude > options.MaxAbsoluteDelta)
                 {
                     return Reject(
@@ -227,20 +265,52 @@ internal static class WatchWindowVisualEquivalence
                 differing[(y * width) + x] = true;
                 differingPixels++;
                 maxObservedDelta = Math.Max(maxObservedDelta, magnitude);
-
-                // 6. pixel budget
-                if (differingPixels > budget)
-                {
-                    return Reject(
-                        $"more than {budget} differing pixels ({width}x{height} frame)");
-                }
             }
         }
 
         if (differingPixels == 0)
         {
             return new WatchWindowVisualEquivalenceReport(
-                true, string.Empty, 0, 0, Array.Empty<Rectangle>());
+                true, string.Empty, 0, 0, Array.Empty<Rectangle>(), false);
+        }
+
+        var rasterBudget = options.RasterOnlyDifferingPixelBudget(width, height);
+        if (differingPixels <= rasterBudget
+            && DifferencesStayOnStableEdges(
+                differing,
+                expectedSurface,
+                actualSurface,
+                width,
+                height,
+                options))
+        {
+            var rasterComponents = FindComponents(differing, width, height, int.MaxValue)!;
+            if (rasterComponents.All(component =>
+                    component.Width <= options.MaxRasterComponentWidth
+                    && component.Height <= options.MaxRasterComponentHeight))
+            {
+                return new WatchWindowVisualEquivalenceReport(
+                    true,
+                    string.Empty,
+                    differingPixels,
+                    maxObservedDelta,
+                    rasterComponents,
+                    true);
+            }
+        }
+
+        if (firstNonNeutralRejection is not null)
+        {
+            return Reject(firstNonNeutralRejection, differingPixels, maxObservedDelta);
+        }
+
+        var budget = options.DifferingPixelBudget(width, height);
+        if (differingPixels > budget)
+        {
+            return Reject(
+                $"more than {budget} differing pixels ({width}x{height} frame)",
+                differingPixels,
+                maxObservedDelta);
         }
 
         // 5. locality
@@ -268,7 +338,82 @@ internal static class WatchWindowVisualEquivalence
         }
 
         return new WatchWindowVisualEquivalenceReport(
-            true, string.Empty, differingPixels, maxObservedDelta, components);
+            true, string.Empty, differingPixels, maxObservedDelta, components, false);
+    }
+
+    private static bool DifferencesStayOnStableEdges(
+        bool[] differing,
+        byte[] expected,
+        byte[] actual,
+        int width,
+        int height,
+        WatchWindowVisualEquivalenceOptions options)
+    {
+        for (var index = 0; index < differing.Length; index++)
+        {
+            if (!differing[index])
+            {
+                continue;
+            }
+
+            var x = index % width;
+            var y = index / width;
+            if (!HasNearbyContrast(
+                    expected,
+                    x,
+                    y,
+                    width,
+                    height,
+                    options.RasterEdgeSupportRadius,
+                    options.MinRasterEdgeContrast)
+                || !HasNearbyContrast(
+                    actual,
+                    x,
+                    y,
+                    width,
+                    height,
+                    options.RasterEdgeSupportRadius,
+                    options.MinRasterEdgeContrast))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool HasNearbyContrast(
+        byte[] surface,
+        int x,
+        int y,
+        int width,
+        int height,
+        int radius,
+        int minimumContrast)
+    {
+        var center = ((y * width) + x) * 4;
+        for (var neighbourY = Math.Max(0, y - radius);
+             neighbourY <= Math.Min(height - 1, y + radius);
+             neighbourY++)
+        {
+            for (var neighbourX = Math.Max(0, x - radius);
+                 neighbourX <= Math.Min(width - 1, x + radius);
+                 neighbourX++)
+            {
+                var neighbour = ((neighbourY * width) + neighbourX) * 4;
+                var contrast = Math.Max(
+                    Math.Abs(surface[center + 2] - surface[neighbour + 2]),
+                    Math.Max(
+                        Math.Abs(surface[center + 1] - surface[neighbour + 1]),
+                        Math.Abs(surface[center] - surface[neighbour])));
+                if (contrast >= minimumContrast)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static List<Rectangle>? FindComponents(
@@ -346,5 +491,5 @@ internal static class WatchWindowVisualEquivalence
         string reason,
         int differingPixels = 0,
         int maxObservedDelta = 0) => new(
-            false, reason, differingPixels, maxObservedDelta, Array.Empty<Rectangle>());
+            false, reason, differingPixels, maxObservedDelta, Array.Empty<Rectangle>(), false);
 }

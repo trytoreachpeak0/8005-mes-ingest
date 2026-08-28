@@ -47,6 +47,33 @@ public sealed class WatchWindowVisualEquivalenceTests
     }
 
     [Fact]
+    public void Antialiasing_jitter_across_many_glyph_edges_is_not_rejected_as_global_erosion()
+    {
+        var expected = CreateTextHeavyCapture();
+        var actual = CreateTextHeavyCapture(mutateInk: true);
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+
+        Assert.True(report.AreEquivalent, report.Rejection);
+        Assert.True(report.DifferingPixels > 648);
+        Assert.Equal(2, report.MaxObservedDelta);
+        Assert.True(report.IsRasterizationOnly);
+    }
+
+    [Fact]
+    public void Coloured_text_edge_compositing_jitter_is_raster_equivalent()
+    {
+        var expected = CreateColouredGlyphCapture();
+        var actual = CreateColouredGlyphCapture(mutateEdge: true);
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+
+        Assert.True(report.AreEquivalent, report.Rejection);
+        Assert.True(report.IsRasterizationOnly);
+        Assert.Equal(2, report.MaxObservedDelta);
+    }
+
+    [Fact]
     public void A_changed_frame_size_is_rejected()
     {
         var expected = CreateCapture();
@@ -137,6 +164,18 @@ public sealed class WatchWindowVisualEquivalenceTests
     }
 
     [Fact]
+    public void A_wide_high_contrast_control_edge_jitter_is_rejected()
+    {
+        var expected = CreateWideEdgeCapture();
+        var actual = CreateWideEdgeCapture(mutateEdge: true);
+
+        var report = WatchWindowVisualEquivalence.Compare(expected, actual);
+
+        Assert.False(report.AreEquivalent);
+        Assert.Contains("differing region", report.Rejection, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Scattered_differences_are_rejected_by_the_component_limit()
     {
         var expected = CreateCapture();
@@ -200,6 +239,79 @@ public sealed class WatchWindowVisualEquivalenceTests
         }
 
         mutate?.Invoke(bitmap);
+
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateTextHeavyCapture(bool mutateInk = false)
+    {
+        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.FromArgb(255, 254, 254, 254));
+
+        for (var row = 0; row < 8; row++)
+        {
+            for (var column = 0; column < 16; column++)
+            {
+                var left = 80 + (column * 72);
+                var top = 80 + (row * 72);
+                for (var y = top; y < top + 12; y++)
+                {
+                    for (var x = left; x < left + 8; x++)
+                    {
+                        var level = (byte)(80 + ((x + y) % 5 * 28));
+                        if (mutateInk)
+                        {
+                            level = (byte)(level - ((x + y) % 2 == 0 ? 1 : 2));
+                        }
+
+                        bitmap.SetPixel(x, y, Color.FromArgb(255, level, level, level));
+                    }
+                }
+            }
+        }
+
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateColouredGlyphCapture(bool mutateEdge = false)
+    {
+        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.FromArgb(255, 220, 245, 220));
+        for (var y = 420; y < 432; y++)
+        {
+            for (var x = 700; x < 708; x++)
+            {
+                var colour = Color.FromArgb(255, 20, 110, 20);
+                if (mutateEdge)
+                {
+                    colour = Color.FromArgb(255, 22, 110, 21);
+                }
+
+                bitmap.SetPixel(x, y, colour);
+            }
+        }
+
+        using var stream = new MemoryStream();
+        bitmap.Save(stream, ImageFormat.Png);
+        return stream.ToArray();
+    }
+
+    private static byte[] CreateWideEdgeCapture(bool mutateEdge = false)
+    {
+        using var bitmap = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.Clear(Color.FromArgb(255, 254, 254, 254));
+        var value = mutateEdge ? 101 : 100;
+        for (var x = 100; x < 400; x++)
+        {
+            bitmap.SetPixel(x, 500, Color.FromArgb(255, value, value, value));
+        }
 
         using var stream = new MemoryStream();
         bitmap.Save(stream, ImageFormat.Png);

@@ -131,9 +131,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     AutomationProperties.GetName(warning),
                     StringComparison.Ordinal);
                 Assert.Equal(
-                    TextRenderingMode.Aliased,
-                    TextOptions.GetTextRenderingMode(
-                        Find<TextBlock>(window, "AreaProfileAppliedStateText")));
+                    DependencyProperty.UnsetValue,
+                    Find<TextBlock>(window, "AreaProfileAppliedStateText")
+                        .ReadLocalValue(TextOptions.TextRenderingModeProperty));
+                Assert.Equal(
+                    DependencyProperty.UnsetValue,
+                    Find<TextBlock>(window, "AreaProfileValidCountText")
+                        .ReadLocalValue(TextOptions.TextRenderingModeProperty));
             }
             finally
             {
@@ -523,10 +527,6 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "2 个有效 AREA",
                     Find<TextBlock>(window, "AreaProfileValidCountText").Text,
                     StringComparison.Ordinal);
-                Assert.Equal(
-                    TextRenderingMode.Aliased,
-                    TextOptions.GetTextRenderingMode(
-                        Find<TextBlock>(window, "AreaProfileValidCountText")));
                 Assert.Same(
                     window.FindResource("StatusPillSuccess"),
                     Find<Border>(window, "AreaProfileValidCountPill").Style);

@@ -75,6 +75,53 @@ public sealed class WatchJourneyEvidenceTests
 
     [Fact]
     [Trait("Category", "watch-vm-tests")]
+    public void Visual_equivalence_evidence_records_raster_classification_without_charging_ordinary_budget()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"watch-evidence-{Guid.NewGuid():N}");
+        try
+        {
+            var evidence = new WatchJourneyEvidence(root, "visual-equivalence", []);
+            evidence.RecordVisualEquivalence(
+                "ordinary",
+                40,
+                2,
+                "ordinary regions",
+                isRasterizationOnly: false,
+                [1],
+                [2],
+                [3]);
+            evidence.RecordVisualEquivalence(
+                "text-edge",
+                660,
+                2,
+                "edge regions",
+                isRasterizationOnly: true,
+                [4],
+                [5],
+                [6]);
+
+            Assert.Equal(2, evidence.AcceptedVisualEquivalenceSteps);
+            Assert.Equal(700, evidence.AcceptedVisualEquivalencePixels);
+            Assert.Equal(1, evidence.AcceptedBudgetedVisualEquivalenceSteps);
+            Assert.Equal(40, evidence.AcceptedBudgetedVisualEquivalencePixels);
+
+            var json = File.ReadAllText(
+                Path.Combine(evidence.DirectoryPath, "visual-equivalence-accepted.json"));
+            Assert.Contains("\"classification\": \"bounded-neutral\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"classification\": \"edge-raster-only\"", json, StringComparison.Ordinal);
+            Assert.Contains("\"budgetedAcceptedPixels\": 40", json, StringComparison.Ordinal);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "watch-vm-tests")]
     public void Failed_journey_evidence_is_complete_and_redacted()
     {
         var root = Path.Combine(Path.GetTempPath(), $"watch-evidence-{Guid.NewGuid():N}");

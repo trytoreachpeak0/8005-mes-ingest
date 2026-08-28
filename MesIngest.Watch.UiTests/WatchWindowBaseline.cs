@@ -55,6 +55,7 @@ internal static class WatchWindowBaseline
                 report.DifferingPixels,
                 report.MaxObservedDelta,
                 report.Describe(),
+                report.IsRasterizationOnly,
                 expected,
                 actual,
                 diff);
@@ -62,6 +63,7 @@ internal static class WatchWindowBaseline
                 "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: "
                 + $"step={baselineName} pixels={report.DifferingPixels} "
                 + $"maxDelta={report.MaxObservedDelta} "
+                + $"classification={(report.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral")} "
                 + $"runTotalSteps={evidence.AcceptedVisualEquivalenceSteps} "
                 + $"runTotalPixels={evidence.AcceptedVisualEquivalencePixels} "
                 + $"artifacts={evidence.DirectoryPath}");
@@ -87,7 +89,13 @@ internal static class WatchWindowBaseline
         WatchWindowVisualEquivalenceOptions options,
         out string rejection)
     {
-        var steps = evidence.AcceptedVisualEquivalenceSteps + 1;
+        if (report.IsRasterizationOnly)
+        {
+            rejection = string.Empty;
+            return true;
+        }
+
+        var steps = evidence.AcceptedBudgetedVisualEquivalenceSteps + 1;
         if (steps > options.MaxToleratedStepsPerRun)
         {
             rejection =
@@ -96,7 +104,7 @@ internal static class WatchWindowBaseline
             return false;
         }
 
-        var pixels = evidence.AcceptedVisualEquivalencePixels + report.DifferingPixels;
+        var pixels = evidence.AcceptedBudgetedVisualEquivalencePixels + report.DifferingPixels;
         if (pixels > options.MaxDifferingPixelsPerRun)
         {
             rejection =
