@@ -763,7 +763,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "the first committed production overview",
                 StepTimeout);
             SetNavigationPaneExpanded(window, expanded: false);
-            CaptureApprovedBaseline(evidence, process.MainWindowHandle, "01-overview");
+            CaptureApprovedBaseline(
+                evidence,
+                window,
+                automation,
+                process.MainWindowHandle,
+                "01-overview");
             var protectionAreaProfile = "西区";
 
             void ShowProtectionOverview(
@@ -890,6 +895,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             SetNavigationPaneExpanded(window, expanded: true);
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "01e-overview-navigation-expanded");
             SetNavigationPaneExpanded(window, expanded: false);
@@ -939,6 +946,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             AssertOverviewFacts(window, retainedOverviewFacts);
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "01f-overview-offline-retained");
 
@@ -976,7 +985,12 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => FindById(window, "AdvancedLocalPreferencesExpander") is not null,
                 "production settings and advanced-preferences entry",
                 StepTimeout);
-            CaptureApprovedBaseline(evidence, process.MainWindowHandle, "02-settings");
+            CaptureApprovedBaseline(
+                evidence,
+                window,
+                automation,
+                process.MainWindowHandle,
+                "02-settings");
 
             failedStep = "settings-timeout-validation";
             var contractRequestsBeforeInvalidTimeout = host.Timeline.Count(entry =>
@@ -1007,6 +1021,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 File.ReadAllBytes(connectionPreferencesPath));
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "02v-settings-timeout-validation");
 
@@ -1136,6 +1152,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             ApplyJourneyClientSize(inspectorHandle);
             CaptureApprovedBaseline(
                 evidence,
+                inspector,
+                automation,
                 inspectorHandle,
                 "03-demand-series-detail");
             demandGenerationList.Items[0].Select();
@@ -1206,6 +1224,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "readability qualification detail for the production candidate");
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "04-readability-audit-detail");
 
@@ -1265,6 +1285,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 StepTimeout);
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "05-area-filter-profile");
 
@@ -1346,6 +1368,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "Error Search before the production candidate capture");
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "06-error-search-variant-a");
             var errorWindowFilter = FindRequiredById(
@@ -1424,6 +1448,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 + $"gridBounds={attentionGrid.BoundingRectangle}");
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "07-current-ingest-attention");
 
@@ -1465,6 +1491,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "drilled Error Search before the production candidate capture");
             CaptureApprovedBaseline(
                 evidence,
+                window,
+                automation,
                 process.MainWindowHandle,
                 "08-current-attention-error-drill");
             Capture(evidence, process.MainWindowHandle, "final");
@@ -3470,6 +3498,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     private static void CaptureApprovedBaseline(
         WatchJourneyEvidence evidence,
+        AutomationElement textRoot,
+        UIA3Automation automation,
         IntPtr windowHandle,
         string step)
     {
@@ -3484,6 +3514,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 : WatchWindowNative.CaptureClientAreaAtCurrentSize(windowHandle),
             () => Thread.Sleep(250));
         evidence.RecordStep(step, actual);
+        var textMask = WatchWindowTextMask.Capture(textRoot, automation, windowHandle);
+        textMask.Save(Path.Combine(evidence.DirectoryPath, $"{step}.text-mask.json"));
         if (WatchProductionBaselineMatrix.IsEnabled)
         {
             // Baselines are 1440x900 frames. Comparing a deliberately narrow capture against
@@ -3493,7 +3525,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "Baseline comparison and MESINGEST_WATCH_JOURNEY_CLIENT_EPX are mutually "
                 + "exclusive: a narrow responsive run must not be compared to, or promoted "
                 + "into, the 1440x900 baseline matrix.");
-            WatchWindowBaseline.Verify(step, actual, evidence);
+            WatchWindowBaseline.Verify(step, actual, textMask, evidence);
         }
 
     }

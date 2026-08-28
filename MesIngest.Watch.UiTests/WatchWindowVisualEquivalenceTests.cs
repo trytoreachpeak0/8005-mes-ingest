@@ -17,6 +17,53 @@ public sealed class WatchWindowVisualEquivalenceTests
 
         Assert.True(report.AreEquivalent, report.Rejection);
         Assert.Equal(0, report.DifferingPixels);
+        Assert.Equal(0, report.IgnoredDifferingPixels);
+    }
+
+    [Fact]
+    public void Text_region_pixels_are_excluded_from_visual_comparison()
+    {
+        var expected = CreateCapture();
+        var actual = CreateCapture(mutate: bitmap =>
+        {
+            for (var y = 856; y < 868; y++)
+            {
+                for (var x = 326; x < 354; x++)
+                {
+                    bitmap.SetPixel(x, y, Color.Magenta);
+                }
+            }
+        });
+
+        var report = WatchWindowVisualEquivalence.Compare(
+            expected,
+            actual,
+            ignoredRegions: [new Rectangle(324, 854, 32, 16)]);
+
+        Assert.True(report.AreEquivalent, report.Rejection);
+        Assert.Equal(0, report.DifferingPixels);
+        Assert.Equal(336, report.IgnoredDifferingPixels);
+        Assert.Equal("text-masked", report.Classification);
+        Assert.False(report.ConsumesOrdinaryBudget);
+    }
+
+    [Fact]
+    public void Text_mask_does_not_hide_a_change_outside_its_bounds()
+    {
+        var expected = CreateCapture();
+        var actual = CreateCapture(mutate: bitmap =>
+        {
+            bitmap.SetPixel(340, 860, Color.Magenta);
+            bitmap.SetPixel(600, 500, Color.Black);
+        });
+
+        var report = WatchWindowVisualEquivalence.Compare(
+            expected,
+            actual,
+            ignoredRegions: [new Rectangle(324, 854, 32, 16)]);
+
+        Assert.False(report.AreEquivalent);
+        Assert.Contains("changed by", report.Rejection, StringComparison.Ordinal);
     }
 
     [Fact]

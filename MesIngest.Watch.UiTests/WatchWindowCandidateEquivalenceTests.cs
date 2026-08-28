@@ -13,6 +13,9 @@ namespace MesIngest.Watch.UiTests;
 /// otherwise the two gates would disagree about what counts as a regression. Rather than
 /// reimplement the predicate in PowerShell, <c>Test-WatchWindowBaselineStability.ps1</c>
 /// invokes this entry point with the two run directories.
+/// Each candidate must also carry the UIA Text-region mask captured with it. The union
+/// of both masks removes text pixels from visual judgement while leaving control and
+/// layout pixels under the same bounded predicate.
 /// </remarks>
 [Trait("Category", "watch-window-candidate-equivalence")]
 public sealed class WatchWindowCandidateEquivalenceTests
@@ -57,12 +60,18 @@ public sealed class WatchWindowCandidateEquivalenceTests
         {
             var expectedBytes = File.ReadAllBytes(reference[name]);
             var actualBytes = File.ReadAllBytes(actual[name]);
+            var referenceMask = LoadTextMask(reference[name]);
+            var actualMask = LoadTextMask(actual[name]);
             if (expectedBytes.AsSpan().SequenceEqual(actualBytes))
             {
                 continue;
             }
 
-            var report = WatchWindowVisualEquivalence.Compare(expectedBytes, actualBytes, options);
+            var report = WatchWindowVisualEquivalence.Compare(
+                expectedBytes,
+                actualBytes,
+                options,
+                referenceMask.Union(actualMask));
             if (!report.AreEquivalent)
             {
                 failures.Add($"{name}: {report.Rejection}");
@@ -70,18 +79,19 @@ public sealed class WatchWindowCandidateEquivalenceTests
             }
 
             toleratedSteps++;
-            toleratedPixels += report.DifferingPixels;
-            if (!report.IsRasterizationOnly)
+            toleratedPixels += report.TotalDifferingPixels;
+            if (report.ConsumesOrdinaryBudget)
             {
                 budgetedToleratedSteps++;
                 budgetedToleratedPixels += report.DifferingPixels;
             }
             evidence.RecordVisualEquivalence(
                 Path.GetFileNameWithoutExtension(name),
-                report.DifferingPixels,
+                report.TotalDifferingPixels,
                 report.MaxObservedDelta,
                 report.Describe(),
-                report.IsRasterizationOnly,
+                report.Classification,
+                report.ConsumesOrdinaryBudget,
                 expectedBytes,
                 actualBytes,
                 WatchWindowBaseline.CreateDiff(expectedBytes, actualBytes));
@@ -90,10 +100,10 @@ public sealed class WatchWindowCandidateEquivalenceTests
                 "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: candidate={0} pixels={1} "
                 + "maxDelta={2} regions={3} classification={4}",
                 name,
-                report.DifferingPixels,
+                report.TotalDifferingPixels,
                 report.MaxObservedDelta,
                 report.Components.Count,
-                report.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral"));
+                report.Classification));
         }
 
         if (budgetedToleratedSteps > options.MaxToleratedStepsPerRun)
@@ -132,5 +142,16 @@ public sealed class WatchWindowCandidateEquivalenceTests
                 path => Path.GetFileName(path),
                 path => path,
                 StringComparer.Ordinal);
+    }
+
+    private static WatchWindowTextMask LoadTextMask(string candidatePath)
+    {
+        const string suffix = ".candidate.png";
+        Assert.EndsWith(suffix, candidatePath, StringComparison.Ordinal);
+        var maskPath = candidatePath[..^suffix.Length] + ".candidate.text-mask.json";
+        Assert.True(
+            File.Exists(maskPath),
+            $"Candidate text mask is missing: {maskPath}");
+        return WatchWindowTextMask.Load(maskPath);
     }
 }

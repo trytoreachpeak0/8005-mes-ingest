@@ -116,14 +116,30 @@ internal sealed record WatchWindowVisualEquivalenceReport(
     int DifferingPixels,
     int MaxObservedDelta,
     IReadOnlyList<Rectangle> Components,
-    bool IsRasterizationOnly)
+    bool IsRasterizationOnly,
+    int IgnoredDifferingPixels)
 {
+    public int TotalDifferingPixels => DifferingPixels + IgnoredDifferingPixels;
+
+    public string Classification => (IgnoredDifferingPixels > 0, IsRasterizationOnly) switch
+    {
+        (true, true) => "text-masked+edge-raster-only",
+        (true, false) => "text-masked",
+        (false, true) => "edge-raster-only",
+        _ => "bounded-neutral",
+    };
+
+    public bool ConsumesOrdinaryBudget =>
+        IgnoredDifferingPixels == 0 && !IsRasterizationOnly;
+
     public string Describe() => AreEquivalent
         ? string.Format(
             CultureInfo.InvariantCulture,
-            "visually equivalent ({0}): {1} pixels, max delta {2}, {3} region(s) {4}",
-            IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral",
+            "visually equivalent ({0}): {1} compared pixels, {2} text-masked pixels, "
+            + "max delta {3}, {4} region(s) {5}",
+            Classification,
             DifferingPixels,
+            IgnoredDifferingPixels,
             MaxObservedDelta,
             Components.Count,
             FormatComponents())
@@ -145,7 +161,8 @@ internal static class WatchWindowVisualEquivalence
     public static WatchWindowVisualEquivalenceReport Compare(
         byte[] expectedPng,
         byte[] actualPng,
-        WatchWindowVisualEquivalenceOptions? options = null)
+        WatchWindowVisualEquivalenceOptions? options = null,
+        IReadOnlyList<Rectangle>? ignoredRegions = null)
     {
         ArgumentNullException.ThrowIfNull(expectedPng);
         ArgumentNullException.ThrowIfNull(actualPng);
@@ -183,7 +200,13 @@ internal static class WatchWindowVisualEquivalence
             PixelFormat.Format32bppArgb);
         try
         {
-            return CompareLocked(expectedData, actualData, width, height, options);
+            return CompareLocked(
+                expectedData,
+                actualData,
+                width,
+                height,
+                options,
+                ignoredRegions);
         }
         finally
         {
@@ -197,7 +220,8 @@ internal static class WatchWindowVisualEquivalence
         BitmapData actualData,
         int width,
         int height,
-        WatchWindowVisualEquivalenceOptions options)
+        WatchWindowVisualEquivalenceOptions options,
+        IReadOnlyList<Rectangle>? ignoredRegions)
     {
         var rowLength = width * 4;
         var expectedRow = new byte[rowLength];
@@ -205,7 +229,9 @@ internal static class WatchWindowVisualEquivalence
         var expectedSurface = new byte[rowLength * height];
         var actualSurface = new byte[rowLength * height];
         var differing = new bool[width * height];
+        var ignored = CreateIgnoredMask(width, height, ignoredRegions);
         var differingPixels = 0;
+        var ignoredDifferingPixels = 0;
         var maxObservedDelta = 0;
         string? firstNonNeutralRejection = null;
         var inkLow = options.InkThreshold - options.MaxAbsoluteDelta;
@@ -227,6 +253,12 @@ internal static class WatchWindowVisualEquivalence
                 var deltaA = actualRow[offset + 3] - expectedRow[offset + 3];
                 if (deltaB == 0 && deltaG == 0 && deltaR == 0 && deltaA == 0)
                 {
+                    continue;
+                }
+
+                if (ignored[(y * width) + x])
+                {
+                    ignoredDifferingPixels++;
                     continue;
                 }
 
@@ -274,7 +306,13 @@ internal static class WatchWindowVisualEquivalence
         if (differingPixels == 0)
         {
             return new WatchWindowVisualEquivalenceReport(
-                true, string.Empty, 0, 0, Array.Empty<Rectangle>(), false);
+                true,
+                string.Empty,
+                0,
+                0,
+                Array.Empty<Rectangle>(),
+                false,
+                ignoredDifferingPixels);
         }
 
         var rasterBudget = options.RasterOnlyDifferingPixelBudget(width, height);
@@ -298,7 +336,8 @@ internal static class WatchWindowVisualEquivalence
                     differingPixels,
                     maxObservedDelta,
                     rasterComponents,
-                    true);
+                    true,
+                    ignoredDifferingPixels);
             }
         }
 
@@ -341,7 +380,39 @@ internal static class WatchWindowVisualEquivalence
         }
 
         return new WatchWindowVisualEquivalenceReport(
-            true, string.Empty, differingPixels, maxObservedDelta, components, false);
+            true,
+            string.Empty,
+            differingPixels,
+            maxObservedDelta,
+            components,
+            false,
+            ignoredDifferingPixels);
+    }
+
+    private static bool[] CreateIgnoredMask(
+        int width,
+        int height,
+        IReadOnlyList<Rectangle>? ignoredRegions)
+    {
+        var ignored = new bool[width * height];
+        if (ignoredRegions is null)
+        {
+            return ignored;
+        }
+
+        foreach (var region in ignoredRegions)
+        {
+            var left = Math.Clamp(region.Left, 0, width);
+            var top = Math.Clamp(region.Top, 0, height);
+            var right = Math.Clamp(region.Right, 0, width);
+            var bottom = Math.Clamp(region.Bottom, 0, height);
+            for (var y = top; y < bottom; y++)
+            {
+                Array.Fill(ignored, true, (y * width) + left, right - left);
+            }
+        }
+
+        return ignored;
     }
 
     private static bool DifferencesStayOnStableEdges(
@@ -494,5 +565,11 @@ internal static class WatchWindowVisualEquivalence
         string reason,
         int differingPixels = 0,
         int maxObservedDelta = 0) => new(
-            false, reason, differingPixels, maxObservedDelta, Array.Empty<Rectangle>(), false);
+            false,
+            reason,
+            differingPixels,
+            maxObservedDelta,
+            Array.Empty<Rectangle>(),
+            false,
+            0);
 }

@@ -9,10 +9,12 @@ internal static class WatchWindowBaseline
     public static void Verify(
         string baselineName,
         byte[] actual,
+        WatchWindowTextMask textMask,
         WatchJourneyEvidence evidence)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(baselineName);
         ArgumentNullException.ThrowIfNull(actual);
+        ArgumentNullException.ThrowIfNull(textMask);
         ArgumentNullException.ThrowIfNull(evidence);
         if (string.Equals(
                 Environment.GetEnvironmentVariable("MESINGEST_WATCH_CAPTURE_WINDOW_CANDIDATES"),
@@ -22,6 +24,9 @@ internal static class WatchWindowBaseline
             File.WriteAllBytes(
                 Path.Combine(evidence.DirectoryPath, $"{baselineName}-1440x900.candidate.png"),
                 actual);
+            textMask.Save(Path.Combine(
+                evidence.DirectoryPath,
+                $"{baselineName}-1440x900.candidate.text-mask.json"));
             return;
         }
 
@@ -45,25 +50,30 @@ internal static class WatchWindowBaseline
 
         var diff = CreateDiff(expected, actual);
         var options = WatchWindowVisualEquivalenceOptions.Default;
-        var report = WatchWindowVisualEquivalence.Compare(expected, actual, options);
+        var report = WatchWindowVisualEquivalence.Compare(
+            expected,
+            actual,
+            options,
+            textMask.Regions);
         var budgetRejection = string.Empty;
         if (report.AreEquivalent
             && WithinRunBudget(baselineName, report, evidence, options, out budgetRejection))
         {
             evidence.RecordVisualEquivalence(
                 baselineName,
-                report.DifferingPixels,
+                report.TotalDifferingPixels,
                 report.MaxObservedDelta,
                 report.Describe(),
-                report.IsRasterizationOnly,
+                report.Classification,
+                report.ConsumesOrdinaryBudget,
                 expected,
                 actual,
                 diff);
             Console.WriteLine(
                 "WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: "
-                + $"step={baselineName} pixels={report.DifferingPixels} "
+                + $"step={baselineName} pixels={report.TotalDifferingPixels} "
                 + $"maxDelta={report.MaxObservedDelta} "
-                + $"classification={(report.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral")} "
+                + $"classification={report.Classification} "
                 + $"runTotalSteps={evidence.AcceptedVisualEquivalenceSteps} "
                 + $"runTotalPixels={evidence.AcceptedVisualEquivalencePixels} "
                 + $"artifacts={evidence.DirectoryPath}");
@@ -89,7 +99,7 @@ internal static class WatchWindowBaseline
         WatchWindowVisualEquivalenceOptions options,
         out string rejection)
     {
-        if (report.IsRasterizationOnly)
+        if (!report.ConsumesOrdinaryBudget)
         {
             rejection = string.Empty;
             return true;

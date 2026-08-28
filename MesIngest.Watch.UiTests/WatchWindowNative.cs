@@ -114,6 +114,28 @@ internal static class WatchWindowNative
 
     public static bool IsForegroundWindow(IntPtr handle) => GetForegroundWindow() == handle;
 
+    public static Rectangle GetClientScreenRectangle(IntPtr handle)
+    {
+        if (!GetClientRect(handle, out var rect))
+        {
+            throw new InvalidOperationException(
+                $"GetClientRect failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        var origin = new NativePoint(0, 0);
+        if (!ClientToScreen(handle, ref origin))
+        {
+            throw new InvalidOperationException(
+                $"ClientToScreen failed with Win32 error {Marshal.GetLastWin32Error()}.");
+        }
+
+        return new Rectangle(
+            origin.X,
+            origin.Y,
+            rect.Right - rect.Left,
+            rect.Bottom - rect.Top);
+    }
+
     private static byte[] CaptureClientArea(IntPtr handle, int? expectedWidth, int? expectedHeight)
     {
         if (!GetClientRect(handle, out var rect))
@@ -238,6 +260,17 @@ internal static class WatchWindowNative
         public int Right = right;
         public int Bottom = bottom;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint(int x, int y)
+    {
+        public int X = x;
+        public int Y = y;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ClientToScreen(IntPtr handle, ref NativePoint point);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool AdjustWindowRectExForDpi(

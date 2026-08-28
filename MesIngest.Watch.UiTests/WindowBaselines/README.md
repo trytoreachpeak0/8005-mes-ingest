@@ -11,6 +11,12 @@ attention-to-error drill.
 Missing or changed baselines fail and write candidates/evidence under the run's artifact
 directory. Tests never accept, rename, or overwrite a verified PNG.
 
+UIA `Text` element pixels are excluded from visual comparison through the per-capture
+`*.text-mask.json` evidence. Candidate pairs require both masks and compare their union;
+promoted runs use the current production window's mask. Text content remains asserted by
+UIA/localization/journey tests, while control borders, fills, spacing and layout stay in
+the PNG gate.
+
 A baseline proposal must include:
 
 - a reason and linked implementation/spec ticket;

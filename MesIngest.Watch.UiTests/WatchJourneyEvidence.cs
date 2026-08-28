@@ -110,11 +110,11 @@ internal sealed partial class WatchJourneyEvidence
         _visualEquivalences.Sum(static entry => entry.Pixels);
 
     public int AcceptedBudgetedVisualEquivalenceSteps =>
-        _visualEquivalences.Count(static entry => !entry.IsRasterizationOnly);
+        _visualEquivalences.Count(static entry => entry.ConsumesOrdinaryBudget);
 
     public int AcceptedBudgetedVisualEquivalencePixels =>
         _visualEquivalences
-            .Where(static entry => !entry.IsRasterizationOnly)
+            .Where(static entry => entry.ConsumesOrdinaryBudget)
             .Sum(static entry => entry.Pixels);
 
     /// <summary>
@@ -127,14 +127,21 @@ internal sealed partial class WatchJourneyEvidence
         int differingPixels,
         int maxObservedDelta,
         string components,
-        bool isRasterizationOnly,
+        string classification,
+        bool consumesOrdinaryBudget,
         byte[] expected,
         byte[] actual,
         byte[] diff)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(step);
+        ArgumentException.ThrowIfNullOrWhiteSpace(classification);
         _visualEquivalences.Add(new VisualEquivalenceEntry(
-            step, differingPixels, maxObservedDelta, components, isRasterizationOnly));
+            step,
+            differingPixels,
+            maxObservedDelta,
+            components,
+            classification,
+            consumesOrdinaryBudget));
 
         var safeStep = SafeFileName(step);
         File.WriteAllBytes(
@@ -158,7 +165,7 @@ internal sealed partial class WatchJourneyEvidence
                 entry.Step,
                 entry.Pixels,
                 entry.MaxDelta,
-                entry.IsRasterizationOnly ? "edge-raster-only" : "bounded-neutral",
+                entry.Classification,
                 entry.Components));
             builder.AppendLine(index == _visualEquivalences.Count - 1 ? string.Empty : ",");
         }
@@ -191,7 +198,8 @@ internal sealed partial class WatchJourneyEvidence
         int Pixels,
         int MaxDelta,
         string Components,
-        bool IsRasterizationOnly);
+        string Classification,
+        bool ConsumesOrdinaryBudget);
 
     public void RecordReceivedXaml(string xaml) => WriteText("received.xaml", xaml);
 

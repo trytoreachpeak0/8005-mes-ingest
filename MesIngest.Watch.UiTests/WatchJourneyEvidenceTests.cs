@@ -86,7 +86,8 @@ public sealed class WatchJourneyEvidenceTests
                 40,
                 2,
                 "ordinary regions",
-                isRasterizationOnly: false,
+                "bounded-neutral",
+                consumesOrdinaryBudget: true,
                 [1],
                 [2],
                 [3]);
@@ -95,7 +96,8 @@ public sealed class WatchJourneyEvidenceTests
                 660,
                 2,
                 "edge regions",
-                isRasterizationOnly: true,
+                "edge-raster-only",
+                consumesOrdinaryBudget: false,
                 [4],
                 [5],
                 [6]);
