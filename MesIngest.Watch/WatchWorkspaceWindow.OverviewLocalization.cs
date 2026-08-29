@@ -38,10 +38,10 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(AreaSummaryCard, text.Area);
         AutomationProperties.SetName(AttentionSummaryCard, text.Attention);
         AutomationProperties.SetName(RecentActivityItems, text.RecentHighlights);
-        AutomationProperties.SetName(SeriesSummaryAction, $"{text.View} {text.Series}");
-        AutomationProperties.SetName(ReadabilitySummaryAction, $"{text.View} {text.Readability}");
-        AutomationProperties.SetName(ErrorsSummaryAction, $"{text.View} {text.Errors}");
-        AutomationProperties.SetName(AttentionSummaryAction, $"{text.View} {text.Attention}");
+        AutomationProperties.SetName(SeriesSummaryAction, text.ViewAllFirstPage(text.Series));
+        AutomationProperties.SetName(ReadabilitySummaryAction, text.ViewAllFirstPage(text.Readability));
+        AutomationProperties.SetName(ErrorsSummaryAction, text.ViewAllFirstPage(text.Errors));
+        AutomationProperties.SetName(AttentionSummaryAction, text.ViewAllFirstPage(text.Attention));
         AutomationProperties.SetName(AreaSummaryManageButton, $"{text.Manage} {text.Area}");
         AutomationProperties.SetName(OverviewManageAreaButton, text.ManageAreaFilters);
     }

@@ -23,7 +23,7 @@ internal partial class WatchWorkspaceWindow
 
         ReadabilityWorkTypeFilter.Items.Add(new ComboBoxItem
         {
-            Content = "全部 WorkType",
+            Content = "全部工序类型",
             Tag = string.Empty,
         });
         ReadabilityBlockerFilter.Items.Add(new ComboBoxItem
@@ -503,19 +503,19 @@ internal partial class WatchWorkspaceWindow
             AutomationProperties.SetHelpText(ReadabilityLiveMesFieldsGrid, liveMesEvidence);
             AutomationProperties.SetName(
                 ReadabilityLiveMesAreaText,
-                text.FieldAutomation("AREA", ReadabilityLiveMesAreaText.Text));
+                text.FieldAutomation(_displayLanguageState.Catalog.Columns.Area, ReadabilityLiveMesAreaText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesEqpText,
-                text.FieldAutomation("EQP", ReadabilityLiveMesEqpText.Text));
+                text.FieldAutomation(_displayLanguageState.Catalog.Columns.Eqp, ReadabilityLiveMesEqpText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesStepText,
-                text.FieldAutomation("STEP", ReadabilityLiveMesStepText.Text));
+                text.FieldAutomation(_displayLanguageState.Catalog.Columns.Step, ReadabilityLiveMesStepText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesDateText,
-                text.FieldAutomation("DATES", ReadabilityLiveMesDateText.Text));
+                text.FieldAutomation(_displayLanguageState.Catalog.Columns.SourceDate, ReadabilityLiveMesDateText.Text));
             AutomationProperties.SetName(
                 ReadabilityLiveMesPackageText,
-                text.FieldAutomation("PACKAGE", ReadabilityLiveMesPackageText.Text));
+                text.FieldAutomation(_displayLanguageState.Catalog.Columns.Package, ReadabilityLiveMesPackageText.Text));
             AutomationProperties.SetName(
                 ReadabilityDetailFactsText,
                 text.BusinessIdentityAutomation(ReadabilityDetailFactsText.Text));
@@ -533,7 +533,7 @@ internal partial class WatchWorkspaceWindow
             ReadabilityPrimaryBlockerCodeText.Text = detail is null
                 ? text.NoBlocker
                 : detail.LeadReadabilityBlocker is { Length: > 0 } blockerCode
-                    ? $"{text.DescribeBlocker(blockerCode).Description} · {blockerCode}"
+                    ? text.CodeWithMeaning(text.DescribeBlocker(blockerCode))
                     : text.NoBlocker;
             ReadabilityPrimaryBlockerEvidenceText.Text = primaryBlocker is null
                 ? detail is null
@@ -562,10 +562,10 @@ internal partial class WatchWorkspaceWindow
             ReadabilityValueSemanticsItems.ItemsSource = text.ValueSemantics;
             var revisionEvidence = detail is null
                 ? text.RevisionPrompt
-                : $"Catalog Revision {detail.CatalogRevision:N0} · Snapshot {detail.SnapshotReference} · Projection {detail.ProjectionSequence:N0} · {detail.ProjectionCommitId} · PollTrace {detail.PollTraceId}";
+                : $"{_displayLanguageState.Catalog.Columns.CatalogRevision} {detail.CatalogRevision:N0} · {_displayLanguageState.Catalog.Columns.Snapshot} {detail.SnapshotReference} · {_displayLanguageState.Catalog.Columns.Projection} {detail.ProjectionSequence:N0} · {detail.ProjectionCommitId} · {_displayLanguageState.Catalog.Columns.PollTrace} {detail.PollTraceId}";
             ReadabilityRevisionFactsText.Text = detail is null
                 ? text.RevisionNotLoaded
-                : $"Catalog Revision {detail.CatalogRevision:N0}";
+                : $"{_displayLanguageState.Catalog.Columns.CatalogRevision} {detail.CatalogRevision:N0}";
             ReadabilityRevisionFactsText.ToolTip = revisionEvidence;
             AutomationProperties.SetName(
                 ReadabilityRevisionFactsText,

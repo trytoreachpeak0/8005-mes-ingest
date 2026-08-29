@@ -536,7 +536,7 @@ public sealed class WatchAreaFilterProfileTests
                 WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker,
                 diagnostic.Code);
             Assert.Contains("已取消", diagnostic.Message, StringComparison.Ordinal);
-            Assert.Contains("明确应用全部 AREA", diagnostic.Message, StringComparison.Ordinal);
+            Assert.Contains("明确应用全部区域", diagnostic.Message, StringComparison.Ordinal);
             Assert.True(File.Exists(Path.Combine(temporary.Path, "source.txt")));
             Assert.False(File.Exists(Path.Combine(temporary.Path, "renamed.txt")));
         }
@@ -725,7 +725,7 @@ public sealed class WatchAreaFilterProfileTests
         Assert.Equal(["A1-1", "B2-2"], context.MesAreas);
         Assert.Equal("本机已应用", context.LocalState);
         Assert.Equal(applied.AppliedAt, context.LastUpdatedAt);
-        Assert.Equal("封装车间 · 2 个 AREA", applied.DisplaySummary);
+        Assert.Equal("封装车间 · 2 个区域", applied.DisplaySummary);
         var summary = Assert.Single(summaries);
         Assert.True(summary.IsApplied);
         Assert.Equal("封装车间 · 当前应用", summary.DisplaySummary);
@@ -770,7 +770,7 @@ public sealed class WatchAreaFilterProfileTests
         {
             var diagnostic = Assert.IsType<WatchAreaFilterProfileDiagnostic>(state.Diagnostic);
             Assert.Equal(WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker, diagnostic.Code);
-            Assert.Equal("已应用 AREA 标记无法读取或内容无效，已回退为全部 AREA。", diagnostic.Message);
+            Assert.Equal("已应用区域标记无法读取或内容无效，已回退为全部区域。", diagnostic.Message);
 
             var fallback = state.CurrentApplied;
             Assert.True(fallback.IsAllAreas);
@@ -797,8 +797,8 @@ public sealed class WatchAreaFilterProfileTests
         Assert.True(applied.IsAllAreas);
         Assert.True(restored.IsAllAreas);
         Assert.NotNull(restored.AppliedAt);
-        Assert.Equal("全部 AREA", restored.DisplaySummary);
-        Assert.Equal("全部 AREA", context.ProfileName);
+        Assert.Equal("全部区域", restored.DisplaySummary);
+        Assert.Equal("全部区域", context.ProfileName);
         Assert.Equal("本机已应用", context.LocalState);
         Assert.Empty(context.MesAreas);
         Assert.Empty(Directory.EnumerateFiles(temporary.Path, "*.tmp", SearchOption.TopDirectoryOnly));

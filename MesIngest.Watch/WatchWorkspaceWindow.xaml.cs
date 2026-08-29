@@ -417,7 +417,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
 
         _preferences = proposed with { RefreshIntervals = _autoRefresh.Settings };
         ApplyDisplayPreferences(display, restoreGeometry: false);
+        var languageChanged = _displayLanguageState.Current != displayLanguage;
         _displayLanguageState.ApplyCommitted(displayLanguage);
+        if (!languageChanged)
+        {
+            RenderWorkspace();
+        }
     }
 
     internal void NavigateFromOverview(OverviewNavigationIntent intent)
@@ -1858,6 +1863,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
     private async void OnApplyHostClick(object sender, RoutedEventArgs e)
     {
         var settingsText = _displayLanguageState.Catalog.Settings;
+        AutomationProperties.SetHelpText(SettingsHostStatusText, string.Empty);
         try
         {
             var credential = string.IsNullOrWhiteSpace(HostCredentialInput.Password)
@@ -1900,6 +1906,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             var validationMessage = settingsText.ApplyValidation(exception.Message);
             SettingsHostStateText.Text = validationMessage;
             AutomationProperties.SetName(SettingsHostStateText, validationMessage);
+            AutomationProperties.SetHelpText(SettingsHostStatusText, validationMessage);
             AutomationProperties.SetHelpText(RequestTimeoutInput, exception.Message);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)

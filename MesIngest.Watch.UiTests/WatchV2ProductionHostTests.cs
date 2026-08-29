@@ -94,9 +94,56 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Equal("http://127.0.0.1:5998", hostDraft.Text);
                 Assert.Equal("unsaved-settings-save-credential", credentialDraft.Password);
                 Assert.Equal("88", timeoutDraft.Text);
-                Assert.Equal(
+                Assert.Contains(
                     "本机设置已保存",
-                    Find<InfoBar>(window, "SettingsInfoBar").Title);
+                    NotificationText(window),
+                    StringComparison.Ordinal);
+            }
+            finally
+            {
+                window.Dispose();
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public async Task Settings_save_updates_overview_refresh_caption_immediately()
+    {
+        using var files = new TemporaryWatchFiles();
+
+        await RunInStaDispatcherAsync(() =>
+        {
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions
+                {
+                    BaseUrl = "http://127.0.0.1:5088",
+                    RenderingMode = WatchRenderingMode.SoftwareOnly,
+                },
+                connectionPreferencesPath: files.ConnectionPath,
+                workspacePreferencesPath: files.WorkspacePath);
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+            try
+            {
+                window.Show();
+                Find<NavigationViewItem>(window, "SettingsNavigationItem")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                window.UpdateLayout();
+
+                Find<ComboBox>(window, "OverviewIntervalInput").SelectedValue = 60;
+                Find<FluentButton>(window, "SaveRefreshIntervalsButton")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+                Assert.Equal(60, window.AutoRefreshSettings.Overview.IntervalSeconds);
+                Assert.Contains(
+                    "自动刷新 60 秒",
+                    Find<Wpf.Ui.Controls.TextBlock>(window, "OverviewContextText").Text,
+                    StringComparison.Ordinal);
+                Assert.Equal(
+                    60,
+                    WatchV2PreferencesStore.Load(files.WorkspacePath)
+                        .RefreshIntervals.Overview.IntervalSeconds);
             }
             finally
             {
@@ -195,9 +242,10 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Equal("http://127.0.0.1:5999", hostDraft.Text);
                 Assert.Equal("unsaved-layout-test-credential", credentialDraft.Password);
                 Assert.Equal("77", timeoutDraft.Text);
-                Assert.Equal(
+                Assert.Contains(
                     "已恢复默认布局",
-                    Find<InfoBar>(window, "SettingsInfoBar").Title);
+                    NotificationText(window),
+                    StringComparison.Ordinal);
             }
             finally
             {
@@ -238,14 +286,9 @@ public sealed class WatchV2ProductionHostTests
                 Find<FluentButton>(window, "ApplyHostButton")
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
 
-                var infoBar = Find<InfoBar>(window, "SettingsInfoBar");
-                Assert.True(infoBar.IsOpen);
-                Assert.Equal("无法应用 Host 设置", infoBar.Title);
-                Assert.Contains("1–300", infoBar.Message, StringComparison.Ordinal);
-
                 var status = Find<Wpf.Ui.Controls.TextBlock>(window, "SettingsHostStatusText");
                 var accessibleResult = AutomationProperties.GetHelpText(status);
-                Assert.Contains("无法应用 Host 设置", accessibleResult, StringComparison.Ordinal);
+                Assert.Contains("无法应用服务端设置", accessibleResult, StringComparison.Ordinal);
                 Assert.Contains("1–300", accessibleResult, StringComparison.Ordinal);
             }
             finally
@@ -306,15 +349,15 @@ public sealed class WatchV2ProductionHostTests
                     1,
                     (seriesSummaryDetail.FontFamily.LineSpacing * seriesSummaryDetail.FontSize * 2) + 2);
                 Assert.Equal(
-                    "Host 已提交范围：A1-1",
+                    "服务端已提交范围：A1-1",
                     Find<TextBlock>(window, "HostAreaScopeText").Text);
                 Assert.Equal(
                     WatchOverviewRecentActivityStates.NoRecentHighlightsMessage,
                     Find<TextBlock>(window, "RecentActivityHeadingText").Text);
                 var overviewContext = Find<TextBlock>(window, "OverviewContextText");
-                Assert.Contains("Host 快照", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端快照", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains("2 小时前", overviewContext.Text, StringComparison.Ordinal);
-                Assert.Contains("Watch 最近成功", overviewContext.Text, StringComparison.Ordinal);
+                Assert.Contains("运维台最近成功", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains("自动刷新 30 秒", overviewContext.Text, StringComparison.Ordinal);
                 Assert.Contains(
                     overviewContext.Text,
@@ -348,23 +391,23 @@ public sealed class WatchV2ProductionHostTests
                     window,
                     "AttentionSummaryFacetText");
                 Assert.Equal(
-                    "未报告存储或历史保护项 · 3 ERROR · 10 WARNING",
+                    "未报告存储或历史保护项 · 3 错误 · 10 警告",
                     attentionFacetSummary.Text);
                 Assert.Contains(
                     "存储与历史保护状态：未报告存储或历史保护项",
                     AutomationProperties.GetName(attentionFacetSummary),
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "接入告警严重度精确分面：3 ERROR · 10 WARNING",
+                    "接入告警严重度精确分面：3 错误 · 10 警告",
                     AutomationProperties.GetName(attentionFacetSummary),
                     StringComparison.Ordinal);
                 Assert.Null(window.FindName("AttentionSummaryActions"));
 
                 var hostFooter = Find<NavigationViewItem>(window, "HostNavigationItem");
-                Assert.Equal("Host 已连接", hostFooter.Content?.ToString());
+                Assert.Equal("服务端已连接", hostFooter.Content?.ToString());
                 Assert.Contains(host.BaseUrl, hostFooter.ToolTip?.ToString(), StringComparison.Ordinal);
                 Assert.Contains(
-                    "Host 已连接",
+                    "服务端已连接",
                     AutomationProperties.GetName(hostFooter),
                     StringComparison.Ordinal);
                 Assert.Equal(
@@ -464,7 +507,7 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Null(action.Effect);
                 Assert.Equal(navigation, action.Tag);
                 Assert.Equal(
-                    "打开重点动态 错误检索 · REQUIRED_MES_FIELD_MISSING",
+                    "打开重点动态 错误检索",
                     AutomationProperties.GetName(action));
             }
             finally
@@ -529,7 +572,7 @@ public sealed class WatchV2ProductionHostTests
                     "AREA B 本机筛选",
                     Find<TextBlock>(window, "LocalAreaHeadingText").Text);
                 Assert.Equal(
-                    "Host 已提交范围：A1-1",
+                    "服务端已提交范围：A1-1",
                     Find<TextBlock>(window, "HostAreaScopeText").Text);
                 Assert.Equal("31", Find<TextBlock>(window, "SeriesSummaryValue").Text);
                 Assert.Equal("41 / 47", Find<TextBlock>(window, "ReadabilitySummaryValue").Text);
@@ -541,11 +584,12 @@ public sealed class WatchV2ProductionHostTests
                     AutomationProperties.GetName(Find<TextBlock>(window, "StaleNoticeText")),
                     StringComparison.Ordinal);
                 var failureNotice = Find<InfoBar>(window, "OverviewInfoBar");
-                Assert.True(failureNotice.IsOpen);
-                Assert.Equal("概览刷新失败，已保留上次完整快照", failureNotice.Title);
+                Assert.False(failureNotice.IsOpen);
+                var faultButton = Find<FluentButton>(window, "OverviewFaultStatusButton");
+                Assert.Equal(Visibility.Visible, faultButton.Visibility);
                 Assert.Contains(
-                    failureNotice.Title,
-                    AutomationProperties.GetName(failureNotice),
+                    "概览读取持续失败",
+                    faultButton.ToolTip?.ToString(),
                     StringComparison.Ordinal);
 
                 Assert.Contains(host.Timeline, entry =>
@@ -876,6 +920,42 @@ public sealed class WatchV2ProductionHostTests
 
     private static T Find<T>(WatchWorkspaceWindow window, string name)
         where T : class => Assert.IsAssignableFrom<T>(window.FindName(name));
+
+    private static string NotificationText(WatchWorkspaceWindow window)
+    {
+        window.UpdateLayout();
+        var cards = string.Join(
+            " · ",
+            Find<ItemsControl>(window, "NotificationItemsControl").Items
+                .Cast<object>()
+                .Select(item => item.GetType().GetProperty("AutomationName")?.GetValue(item)?.ToString())
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        return string.Join(
+            " · ",
+            new[]
+            {
+                Find<System.Windows.Controls.TextBlock>(window, "NotificationLiveRegion").Text,
+                cards,
+            }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

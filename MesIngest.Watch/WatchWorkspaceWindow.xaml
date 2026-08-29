@@ -7,7 +7,7 @@
                  xmlns:wpf="clr-namespace:System.Windows;assembly=WindowsBase"
                  xmlns:wpfControls="clr-namespace:System.Windows.Controls;assembly=PresentationFramework"
                  xmlns:local="clr-namespace:MesIngest.Watch"
-                 Title="MesIngest Watch"
+                 Title="制造执行系统接入运维台"
                  Width="{x:Static local:WatchWindowLayoutTokens.MainDefaultWidth}"
                  Height="{x:Static local:WatchWindowLayoutTokens.MainDefaultHeight}"
                  MinWidth="{x:Static local:WatchWindowLayoutTokens.MinimumWidth}"
@@ -186,7 +186,7 @@
 
         <ui:TitleBar x:Name="WindowTitleBar"
                      Grid.Row="0"
-                     Title="MesIngest Watch"
+                     Title="制造执行系统接入运维台"
                      ShowMinimize="True"
                      ShowMaximize="True"
                      ShowClose="True"
@@ -234,9 +234,9 @@
                     <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Search24" /></ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
                 <ui:NavigationViewItem x:Name="AreaFilterNavigationItem"
-                                       Content="AREA 筛选"
+                                       Content="区域筛选"
                                        Click="OnAreaFilterNavigationClick"
-                                       AutomationProperties.Name="AREA 筛选导航">
+                                       AutomationProperties.Name="区域筛选导航">
                     <ui:NavigationViewItem.Icon><ui:SymbolIcon Symbol="Filter24" /></ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
                 <ui:NavigationViewItem x:Name="CurrentAttentionNavigationItem"
@@ -248,10 +248,10 @@
             </ui:NavigationView.MenuItems>
             <ui:NavigationView.FooterMenuItems>
                 <ui:NavigationViewItem x:Name="HostNavigationItem"
-                                       Content="Host 未连接"
-                                       ToolTip="Host 尚未连接"
+                                       Content="服务端未连接"
+                                       ToolTip="服务端尚未连接"
                                        Click="OnSettingsNavigationClick"
-                                       AutomationProperties.Name="Host 状态与连接设置">
+                                       AutomationProperties.Name="服务端状态与连接设置">
                     <ui:NavigationViewItem.Icon><ui:SymbolIcon x:Name="HostNavigationIcon" Symbol="CloudOff24" /></ui:NavigationViewItem.Icon>
                 </ui:NavigationViewItem>
                 <ui:NavigationViewItem x:Name="SettingsNavigationItem"
@@ -286,7 +286,7 @@
                                 <StackPanel>
                                     <ui:TextBlock x:Name="OverviewPageTitleText" Text="" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock x:Name="OverviewContextText"
-                                                  Text="等待 Host 连接"
+                                                  Text="等待服务端连接"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="0,3,0,0"
                                                   AutomationProperties.Name="概览快照与客户端读取时间" />
@@ -307,11 +307,11 @@
                                     <Border x:Name="OverviewHostStatusPill"
                                             Style="{StaticResource StatusPill}"
                                             VerticalAlignment="Center"
-                                            AutomationProperties.Name="概览 Host 状态">
+                                            AutomationProperties.Name="概览服务端状态">
                                         <StackPanel Orientation="Horizontal">
                                             <ui:SymbolIcon x:Name="OverviewHostStatusIcon" Symbol="CloudOff24" />
                                             <ui:TextBlock x:Name="OverviewHostStatusText"
-                                                          Text="Host 未连接"
+                                                          Text="服务端未连接"
                                                           FontTypography="BodyStrong"
                                                           Margin="6,0,0,0" />
                                         </StackPanel>
@@ -374,8 +374,8 @@
                                         <Grid>
                                             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                             <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions><StackPanel Orientation="Horizontal"><ui:SymbolIcon Symbol="Filter24" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" /><ui:TextBlock x:Name="AreaSummaryTitleText" Text="" FontTypography="BodyStrong" Margin="8,0,0,0" /></StackPanel><ui:Button x:Name="AreaSummaryManageButton" Grid.Column="1" Content="" Style="{StaticResource InlineIntentButton}" Click="OnAreaFilterNavigationClick" AutomationProperties.Name="" /></Grid>
-                                            <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="LocalAreaHeadingText" Text="全部 AREA" Style="{StaticResource OverviewRatioMetric}" TextTrimming="CharacterEllipsis" /><ui:TextBlock x:Name="LocalAreaDetailText" Text="本机默认" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
-                                            <ui:TextBlock x:Name="HostAreaScopeText" Grid.Row="2" Text="Host 已提交范围：尚无快照" Style="{StaticResource CaptionText}" TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Grid.Row="1" VerticalAlignment="Center"><ui:TextBlock x:Name="LocalAreaHeadingText" Text="全部区域" Style="{StaticResource OverviewRatioMetric}" TextTrimming="CharacterEllipsis" /><ui:TextBlock x:Name="LocalAreaDetailText" Text="本机默认" Style="{StaticResource CaptionText}" Margin="0,3,0,0" /></StackPanel>
+                                            <ui:TextBlock x:Name="HostAreaScopeText" Grid.Row="2" Text="服务端已提交范围：尚无快照" Style="{StaticResource CaptionText}" TextTrimming="CharacterEllipsis" />
                                         </Grid>
                                     </Border>
                                     <Border x:Name="AttentionSummaryCard" Style="{StaticResource SummaryCard}" Margin="5,6" MinHeight="174">
@@ -389,7 +389,7 @@
                                                           Style="{StaticResource CaptionText}"
                                                           TextWrapping="NoWrap"
                                                           TextTrimming="CharacterEllipsis"
-                                                          AutomationProperties.Name="接入告警严重度精确分面：等待 Host 概览" />
+                                                          AutomationProperties.Name="接入告警严重度精确分面：等待服务端概览" />
                                         </Grid>
                                     </Border>
                                     </UniformGrid>
@@ -454,12 +454,12 @@
                                         <StackPanel>
                                             <ui:TextBlock x:Name="DemandSeriesPageTitleText" Text="" Style="{StaticResource PageTitleText}" />
                                              <ui:TextBlock x:Name="DemandSeriesContextText"
-                                                           Text="当前 AREA：全部 AREA · 尚无 Host 冻结快照"
+                                                           Text="当前区域：全部区域 · 尚无服务端冻结快照"
                                                            Style="{StaticResource SecondaryText}"
                                                            Margin="0,3,0,0"
                                                            TextWrapping="NoWrap"
                                                            TextTrimming="CharacterEllipsis"
-                                                           AutomationProperties.Name="需求系列快照与 AREA 范围" />
+                                                           AutomationProperties.Name="需求系列快照与区域范围" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1"
                                                     Orientation="Horizontal"
@@ -479,14 +479,14 @@
                                             <Border x:Name="DemandSeriesTrackingFacetPill"
                                                     Style="{StaticResource StatusPillSuccess}">
                                                 <ui:TextBlock x:Name="DemandSeriesTrackingFacetText"
-                                                              Text="Tracking —"
+                                                              Text="跟踪中 —"
                                                               FontTypography="BodyStrong" />
                                             </Border>
                                             <Border x:Name="DemandSeriesArchivedFacetPill"
                                                     Style="{StaticResource StatusPill}"
                                                     Margin="8,0,0,0">
                                                 <ui:TextBlock x:Name="DemandSeriesArchivedFacetText"
-                                                              Text="Archived —"
+                                                              Text="已归档 —"
                                                               FontTypography="BodyStrong" />
                                             </Border>
                                         </StackPanel>
@@ -576,24 +576,24 @@
                                                                AutomationProperties.Name="生命周期：全部"
                                                                AutomationProperties.AutomationId="DemandSeriesLifecycleAllButton" />
                                                     <ui:Button x:Name="DemandSeriesLifecycleTrackingButton"
-                                                               Content="Tracking"
+                                                               Content="跟踪中"
                                                                Tag="TRACKING"
                                                                Padding="12,6"
                                                                KeyboardNavigation.TabIndex="1"
                                                                Margin="4,0,0,0"
                                                                Appearance="Transparent"
                                                                Click="OnDemandSeriesLifecycleSegmentClick"
-                                                               AutomationProperties.Name="生命周期：Tracking"
+                                                               AutomationProperties.Name="生命周期：跟踪中"
                                                                AutomationProperties.AutomationId="DemandSeriesLifecycleTrackingButton" />
                                                     <ui:Button x:Name="DemandSeriesLifecycleArchivedButton"
-                                                               Content="Archived"
+                                                               Content="已归档"
                                                                Tag="ARCHIVED"
                                                                Padding="12,6"
                                                                KeyboardNavigation.TabIndex="2"
                                                                Margin="4,0,0,0"
                                                                Appearance="Transparent"
                                                                Click="OnDemandSeriesLifecycleSegmentClick"
-                                                               AutomationProperties.Name="生命周期：Archived"
+                                                               AutomationProperties.Name="生命周期：已归档"
                                                                AutomationProperties.AutomationId="DemandSeriesLifecycleArchivedButton" />
                                                 </StackPanel>
                                             </StackPanel>
@@ -613,29 +613,29 @@
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="2">
-                                                <ui:TextBlock x:Name="DemandSeriesWorkTypeFilterLabel" Text="WorkType" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesWorkTypeFilterLabel" Text="工序类型" Style="{StaticResource CaptionText}" />
                                                  <ComboBox x:Name="DemandSeriesWorkTypeFilter"
                                                            SelectedIndex="0"
                                                            IsEditable="True"
                                                            Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                           KeyboardNavigation.IsTabStop="True"
                                                           KeyboardNavigation.TabIndex="3"
-                                                           AutomationProperties.Name="WorkType 筛选"
+                                                           AutomationProperties.Name="工序类型筛选"
                                                            AutomationProperties.AutomationId="DemandSeriesWorkTypeFilter">
                                                     <ComboBoxItem Content="" Tag="" />
                                                 </ComboBox>
                                             </StackPanel>
                                             <StackPanel Grid.Column="6">
-                                                <ui:TextBlock x:Name="DemandSeriesSublotFilterLabel" Text="SUBLOT" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesSublotFilterLabel" Text="子批次" Style="{StaticResource CaptionText}" />
                                                  <TextBox x:Name="DemandSeriesSublotFilter"
                                                          Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                          KeyboardNavigation.IsTabStop="True"
                                                          KeyboardNavigation.TabIndex="5"
-                                                          AutomationProperties.Name="SUBLOT 筛选"
+                                                          AutomationProperties.Name="子批次筛选"
                                                           AutomationProperties.AutomationId="DemandSeriesSublotFilter" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="8">
-                                                <ui:TextBlock x:Name="DemandSeriesIdentityFilterLabel" Text="SeriesId / DemandId" Style="{StaticResource CaptionText}" />
+                                                <ui:TextBlock x:Name="DemandSeriesIdentityFilterLabel" Text="需求系列标识 / 运输需求标识" Style="{StaticResource CaptionText}" />
                                                 <Grid Margin="{StaticResource DemandSeriesControlTopMargin}">
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="*" />
@@ -645,13 +645,13 @@
                                                     <TextBox x:Name="DemandSeriesSeriesIdFilter"
                                                              KeyboardNavigation.IsTabStop="True"
                                                              KeyboardNavigation.TabIndex="6"
-                                                             AutomationProperties.Name="SeriesId 筛选"
+                                                             AutomationProperties.Name="需求系列标识筛选"
                                                              AutomationProperties.AutomationId="DemandSeriesSeriesIdFilter" />
                                                     <TextBox x:Name="DemandSeriesDemandIdFilter"
                                                              Grid.Column="2"
                                                              KeyboardNavigation.IsTabStop="True"
                                                              KeyboardNavigation.TabIndex="7"
-                                                             AutomationProperties.Name="DemandId 筛选"
+                                                             AutomationProperties.Name="运输需求标识筛选"
                                                              AutomationProperties.AutomationId="DemandSeriesDemandIdFilter" />
                                                 </Grid>
                                             </StackPanel>
@@ -661,7 +661,7 @@
                                                           Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                           KeyboardNavigation.IsTabStop="True"
                                                           KeyboardNavigation.TabIndex="8"
-                                                          AutomationProperties.Name="需求系列 AREA 配置选择器"
+                                                          AutomationProperties.Name="需求系列区域配置选择器"
                                                           AutomationProperties.AutomationId="DemandSeriesAreaProfileSelector">
                                                     <ComboBox.ItemContainerStyle>
                                                         <Style TargetType="ComboBoxItem">
@@ -722,10 +722,10 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <ui:TextBlock x:Name="DemandSeriesMasterHeadingText"
-                                                              Text="当前范围内的 DemandSeries"
+                                                              Text="当前范围内的需求系列"
                                                               Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="DemandSeriesOrderText"
-                                                              Text="Host 固定排序：开始时间降序、SeriesId 升序；坏数据仍保留在运维列表中。"
+                                                              Text="服务端固定排序：开始时间降序、需求系列标识升序；异常数据仍保留在运维列表中。"
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="{StaticResource DemandSeriesHeadingSubtitleMargin}"
                                                               AutomationProperties.Name="需求系列固定排序" />
@@ -756,9 +756,9 @@
                                                       AutomationProperties.Name="需求系列列表"
                                                       AutomationProperties.AutomationId="DemandSeriesGrid">
                                                 <DataGrid.Columns>
-                                                    <DataGridTextColumn Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSeriesIdColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesWorkTypeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSublotColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="需求系列标识" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSeriesIdColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="工序类型" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesWorkTypeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="子批次" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesSublotColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTemplateColumn Header="生命周期 / 当前出现" SortMemberPath="LifecycleAndPresence" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesLifecycleColumnMinWidth}">
                                                         <DataGridTemplateColumn.CellTemplate>
                                                             <DataTemplate>
@@ -771,14 +771,14 @@
                                                             </DataTemplate>
                                                         </DataGridTemplateColumn.CellTemplate>
                                                     </DataGridTemplateColumn>
-                                                    <DataGridTextColumn Header="当前 AREA" Binding="{Binding LiveMesFields.Area}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesAreaColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="当前 Demand" Binding="{Binding CurrentDemandId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesDemandColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="当前区域" Binding="{Binding LiveMesFields.Area}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesAreaColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="当前运输需求" Binding="{Binding CurrentDemandId}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesDemandColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTextColumn Header="世代" Binding="{Binding CurrentGeneration}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTextColumn Header="事件" Binding="{Binding LastSeriesSequence}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesCompactColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                     <DataGridTextColumn Header="开始" Binding="{Binding StartedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="LAST SEEN" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="GONE SINCE" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
-                                                    <DataGridTextColumn Header="ARCHIVED" Binding="{Binding ArchivedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="最后看见时间" Binding="{Binding DemandLastSeenAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="确认消失时间" Binding="{Binding GoneConfirmedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
+                                                    <DataGridTextColumn Header="归档时间" Binding="{Binding ArchivedAt}" Width="{StaticResource DemandSeriesColumnSizeToCells}" MinWidth="{StaticResource DemandSeriesTimeColumnMinWidth}" ElementStyle="{StaticResource DemandSeriesUntrimmedTextCell}" />
                                                 </DataGrid.Columns>
                                             </DataGrid>
                                             <ui:InfoBar x:Name="DemandSeriesEmptyState"
@@ -786,7 +786,7 @@
                                                         IsOpen="False"
                                                         IsClosable="False"
                                                         Severity="Informational"
-                                                        Title="当前条件没有 DemandSeries"
+                                                        Title="当前条件没有需求系列"
                                                         Message="Host 已返回精确 0 个结果。可调整筛选；若这是跨 AREA 下钻，请使用上方显式范围确认。"
                                                         VerticalAlignment="Center"
                                                         AutomationProperties.Name="需求系列空结果" />
@@ -797,7 +797,7 @@
                                                 Padding="12,0">
                                             <WrapPanel>
                                                 <ui:TextBlock x:Name="DemandSeriesPageSummaryText"
-                                                              Text="精确 0 个 Series · 第 1 / 1 页"
+                                                              Text="精确 0 个需求系列 · 第 1 / 1 页"
                                                               Style="{StaticResource SecondaryText}"
                                                               MinWidth="{StaticResource DemandSeriesPageSummaryMinWidth}"
                                                               Margin="{StaticResource DemandSeriesPagingSummaryMargin}"
@@ -895,7 +895,7 @@
                                 <StackPanel>
                                     <ui:TextBlock x:Name="ReadabilityPageTitleText" Text="" Style="{StaticResource PageTitleText}" />
                                     <ui:TextBlock x:Name="ReadabilityCompactFactsText"
-                                                  Text="SnapshotReference 尚无快照 · Watch 尚无成功读取 · Host 固定排序 · 阻断原因精确分面：尚无快照"
+                                                  Text="快照引用尚无快照 · 运维台尚无成功读取 · 服务端固定排序 · 阻断原因精确分面：尚无快照"
                                                    Style="{StaticResource CaptionText}"
                                                    Margin="0,3,0,0"
                                                    TextWrapping="NoWrap"
@@ -922,18 +922,18 @@
                                     <Border x:Name="ReadabilityCatalogRevisionPill"
                                             Style="{StaticResource StatusPillSuccess}">
                                         <ui:TextBlock x:Name="ReadabilityCatalogRevisionText"
-                                                      Text="Catalog Revision —"
+                                                      Text="目录修订号 —"
                                                       FontTypography="BodyStrong" />
                                     </Border>
                                     <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                                         <ui:TextBlock x:Name="ReadabilityHeaderFactsText"
-                                                      Text="全部 AREA · 尚无更新时间"
+                                                      Text="全部区域 · 尚无更新时间"
                                                       Style="{StaticResource CaptionText}"
                                                       TextWrapping="NoWrap"
                                                       TextTrimming="CharacterEllipsis"
                                                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
                                                       TextAlignment="Right"
-                                                      AutomationProperties.Name="资格审计 AREA 与更新时间" />
+                                                      AutomationProperties.Name="资格审计区域与更新时间" />
                                         <ui:TextBlock x:Name="ReadabilityRefreshPolicyText"
                                                       Text="自动刷新"
                                                       Style="{StaticResource CaptionText}"
@@ -1014,14 +1014,14 @@
                                             </StackPanel>
                                         </StackPanel>
                                         <StackPanel Grid.Column="2">
-                                            <ui:TextBlock x:Name="ReadabilityWorkTypeFilterLabel" Text="WORKTYPE" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilityWorkTypeFilterLabel" Text="工序类型" Style="{StaticResource CaptionText}" />
                                             <ComboBox x:Name="ReadabilityWorkTypeFilter"
                                                       IsEditable="True"
                                                       SelectionChanged="OnReadabilityFilterDraftChanged"
                                                       KeyUp="OnReadabilityFilterDraftChanged"
                                                       KeyboardNavigation.IsTabStop="True"
                                                       Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                      AutomationProperties.Name="资格审计 WorkType 筛选"
+                                                      AutomationProperties.Name="资格审计工序类型筛选"
                                                       AutomationProperties.AutomationId="ReadabilityWorkTypeFilter" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="4">
@@ -1036,7 +1036,7 @@
                                                       AutomationProperties.AutomationId="ReadabilityBlockerFilter" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="6">
-                                            <ui:TextBlock x:Name="ReadabilitySearchFilterLabel" Text="DemandId / SUBLOT" Style="{StaticResource CaptionText}" />
+                                            <ui:TextBlock x:Name="ReadabilitySearchFilterLabel" Text="运输需求标识 / 子批次" Style="{StaticResource CaptionText}" />
                                             <Grid Margin="{StaticResource DemandSeriesControlTopMargin}">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*" />
@@ -1046,13 +1046,13 @@
                                                 <TextBox x:Name="ReadabilityDemandIdFilter"
                                                          TextChanged="OnReadabilityFilterDraftChanged"
                                                          KeyboardNavigation.IsTabStop="True"
-                                                         AutomationProperties.Name="资格审计 DemandId 精确筛选"
+                                                         AutomationProperties.Name="资格审计运输需求标识精确筛选"
                                                          AutomationProperties.AutomationId="ReadabilityDemandIdFilter" />
                                                 <TextBox x:Name="ReadabilitySublotFilter"
                                                          Grid.Column="2"
                                                          TextChanged="OnReadabilityFilterDraftChanged"
                                                          KeyboardNavigation.IsTabStop="True"
-                                                         AutomationProperties.Name="资格审计 SUBLOT 包含筛选"
+                                                         AutomationProperties.Name="资格审计子批次包含筛选"
                                                          AutomationProperties.AutomationId="ReadabilitySublotFilter" />
                                             </Grid>
                                         </StackPanel>
@@ -1061,7 +1061,7 @@
                                             <ComboBox x:Name="ReadabilityAreaProfileSelector"
                                                       Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                       KeyboardNavigation.IsTabStop="True"
-                                                      AutomationProperties.Name="资格审计 AREA 配置选择器"
+                                                      AutomationProperties.Name="资格审计区域配置选择器"
                                                       AutomationProperties.AutomationId="ReadabilityAreaProfileSelector">
                                                 <ComboBox.ItemContainerStyle>
                                                     <Style TargetType="ComboBoxItem">
@@ -1102,21 +1102,21 @@
                                      Visibility="Collapsed">
                                 <StackPanel>
                                     <ui:TextBlock x:Name="ReadabilitySnapshotFactsText"
-                                                  Text="尚无 Host 审计快照"
+                                                  Text="尚无服务端审计快照"
                                                   Style="{StaticResource SecondaryText}"
-                                                  AutomationProperties.Name="资格审计 Host 快照事实" />
+                                                  AutomationProperties.Name="资格审计服务端快照事实" />
                                     <ui:TextBlock x:Name="ReadabilityClientAttemptText"
                                                   Text="尚无客户端读取尝试"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                   AutomationProperties.Name="资格审计客户端读取事实" />
                                     <ui:TextBlock x:Name="ReadabilityAreaScopeText"
-                                                  Text="当前 AREA：全部 AREA · 尚无 Host 提交范围"
+                                                  Text="当前区域：全部区域 · 尚无服务端提交范围"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                  AutomationProperties.Name="资格审计 AREA 范围" />
+                                                  AutomationProperties.Name="资格审计区域范围" />
                                     <ui:TextBlock x:Name="ReadabilityOrderSummaryText"
-                                                  Text="Host 固定排序：NOT_READABLE、主要阻断、最后看见时间、DemandId"
+                                                  Text="服务端固定排序：不可读、主要阻断、最后看见时间、运输需求标识"
                                                   Style="{StaticResource SecondaryText}"
                                                   Margin="{StaticResource DemandSeriesControlTopMargin}"
                                                   AutomationProperties.Name="资格审计稳定排序" />
@@ -1180,7 +1180,7 @@
                                             <RowDefinition Height="*" />
                                             <RowDefinition Height="42" />
                                         </Grid.RowDefinitions>
-                                        <ui:TextBlock Text="Host 精确分面"
+                                        <ui:TextBlock Text="服务端精确分面"
                                                       Style="{StaticResource SectionTitleText}"
                                                       Visibility="Collapsed" />
                                         <Grid Margin="0" Visibility="Collapsed">
@@ -1194,11 +1194,11 @@
                                                       KeyboardNavigation.IsTabStop="True"
                                                       ItemsSource="{Binding}"
                                                       Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                      AutomationProperties.Name="资格状态 Host 精确分面"
+                                                      AutomationProperties.Name="资格状态服务端精确分面"
                                                       AutomationProperties.AutomationId="ReadabilityStateFacetGrid">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="资格" Binding="{Binding State}" Width="*" />
-                                                    <DataGridTextColumn Header="Demand"
+                                                    <DataGridTextColumn Header="运输需求"
                                                                         Binding="{Binding DemandCount}"
                                                                         Width="{StaticResource ReadabilityColumn90}" />
                                                 </DataGrid.Columns>
@@ -1209,11 +1209,11 @@
                                                       KeyboardNavigation.IsTabStop="True"
                                                       ItemsSource="{Binding}"
                                                       Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                      AutomationProperties.Name="阻断原因 Host 精确去重分面"
+                                                      AutomationProperties.Name="阻断原因服务端精确去重分面"
                                                       AutomationProperties.AutomationId="ReadabilityBlockerFacetGrid">
                                                 <DataGrid.Columns>
                                                     <DataGridTextColumn Header="阻断" Binding="{Binding Code}" Width="*" />
-                                                    <DataGridTextColumn Header="Demand"
+                                                    <DataGridTextColumn Header="运输需求"
                                                                         Binding="{Binding DemandCount}"
                                                                         Width="{StaticResource ReadabilityColumn90}" />
                                                 </DataGrid.Columns>
@@ -1230,7 +1230,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <ui:TextBlock x:Name="ReadabilityMasterHeadingText"
-                                                              Text="当前范围内的 TransportDemand"
+                                                              Text="当前范围内的运输需求"
                                                               Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilityPageSummaryText"
                                                               Text="尚无资格审计快照"
@@ -1390,7 +1390,7 @@
                                                     IsOpen="True"
                                                     IsClosable="False"
                                                     Severity="Informational"
-                                                    Title="尚未选择 Demand"
+                                                    Title="尚未选择运输需求"
                                                     Message="从左侧列表选择 Demand 后读取同一审计快照的资格检查与全部证据。"
                                                     AutomationProperties.Name="资格审计详情结论" />
                                     </StackPanel>
@@ -1434,7 +1434,7 @@
                                                 </StackPanel>
                                                 <ui:Button x:Name="ReadabilityOpenSeriesButton"
                                                            Grid.Column="1"
-                                                           Content="查看所属 Series"
+                                                           Content="查看所属需求系列"
                                                            Appearance="Secondary"
                                                            IsEnabled="False"
                                                            KeyboardNavigation.IsTabStop="True"
@@ -1453,7 +1453,7 @@
                                                     <ui:TextBlock x:Name="ReadabilityCurrentObservationHeadingText" Text="" Style="{StaticResource BodyStrong}" />
                                                     <Grid x:Name="ReadabilityLiveMesFieldsGrid"
                                                           Margin="0,8,12,0"
-                                                          AutomationProperties.Name="资格审计最后可信 MES 字段">
+                                                          AutomationProperties.Name="资格审计最后可信制造执行系统字段">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="*" />
                                                             <ColumnDefinition Width="*" />
@@ -1464,59 +1464,59 @@
                                                             <RowDefinition Height="Auto" />
                                                         </Grid.RowDefinitions>
                                                         <StackPanel>
-                                                            <ui:TextBlock Text="AREA" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityAreaLabelText" Text="区域" Style="{StaticResource CaptionText}" />
                                                             <ui:TextBlock x:Name="ReadabilityLiveMesAreaText"
                                                                           Text="—"
                                                                           Style="{StaticResource CodeText}"
                                                                           Margin="0,3,0,0"
                                                                           TextTrimming="CharacterEllipsis"
-                                                                          AutomationProperties.Name="资格审计 MES AREA" />
+                                                                          AutomationProperties.Name="资格审计制造执行系统区域" />
                                                         </StackPanel>
                                                         <StackPanel Grid.Row="1" Margin="0,8,0,0">
-                                                            <ui:TextBlock Text="DATES" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilitySourceDateLabelText" Text="来源时间" Style="{StaticResource CaptionText}" />
                                                             <ui:TextBlock x:Name="ReadabilityLiveMesDateText"
                                                                           Text="—"
                                                                           Style="{StaticResource CodeText}"
                                                                           Margin="0,3,0,0"
                                                                           TextTrimming="CharacterEllipsis"
-                                                                          AutomationProperties.Name="资格审计 MES DATES" />
+                                                                          AutomationProperties.Name="资格审计制造执行系统来源时间" />
                                                         </StackPanel>
                                                         <StackPanel Grid.Column="1">
-                                                            <ui:TextBlock Text="EQP" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityEqpLabelText" Text="设备" Style="{StaticResource CaptionText}" />
                                                             <ui:TextBlock x:Name="ReadabilityLiveMesEqpText"
                                                                           Text="—"
                                                                           Style="{StaticResource CodeText}"
                                                                           Margin="0,3,0,0"
                                                                           TextTrimming="CharacterEllipsis"
-                                                                          AutomationProperties.Name="资格审计 MES EQP" />
+                                                                          AutomationProperties.Name="资格审计制造执行系统设备" />
                                                         </StackPanel>
                                                         <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,8,0,0">
-                                                            <ui:TextBlock Text="PACKAGE" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityPackageLabelText" Text="封装形式" Style="{StaticResource CaptionText}" />
                                                             <ui:TextBlock x:Name="ReadabilityLiveMesPackageText"
                                                                           Text="—"
                                                                           Style="{StaticResource CodeText}"
                                                                           Margin="0,3,0,0"
                                                                           TextTrimming="CharacterEllipsis"
-                                                                          AutomationProperties.Name="资格审计 MES PACKAGE" />
+                                                                          AutomationProperties.Name="资格审计制造执行系统封装形式" />
                                                         </StackPanel>
                                                         <StackPanel Grid.Column="2">
-                                                            <ui:TextBlock Text="STEP" Style="{StaticResource CaptionText}" />
+                                                            <ui:TextBlock x:Name="ReadabilityStepLabelText" Text="下一工序" Style="{StaticResource CaptionText}" />
                                                             <ui:TextBlock x:Name="ReadabilityLiveMesStepText"
                                                                           Text="—"
                                                                           Style="{StaticResource CodeText}"
                                                                           Margin="0,3,0,0"
                                                                           TextTrimming="CharacterEllipsis"
-                                                                          AutomationProperties.Name="资格审计 MES STEP" />
+                                                                          AutomationProperties.Name="资格审计制造执行系统下一工序" />
                                                         </StackPanel>
                                                     </Grid>
                                                     <ui:TextBlock x:Name="ReadabilityLiveMesFactsText"
-                                                                  Text="尚无可信 MES 字段或原始观测冲突"
+                                                                  Text="尚无可信制造执行系统字段或原始观测冲突"
                                                                   Style="{StaticResource SecondaryText}"
                                                                   Margin="0,8,12,0"
                                                                   TextWrapping="Wrap"
                                                                   TextTrimming="CharacterEllipsis"
                                                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                                  AutomationProperties.Name="资格审计可信 MES 字段或原始观测冲突" />
+                                                                  AutomationProperties.Name="资格审计可信制造执行系统字段或原始观测冲突" />
                                                 </StackPanel>
                                                 <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
                                                 <Grid Grid.Column="2" Margin="18,0,0,0">
@@ -1593,13 +1593,13 @@
                                                 <ui:TextBlock x:Name="ReadabilityQualificationHeadingText" Text="" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilitySeriesFactsText"
                                                               Grid.Row="1"
-                                                              Text="尚无所属 Series 事实"
+                                                              Text="尚无所属需求系列事实"
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="0,5,0,10"
                                                               TextWrapping="NoWrap"
                                                               TextTrimming="CharacterEllipsis"
                                                               ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"
-                                                              AutomationProperties.Name="资格审计所属 Series 事实" />
+                                                              AutomationProperties.Name="资格审计所属需求系列事实" />
                                                 <ItemsControl x:Name="ReadabilityQualificationChecklist"
                                                               Grid.Row="2"
                                                               AutomationProperties.Name="资格审计检查清单">
@@ -1611,7 +1611,7 @@
                                                                     <ColumnDefinition Width="Auto" />
                                                                     <ColumnDefinition Width="*" />
                                                                 </Grid.ColumnDefinitions>
-                                                                <ui:TextBlock Text="{Binding Result}"
+                                                                <ui:TextBlock Text="{Binding ResultDisplay, Mode=OneWay}"
                                                                               FontTypography="Caption"
                                                                               FontWeight="SemiBold"
                                                                               Margin="0,0,8,0" />
@@ -1642,7 +1642,7 @@
                                                         </Style>
                                                     </Border.Style>
                                                     <ui:TextBlock x:Name="ReadabilityQualificationConclusionText"
-                                                                  Text="结论：尚未选择 Demand"
+                                                                  Text="结论：尚未选择运输需求"
                                                                   FontTypography="BodyStrong" />
                                                 </Border>
                                             </Grid>
@@ -1657,7 +1657,7 @@
                                                 <ui:TextBlock x:Name="ReadabilityMissingSemanticsHeadingText" Text="" Style="{StaticResource SectionTitleText}" />
                                                 <ui:TextBlock x:Name="ReadabilityRevisionFactsText"
                                                               Grid.Row="1"
-                                                              Text="Catalog Revision —"
+                                                              Text="目录修订号 —"
                                                               Style="{StaticResource BodyStrong}"
                                                               Margin="0,5,0,4"
                                                               TextWrapping="Wrap"
@@ -1694,7 +1694,7 @@
                                                                 <DataGrid.Columns>
                                                                     <DataGridTextColumn Header="检查" Binding="{Binding Code}" Width="*" />
                                                                     <DataGridTextColumn Header="阻断码" Binding="{Binding BlockingCode}" Width="{StaticResource ReadabilityColumn240}" />
-                                                                    <DataGridTextColumn Header="结果" Binding="{Binding Result}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="结果" Binding="{Binding ResultDisplay, Mode=OneWay}" Width="{StaticResource ReadabilityColumn120}" />
                                                                 </DataGrid.Columns>
                                                             </DataGrid>
                                                         </TabItem>
@@ -1710,8 +1710,8 @@
                                                                     <DataGridTextColumn Header="主体" Binding="{Binding SubjectKind}" Width="{StaticResource ReadabilityColumn120}" />
                                                                     <DataGridTextColumn Header="观测值" Binding="{Binding ObservedValue}" Width="{StaticResource ReadabilityColumn180}" />
                                                                     <DataGridTextColumn Header="规则" Binding="{Binding ExpectedRule}" Width="{StaticResource ReadabilityColumn240}" />
-                                                                    <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
-                                                                    <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                                    <DataGridTextColumn Header="轮询追踪" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="投影提交" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
                                                                 </DataGrid.Columns>
                                                             </DataGrid>
                                                         </TabItem>
@@ -1723,13 +1723,13 @@
                                                                       AutomationProperties.AutomationId="ReadabilityRawObservationGrid">
                                                                 <DataGrid.Columns>
                                                                     <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource ReadabilityColumn45}" />
-                                                                    <DataGridTextColumn Header="AREA" Binding="{Binding Area}" Width="{StaticResource ReadabilityColumn100}" />
-                                                                    <DataGridTextColumn Header="EQP" Binding="{Binding Eqp}" Width="{StaticResource ReadabilityColumn120}" />
-                                                                    <DataGridTextColumn Header="STEP" Binding="{Binding Step}" Width="{StaticResource ReadabilityColumn120}" />
-                                                                    <DataGridTextColumn Header="MesSourceDate" Binding="{Binding MesSourceDate}" Width="{StaticResource ReadabilityColumn170}" />
-                                                                    <DataGridTextColumn Header="PACKAGE" Binding="{Binding Package}" Width="{StaticResource ReadabilityColumn120}" />
-                                                                    <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
-                                                                    <DataGridTextColumn Header="ProjectionCommit" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
+                                                                    <DataGridTextColumn Header="区域" Binding="{Binding Area}" Width="{StaticResource ReadabilityColumn100}" />
+                                                                    <DataGridTextColumn Header="设备" Binding="{Binding Eqp}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="下一工序" Binding="{Binding Step}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="来源时间" Binding="{Binding MesSourceDate}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="封装形式" Binding="{Binding Package}" Width="{StaticResource ReadabilityColumn120}" />
+                                                                    <DataGridTextColumn Header="轮询追踪" Binding="{Binding PollTraceId}" Width="{StaticResource ReadabilityColumn170}" />
+                                                                    <DataGridTextColumn Header="投影提交" Binding="{Binding ProjectionCommitId}" Width="{StaticResource ReadabilityColumn180}" />
                                                                 </DataGrid.Columns>
                                                             </DataGrid>
                                                         </TabItem>
@@ -2212,9 +2212,9 @@
                                                   AutomationProperties.Name=""
                                                   AutomationProperties.AutomationId="ErrorSearchSeriesGrid">
                                             <DataGrid.Columns>
-                                                <DataGridTextColumn x:Name="ErrorSearchSeriesIdColumn" Header="SeriesId" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumn180}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchWorkTypeColumn" Header="WorkType" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumn130}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchSublotColumn" Header="SUBLOT" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumn130}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchSeriesIdColumn" Header="需求系列标识" Binding="{Binding SeriesId}" Width="{StaticResource DemandSeriesColumn180}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchWorkTypeColumn" Header="工序类型" Binding="{Binding WorkType}" Width="{StaticResource DemandSeriesColumn130}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchSublotColumn" Header="子批次" Binding="{Binding Sublot}" Width="{StaticResource DemandSeriesColumn130}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchMatchedErrorsColumn" Header="" Binding="{Binding MatchedErrorSummary}" Width="{StaticResource DemandSeriesColumn230}" />
                                                 <DataGridTemplateColumn x:Name="ErrorSearchActivityColumn" Header="" Width="{StaticResource DemandSeriesColumn130}">
                                                     <DataGridTemplateColumn.CellTemplate>
@@ -2248,7 +2248,7 @@
                                                 <DataGridTextColumn x:Name="ErrorSearchMatchedPeriodsColumn" Header="" Binding="{Binding MatchedPeriodSummary}" Width="{StaticResource DemandSeriesColumn130}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchDemandGenerationsColumn" Header="" Binding="{Binding MatchedDemandGenerationSummary}" Width="{StaticResource DemandSeriesColumn170}" />
                                                 <DataGridTextColumn x:Name="ErrorSearchLatestEvidenceColumn" Header="" Binding="{Binding LatestMatchedEvidenceAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                <DataGridTextColumn x:Name="ErrorSearchMesAreaColumn" Header="MES AREA" Binding="{Binding MesArea}" Width="{StaticResource DemandSeriesColumn120}" />
+                                                <DataGridTextColumn x:Name="ErrorSearchMesAreaColumn" Header="制造执行系统区域" Binding="{Binding MesArea}" Width="{StaticResource DemandSeriesColumn120}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
                                         <Border Grid.Row="3"
@@ -2343,7 +2343,7 @@
                                                  <DataGridTextColumn Header="" Binding="{Binding EndedAt}" Width="{StaticResource DemandSeriesColumn170}" />
                                                  <DataGridTextColumn Header="" Binding="{Binding EndReason}" Width="{StaticResource DemandSeriesColumn150}" />
                                                  <DataGridTextColumn Header="" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
-                                                 <DataGridTextColumn Header="Target" Binding="{Binding Target}" Width="{StaticResource DemandSeriesColumn130}" />
+                                                 <DataGridTextColumn Header="目标" Binding="{Binding Target}" Width="{StaticResource DemandSeriesColumn130}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
 
@@ -2363,9 +2363,9 @@
                                                  <DataGridTextColumn Header="" Binding="{Binding SubjectKind}" Width="{StaticResource DemandSeriesColumn120}" />
                                                  <DataGridTextColumn Header="" Binding="{Binding DiagnosticSummary}" Width="{StaticResource DemandSeriesColumn230}" />
                                                 <DataGridTextColumn Header="" Binding="{Binding ExpectedRule}" Width="{StaticResource DemandSeriesColumn230}" />
-                                                <DataGridTextColumn Header="Demand / WorkType" Binding="{Binding SubjectReference}" Width="{StaticResource DemandSeriesColumn230}" />
+                                                <DataGridTextColumn Header="运输需求 / 工序类型" Binding="{Binding SubjectReference}" Width="{StaticResource DemandSeriesColumn230}" />
                                                 <DataGridTextColumn Header="" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn Header="轮询追踪" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
                                             </DataGrid.Columns>
                                         </DataGrid>
 
@@ -2420,9 +2420,9 @@
                                                   AutomationProperties.AutomationId="ErrorSearchRawEvidenceGrid">
                                             <DataGrid.Columns>
                                                 <DataGridTextColumn Header="#" Binding="{Binding Ordinal}" Width="{StaticResource DemandSeriesColumn45}" />
-                                                <DataGridTextColumn Header="DemandId" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn160}" />
+                                                <DataGridTextColumn Header="运输需求标识" Binding="{Binding DemandId}" Width="{StaticResource DemandSeriesColumn160}" />
                                                 <DataGridTextColumn Header="" Binding="{Binding ObservedAt}" Width="{StaticResource DemandSeriesColumn170}" />
-                                                <DataGridTextColumn Header="PollTrace" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
+                                                <DataGridTextColumn Header="轮询追踪" Binding="{Binding PollTraceId}" Width="{StaticResource DemandSeriesColumn170}" />
                                                 <DataGridTemplateColumn Header="" Width="*">
                                                     <DataGridTemplateColumn.CellTemplate>
                                                         <DataTemplate>
@@ -2462,7 +2462,7 @@
                                   Visibility="Collapsed"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
-                                  AutomationProperties.Name="AREA 筛选页面"
+                                  AutomationProperties.Name="区域筛选页面"
                                   AutomationProperties.AutomationId="AreaFilterPage">
                         <ScrollViewer.CommandBindings>
                             <CommandBinding Command="ApplicationCommands.Save"
@@ -2489,16 +2489,16 @@
                                             IsOpen="False"
                                             IsClosable="False"
                                             Severity="Warning"
-                                            Title="AREA 配置目录监视已降级"
+                                            Title="区域配置目录监视已降级"
                                             Margin="0,0,0,12"
-                                            AutomationProperties.Name="AREA 配置目录监视降级状态"
+                                            AutomationProperties.Name="区域配置目录监视降级状态"
                                             AutomationProperties.AutomationId="AreaProfileDirectoryWatchInfoBar" />
                                 <ui:InfoBar x:Name="AreaProfileInfoBar"
                                             IsOpen="False"
                                             IsClosable="True"
                                             Severity="Informational"
                                             Margin="0,0,0,12"
-                                            AutomationProperties.Name="AREA 配置操作状态" />
+                                            AutomationProperties.Name="区域配置操作状态" />
                             </StackPanel>
 
                             <Grid x:Name="AreaProfileBodyGrid"
@@ -2523,7 +2523,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="AREA 配置主列表"
+                                         AutomationProperties.Name="区域配置主列表"
                                          AutomationProperties.AutomationId="AreaProfileMasterCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -2544,7 +2544,7 @@
                                                               Text="尚未读取本机配置"
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="{StaticResource DemandSeriesControlTopMargin}"
-                                                              AutomationProperties.Name="AREA 配置列表摘要" />
+                                                              AutomationProperties.Name="区域配置列表摘要" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1"
                                                         Orientation="Horizontal"
@@ -2553,7 +2553,7 @@
                                                            Content="打开配置文件夹"
                                                            Appearance="Transparent"
                                                            Click="OnAreaProfileOpenDirectoryClick"
-                                                           AutomationProperties.Name="打开 AREA 配置目录"
+                                                           AutomationProperties.Name="打开区域配置目录"
                                                            AutomationProperties.AutomationId="AreaProfileOpenDirectoryButton" />
                                                 <ui:Button x:Name="AreaProfileNewButton"
                                                            Content="新建"
@@ -2561,7 +2561,7 @@
                                                            Margin="{StaticResource AreaProfileInlineCommandMargin}"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnAreaProfileNewClick"
-                                                           AutomationProperties.Name="新建 AREA 配置"
+                                                           AutomationProperties.Name="新建区域配置"
                                                            AutomationProperties.AutomationId="AreaProfileNewButton" />
                                             </StackPanel>
                                         </Grid>
@@ -2569,7 +2569,7 @@
                                                  Grid.Row="1"
                                                  Margin="16,0,16,10"
                                                  TextChanged="OnAreaProfileSearchTextChanged"
-                                                 AutomationProperties.Name="搜索 AREA 配置"
+                                                 AutomationProperties.Name="搜索区域配置"
                                                  AutomationProperties.AutomationId="AreaProfileSearchInput" />
                                         <ListBox x:Name="AreaProfileList"
                                                  Grid.Row="2"
@@ -2578,7 +2578,7 @@
                                                  Background="Transparent"
                                                  SelectionChanged="OnAreaProfileSelectionChanged"
                                                  KeyboardNavigation.IsTabStop="True"
-                                                 AutomationProperties.Name="本机命名 AREA 配置列表"
+                                                 AutomationProperties.Name="本机命名区域配置列表"
                                                  AutomationProperties.AutomationId="AreaProfileList">
                                             <ListBox.Resources>
                                                 <ContextMenu x:Key="AreaProfileFileContextMenu"
@@ -2590,21 +2590,21 @@
                                                                  IsEnabled="{Binding CanSaveAs}"
                                                                  KeyboardNavigation.IsTabStop="True"
                                                                  Click="OnAreaProfileSaveAsClick"
-                                                                 AutomationProperties.Name="另存此 AREA TXT 配置"
+                                                                 AutomationProperties.Name="另存此区域文本配置"
                                                                  AutomationProperties.AutomationId="AreaProfileSaveAsMenuItem" />
                                                     <ui:MenuItem Header="重命名"
                                                                  CommandParameter="{Binding}"
                                                                  IsEnabled="{Binding CanRenameOrDelete}"
                                                                  KeyboardNavigation.IsTabStop="True"
                                                                  Click="OnAreaProfileRenameClick"
-                                                                 AutomationProperties.Name="重命名此 AREA TXT 配置"
+                                                                 AutomationProperties.Name="重命名此区域文本配置"
                                                                  AutomationProperties.AutomationId="AreaProfileRenameMenuItem" />
                                                     <ui:MenuItem Header="删除"
                                                                  CommandParameter="{Binding}"
                                                                  IsEnabled="{Binding CanRenameOrDelete}"
                                                                  KeyboardNavigation.IsTabStop="True"
                                                                  Click="OnAreaProfileDeleteClick"
-                                                                 AutomationProperties.Name="删除此 AREA TXT 配置"
+                                                                 AutomationProperties.Name="删除此区域文本配置"
                                                                  AutomationProperties.AutomationId="AreaProfileDeleteMenuItem" />
                                                 </ContextMenu>
                                             </ListBox.Resources>
@@ -2740,7 +2740,7 @@
                                                 Padding="{StaticResource AreaProfileOperationPanelPadding}"
                                                 CornerRadius="{StaticResource AreaProfileOperationPanelCornerRadius}"
                                                 Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                                                AutomationProperties.Name="AREA 文件操作确认">
+                                                AutomationProperties.Name="区域文件操作确认">
                                             <Grid>
                                                 <Grid.RowDefinitions>
                                                     <RowDefinition Height="Auto" />
@@ -2765,7 +2765,7 @@
                                                          MinWidth="{StaticResource AreaProfileOperationTargetMinWidth}"
                                                          ToolTip="文件名（不含 .txt）"
                                                          KeyboardNavigation.IsTabStop="True"
-                                                         AutomationProperties.Name="AREA 文件操作目标名称"
+                                                         AutomationProperties.Name="区域文件操作目标名称"
                                                          AutomationProperties.AutomationId="AreaProfileTargetNameInput" />
                                                 <ui:Button x:Name="AreaProfileFileOperationConfirmButton"
                                                            Grid.Row="2"
@@ -2775,7 +2775,7 @@
                                                            Margin="{StaticResource AreaProfileInlineCommandMargin}"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnAreaProfileFileOperationConfirmClick"
-                                                           AutomationProperties.Name="确认 AREA 文件操作"
+                                                           AutomationProperties.Name="确认区域文件操作"
                                                            AutomationProperties.AutomationId="AreaProfileFileOperationConfirmButton" />
                                                 <ui:Button x:Name="AreaProfileFileOperationCancelButton"
                                                            Grid.Row="2"
@@ -2785,7 +2785,7 @@
                                                            Margin="{StaticResource AreaProfileInlineCommandMargin}"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnAreaProfileFileOperationCancelClick"
-                                                           AutomationProperties.Name="取消 AREA 文件操作"
+                                                           AutomationProperties.Name="取消区域文件操作"
                                                            AutomationProperties.AutomationId="AreaProfileFileOperationCancelButton" />
                                             </Grid>
                                         </Border>
@@ -2800,7 +2800,7 @@
                                                           TextWrapping="NoWrap"
                                                           TextTrimming="CharacterEllipsis"
                                                           VerticalAlignment="Center"
-                                                          AutomationProperties.Name="AREA 配置仅影响本机当前用户的显示" />
+                                                          AutomationProperties.Name="区域配置仅影响本机当前用户的显示" />
                                             <StackPanel Grid.Column="1"
                                                         Orientation="Horizontal"
                                                         VerticalAlignment="Center">
@@ -2810,7 +2810,7 @@
                                                            Visibility="Collapsed"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnAreaProfileSaveAsClick"
-                                                           AutomationProperties.Name="另存未命名 AREA 草稿"
+                                                           AutomationProperties.Name="另存未命名区域草稿"
                                                            AutomationProperties.AutomationId="AreaProfileSaveDraftAsButton" />
                                                 <ui:Button x:Name="AreaProfileApplyButton"
                                                            Content="应用此配置"
@@ -2819,7 +2819,7 @@
                                                            Margin="{StaticResource AreaProfileInlineCommandMargin}"
                                                            KeyboardNavigation.IsTabStop="True"
                                                            Click="OnAreaProfileApplyClick"
-                                                           AutomationProperties.Name="应用选中 AREA 配置"
+                                                           AutomationProperties.Name="应用选中区域配置"
                                                            AutomationProperties.AutomationId="AreaProfileApplyButton" />
                                             </StackPanel>
                                         </Grid>
@@ -2832,7 +2832,7 @@
                                          VerticalAlignment="Stretch"
                                          HorizontalContentAlignment="Stretch"
                                          VerticalContentAlignment="Stretch"
-                                         AutomationProperties.Name="AREA 配置编辑器"
+                                         AutomationProperties.Name="区域配置编辑器"
                                          AutomationProperties.AutomationId="AreaProfileEditorCard">
                                     <Grid>
                                         <Grid.RowDefinitions>
@@ -2853,9 +2853,9 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <ui:TextBlock x:Name="AreaProfileFileTitleText"
-                                                          Text="新建 AREA 配置"
+                                                          Text="新建区域配置"
                                                           Style="{StaticResource SectionTitleText}"
-                                                          AutomationProperties.Name="当前 AREA TXT 文件" />
+                                                          AutomationProperties.Name="当前区域文本文件" />
                                             <StackPanel x:Name="AreaProfileFileStatusLayer"
                                                         Grid.Column="1"
                                                         Orientation="Horizontal"
@@ -2865,9 +2865,9 @@
                                                         VerticalAlignment="Center"
                                                         Margin="0,0,8,0">
                                                     <ui:TextBlock x:Name="AreaProfileValidCountText"
-                                                                  Text="尚无有效 AREA"
+                                                                  Text="尚无有效区域"
                                                                   FontTypography="BodyStrong"
-                                                                  AutomationProperties.Name="AREA 有效数量" />
+                                                                  AutomationProperties.Name="区域有效数量" />
                                                 </Border>
                                             </StackPanel>
                                             <ui:TextBlock x:Name="AreaProfileDirectoryText"
@@ -2877,12 +2877,12 @@
                                                           Style="{StaticResource CaptionText}"
                                                           Margin="0,3,0,0"
                                                           TextTrimming="CharacterEllipsis"
-                                                          AutomationProperties.Name="AREA 配置存储目录与格式" />
+                                                          AutomationProperties.Name="区域配置存储目录与格式" />
                                             <TextBox x:Name="AreaProfileNameInput"
                                                      Visibility="Collapsed"
                                                      IsTabStop="False"
                                                      TextChanged="OnAreaProfileDraftChanged"
-                                                     AutomationProperties.Name="AREA 配置名称"
+                                                     AutomationProperties.Name="区域配置名称"
                                                      AutomationProperties.AutomationId="AreaProfileNameInput" />
                                         </Grid>
                                         <Border Grid.Row="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
@@ -2923,7 +2923,7 @@
                                                                           TextAlignment="Right"
                                                                           Padding="0,10,9,10"
                                                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}"
-                                                                          AutomationProperties.Name="AREA 编辑器行号" />
+                                                                          AutomationProperties.Name="区域编辑器行号" />
                                                         </StackPanel>
                                                     </Border>
                                                     <Border Grid.Column="1" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
@@ -2941,7 +2941,7 @@
                                                              KeyboardNavigation.IsTabStop="True"
                                                              TextChanged="OnAreaProfileDraftChanged"
                                                              ScrollViewer.ScrollChanged="OnAreaProfileEditorScrollChanged"
-                                                             AutomationProperties.Name="AREA 配置 TXT 内容编辑器"
+                                                             AutomationProperties.Name="区域配置文本内容编辑器"
                                                              AutomationProperties.AutomationId="AreaProfileEditor">
                                                         <TextBox.Resources>
                                                             <!-- WPF UI hands PART_ContentHost this style, and the
@@ -2978,7 +2978,7 @@
                                                                                            ViewportSize="{TemplateBinding ViewportHeight}"
                                                                                            Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
                                                                                            Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"
-                                                                                           AutomationProperties.Name="AREA 配置内容垂直滚动条"
+                                                                                           AutomationProperties.Name="区域配置内容垂直滚动条"
                                                                                            AutomationProperties.AutomationId="AreaProfileEditorVerticalScrollBar" />
                                                                                 <ScrollBar x:Name="PART_HorizontalScrollBar"
                                                                                            VerticalAlignment="Bottom"
@@ -2989,7 +2989,7 @@
                                                                                            ViewportSize="{TemplateBinding ViewportWidth}"
                                                                                            Value="{Binding HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"
                                                                                            Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}"
-                                                                                           AutomationProperties.Name="AREA 配置内容水平滚动条"
+                                                                                           AutomationProperties.Name="区域配置内容水平滚动条"
                                                                                            AutomationProperties.AutomationId="AreaProfileEditorHorizontalScrollBar" />
                                                                             </Grid>
                                                                         </ControlTemplate>
@@ -3008,7 +3008,7 @@
                                                 <ui:TextBlock x:Name="AreaProfileValidationSummaryText"
                                                               Text="格式尚未通过校验"
                                                               Style="{StaticResource BodyStrong}"
-                                                              AutomationProperties.Name="AREA 配置校验摘要" />
+                                                              AutomationProperties.Name="区域配置校验摘要" />
                                                 <StackPanel Grid.Column="1"
                                                             Orientation="Horizontal"
                                                             VerticalAlignment="Center">
@@ -3016,7 +3016,7 @@
                                                                   Text="尚未保存"
                                                                   Style="{StaticResource CaptionText}"
                                                                   VerticalAlignment="Center"
-                                                                  AutomationProperties.Name="AREA 配置保存状态" />
+                                                                  AutomationProperties.Name="区域配置保存状态" />
                                                 </StackPanel>
                                             </Grid>
                                             <Expander x:Name="AreaProfileValidationExpander"
@@ -3028,7 +3028,7 @@
                                                           MaxHeight="140"
                                                           KeyboardNavigation.IsTabStop="True"
                                                           Style="{StaticResource DemandSeriesReadOnlyGrid}"
-                                                          AutomationProperties.Name="AREA 配置逐项校验"
+                                                          AutomationProperties.Name="区域配置逐项校验"
                                                           AutomationProperties.AutomationId="AreaProfileValidationGrid">
                                                     <DataGrid.Columns>
                                                         <DataGridTextColumn x:Name="AreaProfileDiagnosticLineColumn" Header="" Binding="{Binding LineNumber}" Width="{StaticResource AreaProfileDiagnosticLineColumnWidth}" />
@@ -3047,10 +3047,10 @@
                                                          Height="8"
                                                          Fill="{DynamicResource SystemFillColorSuccessBrush}" />
                                                 <ui:TextBlock x:Name="AreaProfileAppliedStateText"
-                                                              Text="当前应用：全部 AREA"
+                                                              Text="当前应用：全部区域"
                                                               Style="{StaticResource SecondaryText}"
                                                               Margin="7,0,0,0"
-                                                              AutomationProperties.Name="当前应用 AREA 配置" />
+                                                              AutomationProperties.Name="当前应用区域配置" />
                                             </StackPanel>
                                         </Grid>
                                     </Grid>
@@ -3563,7 +3563,7 @@
                                            Appearance="Secondary"
                                            VerticalAlignment="Center"
                                            Click="OnRestoreDefaultSettingsClick"
-                                           AutomationProperties.Name="恢复 Watch 默认设置" />
+                                           AutomationProperties.Name="恢复运维台默认设置" />
                             </Grid>
                             <Grid x:Name="SettingsColumns" Grid.Row="4">
                                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition x:Name="SettingsVerticalGap" Height="0" /><RowDefinition x:Name="SettingsBottomRow" Height="0" /></Grid.RowDefinitions>
@@ -3588,7 +3588,7 @@
                                                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
                                                     <ui:TextBlock x:Name="SettingsHostTitleText" Text="" Style="{StaticResource SectionTitleText}" />
                                                     <ui:TextBlock x:Name="SettingsHostStateText"
-                                                                  Text="Host 未连接"
+                                                                  Text="服务端未连接"
                                                                   Style="{StaticResource SecondaryText}"
                                                                   Margin="0,3,0,0" />
                                                 </StackPanel>
@@ -3597,7 +3597,7 @@
                                                         Style="{StaticResource StatusPillCritical}"
                                                         VerticalAlignment="Center">
                                                     <ui:TextBlock x:Name="SettingsHostStatusText"
-                                                                  Text="Host 未连接"
+                                                                  Text="服务端未连接"
                                                                   FontTypography="BodyStrong" />
                                                 </Border>
                                             </Grid>

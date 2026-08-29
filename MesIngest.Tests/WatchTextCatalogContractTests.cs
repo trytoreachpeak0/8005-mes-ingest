@@ -16,13 +16,19 @@ public sealed partial class WatchTextCatalogContractTests
             [WatchDisplayLanguage.SimplifiedChinese, WatchDisplayLanguage.English],
             Enum.GetValues<WatchDisplayLanguage>());
         Assert.Equal("简体中文", chinese.Common.SimplifiedChineseLanguageName);
-        Assert.Equal("English", chinese.Common.EnglishLanguageName);
+        Assert.Equal("英语", chinese.Common.EnglishLanguageName);
         Assert.Equal("简体中文", english.Common.SimplifiedChineseLanguageName);
         Assert.Equal("English", english.Common.EnglishLanguageName);
         Assert.Equal("主导航", chinese.Shell.PrimaryNavigationName);
         Assert.Equal("Primary navigation", english.Shell.PrimaryNavigationName);
         Assert.Equal("设置", chinese.Settings.PageTitle);
         Assert.Equal("Settings", english.Settings.PageTitle);
+        Assert.Equal("运输需求标识", chinese.Columns.DemandId);
+        Assert.Equal("DemandId", english.Columns.DemandId);
+        Assert.Equal("工序类型", chinese.Columns.WorkType);
+        Assert.Equal("WorkType", english.Columns.WorkType);
+        Assert.Equal("制造执行系统接入运维台 · 需求系列调查窗口", chinese.Inspector.AppTitle);
+        Assert.Equal("MesIngest Watch · Demand series Inspector", english.Inspector.AppTitle);
 
         var sectionProperties = typeof(WatchTextCatalog)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
@@ -31,6 +37,7 @@ public sealed partial class WatchTextCatalogContractTests
         Assert.Equal(
             [
                 "AreaFilter",
+                "Columns",
                 "Common",
                 "CurrentAttention",
                 "DemandSeries",
@@ -68,6 +75,31 @@ public sealed partial class WatchTextCatalogContractTests
         Assert.DoesNotContain(
             typeof(WatchTextCatalog).Assembly.GetReferencedAssemblies(),
             assembly => assembly.Name?.Contains("FluentPrototype", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    [Fact]
+    public void Simplified_chinese_catalog_uses_chinese_for_all_static_ui_vocabulary()
+    {
+        var forbiddenTokens = new[]
+        {
+            "MesIngest Watch", "Host", "Watch", "Inspector", "DemandSeries",
+            "TransportDemand", "DemandId", "SeriesId", "WorkType", "SUBLOT",
+            "AREA", "EQP", "STEP", "DATES", "PACKAGE", "PollTrace",
+            "ProjectionCommit", "CatalogRevision", "SnapshotReference",
+            "LiveMesFieldSet", "ErrorSearchAsOf", "Error Search", "Endpoint",
+            "canonical", "fingerprint incident", "Demand Generation", "Windows",
+            "English", "JSON", "API", "TXT", "UI", "rail", "epx",
+            "Tracking", "Archived", "Dispatch", "Digest", "Catalog", "Assignment",
+            "SeriesSequence", "EventId", "OccurredAt", "EventType",
+            "SubjectKind", "SubjectId", "PayloadVersion", "PayloadJson",
+        };
+
+        Assert.All(WatchTextCatalog.AllEntries, entry =>
+        {
+            Assert.All(forbiddenTokens, token => Assert.DoesNotMatch(
+                $"(?<![A-Za-z0-9_]){Regex.Escape(token)}(?![A-Za-z0-9_])",
+                entry.SimplifiedChinese));
+        });
     }
 
     [Fact]
@@ -308,6 +340,35 @@ public sealed partial class WatchTextCatalogContractTests
     }
 
     [Fact]
+    public void Simplified_chinese_normal_ui_uses_chinese_only_for_known_codes_and_preserves_unknown_codes()
+    {
+        var normalized = new WatchTextCatalogEntry(
+            "test.known-codes",
+            "GONE · ACTIVE · UTC · NULL · HistoryReset",
+            "GONE · ACTIVE · UTC · NULL · HistoryReset");
+        var chinese = WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese);
+        var english = WatchTextCatalog.For(WatchDisplayLanguage.English);
+
+        Assert.Equal("已消失 · 活动 · 协调世界时 · 空值 · 历史重置", normalized.SimplifiedChinese);
+        Assert.Equal("跟踪中", chinese.DemandSeries.DescribeLifecycle("TRACKING"));
+        Assert.Equal("活动中", chinese.ErrorSearch.CodeWithMeaning(
+            chinese.ErrorSearch.DescribeActivityState("ACTIVE")));
+        Assert.Equal("活动需求系列错误", chinese.CurrentAttention.CodeWithMeaning(
+            chinese.CurrentAttention.DescribeKind("SERIES_ERROR")));
+        Assert.Equal("不可读", chinese.ReadabilityAudit.CodeWithMeaning(
+            chinese.ReadabilityAudit.DescribeReadabilityMeaning("NOT_READABLE")));
+
+        Assert.Equal("Tracking (TRACKING)", english.DemandSeries.DescribeLifecycle("TRACKING"));
+        Assert.Equal("Active · ACTIVE", english.ErrorSearch.CodeWithMeaning(
+            english.ErrorSearch.DescribeActivityState("ACTIVE")));
+        Assert.Contains(
+            "FUTURE_ACTIVITY",
+            chinese.ErrorSearch.CodeWithMeaning(
+                chinese.ErrorSearch.DescribeActivityState("FUTURE_ACTIVITY")),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Structured_value_semantics_keep_all_six_missing_query_states_distinct_in_both_languages()
     {
         var missingStates = new[]
@@ -333,15 +394,16 @@ public sealed partial class WatchTextCatalogContractTests
     }
 
     [Fact]
-    public void Absolute_time_keeps_offset_while_relative_time_and_count_follow_display_language()
+    public void Absolute_time_uses_system_local_zone_while_relative_time_and_count_follow_display_language()
     {
-        var observedAt = DateTimeOffset.Parse("2026-08-27T14:05:06+08:00");
+        var observedAt = DateTimeOffset.Parse("2026-08-27T06:05:06+00:00");
         var now = observedAt.AddSeconds(18);
         var chinese = WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese);
         var english = WatchTextCatalog.For(WatchDisplayLanguage.English);
+        var expectedAbsoluteTime = WatchTimeDisplay.Format(observedAt);
 
-        Assert.Equal("2026-08-27 14:05:06 +08:00", chinese.FormatAbsoluteTime(observedAt));
-        Assert.Equal("2026-08-27 14:05:06 +08:00", english.FormatAbsoluteTime(observedAt));
+        Assert.Equal(expectedAbsoluteTime, chinese.FormatAbsoluteTime(observedAt));
+        Assert.Equal(expectedAbsoluteTime, english.FormatAbsoluteTime(observedAt));
         Assert.Contains("18", chinese.FormatRelativeTime(observedAt, now), StringComparison.Ordinal);
         Assert.Contains("18", english.FormatRelativeTime(observedAt, now), StringComparison.Ordinal);
         Assert.NotEqual(

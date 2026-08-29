@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
 
@@ -420,12 +421,10 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
                     "选择一项",
                     Find<TextBlock>(window, "CurrentAttentionSelectedContextText").Text,
                     StringComparison.Ordinal);
-                var notice = Find<Wpf.Ui.Controls.InfoBar>(window, "CurrentAttentionStatusInfoBar");
-                Assert.True(notice.IsOpen);
-                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Warning, notice.Severity);
-                Assert.Contains("已不在", notice.Title, StringComparison.Ordinal);
-                Assert.Contains(selected.StableIdentity, notice.Message, StringComparison.Ordinal);
-                Assert.Contains("已清除选择与结构化证据", notice.Message, StringComparison.Ordinal);
+                var notice = NotificationText(window);
+                Assert.Contains("原关注项已不在刷新结果中", notice, StringComparison.Ordinal);
+                Assert.Contains("刷新已清除原选择", notice, StringComparison.Ordinal);
+                Assert.DoesNotContain(selected.StableIdentity, notice, StringComparison.Ordinal);
             }
             finally
             {
@@ -643,6 +642,42 @@ public sealed class WatchCurrentAttentionProductionIntegrationTests
 
     private static T Find<T>(FrameworkElement root, string name)
         where T : class => WatchErrorSearchProductionIntegrationTests.Find<T>(root, name);
+
+    private static string NotificationText(WatchWorkspaceWindow window)
+    {
+        window.UpdateLayout();
+        var cards = string.Join(
+            " · ",
+            Find<ItemsControl>(window, "NotificationItemsControl").Items
+                .Cast<object>()
+                .Select(item => item.GetType().GetProperty("AutomationName")?.GetValue(item)?.ToString())
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        return string.Join(
+            " · ",
+            new[]
+            {
+                Find<System.Windows.Controls.TextBlock>(window, "NotificationLiveRegion").Text,
+                cards,
+            }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 
     private static void Click(UIElement element) =>
         element.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));

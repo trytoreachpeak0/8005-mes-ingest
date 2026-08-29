@@ -37,7 +37,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 VisualDescendants<Wpf.Ui.Controls.InfoBar>(window),
                 infoBar => string.Equals(
                     AutomationProperties.GetName(infoBar),
-                    "当前应用 AREA 显示范围",
+                    "当前应用区域显示范围",
                     StringComparison.Ordinal));
             Assert.Null(window.FindName("AreaProfileRulesText"));
 
@@ -55,7 +55,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
 
             var pathAndFormat = Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                 window.FindName("AreaProfileDirectoryText"));
-            Assert.Contains("每行一个 AREA", pathAndFormat.Text, StringComparison.Ordinal);
+            Assert.Contains("每行一个区域值", pathAndFormat.Text, StringComparison.Ordinal);
             Assert.Contains("A1-1 或 A11-11", pathAndFormat.Text, StringComparison.Ordinal);
             Assert.Contains("空行和 # 注释会忽略", pathAndFormat.Text, StringComparison.Ordinal);
 
@@ -356,7 +356,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             Assert.Equal(2, row.MesAreaCount);
             Assert.Equal("文件已删除 · 范围仍生效", row.AttentionText);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
             Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
@@ -388,7 +388,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 FileOperationPrompt(window).Text,
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
-                "回退为全部 AREA",
+                "回退为全部区域",
                 FileOperationPrompt(window).Text,
                 StringComparison.Ordinal);
 
@@ -399,7 +399,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             Assert.False(File.Exists(Path.Combine(directoryPath, "西区.txt")));
             Assert.Equal("文件已删除 · 范围仍生效", AppliedRow(window).AttentionText);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
             Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
@@ -425,7 +425,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             Assert.Null(AppliedRow(window).AttentionText);
             Assert.Equal("已应用", ApplyButton(window).Content);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
             Assert.Equal(["A1-1", "A1-2"], window.AreaContext.MesAreas);
@@ -463,7 +463,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             events.RaiseDeleted("西区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
 
@@ -475,7 +475,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
                 new RoutedEventArgs(ButtonBase.ClickEvent));
             PumpUntilCompleted(window.Dispatcher, window.AreaProfileOperationTask);
 
-            Assert.Contains("当前应用：全部 AREA", AppliedState(window).Text, StringComparison.Ordinal);
+            Assert.Contains("当前应用：全部区域", AppliedState(window).Text, StringComparison.Ordinal);
             Assert.Empty(window.AreaContext.MesAreas);
             Assert.True(AppliedRow(window).IsAllAreas);
             Assert.Equal("已应用", ApplyButton(window).Content);
@@ -491,11 +491,11 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
 
             Assert.Equal("B2-2\nB2-4\nB2-6", ReadProfile(directoryPath, "西区"));
             Assert.Contains(
-                "西区 · 2 个 AREA",
+                "西区 · 2 个区域",
                 AppliedState(window).Text,
                 StringComparison.Ordinal);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
         });
@@ -512,7 +512,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             Assert.True(ApplyButton(window).IsEnabled);
             Assert.Equal("待重新应用", AppliedRow(window).AttentionText);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
         });
@@ -562,7 +562,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             Assert.Equal("重新应用", ApplyButton(window).Content);
             Assert.False(ApplyButton(window).IsEnabled);
             Assert.Contains(
-                "AREA A1-1、A1-2",
+                "区域 A1-1、A1-2",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
         });
@@ -685,7 +685,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             DrainDispatcher(window.Dispatcher);
 
             Assert.Contains(
-                "AREA C3-3、C3-5",
+                "区域 C3-3、C3-5",
                 AutomationProperties.GetName(AppliedState(window)),
                 StringComparison.Ordinal);
             Assert.Equal("已应用", ApplyButton(window).Content);
@@ -700,7 +700,7 @@ public sealed class WatchAreaProfileAppliedSnapshotTests
             // The applied marker was written by a store instance that is gone
             // by the time the window opens, which is what a restart looks like.
             Assert.Contains(
-                "西区 · 2 个 AREA",
+                "西区 · 2 个区域",
                 AppliedState(window).Text,
                 StringComparison.Ordinal);
             Assert.Equal(AppliedContent, ReadProfile(directoryPath, "西区"));

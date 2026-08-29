@@ -71,7 +71,7 @@ internal partial class WatchWorkspaceWindow
         ErrorSearchCodeFilterLabel.Text = text.ErrorCode;
         ErrorSearchActivityFilterLabel.Text = text.ActivityState;
         ErrorSearchWindowFilterLabel.Text = text.TimeRange;
-        ErrorSearchSeriesIdFilterLabel.Text = text.Select(WatchGeneratedText.ErrorSearchUi193);
+        ErrorSearchSeriesIdFilterLabel.Text = text.SeriesIdLabel;
         ErrorSearchApplyFilterButton.Content = text.ApplyFilters;
         ErrorSearchMoreFiltersExpander.Header = text.MoreFilters;
         ErrorSearchDemandIdFilterLabel.Text = text.Select(WatchGeneratedText.ErrorSearchUi194);
@@ -130,7 +130,7 @@ internal partial class WatchWorkspaceWindow
         {
             text.ErrorCode, text.Select(WatchGeneratedText.ErrorSearchUi203), text.Select(WatchGeneratedText.ErrorSearchUi204),
             text.Select(WatchGeneratedText.ErrorSearchUi205), text.Select(WatchGeneratedText.ErrorSearchUi206), text.Select(WatchGeneratedText.ErrorSearchUi207),
-            text.Select(WatchGeneratedText.ErrorSearchUi208), "Target",
+            text.Select(WatchGeneratedText.ErrorSearchUi208), _displayLanguageState.Catalog.Columns.Target,
         };
         for (var index = 0; index < periodHeaders.Length; index++)
         {
@@ -140,7 +140,7 @@ internal partial class WatchWorkspaceWindow
         {
             text.Select(WatchGeneratedText.ErrorSearchUi209), text.Select(WatchGeneratedText.ErrorSearchUi210),
             text.Select(WatchGeneratedText.ErrorSearchUi211), text.Select(WatchGeneratedText.ErrorSearchUi212),
-            text.Select(WatchGeneratedText.ErrorSearchUi213), "DemandId / WorkType", text.Select(WatchGeneratedText.ErrorSearchUi214), "PollTrace",
+            text.Select(WatchGeneratedText.ErrorSearchUi213), _displayLanguageState.Catalog.Columns.DemandWorkType, text.Select(WatchGeneratedText.ErrorSearchUi214), _displayLanguageState.Catalog.Columns.PollTrace,
         };
         for (var index = 0; index < evidenceHeaders.Length; index++)
         {
@@ -168,16 +168,16 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(ErrorSearchSublotFilter, text.Select(WatchGeneratedText.ErrorSearchUi231));
         AutomationProperties.SetName(ErrorSearchPageSizeInput, text.Select(WatchGeneratedText.ErrorSearchUi232));
         AutomationProperties.SetName(ErrorSearchPageNumberInput, text.Select(WatchGeneratedText.ErrorSearchUi233));
-        AutomationProperties.SetName(ErrorSearchApplyFilterButton, text.ApplyFilters);
-        AutomationProperties.SetName(ErrorSearchClearFilterButton, text.ClearFilters);
-        AutomationProperties.SetName(ErrorSearchPreviousPageButton, text.PreviousPage);
-        AutomationProperties.SetName(ErrorSearchNextPageButton, text.NextPage);
-        AutomationProperties.SetName(ErrorSearchGoToPageButton, text.GoToPage);
-        AutomationProperties.SetName(ErrorSearchLoadRawEvidenceButton, text.LoadRawEvidence);
+        AutomationProperties.SetName(ErrorSearchApplyFilterButton, text.ApplyFiltersAutomationName);
+        AutomationProperties.SetName(ErrorSearchClearFilterButton, text.ClearFiltersAutomationName);
+        AutomationProperties.SetName(ErrorSearchPreviousPageButton, text.PreviousPageAutomationName);
+        AutomationProperties.SetName(ErrorSearchNextPageButton, text.NextPageAutomationName);
+        AutomationProperties.SetName(ErrorSearchGoToPageButton, text.GoToPageAutomationName);
+        AutomationProperties.SetName(ErrorSearchLoadRawEvidenceButton, text.LoadRawEvidenceAutomationName);
         AutomationProperties.SetName(ErrorSearchOpenSeriesButton, text.OpenSeries);
-        AutomationProperties.SetName(ErrorSearchCategoryCard, text.CategoryTitle);
-        AutomationProperties.SetName(ErrorSearchResultsCard, text.ResultsTitle);
-        AutomationProperties.SetName(ErrorSearchDetailCard, text.DetailTitle);
+        AutomationProperties.SetName(ErrorSearchCategoryCard, text.CategoryCardAutomationName);
+        AutomationProperties.SetName(ErrorSearchResultsCard, text.ResultsCardAutomationName);
+        AutomationProperties.SetName(ErrorSearchDetailCard, text.DetailCardAutomationName);
         AutomationProperties.SetName(ErrorSearchContractFactsPanel, text.PageTitle);
         AutomationProperties.SetName(ErrorSearchScopeText, text.PageTitle);
 
@@ -224,22 +224,26 @@ internal partial class WatchWorkspaceWindow
         var text = _displayLanguageState.Catalog.ErrorSearch;
         _errorSearchCategoryNavigationItems = SeriesErrorCatalog.Definitions
             .GroupBy(definition => definition.Category, StringComparer.Ordinal)
-            .Select(group => new WatchErrorSearchCategoryNavigationItem(
-                group.Key,
-                text.CodeWithMeaning(text.DescribeCategory(group.Key)),
-                string.Join(
-                    " · ",
-                    group.Select(definition => text.CodeWithMeaning(text.DescribeErrorCode(definition.Code))).Order(StringComparer.Ordinal)),
-                counts.TryGetValue(group.Key, out var count) ? count : null,
-                counts.TryGetValue(group.Key, out count)
-                    ? count.ToString("N0", _displayLanguageState.Catalog.Language == WatchDisplayLanguage.SimplifiedChinese
-                        ? CultureInfo.GetCultureInfo("zh-CN")
-                        : CultureInfo.GetCultureInfo("en-US"))
-                    : _displayLanguageState.Catalog.Common.NotLoaded,
-                counts.ContainsKey(group.Key) ? text.Select(WatchGeneratedText.ErrorSearchUi234) : text.Select(WatchGeneratedText.ErrorSearchUi235),
-                counts.TryGetValue(group.Key, out count)
-                    ? text.Format(WatchGeneratedText.ErrorSearchUi236, new object?[] { group.Key, count }, new object?[] { group.Key, count })
-                    : text.Format(WatchGeneratedText.ErrorSearchUi237, new object?[] { group.Key }, new object?[] { group.Key })))
+            .Select(group =>
+            {
+                var categoryLabel = text.CodeWithMeaning(text.DescribeCategory(group.Key));
+                return new WatchErrorSearchCategoryNavigationItem(
+                    group.Key,
+                    categoryLabel,
+                    string.Join(
+                        " · ",
+                        group.Select(definition => text.CodeWithMeaning(text.DescribeErrorCode(definition.Code))).Order(StringComparer.Ordinal)),
+                    counts.TryGetValue(group.Key, out var count) ? count : null,
+                    counts.TryGetValue(group.Key, out count)
+                        ? count.ToString("N0", _displayLanguageState.Catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+                            ? CultureInfo.GetCultureInfo("zh-CN")
+                            : CultureInfo.GetCultureInfo("en-US"))
+                        : _displayLanguageState.Catalog.Common.NotLoaded,
+                    counts.ContainsKey(group.Key) ? text.Select(WatchGeneratedText.ErrorSearchUi234) : text.Select(WatchGeneratedText.ErrorSearchUi235),
+                    counts.TryGetValue(group.Key, out count)
+                        ? text.Format(WatchGeneratedText.ErrorSearchUi236, new object?[] { categoryLabel, count }, new object?[] { categoryLabel, count })
+                        : text.Format(WatchGeneratedText.ErrorSearchUi237, new object?[] { categoryLabel }, new object?[] { categoryLabel }));
+            })
             .ToArray();
         RefreshErrorSearchCategoryNavigation();
     }
@@ -416,7 +420,7 @@ internal partial class WatchWorkspaceWindow
                 throw new ArgumentOutOfRangeException(
                     nameof(targetPageNumber),
                     targetPageNumber,
-                    "目标页必须位于 Host 返回的总页数范围内。");
+                    "目标页必须位于服务端返回的总页数范围内。");
             }
 
             if (targetPageNumber < snapshot.PageNumber)
@@ -807,6 +811,10 @@ internal partial class WatchWorkspaceWindow
             ErrorSearchSnapshotText.Text = presentation.SnapshotFacts;
             ErrorSearchWindowText.Text = presentation.CommittedWindow;
             ErrorSearchNormalizedFilterText.Text = presentation.CommittedConditions;
+            SetTextAutomationName(
+                ErrorSearchScopeText,
+                text.PageTitle,
+                ErrorSearchScopeText.Text);
             var fullContractFacts = string.Join(
                 Environment.NewLine,
                 ErrorSearchScopeText.Text,
@@ -1145,7 +1153,7 @@ internal partial class WatchWorkspaceWindow
                     errorSearch.SelectedId,
                     errorSearch.Detail)
                 ?? throw new InvalidOperationException(
-                    "当前选择没有与冻结错误检索快照一致的详情，无法打开 DemandSeries。");
+                    "当前选择没有与冻结错误检索快照一致的详情，无法打开需求系列。");
             await NavigateToDemandSeriesAsync(navigation, _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
         });

@@ -12,6 +12,8 @@ internal sealed partial class WatchReadabilityAuditText
     private static WatchTextCatalogEntry E(string id, string zh, string en) => new(id, zh, en);
 
     private static readonly WatchTextCatalogEntry PageTitleEntry = E("audit.page.title", "资格审计", "Eligibility audit");
+    private static readonly WatchTextCatalogEntry PageAutomationEntry = E("audit.page.automation", "资格审计页面", "Eligibility-audit page");
+    private static readonly WatchTextCatalogEntry MasterListAutomationEntry = E("audit.master.automation", "资格审计运输需求代次列表", "Eligibility-audit transport-demand generation list");
     private static readonly WatchTextCatalogEntry PageSubtitleEntry = E("audit.page.subtitle", "解释每个 TransportDemand 当前能否被外部读取，以及为什么", "Explain whether every TransportDemand is externally readable now, and why");
     private static readonly WatchTextCatalogEntry CurrentObservationEntry = E("audit.section.observation", "当前唯一 MES 观测", "Current unique MES observation");
     private static readonly WatchTextCatalogEntry CurrentBlockerEntry = E("audit.section.blocker", "当前阻断条件", "Current blocking condition");
@@ -26,8 +28,19 @@ internal sealed partial class WatchReadabilityAuditText
     private static readonly WatchTextCatalogEntry BlockerFilterEntry = E("audit.filter.blocker", "不可读原因", "Unreadable reason");
     private static readonly WatchTextCatalogEntry SearchFilterEntry = E("audit.filter.search", "DemandId / SUBLOT", "DemandId / SUBLOT");
     private static readonly WatchTextCatalogEntry AreaFilterEntry = E("audit.filter.area", "AREA 筛选", "AREA filter");
+    private static readonly WatchTextCatalogEntry AreaLabelEntry = E("audit.label.area", "区域", "AREA");
     private static readonly WatchTextCatalogEntry AreaSelectorAutomationEntry = E("audit.filter.areaAutomation", "资格审计 AREA 配置选择器", "Eligibility-audit AREA profile selector");
     private static readonly WatchTextCatalogEntry ApplyFiltersEntry = E("audit.filter.apply", "应用条件", "Apply filters");
+    private static readonly WatchTextCatalogEntry ApplyFiltersAutomationEntry = E("audit.filter.applyAutomation", "应用资格审计条件", "Apply eligibility-audit filters");
+    private static readonly WatchTextCatalogEntry ClearFiltersAutomationEntry = E("audit.filter.clearAutomation", "清除资格审计条件", "Clear eligibility-audit filters");
+    private static readonly WatchTextCatalogEntry PreviousPageAutomationEntry = E("audit.paging.previousAutomation", "资格审计上一页", "Previous eligibility-audit page");
+    private static readonly WatchTextCatalogEntry NextPageAutomationEntry = E("audit.paging.nextAutomation", "资格审计下一页", "Next eligibility-audit page");
+    private static readonly WatchTextCatalogEntry GoToPageAutomationEntry = E("audit.paging.goAutomation", "资格审计直接页码跳转", "Go directly to an eligibility-audit page");
+    private static readonly WatchTextCatalogEntry ViewSeriesAutomationEntry = E("audit.detail.viewSeriesAutomation", "从资格审计查看所属需求系列", "View the owning demand series from eligibility audit");
+    private static readonly WatchTextCatalogEntry DefaultOrderEntry = E("audit.order.default", "不可读优先、主要原因优先、运输需求最后观测时间降序、运输需求标识升序", ReadabilityAuditOrder.Default);
+    private static readonly WatchTextCatalogEntry PassedResultEntry = E("audit.result.passed", "通过", ReadabilityQualificationCheckResults.Passed);
+    private static readonly WatchTextCatalogEntry FailedResultEntry = E("audit.result.failed", "未通过", ReadabilityQualificationCheckResults.Failed);
+    private static readonly WatchTextCatalogEntry NotEvaluatedResultEntry = E("audit.result.notEvaluated", "未评估", ReadabilityQualificationCheckResults.NotEvaluated);
     private static readonly WatchTextCatalogEntry AllWorkTypesEntry = E("audit.filter.allWorkTypes", "全部工序类型", "All work types");
     private static readonly WatchTextCatalogEntry AllBlockersEntry = E("audit.filter.allBlockers", "全部原因", "All reasons");
     private static readonly WatchTextCatalogEntry MasterHeadingEntry = E("audit.master.heading", "全部 TransportDemand", "All TransportDemand");
@@ -58,7 +71,7 @@ internal sealed partial class WatchReadabilityAuditText
     private static readonly WatchTextCatalogEntry EmptyResultHelpEntry = E("audit.value.emptyResult.help", "成功返回 0 条", "Successful result: 0 rows");
     private static readonly WatchTextCatalogEntry ReadFailedHelpEntry = E("audit.value.readFailed.help", "读取失败；保留上次成功值及其时点", "Read failed; last successful value and its timestamp retained");
     private static readonly WatchTextCatalogEntry LocalAreaHeaderEntry = E("audit.header.localArea", "本机 AREA：{0}", "Local AREA: {0}");
-    private static readonly WatchTextCatalogEntry HeaderFactsEntry = E("audit.header.facts", "本机 {0} · {1} · {2}", "Local {0} · {1} · {2}");
+    private static readonly WatchTextCatalogEntry HeaderFactsEntry = E("audit.header.facts", "本机区域：{0} · {1} · {2}", "Local {0} · {1} · {2}");
     private static readonly WatchTextCatalogEntry HeaderAutomationEntry = E("audit.header.automation", "资格审计 AREA 与更新时间：{0}", "Eligibility-audit AREA scope and update time: {0}");
     private static readonly WatchTextCatalogEntry SnapshotNotLoadedEntry = E("audit.snapshot.notLoaded", "SnapshotReference 尚无快照", "SnapshotReference is not loaded");
     private static readonly WatchTextCatalogEntry SnapshotReferenceEntry = E("audit.snapshot.reference", "SnapshotReference {0}", "SnapshotReference {0}");
@@ -87,11 +100,15 @@ internal sealed partial class WatchReadabilityAuditText
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
-        PageTitleEntry, PageSubtitleEntry, CurrentObservationEntry, CurrentBlockerEntry,
+        PageTitleEntry, PageAutomationEntry, MasterListAutomationEntry, PageSubtitleEntry, CurrentObservationEntry, CurrentBlockerEntry,
         ExternalReadabilityEntry, MissingSemanticsEntry, AllEntry, ReadableEntry,
         NotReadableEntry, BlockedEntry, StateFilterEntry, WorkTypeFilterEntry,
         BlockerFilterEntry, SearchFilterEntry, AreaFilterEntry, AreaSelectorAutomationEntry, ApplyFiltersEntry,
+        ApplyFiltersAutomationEntry, ClearFiltersAutomationEntry, PreviousPageAutomationEntry,
+        NextPageAutomationEntry, GoToPageAutomationEntry, ViewSeriesAutomationEntry, DefaultOrderEntry,
+        PassedResultEntry, FailedResultEntry, NotEvaluatedResultEntry,
         AllWorkTypesEntry, AllBlockersEntry, MasterHeadingEntry, DemandIdLabelEntry,
+        AreaLabelEntry,
         WorkTypeLabelEntry, SublotLabelEntry, PreviousPageEntry, NextPageEntry,
         GoToPageEntry, ClearFiltersEntry, PerPageEntry, ViewSeriesEntry, DeepEvidenceEntry,
         QualificationChecksEntry, BlockerEvidenceEntry, RawObservationsEntry,
@@ -111,6 +128,8 @@ internal sealed partial class WatchReadabilityAuditText
         [.. CatalogEntries, .. WatchLegacyGeneratedText.ReadabilityAuditEntries];
 
     public string PageTitle => Text(PageTitleEntry);
+    public string PageAutomationName => Text(PageAutomationEntry);
+    public string MasterListAutomationName => Text(MasterListAutomationEntry);
     public string PageSubtitle => Text(PageSubtitleEntry);
     public string CurrentObservation => Text(CurrentObservationEntry);
     public string CurrentBlocker => Text(CurrentBlockerEntry);
@@ -127,6 +146,12 @@ internal sealed partial class WatchReadabilityAuditText
     public string AreaFilter => Text(AreaFilterEntry);
     public string AreaSelectorAutomationName => Text(AreaSelectorAutomationEntry);
     public string ApplyFilters => Text(ApplyFiltersEntry);
+    public string ApplyFiltersAutomationName => Text(ApplyFiltersAutomationEntry);
+    public string ClearFiltersAutomationName => Text(ClearFiltersAutomationEntry);
+    public string PreviousPageAutomationName => Text(PreviousPageAutomationEntry);
+    public string NextPageAutomationName => Text(NextPageAutomationEntry);
+    public string GoToPageAutomationName => Text(GoToPageAutomationEntry);
+    public string ViewSeriesAutomationName => Text(ViewSeriesAutomationEntry);
     public string AllWorkTypes => Text(AllWorkTypesEntry);
     public string AllBlockers => Text(AllBlockersEntry);
     public string MasterHeading => Text(MasterHeadingEntry);
@@ -169,12 +194,20 @@ internal sealed partial class WatchReadabilityAuditText
             : new WatchCodeMeaning(Text(UnknownBlockerEntry), rawCode, IsKnown: false);
     }
 
-    public string DescribeReadability(string rawState) => rawState switch
+    public WatchCodeMeaning DescribeReadabilityMeaning(string rawState) => rawState switch
     {
-        ExternalReadabilityStates.Readable => Readable,
-        ExternalReadabilityStates.NotReadable => NotReadable,
-        _ => rawState,
+        ExternalReadabilityStates.Readable => new(Readable, rawState, IsKnown: true),
+        ExternalReadabilityStates.NotReadable => new(NotReadable, rawState, IsKnown: true),
+        _ => new(rawState, rawState, IsKnown: false),
     };
+
+    public string DescribeReadability(string rawState) =>
+        DescribeReadabilityMeaning(rawState).Description;
+
+    public string CodeWithMeaning(WatchCodeMeaning meaning) =>
+        !meaning.IsKnown && string.Equals(meaning.Description, meaning.RawCode, StringComparison.Ordinal)
+            ? meaning.RawCode
+            : PresentCodeMeaning(meaning);
 
     public string HostSnapshotFacts(
         DateTimeOffset committedAt,
@@ -188,7 +221,17 @@ internal sealed partial class WatchReadabilityAuditText
 
     public string EmptyResult(long total) => Format(WatchLegacyGeneratedText.ReadabilityAudit100, new object?[] { total }, new object?[] { total });
 
-    public string HostOrder(string order) => Format(WatchLegacyGeneratedText.ReadabilityAudit101, new object?[] { order }, new object?[] { order });
+    public string HostOrder(string order) => Format(
+        WatchLegacyGeneratedText.ReadabilityAudit101,
+        new object?[] { OrderLabel(order) },
+        new object?[] { order });
+
+    private string OrderLabel(string rawOrder) => string.Equals(
+        rawOrder,
+        ReadabilityAuditOrder.Default,
+        StringComparison.Ordinal)
+            ? Text(DefaultOrderEntry)
+            : rawOrder;
 
     public string HostCommittedConditions(string conditions) =>
         Format(WatchLegacyGeneratedText.ReadabilityAudit102, new object?[] { conditions }, new object?[] { conditions });
@@ -223,12 +266,20 @@ internal sealed partial class WatchReadabilityAuditText
     public string FilterSummary(ReadabilityAuditFilter filter)
     {
         var conditions = new List<string>();
-        AddMany(Select(WatchLegacyGeneratedText.ReadabilityFilterEligibilityLabel), filter.ReadabilityStates);
-        AddMany("WorkType", filter.WorkTypes);
-        AddMany(Select(WatchLegacyGeneratedText.ReadabilityFilterBlockerLabel), filter.Blockers);
-        Add("DemandId", filter.DemandId);
+        AddMany(
+            Select(WatchLegacyGeneratedText.ReadabilityFilterEligibilityLabel),
+            filter.ReadabilityStates
+                .Select(state => CodeWithMeaning(DescribeReadabilityMeaning(state)))
+                .ToArray());
+        AddMany(WorkTypeFilter, filter.WorkTypes);
+        AddMany(
+            Select(WatchLegacyGeneratedText.ReadabilityFilterBlockerLabel),
+            filter.Blockers
+                .Select(code => CodeWithMeaning(DescribeBlocker(code)))
+                .ToArray());
+        Add(DemandIdLabel, filter.DemandId);
         Add(Select(WatchLegacyGeneratedText.ReadabilityAudit112), filter.SublotContains);
-        AddMany("AREA", filter.MesAreas);
+        AddMany(Text(AreaLabelEntry), filter.MesAreas);
         return conditions.Count == 0 ? AllDemands : string.Join(" · ", conditions);
 
         void AddMany(string label, IReadOnlyList<string> values)
@@ -321,6 +372,14 @@ internal sealed partial class WatchReadabilityAuditText
         "REQUIRED_MES_FIELDS_PRESENT" => Select(WatchLegacyGeneratedText.ReadabilityQualificationFieldsPresent),
         "MES_FIELD_FORMAT_VALID" => Select(WatchLegacyGeneratedText.ReadabilityQualificationFieldsValid),
         _ => fallbackEnglish,
+    };
+
+    public string QualificationResult(string rawResult) => rawResult switch
+    {
+        ReadabilityQualificationCheckResults.Passed => Text(PassedResultEntry),
+        ReadabilityQualificationCheckResults.Failed => Text(FailedResultEntry),
+        ReadabilityQualificationCheckResults.NotEvaluated => Text(NotEvaluatedResultEntry),
+        _ => rawResult,
     };
 
     public string CannotConnectHost => Select(WatchLegacyGeneratedText.ReadabilityAudit124);

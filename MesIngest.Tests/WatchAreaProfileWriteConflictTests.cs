@@ -128,7 +128,7 @@ public sealed class WatchAreaProfileWriteConflictTests
             clock.Advance(WatchAreaFilterProfileStore.EditorAutoSaveDelay);
 
             Assert.Equal("B2-2", Editor(window).Text);
-            Assert.Equal("新建 AREA 配置", FileTitle(window).Text);
+            Assert.Equal("新建区域配置", FileTitle(window).Text);
             Assert.Equal("文件已删除 · 未命名草稿", DiskState(window).Text);
             Assert.True(SaveDraftAsButton(window).IsEnabled);
             Assert.False(File.Exists(Path.Combine(directoryPath, "西区.txt")));

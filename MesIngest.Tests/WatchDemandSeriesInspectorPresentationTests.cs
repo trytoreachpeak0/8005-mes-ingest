@@ -206,6 +206,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         var focused = presentation.FocusedGeneration;
         Assert.Equal(second.DemandId, focused.DemandId);
         Assert.Equal(DemandSeriesLifecycleContract.Visible, focused.Status);
+        Assert.Equal("当前可见", focused.StatusDisplay);
         Assert.Equal("PREARCHIVE_REAPPEARANCE", focused.FormationReason.RawCode);
         Assert.Equal("归档前消失后再现", focused.FormationReason.ChineseLabel);
         Assert.Equal(
@@ -273,6 +274,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         var focused = presentation.FocusedGeneration;
         Assert.Equal(DemandSeriesLifecycleContract.LongGoneButVisible, presentation.CurrentPresence);
         Assert.Equal(DemandSeriesLifecycleContract.LongGoneButVisible, focused.Status);
+        Assert.Equal("长期消失但仍可见", focused.StatusDisplay);
         Assert.Equal("POSTARCHIVE_REAPPEARANCE", focused.FormationReason.RawCode);
         Assert.Equal("归档后再次出现", focused.FormationReason.ChineseLabel);
         Assert.Equal(
@@ -486,10 +488,10 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.Equal(WatchDemandMesBoundaryState.Unique, boundary.After.State);
         Assert.True(boundary.CanProjectScalarFields);
         Assert.Equal(
-            ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES / MesSourceDate", "PACKAGE"],
+            ["工序类型", "子批次", "区域", "设备", "下一工序", "来源时间", "封装形式"],
             boundary.ScalarFields.Select(field => field.FieldName).ToArray());
         Assert.Equal(
-            ["EQP", "DATES / MesSourceDate", "PACKAGE"],
+            ["设备", "来源时间", "封装形式"],
             boundary.ScalarFields.Where(field => field.IsChanged).Select(field => field.FieldName).ToArray());
         Assert.Equal("EQP-OLD", boundary.ScalarFields[3].BeforeValue);
         Assert.Equal("EQP-NEW", boundary.ScalarFields[3].AfterValue);
@@ -497,7 +499,7 @@ public sealed class WatchDemandSeriesInspectorPresentationTests
         Assert.Equal(afterDate, boundary.ScalarFields[5].AfterMesSourceDate);
         Assert.Contains("观察证据", boundary.Explanation, StringComparison.Ordinal);
         Assert.Equal(
-            "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。",
+            "制造执行系统字段差异只是边界两侧的观察证据，不是运输需求/运输需求标识形成原因。",
             boundary.Explanation);
 
         var firstBoundary = WatchDemandSeriesInspectorPresentation

@@ -6,10 +6,11 @@ internal sealed partial class WatchInspectorText
 {
     private static WatchTextCatalogEntry E(string id, string zh, string en) => new(id, zh, en);
 
-    private static readonly WatchTextCatalogEntry WindowTitleEntry = E("inspector.window.title", "需求系列调查器", "Demand series Inspector");
-    private static readonly WatchTextCatalogEntry WindowTitleWithSeriesEntry = E("inspector.window.titleWithSeries", "需求系列调查器 · {0}", "Demand series Inspector · {0}");
-    private static readonly WatchTextCatalogEntry AppTitleWithSeriesEntry = E("inspector.window.appTitleWithSeries", "MesIngest Watch · 需求系列调查器 · {0}", "MesIngest Watch · Demand series Inspector · {0}");
-    private static readonly WatchTextCatalogEntry TitleBarAutomationEntry = E("inspector.window.titleBarAutomation", "需求系列调查器标题栏", "Demand series Inspector title bar");
+    private static readonly WatchTextCatalogEntry WindowTitleEntry = E("inspector.window.title", "需求系列调查窗口", "Demand series Inspector");
+    private static readonly WatchTextCatalogEntry WindowTitleWithSeriesEntry = E("inspector.window.titleWithSeries", "需求系列调查窗口 · {0}", "Demand series Inspector · {0}");
+    private static readonly WatchTextCatalogEntry AppTitleEntry = E("inspector.window.appTitle", "制造执行系统接入运维台 · 需求系列调查窗口", "MesIngest Watch · Demand series Inspector");
+    private static readonly WatchTextCatalogEntry AppTitleWithSeriesEntry = E("inspector.window.appTitleWithSeries", "制造执行系统接入运维台 · 需求系列调查窗口 · {0}", "MesIngest Watch · Demand series Inspector · {0}");
+    private static readonly WatchTextCatalogEntry TitleBarAutomationEntry = E("inspector.window.titleBarAutomation", "需求系列调查窗口标题栏", "Demand series Inspector title bar");
     private static readonly WatchTextCatalogEntry ContextAutomationEntry = E("inspector.context.automation", "需求系列与冻结快照上下文", "Demand series and frozen snapshot context");
     private static readonly WatchTextCatalogEntry NoSelectionEntry = E("inspector.context.noSelection", "尚未选择需求系列", "No demand series selected");
     private static readonly WatchTextCatalogEntry NoSnapshotEntry = E("inspector.context.noSnapshot", "尚无冻结快照", "No frozen snapshot");
@@ -112,6 +113,29 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry RawRowsCountEntry = E("inspector.rawRows.countName", "MES 边界原始行；{0}；{1}；共 {2} 行", "MES boundary raw rows; {0}; {1}; {2} rows");
     private static readonly WatchTextCatalogEntry EventGridContextEntry = E("inspector.events.gridContext", "{0}；{1}", "{0}; {1}");
     private static readonly WatchTextCatalogEntry BoundaryColumnEntry = E("inspector.rawRows.boundaryColumn", "边界", "Boundary");
+    private static readonly WatchTextCatalogEntry OrdinalColumnEntry = E("inspector.columns.ordinal", "序号", "Ordinal");
+    private static readonly WatchTextCatalogEntry AssignmentColumnEntry = E("inspector.columns.assignment", "归属", "Assignment");
+    private static readonly WatchTextCatalogEntry SeriesIdColumnEntry = E("inspector.columns.seriesId", "需求系列标识", "SeriesId");
+    private static readonly WatchTextCatalogEntry DemandIdColumnEntry = E("inspector.columns.demandId", "运输需求标识", "DemandId");
+    private static readonly WatchTextCatalogEntry WorkTypeColumnEntry = E("inspector.columns.workType", "工序类型", "TASK_TYPE");
+    private static readonly WatchTextCatalogEntry SublotColumnEntry = E("inspector.columns.sublot", "子批次", "SUBLOT");
+    private static readonly WatchTextCatalogEntry AreaColumnEntry = E("inspector.columns.area", "区域", "AREA");
+    private static readonly WatchTextCatalogEntry EqpColumnEntry = E("inspector.columns.eqp", "设备", "EQP");
+    private static readonly WatchTextCatalogEntry StepColumnEntry = E("inspector.columns.step", "下一工序", "STEP");
+    private static readonly WatchTextCatalogEntry SourceDateColumnEntry = E("inspector.columns.sourceDate", "来源时间", "DATES / MesSourceDate");
+    private static readonly WatchTextCatalogEntry PackageColumnEntry = E("inspector.columns.package", "封装形式", "PACKAGE");
+    private static readonly WatchTextCatalogEntry PollTraceColumnEntry = E("inspector.columns.pollTrace", "轮询追踪", "PollTrace");
+    private static readonly WatchTextCatalogEntry ProjectionCommitColumnEntry = E("inspector.columns.projectionCommit", "投影提交", "ProjectionCommit");
+    private static readonly WatchTextCatalogEntry SeriesSequenceColumnEntry = E("inspector.columns.seriesSequence", "需求系列序号", "SeriesSequence");
+    private static readonly WatchTextCatalogEntry EventIdColumnEntry = E("inspector.columns.eventId", "事件标识", "EventId");
+    private static readonly WatchTextCatalogEntry OccurredAtColumnEntry = E("inspector.columns.occurredAt", "发生时间", "OccurredAt");
+    private static readonly WatchTextCatalogEntry EventTypeColumnEntry = E("inspector.columns.eventType", "事件类型", "EventType");
+    private static readonly WatchTextCatalogEntry SubjectKindColumnEntry = E("inspector.columns.subjectKind", "主体类型", "SubjectKind");
+    private static readonly WatchTextCatalogEntry SubjectIdColumnEntry = E("inspector.columns.subjectId", "主体标识", "SubjectId");
+    private static readonly WatchTextCatalogEntry PollTraceIdColumnEntry = E("inspector.columns.pollTraceId", "轮询追踪标识", "PollTraceId");
+    private static readonly WatchTextCatalogEntry ProjectionCommitIdColumnEntry = E("inspector.columns.projectionCommitId", "投影提交标识", "ProjectionCommitId");
+    private static readonly WatchTextCatalogEntry PayloadVersionColumnEntry = E("inspector.columns.payloadVersion", "载荷版本", "PayloadVersion");
+    private static readonly WatchTextCatalogEntry PayloadJsonColumnEntry = E("inspector.columns.payloadJson", "载荷内容", "PayloadJson");
     private static readonly WatchTextCatalogEntry FrozenEventCountEntry = E("inspector.events.frozenCount", "冻结事件总数 {0}", "{0} frozen events in total");
     private static readonly WatchTextCatalogEntry RetainedSnapshotEntry = E("inspector.state.retainedSnapshot", "目标列表已提交冻结快照 {0}；正文仍保留上一成功冻结快照 {1}，直到匹配的新详情原子提交。", "The target list committed frozen snapshot {0}; the body retains the last successful frozen snapshot {1} until matching new detail commits atomically.");
     private static readonly WatchTextCatalogEntry DetailReadFailedEntry = E("inspector.state.detailReadFailed", "详情读取失败", "Detail read failed");
@@ -130,7 +154,7 @@ internal sealed partial class WatchInspectorText
 
     private static readonly IReadOnlyList<WatchTextCatalogEntry> OwnEntries =
     [
-        WindowTitleEntry, WindowTitleWithSeriesEntry, AppTitleWithSeriesEntry,
+        WindowTitleEntry, WindowTitleWithSeriesEntry, AppTitleEntry, AppTitleWithSeriesEntry,
         TitleBarAutomationEntry, ContextAutomationEntry, NoSelectionEntry, NoSnapshotEntry,
         FrozenSnapshotEntry, GenerationAnalysisEntry, EventsEntry, InvestigationTasksEntry,
         DemandGenerationsEntry, GenerationHelpEntry, GenerationCountEntry,
@@ -160,7 +184,15 @@ internal sealed partial class WatchInspectorText
         StatusNameEntry, DetailStateNameEntry, FormationStateNameEntry,
         FormationFactsStateNameEntry, ScalarBoundaryStateNameEntry, RawRowsStateNameEntry,
         EventContextStateNameEntry, EventGridStateNameEntry, RawRowsCountEntry,
-        EventGridContextEntry, BoundaryColumnEntry, FrozenEventCountEntry,
+        EventGridContextEntry, BoundaryColumnEntry, OrdinalColumnEntry,
+        AssignmentColumnEntry, SeriesIdColumnEntry, DemandIdColumnEntry,
+        WorkTypeColumnEntry, SublotColumnEntry, AreaColumnEntry, EqpColumnEntry,
+        StepColumnEntry, SourceDateColumnEntry, PackageColumnEntry,
+        PollTraceColumnEntry, ProjectionCommitColumnEntry,
+        SeriesSequenceColumnEntry, EventIdColumnEntry, OccurredAtColumnEntry,
+        EventTypeColumnEntry, SubjectKindColumnEntry, SubjectIdColumnEntry,
+        PollTraceIdColumnEntry, ProjectionCommitIdColumnEntry,
+        PayloadVersionColumnEntry, PayloadJsonColumnEntry, FrozenEventCountEntry,
         RetainedSnapshotEntry, DetailReadFailedEntry, DetailRefreshFailedEntry,
         PagePausedEntry, RefreshingRetainedEntry, SnapshotPendingEntry,
         RefreshFailedEntry, ReadingSelectionEntry, SourceComparisonEntry,
@@ -171,6 +203,7 @@ internal sealed partial class WatchInspectorText
     public override IReadOnlyList<WatchTextCatalogEntry> Entries => OwnEntries;
 
     public string WindowTitle => Text(WindowTitleEntry);
+    public string AppTitle => Text(AppTitleEntry);
     public string FormatWindowTitle(string seriesId) => F(WindowTitleWithSeriesEntry, seriesId);
     public string FormatAppTitle(string seriesId) => F(AppTitleWithSeriesEntry, seriesId);
     public string TitleBarAutomationName => Text(TitleBarAutomationEntry);
@@ -285,6 +318,22 @@ internal sealed partial class WatchInspectorText
     public string FormatRawRowsCount(string before, string after, int count) => F(RawRowsCountEntry, before, after, count.ToString("N0", CultureInfo.InvariantCulture));
     public string FormatEventGridContext(string grid, string context) => F(EventGridContextEntry, grid, context);
     public string BoundaryColumn => Text(BoundaryColumnEntry);
+    public IReadOnlyList<string> RawObservationColumnHeaders =>
+    [
+        Text(BoundaryColumnEntry), Text(OrdinalColumnEntry), Text(AssignmentColumnEntry),
+        Text(SeriesIdColumnEntry), Text(DemandIdColumnEntry), Text(WorkTypeColumnEntry),
+        Text(SublotColumnEntry), Text(AreaColumnEntry), Text(EqpColumnEntry),
+        Text(StepColumnEntry), Text(SourceDateColumnEntry), Text(PackageColumnEntry),
+        Text(PollTraceColumnEntry), Text(ProjectionCommitColumnEntry),
+    ];
+    public IReadOnlyList<string> EventColumnHeaders =>
+    [
+        Text(SeriesSequenceColumnEntry), Text(EventIdColumnEntry), Text(SeriesIdColumnEntry),
+        Text(OccurredAtColumnEntry), Text(EventTypeColumnEntry), Text(SubjectKindColumnEntry),
+        Text(SubjectIdColumnEntry), Text(PollTraceIdColumnEntry),
+        Text(ProjectionCommitIdColumnEntry), Text(PayloadVersionColumnEntry),
+        Text(PayloadJsonColumnEntry),
+    ];
     public string FormatFrozenEventCount(int count) => F(FrozenEventCountEntry, count.ToString("N0", CultureInfo.InvariantCulture));
     public string FormatRetainedSnapshot(string target, string retained) => F(RetainedSnapshotEntry, target, retained);
     public string DetailReadFailed => Text(DetailReadFailedEntry);

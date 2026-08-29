@@ -90,7 +90,7 @@ public sealed class WatchBilingualCopyAndAutomationTests
                 Assert.Equal(automationIds, grids.Select(AutomationProperties.GetAutomationId));
                 Assert.Equal("Window notifications", AutomationProperties.GetName(
                     Assert.IsType<Grid>(window.FindName("NotificationOverlay"))));
-                Assert.Equal("AREA filter profiles", AutomationProperties.GetName(
+                Assert.Equal("AREA filter profiles page", AutomationProperties.GetName(
                     Assert.IsType<ScrollViewer>(window.FindName("AreaFilterPage"))));
             }
             finally

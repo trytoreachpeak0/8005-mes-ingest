@@ -452,7 +452,7 @@ public sealed class WatchNotificationSpineTests
                 Assert.Empty(NotificationItems(window).Items);
                 var stableState = Assert.IsAssignableFrom<System.Windows.Controls.TextBlock>(
                     window.FindName("SettingsHostStateText"));
-                Assert.Contains("无法应用 Host 设置", stableState.Text, StringComparison.Ordinal);
+                Assert.Contains("无法应用服务端设置", stableState.Text, StringComparison.Ordinal);
                 Assert.Contains("1–300", stableState.Text, StringComparison.Ordinal);
                 Assert.Contains(
                     "1–300",

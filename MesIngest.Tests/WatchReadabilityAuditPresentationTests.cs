@@ -72,11 +72,11 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.True(presentation.IsInfoOpen);
         Assert.Equal(WatchPresentationSeverity.Informational, presentation.InfoSeverity);
         Assert.Equal("正在读取资格审计", presentation.InfoTitle);
-        Assert.Contains("等待 Host 返回冻结快照", presentation.InfoMessage, StringComparison.Ordinal);
-        Assert.Equal("尚无 Host 资格审计快照", presentation.SnapshotFacts);
+        Assert.Contains("等待服务端返回冻结快照", presentation.InfoMessage, StringComparison.Ordinal);
+        Assert.Equal("尚无服务端资格审计快照", presentation.SnapshotFacts);
         Assert.Equal("尚无资格审计快照", presentation.PageSummary);
         Assert.Empty(presentation.EmptyResultMessage);
-        Assert.Equal("Host 已提交范围：尚无快照", presentation.HostAreaScope);
+        Assert.Equal("服务端已提交范围：尚无快照", presentation.HostAreaScope);
         Assert.Empty(presentation.StateFacets);
         Assert.Empty(presentation.BlockerFacets);
         Assert.Empty(presentation.Rows);
@@ -156,26 +156,26 @@ public sealed class WatchReadabilityAuditPresentationTests
 
         Assert.Contains("commit-audit-21", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("序列 321", presentation.SnapshotFacts, StringComparison.Ordinal);
-        Assert.Contains("PollTrace poll-audit-21", presentation.SnapshotFacts, StringComparison.Ordinal);
-        Assert.Contains("CatalogRevision 9", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("轮询追踪 poll-audit-21", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("目录修订号 9", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Equal("精确 3 个运输需求代次 · 第 2 / 2 页", presentation.PageSummary);
         Assert.Empty(presentation.EmptyResultMessage);
-        Assert.Equal($"Host 固定排序：{ReadabilityAuditOrder.Default}", presentation.OrderSummary);
-        Assert.Contains("资格 NOT_READABLE", presentation.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Contains("WorkType WIRE_TO_GATE", presentation.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Contains("阻断 DUPLICATE_TRANSPORT_DEMAND_KEY", presentation.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Contains("DemandId demand-target", presentation.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Contains("SUBLOT 包含 SL-", presentation.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
+        Assert.Equal("服务端固定排序：不可读优先、主要原因优先、运输需求最后观测时间降序、运输需求标识升序", presentation.OrderSummary);
+        Assert.Contains("资格 不可读", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("工序类型 WIRE_TO_GATE", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("阻断 运输需求业务键重复", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("运输需求标识 demand-target", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("子批次包含 SL-", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Equal("服务端已提交范围：A1-1", presentation.HostAreaScope);
         Assert.False(presentation.IsAreaScopeDifferent);
         Assert.True(presentation.CanGoPrevious);
         Assert.False(presentation.CanGoNext);
 
         Assert.Equal(
-            [(ExternalReadabilityStates.Readable, 1L), (ExternalReadabilityStates.NotReadable, 2L)],
+            [("外部可读", 1L), ("不可读", 2L)],
             presentation.StateFacets.Select(facet => (facet.State, facet.DemandCount)).ToArray());
         Assert.Equal(
-            [("DUPLICATE_TRANSPORT_DEMAND_KEY", 2L), ("REQUIRED_MES_FIELD_MISSING", 1L)],
+            [("运输需求业务键重复", 2L), ("必需制造执行系统字段缺失", 1L)],
             presentation.BlockerFacets.Select(facet => (facet.Code, facet.DemandCount)).ToArray());
 
         var blocked = presentation.Rows[0];
@@ -183,13 +183,13 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Equal("VISIBLE", blocked.DemandStatus);
         Assert.Equal("TRACKING", blocked.SeriesLifecycle);
         Assert.Equal("VISIBLE", blocked.SeriesCurrentPresence);
-        Assert.Equal("Demand VISIBLE · Series TRACKING · VISIBLE", blocked.LifecycleSummary);
+        Assert.Equal("运输需求 当前可见 · 需求系列 跟踪中 · 当前可见", blocked.LifecycleSummary);
         Assert.Equal("DUPLICATE_TRANSPORT_DEMAND_KEY", blocked.LeadReadabilityBlocker);
         Assert.Equal(
             ["DUPLICATE_TRANSPORT_DEMAND_KEY", "REQUIRED_MES_FIELD_MISSING"],
             blocked.ReadabilityBlockers);
         Assert.Equal(
-            "DUPLICATE_TRANSPORT_DEMAND_KEY、REQUIRED_MES_FIELD_MISSING",
+            "运输需求业务键重复、必需制造执行系统字段缺失",
             blocked.AllBlockersSummary);
         Assert.Equal("A1-1", blocked.MesArea);
 
@@ -297,7 +297,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         var selected = Assert.IsType<WatchReadabilityAuditDetailPresentation>(presentation.Detail);
         Assert.Equal("demand-conflict · WIRE_TO_GATE", selected.Heading);
         Assert.Equal(
-            $"SL-demand-conflict · series-demand-conflict · Demand Generation 2 · 最后看见 {WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(at)}",
+            $"SL-demand-conflict · series-demand-conflict · 运输需求代次 2 · 最后看见 {WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(at)}",
             selected.BusinessIdentity);
         Assert.Equal("DUPLICATE_TRANSPORT_DEMAND_KEY", selected.LeadReadabilityBlocker);
         Assert.Equal("Blocked", selected.SemanticState);
@@ -307,12 +307,12 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Contains("snapshot-audit-21", selected.Facts, StringComparison.Ordinal);
         Assert.Contains("commit-audit-21", selected.Facts, StringComparison.Ordinal);
         Assert.Contains("序列 321", selected.Facts, StringComparison.Ordinal);
-        Assert.Contains("PollTrace poll-audit-21", selected.Facts, StringComparison.Ordinal);
-        Assert.Contains("CatalogRevision 9", selected.Facts, StringComparison.Ordinal);
+        Assert.Contains("轮询追踪 poll-audit-21", selected.Facts, StringComparison.Ordinal);
+        Assert.Contains("目录修订号 9", selected.Facts, StringComparison.Ordinal);
         Assert.Contains("series-demand-conflict", selected.SeriesFacts, StringComparison.Ordinal);
-        Assert.Contains("TRACKING · VISIBLE", selected.SeriesFacts, StringComparison.Ordinal);
+        Assert.Contains("跟踪中 · 当前可见", selected.SeriesFacts, StringComparison.Ordinal);
         Assert.Null(selected.LiveMesFields);
-        Assert.Contains("无可信 LiveMesFieldSet", selected.LiveMesFacts, StringComparison.Ordinal);
+        Assert.Contains("无可信实时制造执行系统字段集", selected.LiveMesFacts, StringComparison.Ordinal);
         Assert.Contains("2 条原始观测", selected.ObservationSummary, StringComparison.Ordinal);
         Assert.Contains("冲突证据", selected.ObservationSummary, StringComparison.Ordinal);
 
@@ -338,10 +338,13 @@ public sealed class WatchReadabilityAuditPresentationTests
                 ReadabilityQualificationCheckResults.NotEvaluated,
             ],
             selected.QualificationChecks.Select(check => check.Result).ToArray());
+        Assert.Equal(
+            ["通过", "通过", "通过", "未通过", "通过", "未评估", "未评估"],
+            selected.QualificationChecks.Select(check => check.ResultDisplay).ToArray());
 
         Assert.Equal(3, selected.BlockerEvidence.Count);
         Assert.Equal(
-            "DUPLICATE_TRANSPORT_DEMAND_KEY、REQUIRED_MES_FIELD_MISSING",
+            "运输需求业务键重复、必需制造执行系统字段缺失",
             selected.AllBlockersSummary);
         Assert.Equal(
             [
@@ -476,8 +479,8 @@ public sealed class WatchReadabilityAuditPresentationTests
             WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).FormatAbsoluteTime(at.AddDays(-1)),
             fields.MesSourceDate);
         Assert.Equal("PKG-21", fields.Package);
-        Assert.Contains("可信 LiveMesFieldSet", selected.LiveMesFacts, StringComparison.Ordinal);
-        Assert.Contains("当前可信 LiveMesFieldSet 可用", selected.ObservationSummary, StringComparison.Ordinal);
+        Assert.Contains("可信实时制造执行系统字段集", selected.LiveMesFacts, StringComparison.Ordinal);
+        Assert.Contains("当前可信实时制造执行系统字段集可用", selected.ObservationSummary, StringComparison.Ordinal);
 
         var mixedDetail = detail with
         {
@@ -563,11 +566,11 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.True(refreshing.IsInfoOpen);
         Assert.Equal(WatchPresentationSeverity.Informational, refreshing.InfoSeverity);
         Assert.Equal("正在刷新资格审计", refreshing.InfoTitle);
-        Assert.Contains("继续显示 Host 快照", refreshing.InfoMessage, StringComparison.Ordinal);
-        Assert.Equal("Host 已提交范围：A1-1", refreshing.HostAreaScope);
-        Assert.Contains("资格 NOT_READABLE", refreshing.HostFilterSummary, StringComparison.Ordinal);
-        Assert.Contains("资格 READABLE", refreshing.CurrentQuerySummary, StringComparison.Ordinal);
-        Assert.Contains("AREA B2-2", refreshing.CurrentQuerySummary, StringComparison.Ordinal);
+        Assert.Contains("继续显示服务端快照", refreshing.InfoMessage, StringComparison.Ordinal);
+        Assert.Equal("服务端已提交范围：A1-1", refreshing.HostAreaScope);
+        Assert.Contains("资格 不可读", refreshing.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("资格 外部可读", refreshing.CurrentQuerySummary, StringComparison.Ordinal);
+        Assert.Contains("区域 B2-2", refreshing.CurrentQuerySummary, StringComparison.Ordinal);
         Assert.True(refreshing.IsAreaScopeDifferent);
         Assert.Equal("demand-retained", Assert.Single(refreshing.Rows).DemandId);
 
@@ -600,7 +603,7 @@ public sealed class WatchReadabilityAuditPresentationTests
         Assert.Contains("correlation-ticket-21", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("最近失败", failed.ClientAttemptFacts, StringComparison.Ordinal);
         Assert.Equal("snapshot-retained-a1", retained.SnapshotReference);
-        Assert.Equal("Host 已提交范围：A1-1", failed.HostAreaScope);
+        Assert.Equal("服务端已提交范围：A1-1", failed.HostAreaScope);
         Assert.Equal("demand-retained", Assert.Single(failed.Rows).DemandId);
 
         var selectionLost = WatchReadabilityAuditPresentation.Project(
@@ -654,7 +657,7 @@ public sealed class WatchReadabilityAuditPresentationTests
 
         Assert.Equal("精确 0 个运输需求代次 · 第 0 / 0 页", presentation.PageSummary);
         Assert.Equal(
-            "查询成功；Host 在当前已提交条件下精确 0 个运输需求代次命中。",
+            "查询成功；服务端在当前已提交条件下精确 0 个运输需求代次命中。",
             presentation.EmptyResultMessage);
         Assert.DoesNotContain("健康", presentation.EmptyResultMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("无异常", presentation.EmptyResultMessage, StringComparison.Ordinal);

@@ -12,8 +12,8 @@ internal partial class WatchWorkspaceWindow
         ReadabilityPageTitleText.Text = text.PageTitle;
         ReadabilityPerPageLabel.Text = text.PerPage;
         ReadabilityFacetOverlapHelpText.Text = text.FacetOverlapHelp;
-        AutomationProperties.SetName(ReadabilityAuditPage, text.PageTitle);
-        AutomationProperties.SetName(ReadabilityAuditGrid, text.PageTitle);
+        AutomationProperties.SetName(ReadabilityAuditPage, text.PageAutomationName);
+        AutomationProperties.SetName(ReadabilityAuditGrid, text.MasterListAutomationName);
         ReadabilityStateFilterLabel.Text = text.StateFilter;
         ReadabilityWorkTypeFilterLabel.Text = text.WorkTypeFilter;
         ReadabilityBlockerFilterLabel.Text = text.BlockerFilter;
@@ -33,16 +33,24 @@ internal partial class WatchWorkspaceWindow
         ReadabilityQualificationHeadingText.Text = text.ExternalReadability;
         ReadabilityMissingSemanticsHeadingText.Text = text.MissingSemantics;
         ReadabilityValueSemanticsItems.ItemsSource = text.ValueSemantics;
+        var columns = _displayLanguageState.Catalog.Columns;
+        ReadabilityAreaLabelText.Text = columns.Area;
+        ReadabilityEqpLabelText.Text = columns.Eqp;
+        ReadabilityStepLabelText.Text = columns.Step;
+        ReadabilitySourceDateLabelText.Text = columns.SourceDate;
+        ReadabilityPackageLabelText.Text = columns.Package;
         ReadabilityDeepEvidenceExpander.Header = text.DeepEvidence;
         ((HeaderedContentControl)ReadabilityDeepEvidenceTabs.Items[0]).Header = text.QualificationChecks;
         ((HeaderedContentControl)ReadabilityDeepEvidenceTabs.Items[1]).Header = text.BlockerEvidence;
         ((HeaderedContentControl)ReadabilityDeepEvidenceTabs.Items[2]).Header = text.RawObservations;
 
         UpdateReadabilityChoiceLabels(text);
-        AutomationProperties.SetName(ReadabilityApplyFilterButton, text.ApplyFilters);
-        AutomationProperties.SetName(ReadabilityPreviousPageButton, text.PreviousPage);
-        AutomationProperties.SetName(ReadabilityNextPageButton, text.NextPage);
-        AutomationProperties.SetName(ReadabilityGoToPageButton, text.GoToPage);
+        AutomationProperties.SetName(ReadabilityApplyFilterButton, text.ApplyFiltersAutomationName);
+        AutomationProperties.SetName(ReadabilityClearFilterButton, text.ClearFiltersAutomationName);
+        AutomationProperties.SetName(ReadabilityPreviousPageButton, text.PreviousPageAutomationName);
+        AutomationProperties.SetName(ReadabilityNextPageButton, text.NextPageAutomationName);
+        AutomationProperties.SetName(ReadabilityGoToPageButton, text.GoToPageAutomationName);
+        AutomationProperties.SetName(ReadabilityOpenSeriesButton, text.ViewSeriesAutomationName);
         AutomationProperties.SetName(ReadabilityCurrentObservationHeadingText, text.CurrentObservation);
         AutomationProperties.SetName(ReadabilityCurrentBlockerHeadingText, text.CurrentBlocker);
         AutomationProperties.SetName(ReadabilityQualificationHeadingText, text.ExternalReadability);
@@ -67,7 +75,7 @@ internal partial class WatchWorkspaceWindow
             }
 
             var meaning = text.DescribeBlocker(code);
-            item.Content = $"{meaning.Description} · {meaning.RawCode}";
+            item.Content = text.CodeWithMeaning(meaning);
             item.ToolTip = meaning.Description;
         }
     }

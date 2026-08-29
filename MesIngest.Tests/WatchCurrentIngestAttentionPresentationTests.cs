@@ -48,16 +48,16 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(presentation.HasSnapshot);
         Assert.Equal("精确 407 个当前关注项 · 第 2 / 5 页", presentation.PageSummary);
         Assert.Equal(
-            $"Host 固定排序：{CurrentIngestAttentionOrder.Default}",
+            "服务端固定排序：严重度降序、发生时间降序、稳定标识升序",
             presentation.OrderSummary);
-        Assert.Contains(CurrentIngestAttentionKinds.SeriesError, presentation.HostFilterSummary);
-        Assert.Contains(CurrentIngestAttentionSeverities.Error, presentation.HostFilterSummary);
+        Assert.Contains("活动需求系列错误", presentation.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("严重度 错误", presentation.HostFilterSummary, StringComparison.Ordinal);
         Assert.DoesNotContain(
-            CurrentIngestAttentionKinds.UnassignedMesObservation,
+            "未归属制造执行系统观测",
             presentation.HostFilterSummary,
             StringComparison.Ordinal);
         Assert.Contains(
-            CurrentIngestAttentionKinds.UnassignedMesObservation,
+            "未归属制造执行系统观测",
             presentation.CurrentQuerySummary,
             StringComparison.Ordinal);
         Assert.True(presentation.CanGoPrevious);
@@ -75,7 +75,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             SevenKinds().Select(item => item.StableIdentity),
             presentation.Rows.Select(row => row.StableIdentity));
         Assert.Equal(
-            "全 Host 当前关注；本机 AREA 配置不会筛选、计数或翻页此页面。",
+            "全服务端当前关注；本机区域配置不会筛选、计数或翻页此页面。",
             presentation.AreaIsolationNotice);
     }
 
@@ -104,9 +104,9 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal("EQP", identity.SubjectKind);
         Assert.Equal("poll-series-22", series.Evidence.PollTraceId);
         Assert.Equal("demand-22", series.Evidence.DemandId);
-        Assert.Contains("PollTrace poll-series-22", series.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Contains("Demand demand-22", series.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Equal("活动需求系列错误 · SERIES_ERROR", series.KindLabel);
+        Assert.Contains("轮询追踪 poll-series-22", series.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Contains("运输需求 demand-22", series.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Equal("活动需求系列错误", series.KindLabel);
         Assert.Equal(WatchPresentationSeverity.Error, series.SeverityStyle);
         var drill = Assert.IsType<ErrorSearchQuery>(series.ErrorSearchDrill);
         Assert.Equal([ErrorSearchActivityStates.Active], drill.Filter.ActivityStates);
@@ -124,9 +124,9 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal("poll-failure-22", poll.Evidence.PollTraceId);
         Assert.Equal(44, poll.Evidence.PollTraceSequence);
         Assert.Equal("INCOMPLETE", poll.Evidence.Outcome);
-        Assert.Contains("PollTrace poll-failure-22", poll.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Contains("轮询追踪 poll-failure-22", poll.Evidence.Facts, StringComparison.Ordinal);
         Assert.Contains("结果 INCOMPLETE", poll.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Equal("轮询运行失败 · POLL_RUN_FAILURE", poll.KindLabel);
+        Assert.Equal("轮询运行失败", poll.KindLabel);
         Assert.Equal(OverviewNavigationTargets.PollTrace, poll.Navigation.Target);
 
         var protection = Assert.Single(presentation.Rows.Where(row =>
@@ -134,9 +134,9 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal("WIRE_TO_NITROGEN", protection.WorkType);
         Assert.Equal("WIRE_TO_NITROGEN", protection.Evidence.WorkType);
         Assert.Equal("RECOVERING", protection.Evidence.Phase);
-        Assert.Contains("WorkType WIRE_TO_NITROGEN", protection.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Contains("工序类型 WIRE_TO_NITROGEN", protection.Evidence.Facts, StringComparison.Ordinal);
         Assert.Contains("阶段 RECOVERING", protection.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Equal("任务类型保护 · TASK_TYPE_PROTECTION", protection.KindLabel);
+        Assert.Equal("任务类型保护", protection.KindLabel);
         Assert.Equal(WatchPresentationSeverity.Warning, protection.SeverityStyle);
         Assert.Equal(OverviewNavigationTargets.TaskTypeProtection, protection.Navigation.Target);
 
@@ -147,20 +147,20 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal(7, unassigned.Evidence.ObservationOrdinal);
         Assert.Equal("digest-unassigned-22", unassigned.Evidence.ContentDigest);
         Assert.Contains("观测序号 7", unassigned.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Contains("Digest digest-unassigned-22", unassigned.Evidence.Facts, StringComparison.Ordinal);
-        Assert.Equal("未归属 MES 观测 · UNASSIGNED_MES_OBSERVATION", unassigned.KindLabel);
+        Assert.Contains("内容摘要 digest-unassigned-22", unassigned.Evidence.Facts, StringComparison.Ordinal);
+        Assert.Equal("未归属制造执行系统观测", unassigned.KindLabel);
         Assert.Equal(OverviewNavigationTargets.PollTrace, unassigned.Navigation.Target);
 
         var cleanup = Assert.Single(presentation.Rows.Where(row =>
             row.Kind == CurrentIngestAttentionKinds.HistoryCleanupFailure));
         Assert.Equal("HISTORY_CLEANUP_FAILURE", cleanup.StableIdentity);
-        Assert.Equal("历史清理失败 · HISTORY_CLEANUP_FAILURE", cleanup.KindLabel);
+        Assert.Equal("历史清理失败", cleanup.KindLabel);
         Assert.Equal(WatchPresentationSeverity.Error, cleanup.SeverityStyle);
         Assert.Equal(OverviewNavigationTargets.CurrentIngestAttention, cleanup.Navigation.Target);
 
         var storage = Assert.Single(presentation.Rows.Where(row =>
             row.Kind == CurrentIngestAttentionKinds.StoragePressure));
-        Assert.Equal("存储压力 · STORAGE_PRESSURE", storage.KindLabel);
+        Assert.Equal("存储压力", storage.KindLabel);
         Assert.Contains("数据库 MesIngest", storage.Evidence.Facts, StringComparison.Ordinal);
         Assert.Contains("卷 D:\\", storage.Evidence.Facts, StringComparison.Ordinal);
         Assert.Contains("可用 9.5%", storage.Evidence.Facts, StringComparison.Ordinal);
@@ -168,7 +168,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Equal(OverviewNavigationTargets.CurrentIngestAttention, storage.Navigation.Target);
 
         Assert.Equal(
-            "只读当前关注项；不创建 fingerprint incident，不提供人工确认、人工恢复或关闭操作。",
+            "只读当前关注项；不创建指纹异常事件，不提供人工确认、人工恢复或关闭操作。",
             presentation.SemanticsNotice);
         Assert.DoesNotContain(
             typeof(WatchCurrentIngestAttentionRowPresentation).GetProperties(),
@@ -224,11 +224,12 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
 
         var historyReset = Assert.Single(presentation.Rows.Where(row =>
             row.Kind == CurrentIngestAttentionKinds.HistoryReset));
-        Assert.Equal("历史重置 · HISTORY_RESET", historyReset.KindLabel);
+        Assert.Equal("历史重置", historyReset.KindLabel);
         var resetProtection = Assert.IsType<WatchProtectionDetailPresentation>(historyReset.Protection);
         Assert.Equal(HistoryResetStatuses.AcknowledgementRequired, resetProtection.Status);
         Assert.Contains(epoch.ToString(), resetProtection.RebuildProgress, StringComparison.Ordinal);
-        Assert.Contains("INGEST_NOT_CURRENT", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.Contains("当前接入数据不可用", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
+        Assert.DoesNotContain("INGEST_NOT_CURRENT", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
         Assert.Contains("503", resetProtection.CurrentReadRestriction, StringComparison.Ordinal);
         Assert.Contains("acknowledge-history-reset", resetProtection.LocalAdministrationGuidance, StringComparison.Ordinal);
         Assert.Contains(
@@ -313,7 +314,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(presentation.IsInfoOpen);
         Assert.Equal(WatchPresentationSeverity.Informational, presentation.InfoSeverity);
         Assert.Equal("正在读取当前接入关注", presentation.InfoTitle);
-        Assert.Contains("等待 Host", presentation.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains("等待服务端", presentation.InfoMessage, StringComparison.Ordinal);
         Assert.Equal(string.Empty, presentation.EmptyResultMessage);
         Assert.Empty(presentation.Rows);
         Assert.Equal("尚无当前接入关注快照", presentation.PageSummary);
@@ -348,9 +349,9 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(refreshing.IsRefreshing);
         Assert.True(refreshing.IsStale);
         Assert.Equal("正在刷新当前接入关注", refreshing.InfoTitle);
-        Assert.Contains("继续显示 Host 快照", refreshing.InfoMessage, StringComparison.Ordinal);
-        Assert.Contains(CurrentIngestAttentionKinds.SeriesError, refreshing.HostFilterSummary);
-        Assert.Contains(CurrentIngestAttentionKinds.PollRunFailure, refreshing.CurrentQuerySummary);
+        Assert.Contains("继续显示服务端快照", refreshing.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains("活动需求系列错误", refreshing.HostFilterSummary, StringComparison.Ordinal);
+        Assert.Contains("轮询运行失败", refreshing.CurrentQuerySummary, StringComparison.Ordinal);
         Assert.Equal(retained.Snapshot.ProjectionCommitId, refreshing.ProjectionCommitId);
         Assert.Equal(retained.Snapshot.SnapshotAsOf, refreshing.SnapshotAsOf);
         Assert.Equal(
@@ -420,7 +421,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.True(successful.HasSnapshot);
         Assert.Equal("精确 0 个当前关注项 · 第 0 / 0 页", successful.PageSummary);
         Assert.Equal(
-            "查询成功；Host 在当前已提交条件下精确 0 个当前接入关注项。已结束的需求系列错误仍可在错误检索中查找。",
+            "查询成功；服务端在当前已提交条件下精确 0 个当前接入关注项。已结束的需求系列错误仍可在错误检索中查找。",
             successful.EmptyResultMessage);
         Assert.DoesNotContain("系统健康", successful.EmptyResultMessage, StringComparison.Ordinal);
         Assert.DoesNotContain("人工恢复", successful.EmptyResultMessage, StringComparison.Ordinal);
@@ -482,13 +483,13 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
             WatchCurrentIngestAttentionQueries.StartLatest());
 
         Assert.False(failed.HasSnapshot);
-        Assert.Equal("无法连接 Host", failed.InfoTitle);
+        Assert.Equal("无法连接服务端", failed.InfoTitle);
         Assert.Equal(WatchPresentationSeverity.Error, failed.InfoSeverity);
         Assert.Equal(string.Empty, failed.EmptyResultMessage);
     }
 
     [Fact]
-    public void English_projection_localizes_attention_meanings_while_preserving_technical_facts_and_offset_times()
+    public void English_projection_localizes_attention_meanings_while_preserving_technical_facts_and_system_local_times()
     {
         var snapshot = Snapshot(items: SevenKinds());
 
@@ -509,7 +510,7 @@ public sealed class WatchCurrentIngestAttentionPresentationTests
         Assert.Contains("REQUIRED_MES_FIELD_MISSING", englishSeries.SubjectSummary, StringComparison.Ordinal);
         Assert.Contains("Required MES field", englishSeries.SubjectSummary, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("series-22", englishSeries.SubjectSummary, StringComparison.Ordinal);
-        Assert.Equal("2026-08-14 05:08:07 +00:00", englishSeries.OccurredAt);
+        Assert.Equal(DisplayTime(DateTimeOffset.Parse("2026-08-14T05:08:07Z")), englishSeries.OccurredAt);
         Assert.Equal(chineseSeries.StableIdentity, englishSeries.StableIdentity);
         Assert.Equal(chineseSeries.Evidence.PollTraceId, englishSeries.Evidence.PollTraceId);
         Assert.Equal(chineseSeries.Evidence.DemandId, englishSeries.Evidence.DemandId);

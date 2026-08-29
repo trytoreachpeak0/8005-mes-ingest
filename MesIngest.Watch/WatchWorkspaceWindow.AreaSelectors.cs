@@ -291,7 +291,7 @@ internal partial class WatchWorkspaceWindow
         var snapshot = state.ReadabilityAudit.Snapshot;
         ReadabilityCatalogRevisionText.Text = snapshot is null
             ? text.RevisionNotLoaded
-            : $"Catalog Revision {snapshot.Snapshot.CatalogRevision:N0}";
+            : $"{_displayLanguageState.Catalog.Columns.CatalogRevision} {snapshot.Snapshot.CatalogRevision:N0}";
         AutomationProperties.SetName(
             ReadabilityCatalogRevisionPill,
             text.RevisionAutomation(ReadabilityCatalogRevisionText.Text));

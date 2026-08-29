@@ -157,7 +157,7 @@ internal static class WatchLegacyGeneratedText
     internal static readonly WatchTextCatalogEntry Overview043 =
         new("overview.host-committed-scope-0-area-values-a6bffd28", "Host \u5DF2\u63D0\u4EA4\u8303\u56F4\uFF1A{0} \u4E2A AREA\uFF08{1}\u2026\uFF09", "Host committed scope: {0} AREA values ({1}\u2026)");
     internal static readonly WatchTextCatalogEntry Overview044 =
-        new("overview.poll-run-ce56fb1b", "\u8F6E\u8BE2\u8FD0\u884C", "Poll run");
+        new("overview.poll-run-ce56fb1b", "\u8F6E\u8BE2\u8FD0\u884C\u5931\u8D25", "Poll run");
     internal static readonly WatchTextCatalogEntry Overview045 =
         new("overview.task-type-protection-dcedf14a", "\u4EFB\u52A1\u7C7B\u578B\u4FDD\u62A4", "Task-type protection");
     internal static readonly WatchTextCatalogEntry Overview046 =

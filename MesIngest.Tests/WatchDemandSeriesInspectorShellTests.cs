@@ -64,8 +64,8 @@ namespace MesIngest.Tests;
             var command = Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesOpenInspectorButton"));
             Assert.True(command.IsEnabled);
-            Assert.Equal("打开 Inspector", command.Content);
-            Assert.Equal("打开 Inspector", AutomationProperties.GetName(command));
+            Assert.Equal("打开调查窗口", command.Content);
+            Assert.Equal("打开调查窗口", AutomationProperties.GetName(command));
 
             command.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
             Assert.Equal(1, inspectorWindow.ShowCount);
@@ -80,8 +80,8 @@ namespace MesIngest.Tests;
             Assert.Equal(
                 WatchDemandMesBoundaryState.Unique,
                 inspectorWindow.Presentation?.FocusedGeneration.MesBoundary.After.State);
-            Assert.Equal("显示 Inspector", command.Content);
-            Assert.Equal("显示 Inspector", AutomationProperties.GetName(command));
+            Assert.Equal("显示调查窗口", command.Content);
+            Assert.Equal("显示调查窗口", AutomationProperties.GetName(command));
 
             RaiseKey(grid, Key.Enter);
             RaiseDoubleClick(grid);
@@ -775,7 +775,7 @@ namespace MesIngest.Tests;
             Assert.Equal(retainedSnapshot, inspectorWindow.State?.FrozenSnapshot);
             Assert.Equal(fetchCount, client.DetailFetchCount);
             Assert.Contains(
-                "返回 DemandSeries 页面后恢复刷新",
+                "返回需求系列页面后恢复刷新",
                 inspectorWindow.State?.StatusMessage,
                 StringComparison.Ordinal);
 

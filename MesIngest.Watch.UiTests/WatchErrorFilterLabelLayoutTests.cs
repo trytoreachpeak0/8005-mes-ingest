@@ -63,7 +63,7 @@ public sealed class WatchErrorFilterLabelLayoutTests
                 var applyButton = Find<FrameworkElement>(window, "ErrorSearchApplyFilterButton");
                 var inlineFilterMinimumWidth =
                     (double)window.FindResource("ErrorSearchInlineFilterMinimumWidth");
-                Assert.Equal("SeriesId（精确）", label.Text);
+                Assert.Equal("系列标识", label.Text);
                 Assert.Equal(TextTrimming.None, label.TextTrimming);
 
                 var dpi = VisualTreeHelper.GetDpi(label);

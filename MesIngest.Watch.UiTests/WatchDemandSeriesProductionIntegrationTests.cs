@@ -98,12 +98,12 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.True(context.IsVisible);
                 Assert.Equal(TextWrapping.NoWrap, context.TextWrapping);
                 Assert.Equal(TextTrimming.CharacterEllipsis, context.TextTrimming);
-                Assert.Contains("本机 AREA B 本机筛选", context.Text, StringComparison.Ordinal);
-                Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
+                Assert.Contains("本机区域：AREA B 本机筛选", context.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端 A1-1", context.Text, StringComparison.Ordinal);
                 Assert.DoesNotContain("Host B2-2", context.Text, StringComparison.Ordinal);
                 var fullContext = Assert.IsType<string>(context.ToolTip);
-                Assert.Contains("本机 AREA：AREA B 本机筛选", fullContext, StringComparison.Ordinal);
-                Assert.Contains("Host 已提交范围：A1-1", fullContext, StringComparison.Ordinal);
+                Assert.Contains("本机区域：AREA B 本机筛选", fullContext, StringComparison.Ordinal);
+                Assert.Contains("服务端已提交范围：A1-1", fullContext, StringComparison.Ordinal);
                 Assert.Equal(fullContext, AutomationProperties.GetHelpText(context));
                 Assert.Contains(
                     fullContext,
@@ -238,7 +238,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Equal(seriesId, window.WorkspaceState.DemandSeries.SelectedId);
 
                 var pageSummary = Find<TextBlock>(window, "DemandSeriesPageSummaryText");
-                Assert.Equal("精确 1 个 Series · 第 1 / 1 页", pageSummary.Text);
+                Assert.Equal("精确 1 个需求系列 · 第 1 / 1 页", pageSummary.Text);
                 Assert.Contains(
                     pageSummary.Text,
                     AutomationProperties.GetName(pageSummary),
@@ -247,10 +247,10 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Equal("需求系列列表", AutomationProperties.GetName(grid));
                 Assert.Single(grid.Items);
                 Assert.Equal(
-                    "Tracking 1",
+                    "跟踪中 1",
                     Find<TextBlock>(window, "DemandSeriesTrackingFacetText").Text);
                 Assert.Equal(
-                    "Archived 0",
+                    "已归档 0",
                     Find<TextBlock>(window, "DemandSeriesArchivedFacetText").Text);
 
                 // The source-comparison notice belongs to the drill transition. The settled
@@ -270,7 +270,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Equal(TextTrimming.CharacterEllipsis, context.TextTrimming);
                 Assert.InRange(context.ActualHeight, 1, 22);
                 Assert.Contains("当前封装 AREA", context.Text, StringComparison.Ordinal);
-                Assert.Contains("Host A1-1", context.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端 A1-1", context.Text, StringComparison.Ordinal);
                 Assert.Contains("最近成功", context.Text, StringComparison.Ordinal);
                 Assert.Matches(@"自动刷新 \d+ 秒$", context.Text);
                 var fullContext = Assert.IsType<string>(context.ToolTip);
@@ -293,18 +293,18 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
                 Assert.Equal(
                     [
-                        "SeriesId",
-                        "WorkType",
-                        "SUBLOT",
+                        "需求系列标识",
+                        "工序类型",
+                        "子批次",
                         "生命周期 / 当前出现",
-                        "当前 AREA",
-                        "当前 Demand",
+                        "当前区域",
+                        "当前运输需求",
                         "世代",
                         "事件",
-                        "开始",
-                        "LAST SEEN",
-                        "GONE SINCE",
-                        "ARCHIVED",
+                        "开始时间",
+                        "最后观测",
+                        "确认消失",
+                        "归档时间",
                     ],
                     grid.Columns.Select(column => column.Header?.ToString() ?? string.Empty).ToArray());
                 AssertHorizontalScrollRequired(
@@ -313,7 +313,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
 
                 var openInspector = Find<Button>(window, "DemandSeriesOpenInspectorButton");
                 Assert.True(openInspector.IsEnabled);
-                Assert.Equal("显示详情窗口", openInspector.Content);
+                Assert.Equal("显示调查窗口", openInspector.Content);
                 openInspector.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
                 await Dispatcher.Yield(DispatcherPriority.Background);
 
@@ -323,7 +323,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Null(inspectorWindow.Owner);
                 Assert.False(inspectorWindow.Topmost);
                 Assert.True(inspectorWindow.ShowInTaskbar);
-                Assert.Equal("显示详情窗口", openInspector.Content);
+                Assert.Equal("显示调查窗口", openInspector.Content);
                 var inspectorPresentation = Assert.IsType<WatchDemandSeriesInspectorPresentation>(
                     inspectorWindow.DataContext);
                 Assert.Equal(seriesId, inspectorPresentation.SeriesId);
@@ -451,10 +451,12 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                     Find<Wpf.Ui.Controls.InfoBar>(window, "DemandSeriesEmptyState").Visibility);
                 Assert.False(Find<TextBox>(window, "DemandSeriesPageNumberInput").IsEnabled);
                 Assert.False(Find<ButtonBase>(window, "DemandSeriesGoToPageButton").IsEnabled);
-                var confirmation = Find<Border>(
-                    window,
-                    "DemandSeriesAllAreasConfirmPanel");
-                Assert.Equal(Visibility.Visible, confirmation.Visibility);
+                Assert.Equal("all-areas", window.ActiveWorkspaceDialogKind);
+                var confirmation = Assert.IsType<Wpf.Ui.Controls.ContentDialog>(
+                    window.ActiveWorkspaceDialog);
+                Assert.Equal("目标不在当前区域范围", confirmation.Title);
+                confirmation.Hide(Wpf.Ui.Controls.ContentDialogResult.None);
+                await window.ActiveWorkspaceDialogTask.WaitAsync(timeout.Token);
 
                 await window.ConfirmDemandSeriesAllAreasAsync(timeout.Token);
 
@@ -466,7 +468,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Empty(window.AreaContext.MesAreas);
                 Assert.Equal("本机已应用", window.AreaContext.LocalState);
                 Assert.NotNull(window.AreaContext.LastUpdatedAt);
-                Assert.Equal(Visibility.Collapsed, confirmation.Visibility);
+                Assert.Null(window.ActiveWorkspaceDialog);
                 Assert.Equal(seriesId, window.WorkspaceState.DemandSeries.SelectedId);
             }
             finally
@@ -624,11 +626,11 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 await WaitUntilAsync(
                     () => string.Equals(
                         Find<TextBlock>(window, "DemandSeriesPageSummaryText").Text,
-                        "精确 101 个 Series · 第 2 / 2 页",
+                        "精确 101 个需求系列 · 第 2 / 2 页",
                         StringComparison.Ordinal),
                     timeout.Token);
                 Assert.Equal(
-                    "精确 101 个 Series · 第 2 / 2 页",
+                    "精确 101 个需求系列 · 第 2 / 2 页",
                     Find<TextBlock>(window, "DemandSeriesPageSummaryText").Text);
             }
             finally

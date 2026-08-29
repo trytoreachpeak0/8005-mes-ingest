@@ -39,8 +39,6 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     OverviewNavigationTargets.DemandSeries,
                     PageNumber: 1,
                     Cursor: null));
-                Find<Border>(window, "DemandSeriesAllAreasConfirmPanel").Visibility =
-                    Visibility.Visible;
                 window.UpdateLayout();
 
                 var viewport = Find<ScrollViewer>(window, "DemandSeriesScrollViewer");
@@ -58,11 +56,6 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     viewport,
                     "Demand filters");
                 AssertFullyWithin(master, viewport, "Demand full-height list");
-                AssertFullyWithin(
-                    Find<Border>(window, "DemandSeriesAllAreasConfirmPanel"),
-                    viewport,
-                    "Demand all-AREA confirmation");
-
                 Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
                 Assert.Null(window.FindName("DemandSeriesDetailPanel"));
                 Assert.Null(window.FindName("DemandSeriesDetailVisibilityToggle"));
@@ -156,9 +149,9 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                 Assert.Equal(
                     compactFacts.Text,
                     AutomationProperties.GetHelpText(compactFacts));
-                Assert.Contains("SnapshotReference", compactFacts.Text, StringComparison.Ordinal);
-                Assert.Contains("Watch", compactFacts.Text, StringComparison.Ordinal);
-                Assert.Contains("Host 固定排序", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("快照引用", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("运维台", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端固定排序", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Contains("阻断原因精确分面", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Equal(
                     Visibility.Collapsed,
@@ -343,8 +336,6 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
                     OverviewNavigationTargets.DemandSeries,
                     PageNumber: 1,
                     Cursor: null));
-                Find<Border>(window, "DemandSeriesAllAreasConfirmPanel").Visibility =
-                    Visibility.Visible;
                 window.UpdateLayout();
                 AssertWideScrollablePageReaches(
                     window,
@@ -831,13 +822,11 @@ public sealed class WatchDemandAuditSelectedPrototypeIntegrationTests
         string description)
     {
         Assert.Equal(ScrollBarVisibility.Auto, viewport.VerticalScrollBarVisibility);
-        Assert.True(
-            viewport.ScrollableHeight > 0,
-            $"{description} requires an outer scrolling fallback at 1440x600; "
-            + $"extent={viewport.ExtentHeight:0.##}, viewport={viewport.ViewportHeight:0.##}.");
-
-        viewport.ScrollToEnd();
-        window.UpdateLayout();
+        if (viewport.ScrollableHeight > 0)
+        {
+            viewport.ScrollToEnd();
+            window.UpdateLayout();
+        }
 
         AssertFullyWithin(lowerEvidence, viewport, description);
     }

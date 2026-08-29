@@ -63,7 +63,7 @@ internal sealed class WatchAreaProfileDirectoryLauncher : IWatchAreaProfileDirec
         catch (Win32Exception exception)
         {
             throw new InvalidOperationException(
-                "无法通过平台文件管理器打开 AREA 配置目录。",
+                "无法通过平台文件管理器打开区域配置目录。",
                 exception);
         }
 
@@ -244,7 +244,7 @@ internal partial class WatchWorkspaceWindow
     private void ApplyLocalizedAreaFilterStaticText()
     {
         var text = _displayLanguageState.Catalog.AreaFilter;
-        AutomationProperties.SetName(AreaFilterPage, text.PageTitle);
+        AutomationProperties.SetName(AreaFilterPage, text.PageAutomationName);
         AreaProfilePageTitleText.Text = text.PageTitle;
         AreaProfilePageSubtitleText.Text = text.PageSubtitle;
         AreaProfileDirectoryWatchInfoBar.Title = text.ListNotLoaded;
@@ -424,7 +424,7 @@ internal partial class WatchWorkspaceWindow
             or ArgumentException)
         {
             ShowAreaProfileDirectoryWatchDegraded(
-                $"AREA 配置目录暂时无法创建或访问：{exception.Message}");
+                $"区域配置目录暂时无法创建或访问：{exception.Message}");
         }
 
         if (_areaProfileStartupError is not null)
@@ -772,7 +772,7 @@ internal partial class WatchWorkspaceWindow
                 AreaProfileAppliedStateText,
                 applied.MesAreas.Count == 0
                     ? AreaProfileAppliedStateText.Text
-                    : $"{AreaProfileAppliedStateText.Text}；AREA {string.Join('、', applied.MesAreas)}");
+                    : $"{AreaProfileAppliedStateText.Text}；区域 {string.Join('、', applied.MesAreas)}");
             AreaProfileList.ItemsSource = visibleRows;
             AreaProfileList.SelectedItem = visibleRows.FirstOrDefault(row =>
                 row.IsAllAreas
@@ -1278,7 +1278,7 @@ internal partial class WatchWorkspaceWindow
     {
         var formatHint = language == WatchDisplayLanguage.English
             ? "One AREA per line · Format: A1-1 or A11-11 · Blank lines and # comments are ignored"
-            : "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略";
+            : "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略";
         var fullPath = Path.GetFullPath(directoryPath);
         var localApplicationData = Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData);
@@ -1787,7 +1787,7 @@ internal partial class WatchWorkspaceWindow
             or AreaProfileFileOperation.Delete
                 ? _selectedAreaProfileName
                     ?? throw new InvalidOperationException(
-                        "请先选择要操作的 AREA TXT 配置。")
+                        "请先选择要操作的区域文本配置。")
                 : null;
         string? sourceFileFingerprint = null;
         if (operation is AreaProfileFileOperation.Rename or AreaProfileFileOperation.Delete)
@@ -2124,7 +2124,7 @@ internal partial class WatchWorkspaceWindow
         });
     }
 
-    private static string RequireSafeAreaProfileName(string? profileName)
+    private string RequireSafeAreaProfileName(string? profileName)
     {
         var nameCheck = WatchAreaFilterProfileParser.Parse(profileName, "A1-1");
         if (!nameCheck.IsValid)
@@ -2138,7 +2138,7 @@ internal partial class WatchWorkspaceWindow
     private static string RequireLoadedAreaProfileFingerprint(
         WatchAreaFilterProfile draft) => draft.FileFingerprint
         ?? throw new InvalidOperationException(
-            "当前 AREA TXT 未记录磁盘版本；请重新加载后再保存。");
+            "当前区域文本未记录磁盘版本；请重新加载后再保存。");
 
     private static bool HasAreaProfileDiagnostic(
         IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics,
@@ -2355,10 +2355,24 @@ internal partial class WatchWorkspaceWindow
                 : $"{infoBar.Title}。{infoBar.Message}");
     }
 
-    private static string ProjectAreaDiagnostics(
-        IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics) => diagnostics.Count == 0
-        ? "AREA 配置未通过校验。"
-        : string.Join("；", diagnostics.Select(diagnostic => diagnostic.LineNumber is { } line
-            ? $"第 {line} 行 {diagnostic.Code}: {diagnostic.Message}"
-            : $"{diagnostic.Code}: {diagnostic.Message}"));
+    private string ProjectAreaDiagnostics(
+        IReadOnlyList<WatchAreaFilterProfileDiagnostic> diagnostics)
+    {
+        if (diagnostics.Count == 0)
+        {
+            return "区域配置未通过校验。";
+        }
+
+        if (_displayLanguageState.Current is WatchDisplayLanguage.English)
+        {
+            return string.Join("；", diagnostics.Select(diagnostic => diagnostic.LineNumber is { } line
+                ? $"第 {line} 行 {diagnostic.Code}: {diagnostic.Message}"
+                : $"{diagnostic.Code}: {diagnostic.Message}"));
+        }
+
+        var text = _displayLanguageState.Catalog.AreaFilter;
+        return string.Join("；", diagnostics.Select(diagnostic => diagnostic.LineNumber is { } line
+            ? $"第 {line} 行：{text.DiagnosticMessage(diagnostic)}"
+            : text.DiagnosticMessage(diagnostic)));
+    }
 }

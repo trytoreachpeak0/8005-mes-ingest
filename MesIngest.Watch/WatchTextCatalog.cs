@@ -1,18 +1,178 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace MesIngest.Watch;
 
-internal sealed record WatchTextCatalogEntry(
-    string SemanticId,
-    string SimplifiedChinese,
-    string English)
+internal sealed record WatchTextCatalogEntry
 {
+    internal WatchTextCatalogEntry(
+        string semanticId,
+        string simplifiedChinese,
+        string english)
+    {
+        SemanticId = semanticId;
+        SimplifiedChinese = WatchSimplifiedChineseStaticText.Normalize(simplifiedChinese);
+        English = english;
+    }
+
+    public string SemanticId { get; }
+
+    public string SimplifiedChinese { get; }
+
+    public string English { get; }
+
     internal string In(WatchDisplayLanguage language) => language switch
     {
         WatchDisplayLanguage.SimplifiedChinese => SimplifiedChinese,
         WatchDisplayLanguage.English => English,
         _ => throw new ArgumentOutOfRangeException(nameof(language), language, null),
     };
+}
+
+internal static partial class WatchSimplifiedChineseStaticText
+{
+    private static readonly Regex CjkSpacingPattern = new(
+        @"(?<=[\p{IsCJKUnifiedIdeographs}])\x20(?=[\p{IsCJKUnifiedIdeographs}])",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex CjkAfterFullWidthParenthesisSpacingPattern = new(
+        @"(?<=）)\x20(?=[\p{IsCJKUnifiedIdeographs}，。；：、/])",
+        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly (Regex Pattern, string Replacement)[] TokenReplacements =
+    [
+        Token("MesIngest Watch", "制造执行系统接入运维台"),
+        Token("fingerprint incident", "指纹异常事件"),
+        Token("Demand Generation", "运输需求代次"),
+        Token("Error Search", "错误检索"),
+        Token("HistoryResetAcknowledgement", "历史重置确认"),
+        Token("StoragePressurePause", "存储压力暂停"),
+        Token("CRITICAL_WARNING", "严重预警"),
+        Token("INGEST_NOT_CURRENT", "当前接入数据不可用"),
+        Token("PollTrace HighWater", "轮询追踪高水位"),
+        Token("LiveMesFieldSet", "实时制造执行系统字段集"),
+        Token("ErrorSearchAsOf", "错误检索查询时点"),
+        Token("SnapshotReference", "快照引用"),
+        Token("ProjectionCommitId", "投影提交标识"),
+        Token("ProjectionSequence", "投影序列"),
+        Token("ProjectionCommit", "投影提交"),
+        Token("PollTraceId", "轮询追踪标识"),
+        Token("PollTraceSequence", "轮询追踪序列"),
+        Token("PollTrace", "轮询追踪"),
+        Token("CatalogRevision", "目录修订号"),
+        Token("TransportDemand", "运输需求"),
+        Token("DemandSeries", "需求系列"),
+        Token("SeriesId", "需求系列标识"),
+        Token("DemandId", "运输需求标识"),
+        Token("WorkType", "工序类型"),
+        Token("MesSourceDate", "来源时间"),
+        Token("ObservationOrdinal", "观测序号"),
+        Token("EvidenceId", "证据标识"),
+        Token("ContentDigest", "内容摘要"),
+        Token("ErrorCategory", "错误分类"),
+        Token("ErrorCode", "错误码"),
+        Token("ProtectionStatus", "保护状态"),
+        Token("LastSuccessfulWindow", "最后成功窗口"),
+        Token("EarliestAvailableHostUtc", "服务端最早可用时间"),
+        Token("HistoryEpochProgress", "历史纪元进度"),
+        Token("HistoryEpoch", "历史纪元"),
+        Token("HistoryReset", "历史重置"),
+        Token("StoragePressure", "存储压力"),
+        Token("CurrentReadRestriction", "当前读取限制"),
+        Token("LocalAdministration", "本地管理"),
+        Token("Reason", "原因"),
+        Token("Phase", "阶段"),
+        Token("Outcome", "结果"),
+        Token("TASK_TYPE", "工序类型"),
+        Token("SeriesSequence", "需求系列序列"),
+        Token("EventId", "事件标识"),
+        Token("OccurredAt", "发生时间"),
+        Token("EventType", "事件类型"),
+        Token("SubjectKind", "主体类型"),
+        Token("SubjectId", "主体标识"),
+        Token("PayloadVersion", "负载版本"),
+        Token("PayloadJson", "负载结构化原始数据"),
+        Token("Assignment", "归属状态"),
+        Token("SUBLOT", "子批次"),
+        Token("PACKAGE", "封装形式"),
+        Token("DATES", "来源时间"),
+        Token("AREA", "区域"),
+        Token("EQP", "设备"),
+        Token("STEP", "下一工序"),
+        Token("Inspector", "调查窗口"),
+        Token("Endpoint", "服务地址"),
+        Token("snapshotReference", "快照引用"),
+        Token("snapshot", "快照"),
+        Token("canonical", "规范"),
+        Token("incident", "异常期间"),
+        Token("Tracking", "跟踪中"),
+        Token("Archived", "已归档"),
+        Token("Dispatch", "调度"),
+        Token("Digest", "内容摘要"),
+        Token("Catalog", "目录"),
+        Token("UTC", "协调世界时"),
+        Token("NULL", "空值"),
+        Token("row", "行"),
+        Token("Windows", "系统"),
+        Token("Host", "服务端"),
+        Token("Watch", "运维台"),
+        Token("Series", "需求系列"),
+        Token("Demand", "运输需求"),
+        Token("MES", "制造执行系统"),
+        Token("English", "英语"),
+        Token("JSON", "结构化原始数据"),
+        Token("API", "接口"),
+        Token("URI", "资源地址"),
+        Token("URL", "网址"),
+        Token("TXT", "文本"),
+        Token("UI", "界面"),
+        Token("ID", "标识"),
+        Token("rail", "导航栏"),
+        Token("epx", "像素"),
+        Token("NOT_READABLE", "不可读"),
+        Token("READABLE", "可读"),
+        Token("VISIBLE", "可见"),
+        Token("GONE", "已消失"),
+        Token("TRACKING", "跟踪中"),
+        Token("ARCHIVED", "已归档"),
+        Token("ACTIVE", "活动"),
+        Token("ENDED", "已结束"),
+        Token("PASS", "通过"),
+        Token("FAIL", "未通过"),
+        Token("ERROR", "错误"),
+        Token("WARNING", "警告"),
+        Token("ONLINE", "在线"),
+        Token("OFFLINE", "离线"),
+        Token("READ_WRITE", "可读写"),
+        Token("READ_ONLY", "只读"),
+        Token("HEALTHY", "正常"),
+        Token("DEGRADED", "降级"),
+        Token("CRITICAL", "严重"),
+        Token("INSUFFICIENT_DATA", "数据不足"),
+    ];
+
+    internal static string Normalize(string value)
+    {
+        var normalized = value;
+        foreach (var (pattern, replacement) in TokenReplacements)
+        {
+            normalized = pattern.Replace(normalized, replacement);
+        }
+
+        normalized = CjkSpacingPattern.Replace(normalized, string.Empty);
+        normalized = CjkAfterFullWidthParenthesisSpacingPattern.Replace(normalized, string.Empty);
+        return normalized.Replace(
+            "错误检索查询时点时",
+            "错误检索查询时点",
+            StringComparison.Ordinal);
+    }
+
+    private static (Regex Pattern, string Replacement) Token(
+        string token,
+        string replacement) =>
+        (new Regex(
+            $"(?<![A-Za-z0-9_]){Regex.Escape(token)}(?![A-Za-z0-9_])",
+            RegexOptions.CultureInvariant | RegexOptions.Compiled), replacement);
 }
 
 internal interface IWatchTextCatalogSection
@@ -30,6 +190,13 @@ internal abstract class WatchTextCatalogSection(WatchDisplayLanguage language)
     public abstract IReadOnlyList<WatchTextCatalogEntry> Entries { get; }
 
     protected string Text(WatchTextCatalogEntry entry) => entry.In(Language);
+
+    protected string PresentCodeMeaning(WatchCodeMeaning meaning) =>
+        Language is WatchDisplayLanguage.SimplifiedChinese && meaning.IsKnown
+            ? meaning.Description
+            : !meaning.IsKnown && meaning.Description.Contains(meaning.RawCode, StringComparison.Ordinal)
+                ? meaning.Description
+                : $"{meaning.Description} · {meaning.RawCode}";
 
     internal string Select(WatchTextCatalogEntry entry) => entry.In(Language);
 
@@ -105,6 +272,7 @@ internal sealed class WatchTextCatalog
         SectionSelectors =
         [
             static catalog => catalog.Common,
+            static catalog => catalog.Columns,
             static catalog => catalog.Shell,
             static catalog => catalog.Settings,
             static catalog => catalog.Overview,
@@ -127,6 +295,7 @@ internal sealed class WatchTextCatalog
     {
         Language = language;
         Common = new WatchCommonText(language);
+        Columns = new WatchColumnText(language);
         Shell = new WatchShellText(language);
         Settings = new WatchSettingsText(language);
         Overview = new WatchOverviewText(language);
@@ -142,6 +311,8 @@ internal sealed class WatchTextCatalog
     internal WatchDisplayLanguage Language { get; }
 
     public WatchCommonText Common { get; }
+
+    public WatchColumnText Columns { get; }
 
     public WatchShellText Shell { get; }
 
@@ -205,7 +376,7 @@ internal sealed class WatchTextCatalog
     }
 
     internal string FormatAbsoluteTime(DateTimeOffset value) =>
-        value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
+        WatchTimeDisplay.Format(value);
 
     internal string FormatRelativeTime(DateTimeOffset observedAt, DateTimeOffset now)
     {

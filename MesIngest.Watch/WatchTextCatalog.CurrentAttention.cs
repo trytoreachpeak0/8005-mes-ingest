@@ -13,10 +13,20 @@ internal sealed partial class WatchCurrentAttentionText
     private static readonly WatchTextCatalogEntry PerPageEntry = Entry("per-page", "每页", "Per page");
     private static readonly WatchTextCatalogEntry ApplyFiltersEntry = Entry("apply-filters", "应用条件", "Apply filters");
     private static readonly WatchTextCatalogEntry ClearFiltersEntry = Entry("clear-filters", "清除", "Clear");
+    private static readonly WatchTextCatalogEntry ApplyFiltersAutomationEntry = Entry("apply-filters-automation", "应用接入告警条件", "Apply ingest-alert filters");
+    private static readonly WatchTextCatalogEntry ClearFiltersAutomationEntry = Entry("clear-filters-automation", "清除接入告警条件", "Clear ingest-alert filters");
+    private static readonly WatchTextCatalogEntry PreviousPageAutomationEntry = Entry("previous-page-automation", "接入告警上一页", "Previous ingest-alert page");
+    private static readonly WatchTextCatalogEntry NextPageAutomationEntry = Entry("next-page-automation", "接入告警下一页", "Next ingest-alert page");
+    private static readonly WatchTextCatalogEntry GoToPageAutomationEntry = Entry("go-to-page-automation", "接入告警直接页码跳转", "Go directly to an ingest-alert page");
+    private static readonly WatchTextCatalogEntry OpenErrorSearchAutomationEntry = Entry("open-error-search-automation", "从当前需求系列错误下钻错误检索", "Drill from the current demand-series error into Error Search");
+    private static readonly WatchTextCatalogEntry DefaultOrderEntry = Entry("order-default", "严重度降序、发生时间降序、稳定标识升序", CurrentIngestAttentionOrder.Default);
     private static readonly WatchTextCatalogEntry FacetsEntry = Entry("facets", "Host 精确分面", "Exact Host facets");
+    private static readonly WatchTextCatalogEntry FacetsCardAutomationEntry = Entry("facets-card-automation", "接入告警精确分面", "Exact ingest-alert facets");
     private static readonly WatchTextCatalogEntry ResultsEntry = Entry("results", "当前仍需关注", "Currently needs attention");
+    private static readonly WatchTextCatalogEntry ResultsCardAutomationEntry = Entry("results-card-automation", "当前接入告警结果", "Current ingest-alert results");
     private static readonly WatchTextCatalogEntry SelectedDetailEntry = Entry("selected-detail", "选中项详情", "Selected item details");
     private static readonly WatchTextCatalogEntry EvidenceEntry = Entry("evidence", "结构化证据与关联对象", "Structured evidence and related objects");
+    private static readonly WatchTextCatalogEntry EvidenceCardAutomationEntry = Entry("evidence-card-automation", "接入告警结构化证据", "Structured ingest-alert evidence");
     private static readonly WatchTextCatalogEntry OpenSeriesEntry = Entry("open-series", "打开需求系列详情", "Open demand-series details");
     private static readonly WatchTextCatalogEntry OpenErrorSearchEntry = Entry("open-error-search", "在错误检索中打开", "Open in Error Search");
     private static readonly WatchTextCatalogEntry PreviousPageEntry = Entry("previous-page", "上一页", "Previous");
@@ -45,8 +55,11 @@ internal sealed partial class WatchCurrentAttentionText
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
         PageTitleEntry, KindFilterEntry, SeverityFilterEntry, PerPageEntry,
-        ApplyFiltersEntry, ClearFiltersEntry, FacetsEntry, ResultsEntry,
-        SelectedDetailEntry, EvidenceEntry, OpenSeriesEntry, OpenErrorSearchEntry,
+        ApplyFiltersEntry, ClearFiltersEntry, ApplyFiltersAutomationEntry, ClearFiltersAutomationEntry,
+        PreviousPageAutomationEntry, NextPageAutomationEntry, GoToPageAutomationEntry,
+        OpenErrorSearchAutomationEntry, DefaultOrderEntry, FacetsEntry, FacetsCardAutomationEntry,
+        ResultsEntry, ResultsCardAutomationEntry, SelectedDetailEntry, EvidenceEntry,
+        EvidenceCardAutomationEntry, OpenSeriesEntry, OpenErrorSearchEntry,
         PreviousPageEntry, NextPageEntry, GoToPageEntry,
         SeriesErrorEntry, PollRunFailureEntry, TaskTypeProtectionEntry,
         UnassignedObservationEntry, HistoryCleanupFailureEntry, StoragePressureEntry,
@@ -65,10 +78,25 @@ internal sealed partial class WatchCurrentAttentionText
     public string PerPage => Text(PerPageEntry);
     public string ApplyFilters => Text(ApplyFiltersEntry);
     public string ClearFilters => Text(ClearFiltersEntry);
+    public string ApplyFiltersAutomationName => Text(ApplyFiltersAutomationEntry);
+    public string ClearFiltersAutomationName => Text(ClearFiltersAutomationEntry);
+    public string PreviousPageAutomationName => Text(PreviousPageAutomationEntry);
+    public string NextPageAutomationName => Text(NextPageAutomationEntry);
+    public string GoToPageAutomationName => Text(GoToPageAutomationEntry);
+    public string OpenErrorSearchAutomationName => Text(OpenErrorSearchAutomationEntry);
+    public string OrderLabel(string rawOrder) => string.Equals(
+        rawOrder,
+        CurrentIngestAttentionOrder.Default,
+        StringComparison.Ordinal)
+            ? Text(DefaultOrderEntry)
+            : rawOrder;
     public string Facets => Text(FacetsEntry);
+    public string FacetsCardAutomationName => Text(FacetsCardAutomationEntry);
     public string Results => Text(ResultsEntry);
+    public string ResultsCardAutomationName => Text(ResultsCardAutomationEntry);
     public string SelectedDetail => Text(SelectedDetailEntry);
     public string Evidence => Text(EvidenceEntry);
+    public string EvidenceCardAutomationName => Text(EvidenceCardAutomationEntry);
     public string OpenSeries => Text(OpenSeriesEntry);
     public string OpenErrorSearch => Text(OpenErrorSearchEntry);
     public string PreviousPage => Text(PreviousPageEntry);
@@ -128,5 +156,5 @@ internal sealed partial class WatchCurrentAttentionText
     }
 
     public string CodeWithMeaning(WatchCodeMeaning meaning) =>
-        $"{meaning.Description} · {meaning.RawCode}";
+        PresentCodeMeaning(meaning);
 }

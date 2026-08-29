@@ -77,7 +77,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         var demandText = _displayLanguageState.Catalog.DemandSeries;
         Title = _state is null ? _text.WindowTitle : _text.FormatWindowTitle(_state.SeriesId);
         InspectorTitleBar.Title = _state is null
-            ? $"MesIngest Watch · {_text.WindowTitle}"
+            ? _text.AppTitle
             : _text.FormatAppTitle(_state.SeriesId);
         AutomationProperties.SetName(InspectorTitleBar, _text.TitleBarAutomationName);
         AutomationProperties.SetName(DemandSeriesInspectorContext, _text.ContextAutomationName);
@@ -107,7 +107,9 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorAfterValueHeaderText.Text = _text.AfterValue;
         DemandSeriesInspectorChangeHeaderText.Text = _text.Change;
         AutomationProperties.SetName(DemandSeriesInspectorMesScalarFields, _text.MesDiffHeading);
-        DemandSeriesInspectorAfterObservationGrid.Columns[0].Header = _text.BoundaryColumn;
+        ApplyColumnHeaders(
+            DemandSeriesInspectorAfterObservationGrid,
+            _text.RawObservationColumnHeaders);
         AutomationProperties.SetName(
             DemandSeriesInspectorAfterObservationGrid,
             _text.RawRows);
@@ -119,6 +121,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         DemandSeriesInspectorEventLogHeadingText.Text = _text.EventLog;
         DemandSeriesInspectorEventLogHelpText.Text = _text.EventLogHelp;
         AutomationProperties.SetName(DemandSeriesInspectorEventGrid, _text.EventGrid);
+        ApplyColumnHeaders(DemandSeriesInspectorEventGrid, _text.EventColumnHeaders);
 
         if (_state is not null)
         {
@@ -127,6 +130,22 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
                 _state.WorkType,
                 _state.Sublot);
             InspectorPresenceText.Text = demandText.DescribePresence(_state.CurrentPresence);
+        }
+    }
+
+    private static void ApplyColumnHeaders(
+        DataGrid grid,
+        IReadOnlyList<string> headers)
+    {
+        if (grid.Columns.Count != headers.Count)
+        {
+            throw new InvalidOperationException(
+                $"Localized column count {headers.Count} does not match grid column count {grid.Columns.Count}.");
+        }
+
+        for (var index = 0; index < headers.Count; index++)
+        {
+            grid.Columns[index].Header = headers[index];
         }
     }
 
@@ -317,7 +336,7 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             _presentation = null;
             DataContext = null;
             Title = _text.WindowTitle;
-            InspectorTitleBar.Title = $"MesIngest Watch · {_text.WindowTitle}";
+            InspectorTitleBar.Title = _text.AppTitle;
             InspectorSeriesContextText.Text = _text.NoSelection;
             InspectorSnapshotContextText.Text = _text.NoSnapshot;
             InspectorSnapshotContextText.ToolTip = null;
@@ -472,13 +491,13 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
             _text.FormatGenerationIdentity(
                 generation.DemandId,
                 generation.Generation,
-                generation.Status);
+                generation.StatusDisplay);
         AutomationProperties.SetName(
             DemandSeriesInspectorGenerationIdentityText,
             _text.FormatGenerationIdentityName(
                 generation.DemandId,
                 generation.Generation,
-                generation.Status,
+                generation.StatusDisplay,
                 generation.CurrentMarker));
         DemandSeriesInspectorGenerationSummaryText.Text =
             generation.PredecessorDemandId is { } predecessorDemandId
@@ -574,8 +593,8 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
         return string.IsNullOrWhiteSpace(side.PollTraceId)
             || string.IsNullOrWhiteSpace(side.ProjectionCommitId)
             ? state
-            : $"{state} · PollTrace {side.PollTraceId} · "
-                + $"ProjectionCommit {side.ProjectionCommitId}";
+            : $"{state} · {_displayLanguageState.Catalog.Columns.PollTrace} {side.PollTraceId} · "
+                + $"{_displayLanguageState.Catalog.Columns.ProjectionCommit} {side.ProjectionCommitId}";
     }
 
     private static IEnumerable<WatchDemandMesBoundaryRawRowPresentation> ProjectBoundaryRows(
@@ -807,8 +826,12 @@ internal partial class WatchDemandSeriesInspectorWindow : IWatchDemandSeriesInsp
     private void UpdateContextAutomationNames()
     {
         var series = _text.FormatSeriesContext(InspectorSeriesContextText.Text);
+        var presenceValue = _state is null
+            ? InspectorPresenceText.Text
+            : _displayLanguageState.Catalog.DemandSeries
+                .DescribePresence(_state.CurrentPresence);
         var presence = _text.FormatPresenceContext(
-            _state?.CurrentPresence ?? InspectorPresenceText.Text);
+            presenceValue);
         var identity = InspectorLifecycleText.Text;
         AutomationProperties.SetName(
             InspectorSeriesContextText,

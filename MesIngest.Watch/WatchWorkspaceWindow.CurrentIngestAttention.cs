@@ -101,21 +101,21 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(CurrentAttentionKindFilter, text.Select(WatchGeneratedText.CurrentAttentionUi073));
         AutomationProperties.SetName(CurrentAttentionSeverityFilter, text.Select(WatchGeneratedText.CurrentAttentionUi074));
         AutomationProperties.SetName(CurrentAttentionPageSizeInput, text.Select(WatchGeneratedText.CurrentAttentionUi075));
-        AutomationProperties.SetName(CurrentAttentionApplyFilterButton, text.ApplyFilters);
-        AutomationProperties.SetName(CurrentAttentionClearFilterButton, text.ClearFilters);
+        AutomationProperties.SetName(CurrentAttentionApplyFilterButton, text.ApplyFiltersAutomationName);
+        AutomationProperties.SetName(CurrentAttentionClearFilterButton, text.ClearFiltersAutomationName);
         AutomationProperties.SetName(CurrentAttentionKindFacetGrid, text.Select(WatchGeneratedText.CurrentAttentionUi076));
         AutomationProperties.SetName(CurrentAttentionSeverityFacetGrid, text.Select(WatchGeneratedText.CurrentAttentionUi077));
         AutomationProperties.SetName(CurrentAttentionGrid, text.Select(WatchGeneratedText.CurrentAttentionUi078));
         AutomationProperties.SetName(CurrentAttentionEvidenceGrid, text.Select(WatchGeneratedText.CurrentAttentionUi079));
-        AutomationProperties.SetName(CurrentAttentionPreviousPageButton, text.PreviousPage);
-        AutomationProperties.SetName(CurrentAttentionNextPageButton, text.NextPage);
+        AutomationProperties.SetName(CurrentAttentionPreviousPageButton, text.PreviousPageAutomationName);
+        AutomationProperties.SetName(CurrentAttentionNextPageButton, text.NextPageAutomationName);
         AutomationProperties.SetName(CurrentAttentionPageNumberInput, text.Select(WatchGeneratedText.CurrentAttentionUi080));
-        AutomationProperties.SetName(CurrentAttentionGoToPageButton, text.GoToPage);
+        AutomationProperties.SetName(CurrentAttentionGoToPageButton, text.GoToPageAutomationName);
         AutomationProperties.SetName(CurrentAttentionOpenDemandSeriesButton, text.OpenSeries);
-        AutomationProperties.SetName(CurrentAttentionOpenErrorSearchButton, text.OpenErrorSearch);
-        AutomationProperties.SetName(CurrentAttentionFacetCard, text.Facets);
-        AutomationProperties.SetName(CurrentAttentionResultsCard, text.Results);
-        AutomationProperties.SetName(CurrentAttentionEvidenceCard, text.Evidence);
+        AutomationProperties.SetName(CurrentAttentionOpenErrorSearchButton, text.OpenErrorSearchAutomationName);
+        AutomationProperties.SetName(CurrentAttentionFacetCard, text.FacetsCardAutomationName);
+        AutomationProperties.SetName(CurrentAttentionResultsCard, text.ResultsCardAutomationName);
+        AutomationProperties.SetName(CurrentAttentionEvidenceCard, text.EvidenceCardAutomationName);
         AutomationProperties.SetName(CurrentAttentionContractFactsPanel, text.PageTitle);
         AutomationProperties.SetName(CurrentAttentionHistoryScopeText, text.PageTitle);
 
@@ -311,6 +311,10 @@ internal partial class WatchWorkspaceWindow
             CurrentAttentionSnapshotText.Text = presentation.SnapshotFacts;
             CurrentAttentionScopeText.Text =
                 $"{presentation.AreaIsolationNotice} · {presentation.SemanticsNotice} · {presentation.HostFilterSummary}";
+            SetTextAutomationName(
+                CurrentAttentionHistoryScopeText,
+                text.PageTitle,
+                CurrentAttentionHistoryScopeText.Text);
             CurrentAttentionPageSummaryText.Text =
                 $"{presentation.PageSummary} · {presentation.OrderSummary}";
             CurrentAttentionEmptyResultText.Text = presentation.EmptyResultMessage;
@@ -380,38 +384,43 @@ internal partial class WatchWorkspaceWindow
     {
         var evidence = selected.Evidence;
         var rows = new List<WatchEvidenceFactPresentation>();
-        Add("ProjectionCommitId", evidence.ProjectionCommitId);
-        Add("ProjectionSequence", evidence.ProjectionSequence);
-        Add("PollTraceId", evidence.PollTraceId);
-        Add("PollTraceSequence", evidence.PollTraceSequence);
-        Add("SeriesId", evidence.SeriesId);
-        Add("DemandId", evidence.DemandId);
-        Add("WorkType", evidence.WorkType);
+        Add(Label("ProjectionCommitId"), evidence.ProjectionCommitId);
+        Add(Label("ProjectionSequence"), evidence.ProjectionSequence);
+        Add(Label("PollTraceId"), evidence.PollTraceId);
+        Add(Label("PollTraceSequence"), evidence.PollTraceSequence);
+        Add(Label("SeriesId"), evidence.SeriesId);
+        Add(Label("DemandId"), evidence.DemandId);
+        Add(Label("WorkType"), evidence.WorkType);
         Add(
-            "ErrorCode",
+            Label("ErrorCode"),
             string.IsNullOrWhiteSpace(selected.ErrorCode)
                 ? null
                 : _displayLanguageState.Catalog.ErrorSearch.CodeWithMeaning(
                     _displayLanguageState.Catalog.ErrorSearch.DescribeErrorCode(selected.ErrorCode)));
         Add(
-            "ErrorCategory",
+            Label("ErrorCategory"),
             string.IsNullOrWhiteSpace(selected.ErrorCategory)
                 ? null
                 : _displayLanguageState.Catalog.ErrorSearch.CodeWithMeaning(
                     _displayLanguageState.Catalog.ErrorSearch.DescribeCategory(selected.ErrorCategory)));
-        Add("ObservationOrdinal", evidence.ObservationOrdinal);
-        Add("EvidenceId", evidence.EvidenceId);
-        Add("ContentDigest", evidence.ContentDigest);
-        Add("Phase", ProjectKnownStatus(evidence.Phase));
-        Add("Outcome", ProjectKnownStatus(evidence.Outcome));
-        Add("ProtectionStatus", ProjectKnownStatus(selected.Protection?.Status));
-        Add("Reason", selected.Protection?.Reason);
-        Add("LastSuccessfulWindow", selected.Protection?.LastSuccessfulWindow);
-        Add("EarliestAvailableHostUtc", selected.Protection?.EarliestAvailable);
-        Add("HistoryEpochProgress", selected.Protection?.RebuildProgress);
-        Add("CurrentReadRestriction", selected.Protection?.CurrentReadRestriction);
-        Add("LocalAdministration", selected.Protection?.LocalAdministrationGuidance);
+        Add(Label("ObservationOrdinal"), evidence.ObservationOrdinal);
+        Add(Label("EvidenceId"), evidence.EvidenceId);
+        Add(Label("ContentDigest"), evidence.ContentDigest);
+        Add(Label("Phase"), ProjectKnownStatus(evidence.Phase));
+        Add(Label("Outcome"), ProjectKnownStatus(evidence.Outcome));
+        Add(Label("ProtectionStatus"), ProjectKnownStatus(selected.Protection?.Status));
+        Add(Label("Reason"), selected.Protection?.Reason);
+        Add(Label("LastSuccessfulWindow"), selected.Protection?.LastSuccessfulWindow);
+        Add(Label("EarliestAvailableHostUtc"), selected.Protection?.EarliestAvailable);
+        Add(Label("HistoryEpochProgress"), selected.Protection?.RebuildProgress);
+        Add(Label("CurrentReadRestriction"), selected.Protection?.CurrentReadRestriction);
+        Add(Label("LocalAdministration"), selected.Protection?.LocalAdministrationGuidance);
         return rows;
+
+        string Label(string value) => _displayLanguageState.Current
+            == WatchDisplayLanguage.SimplifiedChinese
+                ? WatchSimplifiedChineseStaticText.Normalize(value)
+                : value;
 
         string? ProjectKnownStatus(string? value) => string.IsNullOrWhiteSpace(value)
             ? value
@@ -647,7 +656,7 @@ internal partial class WatchWorkspaceWindow
                     CurrentAttentionGrid.SelectedItem
                         as WatchCurrentIngestAttentionRowPresentation)
                 ?? throw new InvalidOperationException(
-                    "当前关注项没有可精确定位的 DemandSeries。" );
+                    "当前关注项没有可精确定位的需求系列。" );
             await NavigateToDemandSeriesAsync(navigation, _lifetimeCancellation.Token)
                 .ConfigureAwait(true);
         });

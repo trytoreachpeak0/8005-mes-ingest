@@ -48,7 +48,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                     "展开或折叠主导航",
                     AutomationProperties.GetName(navigationToggle));
                 Assert.Equal(
-                    "在 48 epx 紧凑导航与 224 epx 展开导航之间切换",
+                    "在 48 像素紧凑导航与 224 像素展开导航之间切换",
                     AutomationProperties.GetHelpText(navigationToggle));
                 Assert.Equal(
                     "展开或折叠主导航",
@@ -281,7 +281,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                 Assert.Contains(
                     saveLocalPreferences,
                     primaryDisplay.Children.Cast<UIElement>());
-                Assert.Equal(4, Grid.GetRow(saveLocalPreferences));
+                Assert.Equal(6, Grid.GetRow(saveLocalPreferences));
 
                 var demand = Find<Grid>(window, "DemandSeriesLayoutGrid");
                 AssertSelectedPageRows(demand);
@@ -296,7 +296,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                 var openInspector = Find<Wpf.Ui.Controls.Button>(
                     window,
                     "DemandSeriesOpenInspectorButton");
-                Assert.Equal("打开详情窗口", openInspector.Content);
+                Assert.Equal("打开调查窗口", openInspector.Content);
                 Assert.Equal("Secondary", openInspector.Appearance.ToString());
                 Assert.Null(window.FindName("DemandSeriesMasterDetailGrid"));
                 Assert.Null(window.FindName("DemandSeriesDetailPanel"));
@@ -336,8 +336,8 @@ public sealed class WatchSelectedPrototypeStructureTests
 
                 var readabilityBody = Find<Grid>(window, "ReadabilityBodyGrid");
                 Assert.Equal(3, readabilityBody.ColumnDefinitions.Count);
-                AssertPixel(readabilityBody.ColumnDefinitions[0].Width, 430);
-                AssertPixel(readabilityBody.ColumnDefinitions[1].Width, 16);
+                AssertPixel(readabilityBody.ColumnDefinitions[0].Width, 330);
+                AssertPixel(readabilityBody.ColumnDefinitions[1].Width, 12);
                 AssertStar(readabilityBody.ColumnDefinitions[2].Width, 1);
                 var readabilityDetail = Find<Grid>(window, "ReadabilityDetailRegion");
                 Assert.Equal(3, readabilityDetail.RowDefinitions.Count);
@@ -418,8 +418,9 @@ public sealed class WatchSelectedPrototypeStructureTests
                 AssertPixel(errorBody.ColumnDefinitions[4].Width, 370);
                 var errorSeriesGrid = Find<DataGrid>(window, "ErrorSearchSeriesGrid");
                 var visibleTemplateHost = Find<Grid>(window, "OverviewLayoutGrid");
-                var activityColumn = Assert.IsType<DataGridTemplateColumn>(
-                    errorSeriesGrid.Columns[3]);
+                var activityColumn = Find<DataGridTemplateColumn>(
+                    window,
+                    "ErrorSearchActivityColumn");
                 var activityPill = Assert.IsType<Border>(
                     activityColumn.CellTemplate.LoadContent());
                 Assert.Equal(new Thickness(2, 0, 2, 0), activityPill.Margin);
@@ -494,7 +495,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                 Assert.Equal(DataGridHeadersVisibility.Column, attentionGrid.HeadersVisibility);
                 Assert.Equal(5, attentionGrid.Columns.Count);
                 AssertTextColumn(attentionGrid.Columns[0], "对象", "SubjectSummary");
-                AssertTextColumn(attentionGrid.Columns[1], "类型", "KindLabel");
+                AssertTextColumn(attentionGrid.Columns[1], "关注类型", "KindLabel");
                 var attentionSeverityColumn = Assert.IsType<DataGridTemplateColumn>(
                     attentionGrid.Columns[2]);
                 Assert.Equal("严重度", attentionSeverityColumn.Header);
@@ -504,7 +505,7 @@ public sealed class WatchSelectedPrototypeStructureTests
                 var severityText = Assert.IsType<Wpf.Ui.Controls.TextBlock>(severityPill.Child);
                 var severityTextBinding = Assert.IsType<Binding>(
                     BindingOperations.GetBinding(severityText, TextBlock.TextProperty));
-                Assert.Equal("Severity", severityTextBinding.Path.Path);
+                Assert.Equal("SeverityLabel", severityTextBinding.Path.Path);
                 AssertSemanticPillForeground(
                     window,
                     visibleTemplateHost,

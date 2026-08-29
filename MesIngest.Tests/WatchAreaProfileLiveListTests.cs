@@ -42,7 +42,7 @@ public sealed class WatchAreaProfileLiveListTests
                 row =>
                 {
                     Assert.True(row.IsAllAreas);
-                    Assert.Equal("全部 AREA（不筛选）", row.ProfileName);
+                    Assert.Equal("全部区域（不筛选）", row.ProfileName);
                 },
                 row => Assert.Equal("西区", row.ProfileName));
 
@@ -56,14 +56,14 @@ public sealed class WatchAreaProfileLiveListTests
 
             search.Clear();
             Assert.Equal(
-                ["全部 AREA（不筛选）", "东区", "西区"],
+                ["全部区域（不筛选）", "东区", "西区"],
                 AllRows(list).Select(row => row.ProfileName));
 
             File.Delete(Path.Combine(directoryPath, "东区.txt"));
             events.RaiseDeleted("东区.txt");
             clock.Advance(WatchAreaFilterProfileStore.DeleteConfirmationWindow);
             Assert.Equal(
-                ["全部 AREA（不筛选）", "西区"],
+                ["全部区域（不筛选）", "西区"],
                 AllRows(list).Select(row => row.ProfileName));
         });
 
@@ -117,7 +117,7 @@ public sealed class WatchAreaProfileLiveListTests
         RunWithAreaProfileWindow((window, _, _, _) =>
         {
             Assert.Equal(
-                "全部 AREA（不筛选）",
+                "全部区域（不筛选）",
                 Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                     window.FindName("AreaProfileFileTitleText")).Text);
             Assert.Equal(
@@ -125,7 +125,7 @@ public sealed class WatchAreaProfileLiveListTests
                 Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                     window.FindName("AreaProfileValidCountText")).Text);
             Assert.Equal(
-                "不对应 TXT 文件",
+                "不对应文本文件",
                 Assert.IsType<Wpf.Ui.Controls.TextBlock>(
                     window.FindName("AreaProfileDiskStateText")).Text);
             Assert.True(Assert.IsType<TextBox>(
@@ -659,7 +659,7 @@ public sealed class WatchAreaProfileLiveListTests
                 {
                     Assert.DoesNotContain(
                         notifications.Items.Cast<object>(),
-                        item => NotificationTitle(item) == "无法完成 AREA 配置操作");
+                        item => NotificationTitle(item) == "无法完成区域配置操作");
                 }
             }
 
@@ -668,7 +668,7 @@ public sealed class WatchAreaProfileLiveListTests
             Assert.Equal(originalContent, editor.Text);
             Assert.Contains(
                 notifications.Items.Cast<object>(),
-                item => NotificationTitle(item) == "无法完成 AREA 配置操作");
+                item => NotificationTitle(item) == "无法完成区域配置操作");
         });
 
     [Fact]
@@ -704,7 +704,7 @@ public sealed class WatchAreaProfileLiveListTests
                     var infoBar = Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                         window.FindName("AreaProfileDirectoryWatchInfoBar"));
                     Assert.True(infoBar.IsOpen);
-                    Assert.Equal("AREA 配置目录监视已降级", infoBar.Title);
+                    Assert.Equal("区域配置目录监视已降级", infoBar.Title);
                     Assert.Contains("可能不是最新", infoBar.Message, StringComparison.Ordinal);
                     Assert.Equal(
                         ["西区"],
@@ -737,7 +737,7 @@ public sealed class WatchAreaProfileLiveListTests
             clock.Advance(WatchAreaFilterProfileStore.DirectoryWatchHealthCheckInterval);
 
             Assert.True(watchInfoBar.IsOpen);
-            Assert.Equal("AREA 配置目录监视已降级", watchInfoBar.Title);
+            Assert.Equal("区域配置目录监视已降级", watchInfoBar.Title);
             Assert.Contains("可能不是最新", watchInfoBar.Message, StringComparison.Ordinal);
             Assert.Empty(Rows(list));
 

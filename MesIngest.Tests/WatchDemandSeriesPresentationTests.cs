@@ -61,8 +61,8 @@ public sealed class WatchDemandSeriesPresentationTests
             focusedDemandId: null);
 
         Assert.Equal("精确 401 个需求系列 · 第 2 / 3 页", presentation.PageSummary);
-        Assert.Equal("Host 固定排序：开始时间降序、SeriesId 升序", presentation.OrderSummary);
-        Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
+        Assert.Equal("服务端固定排序：开始时间降序、需求系列标识升序", presentation.OrderSummary);
+        Assert.Equal("服务端已提交范围：A1-1", presentation.HostAreaScope);
         Assert.Equal("封装车间", presentation.LocalAreaHeading);
         Assert.Contains("本机已应用", presentation.LocalAreaDetail, StringComparison.Ordinal);
         Assert.Contains("A1-1", presentation.LocalAreaDetail, StringComparison.Ordinal);
@@ -71,18 +71,20 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.True(presentation.CanGoNext);
         Assert.Equal(
             [
-                "跟踪中 (TRACKING) · 当前可见 (VISIBLE)",
-                "跟踪中 (TRACKING) · 当前消失 (GONE)",
-                "已归档 (ARCHIVED) · 当前消失 (GONE)",
-                "已归档 (ARCHIVED) · 长期消失但仍可见 (LONG_GONE_BUT_VISIBLE)",
+                "跟踪中 · 当前可见",
+                "跟踪中 · 当前消失",
+                "已归档 · 当前消失",
+                "已归档 · 长期消失但仍可见",
             ],
             presentation.Rows.Select(row => row.LifecycleAndPresence).ToArray());
         Assert.Equal(
-            "LONG_GONE_BUT_VISIBLE、DUPLICATE_TRANSPORT_DEMAND_KEY",
+            "归档后再次出现、运输需求业务键重复",
             presentation.Rows[3].Attention);
         Assert.Equal(4, presentation.Rows.Count);
         var firstRow = presentation.Rows[0];
-        Assert.Equal("2026-08-14 04:00:00 +00:00", firstRow.StartedAt);
+        Assert.Equal(
+            WatchTimeDisplay.Format(DateTimeOffset.Parse("2026-08-14T04:00:00Z")),
+            firstRow.StartedAt);
         Assert.Equal("demand-series-tracking", firstRow.CurrentDemandId);
         Assert.Equal(2, firstRow.CurrentGeneration);
         Assert.Equal(42, firstRow.LastSeriesSequence);
@@ -133,7 +135,7 @@ public sealed class WatchDemandSeriesPresentationTests
             focusedDemandId: null);
 
         Assert.Equal("精确 0 个需求系列 · 第 0 / 0 页", presentation.PageSummary);
-        Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
+        Assert.Equal("服务端已提交范围：A1-1", presentation.HostAreaScope);
         Assert.Equal("本机 B2 班次", presentation.LocalAreaHeading);
         Assert.Contains("本机已选择", presentation.LocalAreaDetail, StringComparison.Ordinal);
         Assert.Contains("B2-2", presentation.LocalAreaDetail, StringComparison.Ordinal);
@@ -189,7 +191,7 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.True(refreshing.IsInfoOpen);
         Assert.Equal(WatchPresentationSeverity.Informational, refreshing.InfoSeverity);
         Assert.Equal("正在刷新需求系列", refreshing.InfoTitle);
-        Assert.Contains("继续显示 Host 快照", refreshing.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains("继续显示服务端快照", refreshing.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("commit-retained-a1", refreshing.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("序列 23", refreshing.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("poll-retained-a1", refreshing.SnapshotFacts, StringComparison.Ordinal);
@@ -221,7 +223,7 @@ public sealed class WatchDemandSeriesPresentationTests
         Assert.Contains("timed out", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("correlation-ticket-20", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("最近失败", failed.ClientAttemptFacts, StringComparison.Ordinal);
-        Assert.Equal("Host 已提交范围：A1-1", failed.HostAreaScope);
+        Assert.Equal("服务端已提交范围：A1-1", failed.HostAreaScope);
 
         var selectionLost = WatchDemandSeriesPresentation.Project(
             Workspace(successful with

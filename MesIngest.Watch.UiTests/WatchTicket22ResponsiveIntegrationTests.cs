@@ -223,10 +223,12 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var errorHeader = Find<Grid>(window, "ErrorSearchHeaderGrid");
                 var errorPill = Find<Border>(window, "ErrorSearchHeaderStatusPill");
-                Assert.Same(
-                    errorPill,
+                var errorHeaderActions = Assert.IsType<StackPanel>(
                     Assert.Single(errorHeader.Children.Cast<UIElement>(), child =>
                         Grid.GetColumn(child) == 1));
+                Assert.Same(
+                    errorHeaderActions,
+                    VisualTreeHelper.GetParent(errorPill));
                 Assert.Same(window.FindResource("StatusPillCritical"), errorPill.Style);
                 Assert.Equal(
                     "活动错误 3",
@@ -278,10 +280,12 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var attentionHeader = Find<Grid>(window, "CurrentAttentionHeaderGrid");
                 var attentionPill = Find<Border>(window, "CurrentAttentionHeaderStatusPill");
-                Assert.Same(
-                    attentionPill,
+                var attentionHeaderActions = Assert.IsType<StackPanel>(
                     Assert.Single(attentionHeader.Children.Cast<UIElement>(), child =>
                         Grid.GetColumn(child) == 1));
+                Assert.Same(
+                    attentionHeaderActions,
+                    VisualTreeHelper.GetParent(attentionPill));
                 Assert.Same(window.FindResource("StatusPillCritical"), attentionPill.Style);
                 Assert.Equal(
                     "当前关注 8",
@@ -386,9 +390,7 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var renderedText = Assert.IsType<TextBlock>(
                     facetGrid.Columns[0].GetCellContent(facet));
-                Assert.Equal(
-                    CurrentIngestAttentionKinds.UnassignedMesObservation,
-                    renderedText.Text);
+                Assert.Equal("未归属制造执行系统观测", renderedText.Text);
                 var typeface = new Typeface(
                     renderedText.FontFamily,
                     renderedText.FontStyle,
@@ -489,7 +491,7 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 var resultsCard = Find<Wpf.Ui.Controls.Card>(window, "ErrorSearchResultsCard");
                 var detailCard = Find<Wpf.Ui.Controls.Card>(window, "ErrorSearchDetailCard");
                 AssertAutomation(categoryCard, "ErrorSearchCategoryCard", "错误分类与精确分面");
-                AssertAutomation(resultsCard, "ErrorSearchResultsCard", "错误检索 Series 结果");
+                AssertAutomation(resultsCard, "ErrorSearchResultsCard", "错误检索去重需求系列结果");
                 AssertAutomation(detailCard, "ErrorSearchDetailCard", "错误检索命中证据详情");
                 AssertCardsShareTopAndBottom(errorPage, categoryCard, resultsCard, detailCard);
 
@@ -515,9 +517,9 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                     ("ErrorSearchCodeFilter", typeof(ComboBox), "错误码筛选"),
                     ("ErrorSearchActivityStateFilter", typeof(ComboBox), "错误活动状态筛选"),
                     ("ErrorSearchWindowFilter", typeof(ComboBox), "错误检索时间范围"),
-                    ("ErrorSearchSeriesIdFilter", typeof(TextBox), "错误检索 SeriesId 精确筛选"),
-                    ("ErrorSearchDemandIdFilter", typeof(TextBox), "错误检索 DemandId 精确筛选"),
-                    ("ErrorSearchSublotFilter", typeof(TextBox), "错误检索 SUBLOT 包含筛选"),
+                    ("ErrorSearchSeriesIdFilter", typeof(TextBox), "错误检索需求系列标识精确筛选"),
+                    ("ErrorSearchDemandIdFilter", typeof(TextBox), "错误检索运输需求标识精确筛选"),
+                    ("ErrorSearchSublotFilter", typeof(TextBox), "错误检索子批次包含筛选"),
                     ("ErrorSearchPageSizeInput", typeof(ComboBox), "错误检索每页数量"),
                     ("ErrorSearchPageNumberInput", typeof(TextBox), "错误检索目标页码"),
                 };
@@ -545,8 +547,8 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var errorGrids = new Dictionary<string, string>
                 {
-                    ["ErrorSearchActivityStateFacetGrid"] = "错误活动状态 Host 精确分面",
-                    ["ErrorSearchSeriesGrid"] = "错误检索去重 Series 结果",
+                    ["ErrorSearchActivityStateFacetGrid"] = "错误活动状态服务端精确分面",
+                    ["ErrorSearchSeriesGrid"] = "错误检索去重需求系列结果",
                     ["ErrorSearchPeriodGrid"] = "错误检索真正命中期间",
                     ["ErrorSearchEvidenceGrid"] = "错误检索可解释证据",
                     ["ErrorSearchRawEvidenceGrid"] = "错误检索受限原始证据",
@@ -572,8 +574,8 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                         .Columns.Select(column => column.Header?.ToString()));
 
                 var stateOptions = ItemText(Find<ComboBox>(window, "ErrorSearchActivityStateFilter"));
-                Assert.Contains(ErrorSearchActivityStates.Active, stateOptions, StringComparison.Ordinal);
-                Assert.Contains(ErrorSearchActivityStates.Ended, stateOptions, StringComparison.Ordinal);
+                Assert.Contains("活动中", stateOptions, StringComparison.Ordinal);
+                Assert.Contains("已结束", stateOptions, StringComparison.Ordinal);
                 var categoryNavigation = Find<ListBox>(window, "ErrorSearchCategoryList");
                 Assert.Equal(SelectionMode.Multiple, categoryNavigation.SelectionMode);
                 Assert.Empty(categoryNavigation.SelectedItems);
@@ -593,14 +595,16 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 var categoryOptions = ItemAutomationText(categoryNavigation);
                 Assert.All(
                     SeriesErrorCatalog.Definitions
-                        .Select(definition => definition.Category)
+                        .Select(definition => WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese)
+                            .ErrorSearch.DescribeCategory(definition.Category).Description)
                         .Distinct(StringComparer.Ordinal),
                     category => Assert.Contains(category, categoryOptions, StringComparison.Ordinal));
                 var codeOptions = ItemText(Find<ComboBox>(window, "ErrorSearchCodeFilter"));
                 Assert.All(
                     SeriesErrorCatalog.Definitions,
                     definition => Assert.Contains(
-                        definition.Code,
+                        WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese)
+                            .ErrorSearch.DescribeErrorCode(definition.Code).Description,
                         codeOptions,
                         StringComparison.Ordinal));
                 AssertNonColorText(window, "ErrorSearchSnapshotText");
@@ -661,7 +665,7 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                     ["CurrentAttentionPreviousPageButton"] = "接入告警上一页",
                     ["CurrentAttentionNextPageButton"] = "接入告警下一页",
                     ["CurrentAttentionGoToPageButton"] = "接入告警直接页码跳转",
-                    ["CurrentAttentionOpenErrorSearchButton"] = "从当前 Series 错误下钻错误检索",
+                    ["CurrentAttentionOpenErrorSearchButton"] = "从当前需求系列错误下钻错误检索",
                 };
                 foreach (var (name, automationName) in attentionCommands)
                 {
@@ -672,8 +676,8 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
 
                 var attentionGrids = new Dictionary<string, string>
                 {
-                    ["CurrentAttentionKindFacetGrid"] = "接入告警类型 Host 精确分面",
-                    ["CurrentAttentionSeverityFacetGrid"] = "接入告警严重度 Host 精确分面",
+                    ["CurrentAttentionKindFacetGrid"] = "接入告警类型服务端精确分面",
+                    ["CurrentAttentionSeverityFacetGrid"] = "接入告警严重度服务端精确分面",
                     ["CurrentAttentionGrid"] = "当前仍需关注的接入告警",
                     ["CurrentAttentionEvidenceGrid"] = "接入告警结构化证据字段",
                 };
@@ -686,10 +690,10 @@ public sealed class WatchTicket22ResponsiveIntegrationTests
                 }
 
                 var kindOptions = ItemText(Find<ComboBox>(window, "CurrentAttentionKindFilter"));
-                Assert.Contains("Series 错误", kindOptions, StringComparison.Ordinal);
-                Assert.Contains("轮询失败", kindOptions, StringComparison.Ordinal);
+                Assert.Contains("需求系列错误", kindOptions, StringComparison.Ordinal);
+                Assert.Contains("轮询运行失败", kindOptions, StringComparison.Ordinal);
                 Assert.Contains("任务类型保护", kindOptions, StringComparison.Ordinal);
-                Assert.Contains("未分配观测", kindOptions, StringComparison.Ordinal);
+                Assert.Contains("未归属制造执行系统观测", kindOptions, StringComparison.Ordinal);
                 Assert.Equal(
                     "全部类型",
                     Find<ComboBox>(window, "CurrentAttentionKindFilter").Text);

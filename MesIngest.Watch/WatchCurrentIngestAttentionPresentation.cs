@@ -30,7 +30,8 @@ internal sealed record WatchCurrentIngestAttentionEvidencePresentation(
     string? Outcome,
     string? DatabaseName,
     string? VolumeRoot,
-    decimal? AvailablePercent)
+    decimal? AvailablePercent,
+    WatchColumnText Labels)
 {
     public string Facts => string.Join(
         " · ",
@@ -38,29 +39,29 @@ internal sealed record WatchCurrentIngestAttentionEvidencePresentation(
         {
             ProjectionCommitId is null
                 ? null
-                : $"ProjectionCommit {ProjectionCommitId}",
+                : $"{Labels.ProjectionCommit} {ProjectionCommitId}",
             ProjectionSequence is null
                 ? null
-                : $"序列 {ProjectionSequence:N0}",
+                : $"{Labels.Sequence} {ProjectionSequence:N0}",
             PollTraceId is null
                 ? null
-                : $"PollTrace {PollTraceId}",
+                : $"{Labels.PollTrace} {PollTraceId}",
             PollTraceSequence is null
                 ? null
-                : $"PollTrace 序列 {PollTraceSequence:N0}",
-            SeriesId is null ? null : $"Series {SeriesId}",
-            DemandId is null ? null : $"Demand {DemandId}",
-            WorkType is null ? null : $"WorkType {WorkType}",
+                : $"{Labels.PollTraceSequence} {PollTraceSequence:N0}",
+            SeriesId is null ? null : $"{Labels.Series} {SeriesId}",
+            DemandId is null ? null : $"{Labels.Demand} {DemandId}",
+            WorkType is null ? null : $"{Labels.WorkType} {WorkType}",
             ObservationOrdinal is null
                 ? null
-                : $"观测序号 {ObservationOrdinal:N0}",
-            EvidenceId is null ? null : $"证据 {EvidenceId}",
-            ContentDigest is null ? null : $"Digest {ContentDigest}",
-            Phase is null ? null : $"阶段 {Phase}",
-            Outcome is null ? null : $"结果 {Outcome}",
-            DatabaseName is null ? null : $"数据库 {DatabaseName}",
-            VolumeRoot is null ? null : $"卷 {VolumeRoot}",
-            AvailablePercent is null ? null : $"可用 {AvailablePercent:0.###}%",
+                : $"{Labels.ObservationOrdinal} {ObservationOrdinal:N0}",
+            EvidenceId is null ? null : $"{Labels.Evidence} {EvidenceId}",
+            ContentDigest is null ? null : $"{Labels.Digest} {ContentDigest}",
+            Phase is null ? null : $"{Labels.Phase} {Phase}",
+            Outcome is null ? null : $"{Labels.Outcome} {Outcome}",
+            DatabaseName is null ? null : $"{Labels.Database} {DatabaseName}",
+            VolumeRoot is null ? null : $"{Labels.Volume} {VolumeRoot}",
+            AvailablePercent is null ? null : $"{Labels.Available} {AvailablePercent:0.###}%",
         }.Where(value => value is not null));
 }
 
@@ -149,7 +150,7 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
                 ProjectClientAttempts(view, catalog),
                 text.Select(WatchGeneratedText.CurrentAttentionPresentation002),
                 EmptyResultMessage: string.Empty,
-                text.Select(WatchGeneratedText.CurrentAttentionPresentation003) + CurrentIngestAttentionOrder.Default,
+                text.Select(WatchGeneratedText.CurrentAttentionPresentation003) + text.OrderLabel(CurrentIngestAttentionOrder.Default),
                 text.Select(WatchGeneratedText.CurrentAttentionPresentation004),
                 text.Select(WatchGeneratedText.CurrentAttentionPresentation005) + ProjectFilters(normalizedQuery.Kinds, normalizedQuery.Severities, catalog),
                 text.Select(WatchGeneratedText.CurrentAttentionPresentation006),
@@ -182,7 +183,7 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
             showSuccessfulEmpty
                 ? text.Select(WatchGeneratedText.CurrentAttentionPresentation009)
                 : string.Empty,
-            text.Select(WatchGeneratedText.CurrentAttentionPresentation003) + snapshot.Order,
+            text.Select(WatchGeneratedText.CurrentAttentionPresentation003) + text.OrderLabel(snapshot.Order),
             text.Select(WatchGeneratedText.CurrentAttentionPresentation010) + ProjectFilters(snapshot.Kinds, snapshot.Severities, catalog),
             text.Select(WatchGeneratedText.CurrentAttentionPresentation005) + ProjectFilters(normalizedQuery.Kinds, normalizedQuery.Severities, catalog),
             text.Select(WatchGeneratedText.CurrentAttentionPresentation006),
@@ -331,7 +332,8 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
                 evidence.Outcome,
                 evidence.DatabaseName,
                 evidence.VolumeRoot,
-                evidence.AvailablePercent),
+                evidence.AvailablePercent,
+                catalog.Columns),
             item.Navigation,
             errorSearchDrill,
             protection);
@@ -429,7 +431,7 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
     private static string ProjectSnapshotFacts(OperationalSnapshotIdentity snapshot, WatchTextCatalog catalog) =>
         catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation046) + catalog.FormatAbsoluteTime(snapshot.SnapshotAsOf)
         + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation012) + catalog.FormatAbsoluteTime(snapshot.ProjectionCommittedAt)
-        + $" · {snapshot.ProjectionCommitId} · " + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation047) + $"{snapshot.ProjectionSequence:N0} · PollTrace {snapshot.PollTraceId} · PollTrace HighWater {snapshot.PollTraceHighWater:N0} · CatalogRevision {snapshot.CatalogRevision:N0}";
+        + $" · {snapshot.ProjectionCommitId} · " + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation047) + $"{snapshot.ProjectionSequence:N0} · {catalog.Columns.PollTrace} {snapshot.PollTraceId} · {catalog.Columns.PollTraceHighWater} {snapshot.PollTraceHighWater:N0} · {catalog.Columns.CatalogRevision} {snapshot.CatalogRevision:N0}";
 
     private static string ProjectClientAttempts(
         WatchV2ViewState<CurrentIngestAttentionSnapshot, WatchNoDetail> view,
@@ -449,13 +451,25 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
         WatchTextCatalog catalog)
     {
         var kindSummary = kinds is { Count: > 0 }
-            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation051) + string.Join(catalog.Common.ListSeparator, kinds)
+            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation051)
+                + string.Join(catalog.Common.ListSeparator, kinds.Select(code => ProjectKind(code, catalog)))
             : catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation052);
         var severitySummary = severities is { Count: > 0 }
-            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation053) + string.Join(catalog.Common.ListSeparator, severities)
+            ? catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation053)
+                + string.Join(catalog.Common.ListSeparator, severities.Select(code => ProjectSeverityLabel(code, catalog)))
             : catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation054);
         return $"{kindSummary} · {severitySummary}";
     }
+
+    private static string ProjectKind(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.CurrentAttention.CodeWithMeaning(catalog.CurrentAttention.DescribeKind(rawCode))
+            : rawCode;
+
+    private static string ProjectSeverityLabel(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.CurrentAttention.CodeWithMeaning(catalog.CurrentAttention.DescribeSeverity(rawCode))
+            : rawCode;
 
     private static WatchPresentationSeverity ProjectSeverity(string severity) => severity switch
     {
@@ -467,16 +481,16 @@ internal sealed record WatchCurrentIngestAttentionPresentation(
     private static string ProjectSubject(CurrentIngestAttentionItemSnapshot item, WatchTextCatalog catalog) => item.Kind switch
     {
         CurrentIngestAttentionKinds.SeriesError =>
-            $"SeriesId {ProjectText(item.SeriesId, catalog)} · "
+            $"{catalog.Columns.SeriesId} {ProjectText(item.SeriesId, catalog)} · "
             + catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeErrorCode(ProjectText(item.ErrorCode, catalog)))
-            + $" · Target {ProjectText(item.Target, catalog)} · "
+            + $" · {catalog.Columns.Target} {ProjectText(item.Target, catalog)} · "
             + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation055) + ProjectText(item.SubjectKind, catalog),
         CurrentIngestAttentionKinds.PollRunFailure =>
-            $"PollTrace {ProjectText(item.Evidence.PollTraceId, catalog)} · " + ProjectStatus(item.Evidence.Outcome, catalog),
+            $"{catalog.Columns.PollTrace} {ProjectText(item.Evidence.PollTraceId, catalog)} · " + ProjectStatus(item.Evidence.Outcome, catalog),
         CurrentIngestAttentionKinds.TaskTypeProtection =>
-            $"WorkType {ProjectText(item.WorkType ?? item.Evidence.WorkType, catalog)} · " + ProjectStatus(item.Evidence.Phase, catalog),
+            $"{catalog.Columns.WorkType} {ProjectText(item.WorkType ?? item.Evidence.WorkType, catalog)} · " + ProjectStatus(item.Evidence.Phase, catalog),
         CurrentIngestAttentionKinds.UnassignedMesObservation =>
-            $"PollTrace {ProjectText(item.Evidence.PollTraceId, catalog)} · " + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation056) + (item.Evidence.ObservationOrdinal?.ToString() ?? catalog.Common.SourceNotProvided),
+            $"{catalog.Columns.PollTrace} {ProjectText(item.Evidence.PollTraceId, catalog)} · " + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation056) + (item.Evidence.ObservationOrdinal?.ToString() ?? catalog.Common.SourceNotProvided),
         CurrentIngestAttentionKinds.StoragePressure =>
             catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation057) + ProjectText(item.Evidence.DatabaseName, catalog)
             + catalog.CurrentAttention.Select(WatchGeneratedText.CurrentAttentionPresentation058) + ProjectText(item.Evidence.VolumeRoot, catalog)

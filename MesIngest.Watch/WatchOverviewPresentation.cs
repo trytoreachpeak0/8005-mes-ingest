@@ -24,7 +24,7 @@ internal sealed record WatchAreaDisplayContext(
     DateTimeOffset? LastUpdatedAt)
 {
     public static WatchAreaDisplayContext AllAreas { get; } = new(
-        "全部 AREA",
+        "全部区域",
         [],
         "本机默认",
         null);
@@ -163,7 +163,9 @@ internal sealed record WatchOverviewPresentation(
         var activities = snapshot.RecentActivity
             .Take(5)
             .Select(activity => new WatchOverviewActivityPresentation(
-                $"{text.ActivityKind(activity.Kind)} · {activity.EventType}",
+                catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+                    ? text.ActivityKind(activity.Kind)
+                    : $"{text.ActivityKind(activity.Kind)} · {activity.EventType}",
                 ActivityDetail(activity),
                 catalog.FormatAbsoluteTime(activity.OccurredAt),
                 ActivitySeverity(activity.Severity),

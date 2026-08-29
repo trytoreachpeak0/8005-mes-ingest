@@ -78,8 +78,8 @@ internal sealed record WatchAppliedAreaFilterProfile(
     public bool IsAllAreas => ProfileName is null;
 
     public string DisplaySummary => IsAllAreas
-        ? "全部 AREA"
-        : $"{ProfileName} · {MesAreas.Count} 个 AREA";
+        ? "全部区域"
+        : $"{ProfileName} · {MesAreas.Count} 个区域";
 
     public WatchAreaDisplayContext ToDisplayContext()
     {
@@ -89,7 +89,7 @@ internal sealed record WatchAppliedAreaFilterProfile(
         }
 
         return new WatchAreaDisplayContext(
-                IsAllAreas ? "全部 AREA" : ProfileName!,
+                IsAllAreas ? "全部区域" : ProfileName!,
                 MesAreas,
                 "本机已应用",
                 AppliedAt)
@@ -172,13 +172,13 @@ internal static class WatchAreaFilterProfileParser
         {
             diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                 WatchAreaFilterProfileDiagnosticCodes.ProfileNameRequired,
-                "必须填写 AREA 配置名称。"));
+                "必须填写区域配置名称。"));
         }
         else if (!IsSafeProfileName(normalizedProfileName))
         {
             diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                 WatchAreaFilterProfileDiagnosticCodes.UnsafeProfileName,
-                "AREA 配置名称不能用作本地文件名。",
+                "区域配置名称不能用作本地文件名。",
                 Value: profileName));
         }
 
@@ -197,7 +197,7 @@ internal static class WatchAreaFilterProfileParser
             {
                 diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                     WatchAreaFilterProfileDiagnosticCodes.InvalidMesArea,
-                    "AREA 必须匹配 ^[A-Z][1-9][0-9]?-[1-9][0-9]?$。",
+                    "区域值必须匹配 ^[A-Z][1-9][0-9]?-[1-9][0-9]?$。",
                     lineNumber,
                     value));
                 continue;
@@ -207,7 +207,7 @@ internal static class WatchAreaFilterProfileParser
             {
                 diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                     WatchAreaFilterProfileDiagnosticCodes.DuplicateMesArea,
-                    $"AREA '{value}' 重复出现。",
+                    $"区域值 '{value}' 重复出现。",
                     lineNumber,
                     value));
             }
@@ -217,14 +217,14 @@ internal static class WatchAreaFilterProfileParser
         {
             diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                 WatchAreaFilterProfileDiagnosticCodes.TooManyMesAreas,
-                $"最多支持 {MaximumAreaCount} 个不同的 AREA。"));
+                $"最多支持 {MaximumAreaCount} 个不同的区域。"));
         }
 
         if (areas.Count == 0)
         {
             diagnostics.Add(new WatchAreaFilterProfileDiagnostic(
                 WatchAreaFilterProfileDiagnosticCodes.EmptyAreaSet,
-                "AREA 配置必须至少包含一个有效 AREA。"));
+                "区域配置必须至少包含一个有效区域。"));
         }
 
         return new WatchAreaFilterProfile(
@@ -467,7 +467,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return UnavailableProfile(
                 nameCheck.ProfileName,
                 WatchAreaFilterProfileDiagnosticCodes.ProfileNotFound,
-                "AREA 配置 TXT 文件不存在。");
+                "区域配置文本文件不存在。");
         }
 
         try
@@ -483,7 +483,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return UnavailableProfile(
                 nameCheck.ProfileName,
                 WatchAreaFilterProfileDiagnosticCodes.InvalidUtf8,
-                "AREA 配置 TXT 文件不是有效的 UTF-8。") with
+                "区域配置文本文件不是有效的 UTF-8。") with
             {
                 FileFingerprint = snapshot.Fingerprint,
             };
@@ -557,7 +557,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 AppendDiagnostic(
                     draft,
                     WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
-                    $"AREA 配置 '{draft.ProfileName}.txt' 已存在；另存为不会覆盖现有文件。"));
+                    $"区域配置 '{draft.ProfileName}.txt' 已存在；另存为不会覆盖现有文件。"));
         }
 
         AtomicCreateText(path, draft.Content);
@@ -724,7 +724,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 AppendDiagnostic(
                     draft,
                     WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker,
-                    "已应用 AREA 标记无法确认，重命名已取消；请先修复标记或明确应用全部 AREA。"),
+                    "已应用区域标记无法确认，重命名已取消；请先修复标记或明确应用全部区域。"),
                 currentApplied);
         }
 
@@ -738,7 +738,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 AppendDiagnostic(
                     draft,
                     WatchAreaFilterProfileDiagnosticCodes.ProfileNameUnchanged,
-                    "新名称必须与当前 AREA 配置名称不同。"),
+                    "新名称必须与当前区域配置名称不同。"),
                 currentApplied);
         }
 
@@ -750,7 +750,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 AppendDiagnostic(
                     draft,
                     WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
-                    $"AREA 配置 '{destinationNameCheck.ProfileName}.txt' 已存在；重命名不会覆盖现有文件。"),
+                    $"区域配置 '{destinationNameCheck.ProfileName}.txt' 已存在；重命名不会覆盖现有文件。"),
                 currentApplied);
         }
 
@@ -817,7 +817,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 currentApplied,
                 [new WatchAreaFilterProfileDiagnostic(
                     WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker,
-                    "已应用 AREA 标记无法确认，删除已取消；请先修复标记或明确应用全部 AREA。")]);
+                    "已应用区域标记无法确认，删除已取消；请先修复标记或明确应用全部区域。")]);
         }
 
         var path = GetProfilePath(nameCheck.ProfileName);
@@ -976,7 +976,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         WatchAppliedAreaFilterProfile.AllAreas,
         new WatchAreaFilterProfileDiagnostic(
             WatchAreaFilterProfileDiagnosticCodes.InvalidActiveMarker,
-            "已应用 AREA 标记无法读取或内容无效，已回退为全部 AREA。"));
+            "已应用区域标记无法读取或内容无效，已回退为全部区域。"));
 
     private WatchAreaFilterProfileApplyResult ApplyDraftNoLock(WatchAreaFilterProfile draft)
     {
@@ -1062,7 +1062,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         catch (IOException exception)
         {
             throw new IOException(
-                "AREA 配置正由另一进程修改；请稍后重试。",
+                "区域配置正由另一进程修改；请稍后重试。",
                 exception);
         }
     }
@@ -1076,7 +1076,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return expectedFingerprint is null
                 ? null
                 : ProfileChangedOnDiskDiagnostic(
-                    "AREA 配置 TXT 路径已被其他文件系统对象替代；已保留当前草稿，请重新加载后再试。");
+                    "区域配置文本路径已被其他文件系统对象替代；已保留当前草稿，请重新加载后再试。");
         }
 
         ProfileFileSnapshot current;
@@ -1090,7 +1090,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             return expectedFingerprint is null
                 ? null
                 : ProfileChangedOnDiskDiagnostic(
-                    "AREA 配置 TXT 已在磁盘移动或删除；已保留当前草稿，请重新加载后再试。");
+                    "区域配置文本已在磁盘移动或删除；已保留当前草稿，请重新加载后再试。");
         }
 
         return expectedFingerprint is not null
@@ -1100,7 +1100,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 StringComparison.Ordinal)
                 ? null
                 : ProfileChangedOnDiskDiagnostic(
-                    "AREA 配置 TXT 已在磁盘更改；已保留当前草稿和磁盘版本，请重新加载后再试。");
+                    "区域配置文本已在磁盘更改；已保留当前草稿和磁盘版本，请重新加载后再试。");
     }
 
     private static WatchAreaFilterProfileDiagnostic? ValidateDestructiveFingerprintNoLock(
@@ -1116,13 +1116,13 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
                 StringComparison.Ordinal)
                     ? null
                     : ProfileChangedOnDiskDiagnostic(
-                        "AREA 配置 TXT 在确认后已被替换或更改；操作已取消，请重新选择并确认。");
+                        "区域配置文本在确认后已被替换或更改；操作已取消，请重新选择并确认。");
         }
         catch (Exception exception) when (exception is FileNotFoundException
             or DirectoryNotFoundException)
         {
             return ProfileChangedOnDiskDiagnostic(
-                "AREA 配置 TXT 在确认后已被移动或删除；操作已取消，请重新选择并确认。");
+                "区域配置文本在确认后已被移动或删除；操作已取消，请重新选择并确认。");
         }
     }
 
@@ -1142,7 +1142,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             FileOptions.SequentialScan);
         if (stream.Length > int.MaxValue)
         {
-            throw new IOException("AREA 配置 TXT 文件过大，无法安全读取。");
+            throw new IOException("区域配置文本文件过大，无法安全读取。");
         }
 
         var bytes = new byte[(int)stream.Length];
@@ -1209,7 +1209,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             or ArgumentException)
         {
             EnterDirectoryWatchDegraded(
-                $"AREA 配置目录暂时无法创建或访问：{exception.Message}");
+                $"区域配置目录暂时无法创建或访问：{exception.Message}");
             return;
         }
 
@@ -1252,7 +1252,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
 
         RaiseDirectoryWatchStateChanged(
             WatchAreaProfileDirectoryWatchStatus.Stopped,
-            "AREA 配置目录监视已暂停。");
+            "区域配置目录监视已暂停。");
     }
 
     public void Dispose()
@@ -1569,7 +1569,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
 
             RaiseDirectoryWatchStateChanged(
                 WatchAreaProfileDirectoryWatchStatus.Watching,
-                "AREA 配置目录监视正常。");
+                "区域配置目录监视正常。");
             if (requiresFullRescan)
             {
                 RaiseDirectoryChange([], [], [], requiresFullRescan: true);
@@ -1580,7 +1580,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
             or ArgumentException)
         {
             EnterDirectoryWatchDegraded(
-                $"AREA 配置目录暂时无法监视：{exception.Message}",
+                $"区域配置目录暂时无法监视：{exception.Message}",
                 requiresFullRescan: !failureRescanAlreadyEmitted);
             lock (_directoryWatchGate)
             {
@@ -1599,8 +1599,8 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
     {
         EnterDirectoryWatchDegraded(
             failure.Exception is InternalBufferOverflowException
-                ? "AREA 配置目录事件过多，正在全量重新扫描并重建监视。"
-                : $"AREA 配置目录监视已中断：{failure.Exception.Message}");
+                ? "区域配置目录事件过多，正在全量重新扫描并重建监视。"
+                : $"区域配置目录监视已中断：{failure.Exception.Message}");
         if (Directory.Exists(DirectoryPath))
         {
             TryRecoverDirectoryWatch(failureRescanAlreadyEmitted: true);
@@ -1629,7 +1629,7 @@ internal sealed class WatchAreaFilterProfileStore : IDisposable
         if (lifecycle is DirectoryWatchLifecycle.Watching)
         {
             EnterDirectoryWatchDegraded(
-                "AREA 配置目录不存在；目录恢复后将自动重新监视。");
+                "区域配置目录不存在；目录恢复后将自动重新监视。");
             return;
         }
 

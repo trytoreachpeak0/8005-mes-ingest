@@ -42,22 +42,22 @@ public sealed class WatchErrorSearchPresentationTests
                 SnapshotReference: snapshot.SnapshotReference));
 
         Assert.True(presentation.HasSnapshot);
-        Assert.Contains("ErrorSearchAsOf 2026-08-14 05:06:07 +00:00", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("错误检索查询时点 2026-08-14 05:06:07 +00:00", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("commit-error-22", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Contains("序列 220", presentation.SnapshotFacts, StringComparison.Ordinal);
-        Assert.Contains("PollTrace poll-error-22", presentation.SnapshotFacts, StringComparison.Ordinal);
+        Assert.Contains("轮询追踪 poll-error-22", presentation.SnapshotFacts, StringComparison.Ordinal);
         Assert.Equal(
-            "UTC 半开窗口 [2026-08-07 05:06:07 +00:00, 2026-08-14 05:06:07 +00:00)",
+            "协调世界时半开窗口 [2026-08-07 05:06:07 +00:00, 2026-08-14 05:06:07 +00:00)",
             presentation.CommittedWindow);
-        Assert.Contains("分类 DATA_FORMAT", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("错误码 INVALID_MES_FIELD_FORMAT", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("状态 ACTIVE、ENDED", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("SeriesId SERIES-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("DemandId DEMAND-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("SUBLOT 包含 SL-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
-        Assert.Equal("精确 37 个 DemandSeries · 第 2 / 4 页", presentation.PageSummary);
+        Assert.Contains("分类 数据格式", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("错误码 制造执行系统字段格式无效", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("状态 活动中、已结束", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("需求系列标识 SERIES-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("运输需求标识 DEMAND-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("子批次包含 SL-TICKET-22", presentation.CommittedConditions, StringComparison.Ordinal);
+        Assert.Equal("精确 37 个需求系列 · 第 2 / 4 页", presentation.PageSummary);
         Assert.Empty(presentation.EmptyResultMessage);
-        Assert.Equal($"Host 固定排序：{ErrorSearchOrder.Default}", presentation.OrderSummary);
+        Assert.Equal("服务端固定排序：活动项优先、最新命中证据降序、需求系列标识升序", presentation.OrderSummary);
         Assert.True(presentation.CanGoPrevious);
         Assert.True(presentation.CanGoNext);
 
@@ -65,13 +65,13 @@ public sealed class WatchErrorSearchPresentationTests
             [("OBSERVATION_CONFLICT", 19L), ("DATA_FORMAT", 23L)],
             presentation.CategoryFacets.Select(value => (value.Category, value.SeriesCount)).ToArray());
         Assert.Equal(
-            [("已结束 · ENDED", 31L), ("活动中 · ACTIVE", 11L)],
+            [("已结束", 31L), ("活动中", 11L)],
             presentation.ActivityFacets.Select(value => (value.State, value.SeriesCount)).ToArray());
         Assert.Equal(
             ["series-host-first", "series-host-second"],
             presentation.Rows.Select(row => row.SeriesId).ToArray());
-        Assert.Equal("已结束 · ENDED", presentation.Rows[0].ActivityState);
-        Assert.Equal("活动中 · ACTIVE", presentation.Rows[1].ActivityState);
+        Assert.Equal("已结束", presentation.Rows[0].ActivityState);
+        Assert.Equal("活动中", presentation.Rows[1].ActivityState);
         Assert.Equal("命中 2 个期间", presentation.Rows[0].MatchedPeriodSummary);
         Assert.Equal("跨 2 个需求代次", presentation.Rows[0].MatchedDemandGenerationSummary);
     }
@@ -132,7 +132,7 @@ public sealed class WatchErrorSearchPresentationTests
             attempted);
 
         Assert.Equal(
-            "查询成功；Host 在当前已提交条件下精确 0 个 DemandSeries 命中。",
+            "查询成功；服务端在当前已提交条件下精确 0 个需求系列命中。",
             successful.EmptyResultMessage);
         Assert.False(successful.IsInfoOpen);
 
@@ -159,9 +159,9 @@ public sealed class WatchErrorSearchPresentationTests
         Assert.Contains(ErrorSearchErrorCodes.InvalidCursor, failed.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("correlation-error-22", failed.InfoMessage, StringComparison.Ordinal);
         Assert.Empty(failed.EmptyResultMessage);
-        Assert.Contains("分类 DATA_FORMAT", failed.CommittedConditions, StringComparison.Ordinal);
-        Assert.DoesNotContain("DATA_COMPLETENESS", failed.CommittedConditions, StringComparison.Ordinal);
-        Assert.Contains("DATA_COMPLETENESS", failed.CurrentQuerySummary, StringComparison.Ordinal);
+        Assert.Contains("分类 数据格式", failed.CommittedConditions, StringComparison.Ordinal);
+        Assert.DoesNotContain("数据完整性", failed.CommittedConditions, StringComparison.Ordinal);
+        Assert.Contains("数据完整性", failed.CurrentQuerySummary, StringComparison.Ordinal);
         Assert.Equal(successful.SnapshotFacts, failed.SnapshotFacts);
         Assert.Equal(successful.CommittedWindow, failed.CommittedWindow);
         Assert.Equal(0, Assert.Single(failed.CategoryFacets).SeriesCount);
@@ -191,7 +191,7 @@ public sealed class WatchErrorSearchPresentationTests
         Assert.False(presentation.HasSnapshot);
         Assert.True(presentation.IsRefreshing);
         Assert.Equal("正在读取错误历史", presentation.InfoTitle);
-        Assert.Equal("尚无 Error Search Host 快照", presentation.SnapshotFacts);
+        Assert.Equal("尚无错误检索服务端快照", presentation.SnapshotFacts);
         Assert.Empty(presentation.EmptyResultMessage);
         Assert.Empty(presentation.Rows);
         Assert.Null(presentation.Detail);
@@ -214,7 +214,7 @@ public sealed class WatchErrorSearchPresentationTests
             new ErrorSearchQuery(snapshot.Filter, ErrorSearchWindowSelection.Last7Days));
 
         var selected = Assert.IsType<WatchErrorSearchDetailPresentation>(presentation.Detail);
-        Assert.Equal("series-detail-22 · 活动中 · ACTIVE", selected.Heading);
+        Assert.Equal("series-detail-22 · 活动中", selected.Heading);
         Assert.Equal(["demand-generation-1", "demand-generation-2"], selected.MatchedDemandIds);
         Assert.Equal(
             "跨 2 个需求代次：demand-generation-1、demand-generation-2",
@@ -234,17 +234,17 @@ public sealed class WatchErrorSearchPresentationTests
         Assert.Equal("^[A-Z][1-9][0-9]?$", scalar.ExpectedRule);
         Assert.Equal("poll-generation-1", scalar.PollTraceId);
         Assert.Equal("commit-generation-1", scalar.ProjectionCommitId);
-        Assert.Equal("DemandId demand-generation-1", scalar.SubjectReference);
+        Assert.Equal("运输需求标识 demand-generation-1", scalar.SubjectReference);
         Assert.False(scalar.CanReadRawEvidence);
 
         var active = selected.Periods[1];
         Assert.False(active.StartsBeforeWindow);
         Assert.True(active.EndsAfterWindow);
         Assert.True(active.ActiveAtAsOf);
-        Assert.Equal("期间延伸到窗口之后 · ErrorSearchAsOf 时仍为 ACTIVE", active.BoundarySummary);
+        Assert.Equal("期间延伸到窗口之后 · 错误检索查询时点仍为活动", active.BoundarySummary);
         var membership = active.Evidence[0];
-        Assert.Equal("WorkType DIE_ATTACH、WIRE_TO_GATE", membership.DiagnosticSummary);
-        Assert.Equal("DemandId demand-generation-2 · WorkType DIE_ATTACH、WIRE_TO_GATE", membership.SubjectReference);
+        Assert.Equal("工序类型 DIE_ATTACH、WIRE_TO_GATE", membership.DiagnosticSummary);
+        Assert.Equal("运输需求标识 demand-generation-2 · 工序类型 DIE_ATTACH、WIRE_TO_GATE", membership.SubjectReference);
         var rawSummary = active.Evidence[1];
         Assert.Equal("2 条原始观测 · SHA-256 digest-ticket-22", rawSummary.DiagnosticSummary);
         Assert.True(rawSummary.CanReadRawEvidence);
@@ -663,7 +663,7 @@ public sealed class WatchErrorSearchPresentationTests
     }
 
     [Fact]
-    public void English_projection_localizes_error_search_semantics_while_preserving_codes_filters_and_offset_times()
+    public void English_projection_localizes_error_search_semantics_while_preserving_codes_filters_and_system_local_times()
     {
         var snapshot = Snapshot(
             FullFilter(),
@@ -691,7 +691,7 @@ public sealed class WatchErrorSearchPresentationTests
         Assert.Equal("series-bilingual-06", Assert.Single(english.Rows).SeriesId);
         Assert.Contains("INVALID_MES_FIELD_FORMAT", english.Rows[0].MatchedErrorSummary, StringComparison.Ordinal);
         Assert.Contains("does not match", english.Rows[0].MatchedErrorSummary, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("2026-08-14 05:06:07 +00:00", english.Rows[0].LatestMatchedEvidenceAt, StringComparison.Ordinal);
+        Assert.Contains(WatchTimeDisplay.Format(AsOf), english.Rows[0].LatestMatchedEvidenceAt, StringComparison.Ordinal);
         Assert.Equal(chinese.Rows[0].SeriesId, english.Rows[0].SeriesId);
         Assert.Equal(chinese.Rows[0].WorkType, english.Rows[0].WorkType);
         Assert.Equal(chinese.Rows[0].Sublot, english.Rows[0].Sublot);

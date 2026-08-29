@@ -31,7 +31,7 @@ public sealed class WatchOverviewPresentationTests
     }
 
     [Fact]
-    public void English_failed_refresh_retains_one_complete_snapshot_with_offset_relative_time_units_and_navigation()
+    public void English_failed_refresh_retains_one_complete_snapshot_with_system_local_relative_time_units_and_navigation()
     {
         var snapshot = OverviewSnapshot();
         var failedAt = snapshot.Snapshot.SnapshotAsOf.AddSeconds(25);
@@ -166,7 +166,7 @@ public sealed class WatchOverviewPresentationTests
         Assert.True(refreshing.IsRefreshing);
         Assert.True(refreshing.IsStale);
         AssertSnapshotProjectionEqual(committed, refreshing);
-        Assert.Contains("继续显示 Host 快照", refreshing.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains("继续显示服务端快照", refreshing.InfoMessage, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -222,7 +222,7 @@ public sealed class WatchOverviewPresentationTests
         Assert.True(retrying.IsRefreshing);
         Assert.True(retrying.IsStale);
         Assert.Equal("正在刷新概览", retrying.InfoTitle);
-        Assert.Contains("继续显示 Host 快照", retrying.InfoMessage, StringComparison.Ordinal);
+        Assert.Contains("继续显示服务端快照", retrying.InfoMessage, StringComparison.Ordinal);
         Assert.Contains("上次失败", retrying.InfoMessage, StringComparison.Ordinal);
         Assert.Contains(DisplayTime(failedAt), retrying.InfoMessage, StringComparison.Ordinal);
     }
@@ -243,8 +243,8 @@ public sealed class WatchOverviewPresentationTests
 
         Assert.Equal("本机 B2-2 班次", presentation.LocalAreaHeading);
         Assert.Contains("本机已选择", presentation.LocalAreaDetail, StringComparison.Ordinal);
-        Assert.Contains("1 个 AREA", presentation.LocalAreaDetail, StringComparison.Ordinal);
-        Assert.Equal("Host 已提交范围：A1-1", presentation.HostAreaScope);
+        Assert.Contains("1 个区域", presentation.LocalAreaDetail, StringComparison.Ordinal);
+        Assert.Equal("服务端已提交范围：A1-1", presentation.HostAreaScope);
         Assert.DoesNotContain("B2-2", presentation.HostAreaScope, StringComparison.Ordinal);
         Assert.DoesNotContain("A1-1", presentation.LocalAreaHeading, StringComparison.Ordinal);
         Assert.DoesNotContain("A1-1", presentation.LocalAreaDetail, StringComparison.Ordinal);
@@ -274,8 +274,8 @@ public sealed class WatchOverviewPresentationTests
         Assert.Equal("尚未加载", presentation.ReadabilityValue);
         Assert.Equal("尚未加载", presentation.ErrorsValue);
         Assert.Equal("尚未加载", presentation.AttentionValue);
-        Assert.Equal("Host 已提交范围：尚无快照", presentation.HostAreaScope);
-        Assert.Contains("旧 Host 数据已清空", presentation.InfoMessage, StringComparison.Ordinal);
+        Assert.Equal("服务端已提交范围：尚无快照", presentation.HostAreaScope);
+        Assert.Contains("旧服务端数据已清空", presentation.InfoMessage, StringComparison.Ordinal);
         Assert.Null(presentation.SeriesNavigation);
         Assert.Null(presentation.ReadabilityNavigation);
         Assert.Null(presentation.ErrorsNavigation);
@@ -333,6 +333,7 @@ public sealed class WatchOverviewPresentationTests
         Assert.Same(errorsIntent, presentation.ErrorsNavigation);
         Assert.Same(attentionIntent, presentation.AttentionNavigation);
         Assert.Single(presentation.RecentActivity);
+        Assert.Equal("轮询运行失败", presentation.RecentActivity[0].Heading);
         Assert.Same(activityIntent, presentation.RecentActivity[0].Navigation);
         Assert.Equal(1, presentation.SeriesNavigation!.PageNumber);
         Assert.Null(presentation.SeriesNavigation.Cursor);
@@ -753,5 +754,5 @@ public sealed class WatchOverviewPresentationTests
     }
 
     private static string DisplayTime(DateTimeOffset value) =>
-        value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture);
+        WatchTimeDisplay.Format(value);
 }

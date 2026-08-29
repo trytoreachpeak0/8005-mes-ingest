@@ -88,8 +88,8 @@ internal partial class WatchWorkspaceWindow
     {
         var dialog = new ContentDialog(WorkspaceDialogHost)
         {
-            Title = "目标不在当前 AREA 范围",
-            PrimaryButtonText = "切换到全部 AREA",
+            Title = "目标不在当前区域范围",
+            PrimaryButtonText = "切换到全部区域",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Close,
             DialogWidth = 520,
@@ -98,14 +98,14 @@ internal partial class WatchWorkspaceWindow
                 Children =
                 {
                     DialogText(
-                        "切换到“全部 AREA”会清除冻结游标，并重新查询第一页和目标详情。"),
+                        "切换到“全部区域”会清除冻结游标，并重新查询第一页和目标详情。"),
                     DialogText(
-                        "这只改变本机显示范围，不会改变 Host 业务投影或 Dispatch 范围。",
+                        "这只改变本机显示范围，不会改变服务端业务投影或调度范围。",
                         new Thickness(0, 12, 0, 0)),
                 },
             },
         };
-        AutomationProperties.SetName(dialog, "确认切换到全部 AREA 范围");
+        AutomationProperties.SetName(dialog, "确认切换到全部区域范围");
         _activeWorkspaceDialog = dialog;
         _activeWorkspaceDialogKind = "all-areas";
         ApplyLocalizedActiveWorkspaceDialog();
@@ -149,7 +149,7 @@ internal partial class WatchWorkspaceWindow
 
         var dialog = new ContentDialog(WorkspaceDialogHost)
         {
-            Title = "AREA 文件已被其他程序修改",
+            Title = "区域文件已被其他程序修改",
             PrimaryButtonText = "覆盖并保存",
             SecondaryButtonText = "重新载入文件",
             CloseButtonText = "稍后处理",
@@ -167,7 +167,7 @@ internal partial class WatchWorkspaceWindow
                 },
             },
         };
-        AutomationProperties.SetName(dialog, $"{profileName}.txt AREA 并发写入冲突");
+        AutomationProperties.SetName(dialog, $"{profileName}.txt 区域并发写入冲突");
         _activeWorkspaceDialog = dialog;
         _activeWorkspaceDialogKind = "area-write-conflict";
         ApplyLocalizedActiveWorkspaceDialog();

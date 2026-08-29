@@ -300,8 +300,9 @@ internal sealed record WatchDemandSeriesPresentation(
 
         var compared = new List<string>();
         var differences = new List<string>();
-        Compare("WorkType", source.WorkType, target.WorkType, compared, differences, text.SourceNotProvided);
-        Compare("SUBLOT", source.Sublot, target.Sublot, compared, differences, text.SourceNotProvided);
+        var columns = WatchTextCatalog.For(text.DisplayLanguage).Columns;
+        Compare(columns.WorkType, source.WorkType, target.WorkType, compared, differences, text.SourceNotProvided);
+        Compare(columns.Sublot, source.Sublot, target.Sublot, compared, differences, text.SourceNotProvided);
         Compare(text.GenerationLabel, source.Generation, target.Generation, compared, differences, text.SourceNotProvided);
         Compare(text.DemandStateLabel, source.DemandStatus, target.DemandStatus, compared, differences, text.SourceNotProvided);
         Compare(text.LifecycleLabel, source.Lifecycle, target.Lifecycle, compared, differences, text.SourceNotProvided);
@@ -362,10 +363,11 @@ internal sealed record WatchDemandSeriesPresentation(
         WatchDemandSeriesObjectFacts facts,
         WatchDemandSeriesText text)
     {
-        var values = new List<string> { $"SeriesId {facts.SeriesId}" };
-        Add("DemandId", facts.DemandId);
-        Add("WorkType", facts.WorkType);
-        Add("SUBLOT", facts.Sublot);
+        var columns = WatchTextCatalog.For(text.DisplayLanguage).Columns;
+        var values = new List<string> { $"{columns.SeriesId} {facts.SeriesId}" };
+        Add(columns.DemandId, facts.DemandId);
+        Add(columns.WorkType, facts.WorkType);
+        Add(columns.Sublot, facts.Sublot);
         Add(text.GenerationLabel, facts.Generation);
         Add(text.DemandStateLabel, facts.DemandStatus);
         Add(text.LifecycleLabel, facts.Lifecycle);
@@ -510,11 +512,26 @@ internal sealed record WatchDemandSeriesPresentation(
         ProjectLiveMesFields(item.LiveMesFields, catalog),
         item.ExternalReadabilityState,
         item.ReadabilityBlockers,
-        item.ReadabilityBlockers.Count == 0
-            ? item.ExternalReadabilityState
-            : string.Join('、', item.ReadabilityBlockers),
+        ProjectAttention(item, catalog),
         item.LatestPollTraceId,
         item.LatestProjectionCommitId);
+    }
+
+    private static string ProjectAttention(
+        DemandSeriesListItemSnapshot item,
+        WatchTextCatalog catalog)
+    {
+        if (catalog.Language != WatchDisplayLanguage.SimplifiedChinese)
+        {
+            return item.ReadabilityBlockers.Count == 0
+                ? item.ExternalReadabilityState
+                : string.Join('、', item.ReadabilityBlockers);
+        }
+
+        return item.ReadabilityBlockers.Count == 0
+            ? catalog.ReadabilityAudit.DescribeReadability(item.ExternalReadabilityState)
+            : string.Join('、', item.ReadabilityBlockers.Select(code =>
+                catalog.ReadabilityAudit.CodeWithMeaning(catalog.ReadabilityAudit.DescribeBlocker(code))));
     }
 
     private static WatchLiveMesFieldSetPresentation? ProjectLiveMesFields(

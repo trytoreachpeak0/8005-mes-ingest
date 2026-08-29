@@ -45,10 +45,27 @@ internal sealed record WatchReadabilityAuditRowPresentation(
     string WorkTypeLabel,
     string SublotLabel,
     string ExternalReadabilityMeaning,
-    string LeadReadabilityBlockerMeaning)
+    string LeadReadabilityBlockerMeaning,
+    WatchColumnText Labels)
 {
-    public string LifecycleSummary =>
-        $"Demand {DemandStatus} · Series {SeriesLifecycle} · {SeriesCurrentPresence}";
+    private WatchTextCatalog Catalog => WatchTextCatalog.For(Labels.DisplayLanguage);
+
+    public string LifecycleSummary
+    {
+        get
+        {
+            var demandStatus = Labels.DisplayLanguage == WatchDisplayLanguage.SimplifiedChinese
+                ? Catalog.DemandSeries.DescribePresence(DemandStatus)
+                : DemandStatus;
+            var lifecycle = Labels.DisplayLanguage == WatchDisplayLanguage.SimplifiedChinese
+                ? Catalog.DemandSeries.DescribeLifecycle(SeriesLifecycle)
+                : SeriesLifecycle;
+            var presence = Labels.DisplayLanguage == WatchDisplayLanguage.SimplifiedChinese
+                ? Catalog.DemandSeries.DescribePresence(SeriesCurrentPresence)
+                : SeriesCurrentPresence;
+            return $"{Labels.Demand} {demandStatus} · {Labels.Series} {lifecycle} · {presence}";
+        }
+    }
 
     public string DemandIdentity => $"{DemandLabel} {DemandId}";
 
@@ -56,18 +73,26 @@ internal sealed record WatchReadabilityAuditRowPresentation(
 
     public string SublotIdentity => $"{SublotLabel} {Sublot}";
 
-    public string ReadabilityDisplay => $"{ExternalReadabilityMeaning} · {ExternalReadabilityState}";
+    public string ReadabilityDisplay => Catalog.ReadabilityAudit.CodeWithMeaning(
+        Catalog.ReadabilityAudit.DescribeReadabilityMeaning(ExternalReadabilityState));
 
     public string BlockerDisplay => string.IsNullOrWhiteSpace(LeadReadabilityBlocker)
         ? LeadReadabilityBlockerMeaning
-        : $"{LeadReadabilityBlockerMeaning} · {LeadReadabilityBlocker}";
+        : Catalog.ReadabilityAudit.CodeWithMeaning(
+            Catalog.ReadabilityAudit.DescribeBlocker(LeadReadabilityBlocker));
 }
 
 internal sealed record WatchReadabilityQualificationCheckPresentation(
     string Code,
     string BlockingCode,
     string Result,
-    string Meaning);
+    string Meaning,
+    WatchReadabilityAuditText? Catalog = null)
+{
+    public string ResultDisplay => (Catalog
+        ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).ReadabilityAudit)
+        .QualificationResult(Result);
+}
 
 internal sealed record WatchReadabilityBlockerEvidencePresentation(
     string Code,
@@ -240,10 +265,14 @@ internal sealed record WatchReadabilityAuditPresentation(
             snapshot.TotalPages > 0 && snapshot.PageNumber > 1,
             snapshot.TotalPages > 0 && snapshot.PageNumber < snapshot.TotalPages,
             snapshot.Facets.ReadabilityStates
-                .Select(facet => new WatchReadabilityStateFacetPresentation(facet.State, facet.DemandCount))
+                .Select(facet => new WatchReadabilityStateFacetPresentation(
+                    ProjectReadability(facet.State, catalog),
+                    facet.DemandCount))
                 .ToArray(),
             snapshot.Facets.Blockers
-                .Select(facet => new WatchReadabilityBlockerFacetPresentation(facet.Code, facet.DemandCount))
+                .Select(facet => new WatchReadabilityBlockerFacetPresentation(
+                    ProjectBlocker(facet.Code, catalog),
+                    facet.DemandCount))
                 .ToArray(),
             snapshot.Items.Select(item => ProjectRow(item, catalog)).ToArray(),
             ProjectDetail(snapshot, view.Detail, catalog));
@@ -390,8 +419,8 @@ internal sealed record WatchReadabilityAuditPresentation(
                 detail.Series.SeriesId,
                 detail.Series.WorkType,
                 detail.Series.Sublot,
-                detail.Series.Lifecycle,
-                detail.Series.CurrentPresence,
+                ProjectLifecycle(detail.Series.Lifecycle, catalog),
+                ProjectPresence(detail.Series.CurrentPresence, catalog),
                 detail.Series.CurrentDemandId,
                 ProjectTime(detail.Series.StartedAt, catalog),
                 detail.Series.ArchivedAt is null
@@ -405,7 +434,7 @@ internal sealed record WatchReadabilityAuditPresentation(
                 ? text.NoBlocker
                 : string.Join(catalog.Common.ListSeparator, detail.Blockers
                     .OrderBy(blocker => blocker.Priority)
-                    .Select(blocker => blocker.Code)),
+                    .Select(blocker => ProjectBlocker(blocker.Code, catalog))),
             liveMes,
             detail.QualificationChecks
                 .Select(check => new WatchReadabilityQualificationCheckPresentation(
@@ -419,7 +448,8 @@ internal sealed record WatchReadabilityAuditPresentation(
                             definition.Code,
                             check.Code,
                             StringComparison.Ordinal))?.Meaning
-                        ?? "Host qualification check")))
+                        ?? catalog.Columns.QualificationCheck),
+                    text))
                 .ToArray(),
             detail.Blockers
                 .SelectMany(blocker => blocker.Evidence.Select((evidence, index) =>
@@ -500,7 +530,7 @@ internal sealed record WatchReadabilityAuditPresentation(
         item.ReadabilityBlockers,
         item.ReadabilityBlockers.Count == 0
             ? catalog.ReadabilityAudit.NoBlocker
-            : string.Join('、', item.ReadabilityBlockers),
+            : string.Join('、', item.ReadabilityBlockers.Select(code => ProjectBlocker(code, catalog))),
         item.LatestObservationPollTraceId,
         item.LatestObservationProjectionCommitId,
         ProjectTime(item.LatestObservationAt, catalog),
@@ -510,7 +540,8 @@ internal sealed record WatchReadabilityAuditPresentation(
         catalog.ReadabilityAudit.DescribeReadability(item.ExternalReadabilityState),
         string.IsNullOrWhiteSpace(item.LeadReadabilityBlocker)
             ? catalog.ReadabilityAudit.NoBlocker
-            : catalog.ReadabilityAudit.DescribeBlocker(item.LeadReadabilityBlocker).Description);
+            : catalog.ReadabilityAudit.DescribeBlocker(item.LeadReadabilityBlocker).Description,
+        catalog.Columns);
 
     private static WatchReadabilityLiveMesFieldSetPresentation? ProjectLiveMesFields(
         LiveMesFieldSetSnapshot? fields,
@@ -524,6 +555,26 @@ internal sealed record WatchReadabilityAuditPresentation(
                 ? catalog.Common.SourceNotProvided
                 : catalog.FormatAbsoluteTime(fields.MesSourceDate.Value),
             ProjectSourceText(fields.Package, catalog));
+
+    private static string ProjectLifecycle(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.DemandSeries.DescribeLifecycle(rawCode)
+            : rawCode;
+
+    private static string ProjectPresence(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.DemandSeries.DescribePresence(rawCode)
+            : rawCode;
+
+    private static string ProjectBlocker(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.ReadabilityAudit.CodeWithMeaning(catalog.ReadabilityAudit.DescribeBlocker(rawCode))
+            : rawCode;
+
+    private static string ProjectReadability(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.ReadabilityAudit.CodeWithMeaning(catalog.ReadabilityAudit.DescribeReadabilityMeaning(rawCode))
+            : rawCode;
 
     private static string ProjectSourceText(string? value, WatchTextCatalog catalog) =>
         string.IsNullOrWhiteSpace(value) ? catalog.Common.SourceNotProvided : value;

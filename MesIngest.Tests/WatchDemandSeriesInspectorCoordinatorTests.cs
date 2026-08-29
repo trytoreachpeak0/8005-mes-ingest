@@ -118,7 +118,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal(800, window.Height);
             Assert.Equal(720, window.MinWidth);
             Assert.Equal(600, window.MinHeight);
-            Assert.Equal("DemandSeries Inspector", AutomationProperties.GetName(window));
+            Assert.Equal("需求系列调查窗口", AutomationProperties.GetName(window));
 
             var tabs = Assert.IsType<TabControl>(window.FindName("DemandSeriesInspectorTabs"));
             Assert.Equal("DemandSeriesInspectorTabs", AutomationProperties.GetAutomationId(tabs));
@@ -206,7 +206,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             window.Update(focusedSecond);
 
             Assert.Same(second, list.SelectedItem);
-            Assert.Contains("DemandId demand-2", Assert.IsAssignableFrom<TextBlock>(
+            Assert.Contains("运输需求标识 demand-2", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorGenerationIdentityText")).Text,
                 StringComparison.Ordinal);
             Assert.Equal("归档前消失后再现", Assert.IsAssignableFrom<TextBlock>(
@@ -217,7 +217,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Contains("新世代首次匹配观测", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorAfterEvidenceText")).Text,
                 StringComparison.Ordinal);
-            Assert.Contains("DemandId demand-2", Assert.IsAssignableFrom<TextBlock>(
+            Assert.Contains("运输需求标识 demand-2", Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorEventContextText")).Text,
                 StringComparison.Ordinal);
 
@@ -236,18 +236,18 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var context = Assert.IsType<Grid>(
                 window.FindName("DemandSeriesInspectorContext"));
             Assert.Contains(
-                "Series series-a",
+                "需求系列 series-a",
                 AutomationProperties.GetName(context),
                 StringComparison.Ordinal);
             Assert.Contains(
-                "当前出现状态 VISIBLE",
+                "当前出现状态 当前可见",
                 AutomationProperties.GetName(context),
                 StringComparison.Ordinal);
 
             var identity = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorGenerationIdentityText"));
             Assert.Equal(
-                "选中世代：DemandId demand-a；第 1 代；状态 VISIBLE；当前世代",
+                "选中世代：运输需求标识 demand-a；第 1 代；状态 当前可见；当前世代",
                 AutomationProperties.GetName(identity));
 
             var reason = Assert.IsAssignableFrom<TextBlock>(
@@ -291,8 +291,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 IsStale: false,
                 IsPaused: false,
                 WatchPresentationSeverity.Error,
-                "无法读取所选 Series",
-                "Host 返回目标切换失败。"));
+                "无法读取所选需求系列",
+                "服务端返回目标切换失败。"));
 
             Assert.False(Assert.IsType<TabControl>(
                 window.FindName("DemandSeriesInspectorTabs")).IsEnabled);
@@ -304,28 +304,28 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 window.FindName("DemandSeriesInspectorFormationReasonText"));
             Assert.Equal("不可用", reason.Text);
             Assert.Equal(
-                "Demand 形成原因不可用",
+                "运输需求形成原因不可用",
                 AutomationProperties.GetName(reason));
             Assert.Null(reason.ToolTip);
             Assert.Equal(
-                "Demand 形成事实不可用",
+                "运输需求形成事实不可用",
                 AutomationProperties.GetName(Assert.IsType<ItemsControl>(
                     window.FindName("DemandSeriesInspectorFormationFacts"))));
             Assert.Equal(
-                "MES 边界原始行不可用",
+                "制造执行系统边界原始行不可用",
                 AutomationProperties.GetName(Assert.IsType<DataGrid>(
                     window.FindName("DemandSeriesInspectorAfterObservationGrid"))));
             Assert.Equal(
-                "DemandSeries 永久事件不可用",
+                "需求系列永久事件不可用",
                 AutomationProperties.GetName(Assert.IsType<DataGrid>(
                     window.FindName("DemandSeriesInspectorEventGrid"))));
             Assert.Contains(
-                "Series series-b",
+                "需求系列 series-b",
                 AutomationProperties.GetName(Assert.IsType<Grid>(
                     window.FindName("DemandSeriesInspectorContext"))),
                 StringComparison.Ordinal);
             Assert.Equal(
-                "无法读取所选 Series。Host 返回目标切换失败。",
+                "无法读取所选需求系列。服务端返回目标切换失败。",
                 AutomationProperties.GetName(Assert.IsType<Wpf.Ui.Controls.InfoBar>(
                     window.FindName("DemandSeriesInspectorStatusInfoBar"))));
             Assert.Equal(
@@ -434,7 +434,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal(0, Grid.GetColumn(eventFilters));
             Assert.Equal(1, Grid.GetRow(eventFilters));
             Assert.Contains(
-                "Series series-a",
+                "需求系列 series-a",
                 AutomationProperties.GetName(context),
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -594,16 +594,16 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 window.FindName("DemandSeriesInspectorAllEventsRadio"));
             var relatedEvents = Assert.IsType<RadioButton>(
                 window.FindName("DemandSeriesInspectorSelectedEventsRadio"));
-            Assert.Equal("全部 Series 事件", allEvents.Content);
-            Assert.Equal("当前 Demand 相关事件", relatedEvents.Content);
+            Assert.Equal("全部需求系列事件", allEvents.Content);
+            Assert.Equal("当前运输需求相关事件", relatedEvents.Content);
             Assert.Equal(
                 "DemandSeriesInspectorAllEventsFilter",
                 AutomationProperties.GetAutomationId(allEvents));
             Assert.Equal(
                 "DemandSeriesInspectorSelectedEventsFilter",
                 AutomationProperties.GetAutomationId(relatedEvents));
-            Assert.Equal("显示全部 Series 事件", AutomationProperties.GetName(allEvents));
-            Assert.Equal("显示当前 Demand 相关事件", AutomationProperties.GetName(relatedEvents));
+            Assert.Equal("显示全部需求系列事件", AutomationProperties.GetName(allEvents));
+            Assert.Equal("显示当前运输需求相关事件", AutomationProperties.GetName(relatedEvents));
             Assert.True(allEvents.Focusable);
             Assert.True(relatedEvents.Focusable);
             Assert.True(KeyboardNavigation.GetIsTabStop(allEvents));
@@ -615,7 +615,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 "DemandSeriesInspectorEventGrid",
                 AutomationProperties.GetAutomationId(eventGrid));
             Assert.Contains(
-                "DemandSeries",
+                "需求系列",
                 AutomationProperties.GetName(eventGrid),
                 StringComparison.Ordinal);
             Assert.True(eventGrid.Focusable);
@@ -766,7 +766,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var firstHeader = FindVisualDescendants<DataGridColumnHeader>(eventGrid)
                 .Single(header => string.Equals(
                     header.Content as string,
-                    "SeriesSequence",
+                    "需求系列序号",
                     StringComparison.Ordinal));
             var firstHeaderText = Assert.Single(
                 FindVisualDescendants<TextBlock>(firstHeader));
@@ -840,8 +840,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(relatedLast, eventGrid.Items[1]);
             var context = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorEventContextText"));
-            Assert.Contains("当前 Demand 相关事件", context.Text, StringComparison.Ordinal);
-            Assert.Contains("DemandId demand-a", context.Text, StringComparison.Ordinal);
+            Assert.Contains("当前运输需求相关事件", context.Text, StringComparison.Ordinal);
+            Assert.Contains("运输需求标识 demand-a", context.Text, StringComparison.Ordinal);
             Assert.Contains("2 / 3", context.Text, StringComparison.Ordinal);
 
             var allEvents = Assert.IsType<RadioButton>(
@@ -851,8 +851,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(relatedFirst, eventGrid.Items[0]);
             Assert.Same(unrelated, eventGrid.Items[1]);
             Assert.Same(relatedLast, eventGrid.Items[2]);
-            Assert.Contains("全部 Series 事件", context.Text, StringComparison.Ordinal);
-            Assert.Contains("DemandId demand-a", context.Text, StringComparison.Ordinal);
+            Assert.Contains("全部需求系列事件", context.Text, StringComparison.Ordinal);
+            Assert.Contains("运输需求标识 demand-a", context.Text, StringComparison.Ordinal);
             Assert.Contains("冻结快照", context.Text, StringComparison.Ordinal);
             Assert.Contains("3 条", context.Text, StringComparison.Ordinal);
 
@@ -931,9 +931,9 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(secondEvent, eventGrid.Items[0]);
             var context = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorEventContextText")).Text;
-            Assert.Contains("当前 Demand 相关事件", context, StringComparison.Ordinal);
-            Assert.Contains("DemandId demand-2", context, StringComparison.Ordinal);
-            Assert.DoesNotContain("DemandId demand-1", context, StringComparison.Ordinal);
+            Assert.Contains("当前运输需求相关事件", context, StringComparison.Ordinal);
+            Assert.Contains("运输需求标识 demand-2", context, StringComparison.Ordinal);
+            Assert.DoesNotContain("运输需求标识 demand-1", context, StringComparison.Ordinal);
 
             window.Close();
         });
@@ -979,8 +979,8 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Same(secondEvent, eventGrid.Items[0]);
             var context = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorEventContextText")).Text;
-            Assert.Contains("全部 Series 事件", context, StringComparison.Ordinal);
-            Assert.Contains("DemandId demand-b", context, StringComparison.Ordinal);
+            Assert.Contains("全部需求系列事件", context, StringComparison.Ordinal);
+            Assert.Contains("运输需求标识 demand-b", context, StringComparison.Ordinal);
             Assert.DoesNotContain("demand-a", context, StringComparison.Ordinal);
             Assert.Equal(0, outwardRequestCount);
 
@@ -1040,11 +1040,11 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             var facts = Assert.IsType<ItemsControl>(
                 window.FindName("DemandSeriesInspectorFormationFacts"));
             Assert.Contains(
-                "PollTrace poll-archive",
+                "轮询追踪 poll-archive",
                 AutomationProperties.GetHelpText(facts),
                 StringComparison.Ordinal);
             Assert.Contains(
-                "ProjectionCommit commit-archive",
+                "投影提交 commit-archive",
                 AutomationProperties.GetHelpText(facts),
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -1052,7 +1052,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 AutomationProperties.GetHelpText(facts),
                 StringComparison.Ordinal);
             Assert.DoesNotContain(
-                "PollTrace  · ProjectionCommit ",
+                "轮询追踪  · 投影提交 ",
                 AutomationProperties.GetHelpText(facts),
                 StringComparison.Ordinal);
 
@@ -1143,7 +1143,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                         [afterRow])]),
                 CanProjectScalarFields: true,
                 fields,
-                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。");
+                "制造执行系统字段差异只是边界两侧的观察证据，不是运输需求/运输需求标识形成原因。");
             var generation = seed.FocusedGeneration with
             {
                 Generation = 2,
@@ -1155,10 +1155,10 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
 
             var sources = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesInspectorScalarBoundaryEvidenceText"));
-            Assert.Contains("PollTrace poll-before", sources.Text, StringComparison.Ordinal);
-            Assert.Contains("ProjectionCommit commit-before", sources.Text, StringComparison.Ordinal);
-            Assert.Contains("PollTrace poll-after", sources.Text, StringComparison.Ordinal);
-            Assert.Contains("ProjectionCommit commit-after", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("轮询追踪 poll-before", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("投影提交 commit-before", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("轮询追踪 poll-after", sources.Text, StringComparison.Ordinal);
+            Assert.Contains("投影提交 commit-after", sources.Text, StringComparison.Ordinal);
             Assert.Equal(
                 "DemandSeriesInspectorScalarBoundaryEvidence",
                 AutomationProperties.GetAutomationId(sources));
@@ -1172,7 +1172,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                 scalarFields.Items.Cast<WatchDemandMesScalarFieldPresentation>(),
                 field => field.ChangeLabel == "保持不变");
             Assert.Contains(
-                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。",
+                "制造执行系统字段差异只是边界两侧的观察证据，不是运输需求/运输需求标识形成原因。",
                 Assert.IsAssignableFrom<TextBlock>(
                     window.FindName("DemandSeriesInspectorMesExplanationText")).Text,
                 StringComparison.Ordinal);
@@ -1237,7 +1237,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                     ]),
                 CanProjectScalarFields: false,
                 ScalarFields: [],
-                "MES 字段差异只是边界两侧的观察证据，不是 TransportDemand/DemandId 形成原因。");
+                "制造执行系统字段差异只是边界两侧的观察证据，不是运输需求/运输需求标识形成原因。");
             var generation = seed.FocusedGeneration with
             {
                 Generation = 2,
@@ -1292,19 +1292,19 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
             Assert.Equal(
                 [
                     "边界",
-                    "#",
-                    "Assignment",
-                    "SeriesId",
-                    "DemandId",
-                    "TASK_TYPE",
-                    "SUBLOT",
-                    "AREA",
-                    "EQP",
-                    "STEP",
-                    "DATES / MesSourceDate",
-                    "PACKAGE",
-                    "PollTrace",
-                    "ProjectionCommit",
+                    "序号",
+                    "归属",
+                    "需求系列标识",
+                    "运输需求标识",
+                    "工序类型",
+                    "子批次",
+                    "区域",
+                    "设备",
+                    "下一工序",
+                    "来源时间",
+                    "封装形式",
+                    "轮询追踪",
+                    "投影提交",
                 ],
                 rawGrid.Columns.Select(column => column.Header?.ToString()).ToArray());
             Assert.Contains(
@@ -1653,7 +1653,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                         [firstRow])]),
                 CanProjectScalarFields: true,
                 [new WatchDemandMesScalarFieldPresentation("TASK_TYPE", "不适用", "WIRE_TO_GATE", IsChanged: false)],
-                "MES 字段变化只是边界两侧的观察证据，不是 DemandId 形成原因。"));
+                "制造执行系统字段变化只是边界两侧的观察证据，不是运输需求标识形成原因。"));
 
         return new WatchDemandSeriesInspectorPresentation(
             seriesId,

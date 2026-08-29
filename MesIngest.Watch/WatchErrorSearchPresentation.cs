@@ -175,7 +175,7 @@ internal sealed record WatchErrorSearchPresentation(
                 text.Select(WatchGeneratedText.ErrorSearchPresentation108),
                 text.Select(WatchGeneratedText.ErrorSearchPresentation109),
                 EmptyResultMessage: string.Empty,
-                text.Select(WatchGeneratedText.ErrorSearchPresentation110) + ErrorSearchOrder.Default,
+                text.Select(WatchGeneratedText.ErrorSearchPresentation110) + text.OrderLabel(ErrorSearchOrder.Default),
                 CanGoPrevious: false,
                 CanGoNext: false,
                 CategoryFacets: [],
@@ -213,7 +213,7 @@ internal sealed record WatchErrorSearchPresentation(
                 && view.LastFailureAt is null
                     ? text.Select(WatchGeneratedText.ErrorSearchPresentation113)
                     : string.Empty,
-            text.Select(WatchGeneratedText.ErrorSearchPresentation110) + snapshot.Order,
+            text.Select(WatchGeneratedText.ErrorSearchPresentation110) + text.OrderLabel(snapshot.Order),
             snapshot.TotalPages > 0 && snapshot.PageNumber > 1,
             snapshot.HasMore && snapshot.PageNumber < snapshot.TotalPages,
             snapshot.Facets.Categories
@@ -453,11 +453,11 @@ internal sealed record WatchErrorSearchPresentation(
         var references = new List<string>();
         if (!string.IsNullOrWhiteSpace(evidence.DemandId))
         {
-            references.Add($"DemandId {evidence.DemandId}");
+            references.Add($"{catalog.Columns.DemandId} {evidence.DemandId}");
         }
         if (evidence.RelatedWorkTypes.Count > 0)
         {
-            references.Add($"WorkType {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}");
+            references.Add($"{catalog.Columns.WorkType} {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}");
         }
 
         return new WatchErrorSearchEvidencePresentation(
@@ -482,8 +482,8 @@ internal sealed record WatchErrorSearchPresentation(
                 ProjectText(evidence.DiagnosticValue.ScalarValue, catalog),
             ErrorSearchDiagnosticValueKinds.WorkTypeMembership =>
                 evidence.RelatedWorkTypes.Count == 0
-                    ? $"WorkType {catalog.Common.SourceNotProvided}"
-                    : $"WorkType {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}",
+                    ? $"{catalog.Columns.WorkType} {catalog.Common.SourceNotProvided}"
+                    : $"{catalog.Columns.WorkType} {string.Join(catalog.Common.ListSeparator, evidence.RelatedWorkTypes)}",
             ErrorSearchDiagnosticValueKinds.RawObservationSet =>
                 catalog.ErrorSearch.Format(WatchGeneratedText.ErrorSearchPresentation159, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }, new object?[] { evidence.DiagnosticValue.ObservationCount.GetValueOrDefault() }) + ProjectText(evidence.DiagnosticValue.Sha256Digest, catalog),
             _ => evidence.DiagnosticValue.Kind,
@@ -613,31 +613,38 @@ internal sealed record WatchErrorSearchPresentation(
     }
 
     private static string ProjectSnapshotFacts(ErrorSearchSnapshotIdentity identity, WatchTextCatalog catalog) =>
-        $"ErrorSearchAsOf {FormatUtc(identity.ErrorSearchAsOf, catalog)} · "
+        $"{catalog.Columns.ErrorSearchAsOf} {FormatUtc(identity.ErrorSearchAsOf, catalog)} · "
         + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation174)
         + $"{catalog.FormatAbsoluteTime(identity.ProjectionCommittedAt)} · {identity.ProjectionCommitId} · "
         + catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation175)
-        + $"{identity.ProjectionSequence:N0} · PollTrace {identity.PollTraceId}";
+        + $"{identity.ProjectionSequence:N0} · {catalog.Columns.PollTrace} {identity.PollTraceId}";
 
     private static string ProjectFilter(ErrorSearchFilter filter, WatchTextCatalog catalog)
     {
         var normalized = filter.Normalize();
         var conditions = new List<string>();
-        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation176), normalized.Categories);
-        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation177), normalized.ErrorCodes);
-        AddMany(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation178), normalized.ActivityStates);
-        Add("SeriesId", normalized.SeriesId);
-        Add("DemandId", normalized.DemandId);
+        AddMany(
+            catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation176),
+            normalized.Categories.Select(code => ProjectCategory(code, catalog)));
+        AddMany(
+            catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation177),
+            normalized.ErrorCodes.Select(code => ProjectErrorCode(code, catalog)));
+        AddMany(
+            catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation178),
+            normalized.ActivityStates.Select(code => ProjectActivityState(code, catalog)));
+        Add(catalog.Columns.SeriesId, normalized.SeriesId);
+        Add(catalog.Columns.DemandId, normalized.DemandId);
         Add(catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation179), normalized.SublotContains);
         return conditions.Count == 0
             ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation180)
             : string.Join(" · ", conditions);
 
-        void AddMany(string label, IReadOnlyList<string> values)
+        void AddMany(string label, IEnumerable<string> values)
         {
-            if (values.Count > 0)
+            var projectedValues = values.ToArray();
+            if (projectedValues.Length > 0)
             {
-                conditions.Add($"{label} {string.Join(catalog.Common.ListSeparator, values)}");
+                conditions.Add($"{label} {string.Join(catalog.Common.ListSeparator, projectedValues)}");
             }
         }
 
@@ -650,9 +657,24 @@ internal sealed record WatchErrorSearchPresentation(
         }
     }
 
+    private static string ProjectCategory(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeCategory(rawCode))
+            : rawCode;
+
+    private static string ProjectErrorCode(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeErrorCode(rawCode))
+            : rawCode;
+
+    private static string ProjectActivityState(string rawCode, WatchTextCatalog catalog) =>
+        catalog.Language == WatchDisplayLanguage.SimplifiedChinese
+            ? catalog.ErrorSearch.CodeWithMeaning(catalog.ErrorSearch.DescribeActivityState(rawCode))
+            : rawCode;
+
     private static string ProjectWindowSelection(ErrorSearchWindowSelection window, WatchTextCatalog catalog) =>
         window.Kind == ErrorSearchWindowKinds.Custom
-            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation181) + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {ProjectUtcBoundary(window.ToUtc, "ErrorSearchAsOf", catalog)})"
+            ? catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation181) + $"[{ProjectUtcBoundary(window.FromUtc, "-∞", catalog)}, {ProjectUtcBoundary(window.ToUtc, catalog.Columns.ErrorSearchAsOf, catalog)})"
             : catalog.ErrorSearch.CodeWithMeaning(new WatchCodeMeaning(catalog.ErrorSearch.WindowLabel(window.Kind), window.Kind, true));
 
     private static string ProjectResolvedWindow(ErrorSearchResolvedWindow window, WatchTextCatalog catalog) =>
@@ -705,8 +727,8 @@ internal sealed record WatchErrorSearchPresentation(
         return string.IsNullOrEmpty(detail) ? string.Empty : $" {detail}{catalog.ErrorSearch.Select(WatchGeneratedText.ErrorSearchPresentation120)}";
     }
 
-    private static string FormatUtc(DateTimeOffset value, WatchTextCatalog catalog) =>
-        catalog.FormatAbsoluteTime(value.ToUniversalTime());
+    private static string FormatUtc(DateTimeOffset value, WatchTextCatalog _) =>
+        WatchTimeDisplay.Format(value, TimeZoneInfo.Utc);
 
     private static string FormatNumber(int value) =>
         value.ToString("N0", CultureInfo.InvariantCulture);

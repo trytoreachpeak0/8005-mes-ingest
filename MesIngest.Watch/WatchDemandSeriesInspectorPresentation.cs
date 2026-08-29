@@ -189,10 +189,13 @@ internal sealed record WatchDemandSeriesInspectorGenerationPresentation(
     private WatchInspectorText Text => Catalog
         ?? WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).Inspector;
 
+    public string StatusDisplay =>
+        WatchTextCatalog.For(Text.DisplayLanguage).DemandSeries.DescribePresence(Status);
+
     public string CurrentMarker => IsCurrent ? Text.CurrentGeneration : Text.HistoricalGeneration;
 
     public string NavigationAutomationName =>
-        Text.FormatGenerationNavigation(Generation, DemandId, Status, CurrentMarker);
+        Text.FormatGenerationNavigation(Generation, DemandId, StatusDisplay, CurrentMarker);
 }
 
 internal sealed record WatchDemandSeriesInspectorPresentation(
@@ -487,22 +490,23 @@ internal sealed record WatchDemandSeriesInspectorPresentation(
         WatchInspectorText text)
     {
         var notApplicable = before is null;
+        var columns = WatchTextCatalog.For(text.DisplayLanguage).Columns;
         return
         [
-            Field("TASK_TYPE", before?.WorkType, after.WorkType),
-            Field("SUBLOT", before?.Sublot, after.Sublot),
-            Field("AREA", before?.Area, after.Area),
-            Field("EQP", before?.Eqp, after.Eqp),
-            Field("STEP", before?.Step, after.Step),
+            Field(columns.WorkType, before?.WorkType, after.WorkType),
+            Field(columns.Sublot, before?.Sublot, after.Sublot),
+            Field(columns.Area, before?.Area, after.Area),
+            Field(columns.Eqp, before?.Eqp, after.Eqp),
+            Field(columns.Step, before?.Step, after.Step),
             new WatchDemandMesScalarFieldPresentation(
-                "DATES / MesSourceDate",
+                columns.SourceDate,
                 notApplicable ? text.NotApplicable : Display(before!.MesSourceDate, text),
                 Display(after.MesSourceDate, text),
                 !notApplicable && before!.MesSourceDate != after.MesSourceDate,
                 BeforeMesSourceDate: before?.MesSourceDate,
                 AfterMesSourceDate: after.MesSourceDate,
                 Catalog: text),
-            Field("PACKAGE", before?.Package, after.Package),
+            Field(columns.Package, before?.Package, after.Package),
         ];
 
         WatchDemandMesScalarFieldPresentation Field(

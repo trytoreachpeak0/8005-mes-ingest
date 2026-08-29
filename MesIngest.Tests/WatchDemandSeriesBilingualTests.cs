@@ -14,9 +14,9 @@ public sealed class WatchDemandSeriesBilingualPresentationTests
         var chinese = WatchTextCatalog.For(WatchDisplayLanguage.SimplifiedChinese).DemandSeries;
         var english = WatchTextCatalog.For(WatchDisplayLanguage.English).DemandSeries;
 
-        Assert.Equal("跟踪中 (TRACKING)", chinese.DescribeLifecycle("TRACKING"));
+        Assert.Equal("跟踪中", chinese.DescribeLifecycle("TRACKING"));
         Assert.Equal("Tracking (TRACKING)", english.DescribeLifecycle("TRACKING"));
-        Assert.Equal("当前可见 (VISIBLE)", chinese.DescribePresence("VISIBLE"));
+        Assert.Equal("当前可见", chinese.DescribePresence("VISIBLE"));
         Assert.Equal("Visible now (VISIBLE)", english.DescribePresence("VISIBLE"));
         Assert.Equal("未知生命周期 (FUTURE_LIFECYCLE)", chinese.DescribeLifecycle("FUTURE_LIFECYCLE"));
         Assert.Equal("Unknown lifecycle (FUTURE_LIFECYCLE)", english.DescribeLifecycle("FUTURE_LIFECYCLE"));
@@ -99,7 +99,7 @@ public sealed class WatchDemandSeriesBilingualPresentationTests
 
         Assert.Equal("精确 1 个需求系列 · 第 1 / 1 页", chinese.PageSummary);
         Assert.Equal("Exactly 1 demand series · page 1 of 1", english.PageSummary);
-        Assert.Equal("跟踪中 (TRACKING) · 当前可见 (VISIBLE)", chinese.Rows[0].LifecycleAndPresence);
+        Assert.Equal("跟踪中 · 当前可见", chinese.Rows[0].LifecycleAndPresence);
         Assert.Equal("Tracking (TRACKING) · Visible now (VISIBLE)", english.Rows[0].LifecycleAndPresence);
         Assert.Equal(chinese.Rows[0].SeriesId, english.Rows[0].SeriesId);
         Assert.Equal(chinese.Rows[0].CurrentDemandId, english.Rows[0].CurrentDemandId);

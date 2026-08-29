@@ -7,6 +7,7 @@ internal sealed partial class WatchAreaFilterText
     private static readonly WatchTextCatalogEntry[] AreaEntries =
     [
         new("area.page.title", "AREA 筛选", "AREA filter profiles"),
+        new("area.page.automation", "区域筛选页面", "AREA filter profiles page"),
         new("area.page.subtitle", "当前 Windows 用户的本机命名 TXT 显示范围；不会改变外部资格、CatalogRevision 或 Dispatch 范围", "Named local TXT display scopes for the current Windows user; external eligibility, CatalogRevision, and Dispatch scope are unchanged"),
         new("area.list.title", "筛选配置", "Filter profiles"),
         new("area.list.notLoaded", "尚未读取本机配置", "Local profiles have not been loaded"),
@@ -134,6 +135,7 @@ internal sealed partial class WatchAreaFilterText
     private string Get(string id) => Text(AreaEntries.Single(entry => entry.SemanticId == id));
 
     public string PageTitle => Get("area.page.title");
+    public string PageAutomationName => Get("area.page.automation");
     public string PageSubtitle => Get("area.page.subtitle");
     public string ListTitle => Get("area.list.title");
     public string ListNotLoaded => Get("area.list.notLoaded");

@@ -156,6 +156,7 @@ internal partial class WatchWorkspaceWindow
         var shell = catalog.Shell;
         var settings = catalog.Settings;
         ApplyLocalizedDemandSeriesText(catalog.DemandSeries);
+        ApplyLocalizedTechnicalColumnHeaders(catalog.Columns);
 
         AutomationProperties.SetName(WorkspaceNavigation, shell.PrimaryNavigationName);
         ApplyNavigationText(OverviewNavigationItem, shell.Overview, shell);
@@ -328,6 +329,9 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(DemandSeriesGrid, text.ListAutomationName);
         AutomationProperties.SetName(DemandSeriesOpenInspectorButton, DemandSeriesOpenInspectorButton.Content.ToString()!);
 
+        DemandSeriesGrid.Columns[0].Header = _displayLanguageState.Catalog.Columns.SeriesId;
+        DemandSeriesGrid.Columns[1].Header = _displayLanguageState.Catalog.Columns.WorkType;
+        DemandSeriesGrid.Columns[2].Header = _displayLanguageState.Catalog.Columns.Sublot;
         DemandSeriesGrid.Columns[3].Header = text.ColumnLifecycle;
         DemandSeriesGrid.Columns[4].Header = text.ColumnArea;
         DemandSeriesGrid.Columns[5].Header = text.ColumnDemand;
@@ -351,6 +355,32 @@ internal partial class WatchWorkspaceWindow
         AutomationProperties.SetName(DemandSeriesInfoBar, text.ReadStateAutomationName);
         AutomationProperties.SetName(DemandSeriesInfoExpander, text.TopInfoAutomationName);
         SetDemandSeriesLifecycleDraft(_demandSeriesLifecycleDraft);
+    }
+
+    private void ApplyLocalizedTechnicalColumnHeaders(WatchColumnText text)
+    {
+        ReadabilityStateFacetGrid.Columns[1].Header = text.Demand;
+        ReadabilityBlockerFacetGrid.Columns[1].Header = text.Demand;
+
+        ReadabilityBlockerEvidenceGrid.Columns[5].Header = text.PollTrace;
+        ReadabilityBlockerEvidenceGrid.Columns[6].Header = text.ProjectionCommit;
+        ReadabilityRawObservationGrid.Columns[1].Header = text.Area;
+        ReadabilityRawObservationGrid.Columns[2].Header = text.Eqp;
+        ReadabilityRawObservationGrid.Columns[3].Header = text.Step;
+        ReadabilityRawObservationGrid.Columns[4].Header = text.SourceDate;
+        ReadabilityRawObservationGrid.Columns[5].Header = text.Package;
+        ReadabilityRawObservationGrid.Columns[6].Header = text.PollTrace;
+        ReadabilityRawObservationGrid.Columns[7].Header = text.ProjectionCommit;
+
+        ErrorSearchSeriesIdColumn.Header = text.SeriesId;
+        ErrorSearchWorkTypeColumn.Header = text.WorkType;
+        ErrorSearchSublotColumn.Header = text.Sublot;
+        ErrorSearchMesAreaColumn.Header = text.MesArea;
+        ErrorSearchPeriodGrid.Columns[7].Header = text.Target;
+        ErrorSearchEvidenceGrid.Columns[5].Header = text.DemandWorkType;
+        ErrorSearchEvidenceGrid.Columns[7].Header = text.PollTrace;
+        ErrorSearchRawEvidenceGrid.Columns[1].Header = text.DemandId;
+        ErrorSearchRawEvidenceGrid.Columns[3].Header = text.PollTrace;
     }
 
     private static void LocalizeCanonicalChoices(

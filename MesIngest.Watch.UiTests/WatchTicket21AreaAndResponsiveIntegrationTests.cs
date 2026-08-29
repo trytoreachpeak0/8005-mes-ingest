@@ -28,7 +28,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
         Assert.Equal(
             "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
-                + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
+                + "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -46,7 +46,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
         Assert.Equal(
             "area-filters · 本机 TXT · UTF-8 · "
-                + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
+                + "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
             WatchWorkspaceWindow.FormatAreaProfileDirectoryCaption(directory));
     }
 
@@ -124,8 +124,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var warning = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
                 Assert.True(warning.IsOpen);
                 Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Warning, warning.Severity);
-                Assert.Equal("无法恢复上次 AREA 配置", warning.Title);
-                Assert.Contains("已回退为全部 AREA", warning.Message, StringComparison.Ordinal);
+                Assert.Equal("无法恢复上次区域配置", warning.Title);
+                Assert.Contains("已回退到全部区域", warning.Message, StringComparison.Ordinal);
                 Assert.Contains(
                     "回退",
                     AutomationProperties.GetName(warning),
@@ -247,7 +247,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                         .MesAreas);
                 Assert.Equal(["A1-1"], window.AreaContext.MesAreas);
                 Assert.Contains(
-                    "当前应用：封装东区 · 1 个 AREA",
+                    "当前应用：封装东区 · 1 个区域",
                     Find<TextBlock>(window, "AreaProfileAppliedStateText").Text,
                     StringComparison.Ordinal);
                 Assert.DoesNotContain(
@@ -298,7 +298,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var apply = Find<ButtonBase>(window, "AreaProfileApplyButton");
                 var diagnostics = Find<DataGrid>(window, "AreaProfileValidationGrid")
                     .Items
-                    .Cast<WatchAreaFilterProfileDiagnostic>()
+                    .Cast<WatchAreaFilterProfileDiagnosticPresentation>()
                     .ToArray();
                 Assert.False(apply.IsEnabled);
                 Assert.Contains(
@@ -322,7 +322,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 await window.AreaProfileOperationTask.WaitAsync(timeout.Token);
 
                 Assert.Empty(window.AreaContext.MesAreas);
-                Assert.Equal("全部 AREA", window.AreaContext.ProfileName);
+                Assert.Equal("全部区域", window.AreaContext.ProfileName);
                 Assert.Equal(0, demandAreaSelector.SelectedIndex);
                 Assert.Equal(0, auditAreaSelector.SelectedIndex);
                 Assert.Empty(
@@ -402,7 +402,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.True(east.IsApplied);
                 Assert.Equal("当前应用", east.AppliedBadgeText);
                 Assert.NotEqual(default, east.FileLastModifiedAt);
-                Assert.Contains("2 个 AREA", east.MetadataText, StringComparison.Ordinal);
+                Assert.Contains("2 个区域", east.MetadataText, StringComparison.Ordinal);
 
                 var west = Assert.Single(rows, row => row.ProfileName == "西区");
                 Assert.Equal(1, west.MesAreaCount);
@@ -472,9 +472,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     [Path.GetFullPath(files.AreaProfilesPath)],
                     directoryLauncher.RequestedDirectories);
-                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Equal("AREA 配置目录已准备", info.Title);
-                Assert.Contains("未启动文件管理器", info.Message, StringComparison.Ordinal);
+                var info = NotificationText(window);
+                Assert.Contains("区域配置目录已准备", info, StringComparison.Ordinal);
+                Assert.Contains("未启动文件管理器", info, StringComparison.Ordinal);
             }
             finally
             {
@@ -519,12 +519,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
+                    "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     Find<TextBlock>(window, "AreaProfileDirectoryText").Text,
                     StringComparison.Ordinal);
                 Assert.Null(window.FindName("AreaProfileRulesText"));
                 Assert.Contains(
-                    "2 个有效 AREA",
+                    "2 个有效区域",
                     Find<TextBlock>(window, "AreaProfileValidCountText").Text,
                     StringComparison.Ordinal);
                 Assert.Same(
@@ -555,15 +555,15 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 AssertInteractiveAutomation(
                     saveAsFile,
                     "AreaProfileSaveAsMenuItem",
-                    "另存此 AREA TXT 配置");
+                    "另存此区域文本配置");
                 AssertInteractiveAutomation(
                     renameFile,
                     "AreaProfileRenameMenuItem",
-                    "重命名此 AREA TXT 配置");
+                    "重命名此区域文本配置");
                 AssertInteractiveAutomation(
                     deleteFile,
                     "AreaProfileDeleteMenuItem",
-                    "删除此 AREA TXT 配置");
+                    "删除此区域文本配置");
                 Assert.Null(window.FindName("AreaProfileFileReloadButton"));
 
                 Assert.Null(window.FindName("AreaProfileDiscardButton"));
@@ -611,7 +611,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     text => ReferenceEquals(
                             text.Style,
                             window.FindResource("CaptionText"))
-                        && text.Text.Contains("AREA", StringComparison.Ordinal)));
+                        && text.Text.Contains("区域", StringComparison.Ordinal)));
                 profileList.SelectedItem = Assert.Single(
                     rows,
                     row => row.ProfileName == "西区");
@@ -753,7 +753,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     window,
                     "AreaProfileFileOperationConfirmButton");
                 Assert.Equal(Visibility.Visible, operationPanel.Visibility);
-                Assert.Equal("另存为", Find<TextBlock>(
+                Assert.Equal("将区域配置另存为新文件", Find<TextBlock>(
                     window,
                     "AreaProfileFileOperationPromptText").Text);
 
@@ -762,11 +762,15 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
-                var conflictInfo = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Equal("无法完成 AREA 配置操作", conflictInfo.Title);
+                var conflictInfo = NotificationText(window);
+                Assert.Contains("无法完成区域配置操作", conflictInfo, StringComparison.Ordinal);
                 Assert.Contains(
+                    "已存在同名区域配置",
+                    conflictInfo,
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
                     WatchAreaFilterProfileDiagnosticCodes.ProfileAlreadyExists,
-                    conflictInfo.Message,
+                    conflictInfo,
                     StringComparison.Ordinal);
                 Assert.Equal("B2-2\n", store.Load("西区").Content);
                 Assert.Equal(Visibility.Visible, operationPanel.Visibility);
@@ -872,8 +876,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     window,
                     "DemandSeriesAreaProfileSelector");
                 demandSelector.SelectedItem = Assert.Single(
-                    demandSelector.Items.Cast<WatchAreaProfileSelectorOption>(),
-                    option => option.ProfileName == "ProfileB");
+                    demandSelector.Items.Cast<WatchAreaProfileSelectorPresentation>(),
+                    option => option.Option.ProfileName == "ProfileB");
                 await window.AreaProfileOperationTask.WaitAsync(
                     TimeSpan.FromSeconds(5),
                     TestContext.Current.CancellationToken);
@@ -892,7 +896,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Click(AreaProfileFileCommand(window, "AreaProfileDeleteMenuItem"));
                 Assert.Contains("ProfileB.txt", prompt.Text, StringComparison.Ordinal);
                 Assert.Contains(
-                    "已应用 AREA 快照与显示范围仍生效",
+                    "已应用区域快照与显示范围仍生效",
                     prompt.Text,
                     StringComparison.Ordinal);
                 Assert.Equal(
@@ -981,12 +985,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var selector = Find<ComboBox>(window, "DemandSeriesAreaProfileSelector");
                 var current = Assert.Single(
-                    selector.Items.Cast<WatchAreaProfileSelectorOption>(),
-                    option => option.ProfileName == "ACTIVESCOPE");
+                    selector.Items.Cast<WatchAreaProfileSelectorPresentation>(),
+                    option => option.Option.ProfileName == "ACTIVESCOPE");
                 Assert.Equal(
                     "ACTIVESCOPE",
-                    Assert.IsType<WatchAreaProfileSelectorOption>(
-                        selector.SelectedItem).ProfileName);
+                    Assert.IsType<WatchAreaProfileSelectorPresentation>(
+                        selector.SelectedItem).Option.ProfileName);
                 selector.SelectedItem = null;
                 selector.SelectedItem = current;
                 await window.AreaProfileOperationTask.WaitAsync(
@@ -1041,11 +1045,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     Visibility.Collapsed,
                     Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
-                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.True(info.IsOpen);
-                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, info.Severity);
-                Assert.Contains("无法确认", info.Title, StringComparison.Ordinal);
-                Assert.Contains("明确应用全部 AREA", info.Message, StringComparison.Ordinal);
+                var info = NotificationText(window);
+                Assert.Contains("无法确认", info, StringComparison.Ordinal);
+                Assert.Contains("明确应用全部区域", info, StringComparison.Ordinal);
                 Assert.True(File.Exists(files.ProfilePath));
             }
             finally
@@ -1164,10 +1166,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     Visibility.Collapsed,
                     Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
-                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.True(info.IsOpen);
-                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, info.Severity);
-                Assert.Contains("稍后重试", info.Message, StringComparison.Ordinal);
+                var info = NotificationText(window);
+                Assert.Contains("稍后重试", info, StringComparison.Ordinal);
                 Assert.True(File.Exists(files.ProfilePath));
             }
             finally
@@ -1214,7 +1214,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "AreaProfileFileOperationConfirmButton");
                 Assert.Contains("再次确认删除", prompt.Text, StringComparison.Ordinal);
                 Assert.Contains(
-                    "已应用 AREA 快照与显示范围仍生效",
+                    "已应用区域快照与显示范围仍生效",
                     prompt.Text,
                     StringComparison.Ordinal);
                 Assert.Equal(prompt.Text, AutomationProperties.GetHelpText(confirm));
@@ -1245,8 +1245,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.True(focus.IsVisible);
                 Assert.True(focus.IsEnabled);
                 Assert.Contains(
-                    "已应用 AREA 快照与当前显示范围仍生效",
-                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Message,
+                    "已应用区域快照与当前显示范围仍生效",
+                    NotificationText(window),
                     StringComparison.Ordinal);
             }
             finally
@@ -1308,9 +1308,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     "已自动保存",
                     Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
-                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Contains("已保存", failure.Message, StringComparison.Ordinal);
-                Assert.Contains("未应用", failure.Message, StringComparison.Ordinal);
+                var failure = NotificationText(window);
+                Assert.Contains("已保存", failure, StringComparison.Ordinal);
+                Assert.Contains("未应用", failure, StringComparison.Ordinal);
                 Assert.Equal("ExistingScope", store.LoadApplied().ProfileName);
 
                 Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
@@ -1376,10 +1376,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(
                     "已自动保存",
                     Find<TextBlock>(window, "AreaProfileDiskStateText").Text);
-                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Equal("AREA 配置已保存但范围未应用", failure.Title);
-                Assert.Contains("EditableScope.txt 已保存", failure.Message, StringComparison.Ordinal);
-                Assert.Contains("范围未应用", failure.Message, StringComparison.Ordinal);
+                var failure = NotificationText(window);
+                Assert.Contains("区域配置已保存但范围未应用", failure, StringComparison.Ordinal);
+                Assert.Contains("EditableScope.txt 已保存", failure, StringComparison.Ordinal);
+                Assert.Contains("范围未应用", failure, StringComparison.Ordinal);
                 Assert.True(Find<ButtonBase>(window, "AreaProfileApplyButton").IsEnabled);
 
                 Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
@@ -1388,9 +1388,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     TestContext.Current.CancellationToken);
 
                 Assert.Equal("EditableScope", store.LoadApplied().ProfileName);
-                Assert.Equal(
-                    "AREA 配置已应用",
-                    Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar").Title);
+                Assert.Contains(
+                    "区域配置已应用",
+                    NotificationText(window),
+                    StringComparison.Ordinal);
             }
             finally
             {
@@ -1478,14 +1479,16 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Assert.Equal(
                         "未落盘 · 即将自动保存",
                         Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
-                    var failure = Find<Wpf.Ui.Controls.InfoBar>(
-                        firstWindow,
-                        "AreaProfileInfoBar");
+                    var failure = NotificationText(firstWindow);
                     Assert.Contains(
-                        WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
-                        failure.Message,
+                        "已在磁盘更改",
+                        failure,
                         StringComparison.Ordinal);
-                    Assert.Contains("磁盘", failure.Message, StringComparison.Ordinal);
+                    Assert.DoesNotContain(
+                        WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                        failure,
+                        StringComparison.Ordinal);
+                    Assert.Contains("磁盘", failure, StringComparison.Ordinal);
                 }
                 else
                 {
@@ -1494,23 +1497,15 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Assert.Equal(
                         "磁盘已变更 · 等待选择",
                         Find<TextBlock>(firstWindow, "AreaProfileDiskStateText").Text);
-                    Assert.Equal(
-                        Visibility.Visible,
-                        Find<FrameworkElement>(
-                            firstWindow,
-                            "AreaProfileWriteConflictPanel").Visibility);
+                    Assert.Equal("area-write-conflict", firstWindow.ActiveWorkspaceDialogKind);
+                    var conflict = Assert.IsType<Wpf.Ui.Controls.ContentDialog>(
+                        firstWindow.ActiveWorkspaceDialog);
                     Assert.Contains(
                         "EditableScope.txt",
-                        Find<Wpf.Ui.Controls.InfoBar>(
-                            firstWindow,
-                            "AreaProfileWriteConflictInfo").Title,
+                        AutomationProperties.GetName(conflict),
                         StringComparison.Ordinal);
-                    Assert.True(Find<ButtonBase>(
-                        firstWindow,
-                        "AreaProfileKeepLocalEditButton").IsEnabled);
-                    Assert.True(Find<ButtonBase>(
-                        firstWindow,
-                        "AreaProfileUseDiskVersionButton").IsEnabled);
+                    Assert.Equal("覆盖并保存", conflict.PrimaryButtonText);
+                    Assert.Equal("重新载入文件", conflict.SecondaryButtonText);
                 }
 
                 Assert.True(AreaProfileFileCommand(
@@ -1581,12 +1576,16 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     "RenamedScope.txt")));
                 Assert.Equal("AppliedScope", externalStore.LoadApplied().ProfileName);
                 Assert.Equal(Visibility.Collapsed, panel.Visibility);
-                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                var failure = NotificationText(window);
                 Assert.Contains(
-                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
-                    failure.Message,
+                    "已在磁盘更改",
+                    failure,
                     StringComparison.Ordinal);
-                Assert.Contains("重新选择", failure.Message, StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                    failure,
+                    StringComparison.Ordinal);
+                Assert.Contains("重试", failure, StringComparison.Ordinal);
             }
             finally
             {
@@ -1643,12 +1642,16 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     Find<FrameworkElement>(window, "AreaProfileFileOperationPanel").Visibility);
                 Assert.Equal("C3-3\n", externalStore.Load("SourceScope").Content);
                 Assert.Equal("AppliedScope", externalStore.LoadApplied().ProfileName);
-                var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
+                var failure = NotificationText(window);
                 Assert.Contains(
-                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
-                    failure.Message,
+                    "已在磁盘更改",
+                    failure,
                     StringComparison.Ordinal);
-                Assert.Contains("重新加载", failure.Message, StringComparison.Ordinal);
+                Assert.DoesNotContain(
+                    WatchAreaFilterProfileDiagnosticCodes.ProfileChangedOnDisk,
+                    failure,
+                    StringComparison.Ordinal);
+                Assert.Contains("重新加载", failure, StringComparison.Ordinal);
             }
             finally
             {
@@ -1746,14 +1749,13 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 var navigatedDemandQuery = await allAreasDemandReceived.Task.WaitAsync(timeout.Token);
                 Assert.Empty(navigatedDemandQuery.Filter.MesAreas);
                 await newerOperation.WaitAsync(timeout.Token);
-                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Equal("已应用全部 AREA", info.Title);
+                Assert.Contains("已应用全部区域", NotificationText(window), StringComparison.Ordinal);
                 Assert.Empty(window.AreaContext.MesAreas);
 
                 slowGate.Release();
                 await slowOperation.WaitAsync(timeout.Token);
 
-                Assert.Equal("已应用全部 AREA", info.Title);
+                Assert.Contains("已应用全部区域", NotificationText(window), StringComparison.Ordinal);
                 Assert.Empty(window.AreaContext.MesAreas);
                 Assert.True(store.LoadApplied().IsAllAreas);
             }
@@ -1804,8 +1806,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Click(Find<ButtonBase>(window, "AreaProfileApplyButton"));
                 var newerProfileOperation = window.AreaProfileOperationTask;
                 await newerProfileOperation.WaitAsync(timeout.Token);
-                var info = Find<Wpf.Ui.Controls.InfoBar>(window, "AreaProfileInfoBar");
-                Assert.Equal("AREA 配置已应用", info.Title);
+                Assert.Contains("区域配置已应用", NotificationText(window), StringComparison.Ordinal);
                 Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
                 Assert.Equal("NewScope", store.LoadApplied().ProfileName);
                 Assert.False(
@@ -1815,7 +1816,7 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 client.ReleaseAllAreas();
                 await slowAllAreasOperation.WaitAsync(timeout.Token);
 
-                Assert.Equal("AREA 配置已应用", info.Title);
+                Assert.Contains("区域配置已应用", NotificationText(window), StringComparison.Ordinal);
                 Assert.Equal(["B2-2"], window.AreaContext.MesAreas);
                 Assert.Equal("NewScope", store.LoadApplied().ProfileName);
                 Assert.Equal(
@@ -1963,10 +1964,10 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                     ("ReadabilityStateAllButton", typeof(Wpf.Ui.Controls.Button), "资格：全部"),
                     ("ReadabilityStateReadableButton", typeof(Wpf.Ui.Controls.Button), "资格：外部可见"),
                     ("ReadabilityStateNotReadableButton", typeof(Wpf.Ui.Controls.Button), "资格：外部不可见"),
-                    ("ReadabilityWorkTypeFilter", typeof(ComboBox), "资格审计 WorkType 筛选"),
+                    ("ReadabilityWorkTypeFilter", typeof(ComboBox), "资格审计工序类型筛选"),
                     ("ReadabilityBlockerFilter", typeof(ComboBox), "资格阻断原因筛选"),
-                    ("ReadabilityDemandIdFilter", typeof(TextBox), "资格审计 DemandId 精确筛选"),
-                    ("ReadabilitySublotFilter", typeof(TextBox), "资格审计 SUBLOT 包含筛选"),
+                    ("ReadabilityDemandIdFilter", typeof(TextBox), "资格审计运输需求标识精确筛选"),
+                    ("ReadabilitySublotFilter", typeof(TextBox), "资格审计子批次包含筛选"),
                     ("ReadabilityPageSizeInput", typeof(ComboBox), "资格审计每页数量"),
                     ("ReadabilityPageNumberInput", typeof(TextBox), "资格审计目标页码"),
                 };
@@ -2003,9 +2004,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var readabilityGrids = new Dictionary<string, string>
                 {
-                    ["ReadabilityStateFacetGrid"] = "资格状态 Host 精确分面",
-                    ["ReadabilityBlockerFacetGrid"] = "阻断原因 Host 精确去重分面",
-                    ["ReadabilityAuditGrid"] = "资格审计 Demand 世代列表",
+                    ["ReadabilityStateFacetGrid"] = "资格状态服务端精确分面",
+                    ["ReadabilityBlockerFacetGrid"] = "阻断原因服务端精确去重分面",
+                    ["ReadabilityAuditGrid"] = "资格审计运输需求代次列表",
                     ["ReadabilityQualificationGrid"] = "资格审计全部资格检查",
                     ["ReadabilityBlockerEvidenceGrid"] = "资格审计全部阻断证据",
                     ["ReadabilityRawObservationGrid"] = "资格审计全部原始观测",
@@ -2025,12 +2026,12 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 Assert.Equal(Visibility.Visible, areaPage.Visibility);
                 Assert.Equal(ScrollBarVisibility.Disabled, areaPage.HorizontalScrollBarVisibility);
                 Assert.Equal(ScrollBarVisibility.Auto, areaPage.VerticalScrollBarVisibility);
-                AssertAutomation(areaPage, "AreaFilterPage", "AREA 筛选页面");
+                AssertAutomation(areaPage, "AreaFilterPage", "区域筛选页面");
 
                 var areaMaster = Find<Wpf.Ui.Controls.Card>(window, "AreaProfileMasterCard");
                 var areaEditor = Find<Wpf.Ui.Controls.Card>(window, "AreaProfileEditorCard");
-                AssertAutomation(areaMaster, "AreaProfileMasterCard", "AREA 配置主列表");
-                AssertAutomation(areaEditor, "AreaProfileEditorCard", "AREA 配置编辑器");
+                AssertAutomation(areaMaster, "AreaProfileMasterCard", "区域配置主列表");
+                AssertAutomation(areaEditor, "AreaProfileEditorCard", "区域配置编辑器");
                 Assert.Equal(0, Grid.GetColumn(areaMaster));
                 Assert.Equal(0, Grid.GetRow(areaMaster));
                 Assert.Equal(0, Grid.GetColumn(areaEditor));
@@ -2067,9 +2068,9 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
                 var areaInputs = new (string Name, Type Type, string AutomationName)[]
                 {
-                    ("AreaProfileList", typeof(ListBox), "本机命名 AREA 配置列表"),
-                    ("AreaProfileEditor", typeof(TextBox), "AREA 配置 TXT 内容编辑器"),
-                    ("AreaProfileValidationGrid", typeof(DataGrid), "AREA 配置逐项校验"),
+                    ("AreaProfileList", typeof(ListBox), "本机命名区域配置列表"),
+                    ("AreaProfileEditor", typeof(TextBox), "区域配置文本内容编辑器"),
+                    ("AreaProfileValidationGrid", typeof(DataGrid), "区域配置逐项校验"),
                 };
                 foreach (var (name, type, automationName) in areaInputs)
                 {
@@ -2083,8 +2084,8 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
                 window.UpdateLayout();
                 var areaCommands = new Dictionary<string, string>
                 {
-                    ["AreaProfileNewButton"] = "新建 AREA 配置",
-                    ["AreaProfileApplyButton"] = "应用选中 AREA 配置",
+                    ["AreaProfileNewButton"] = "新建区域配置",
+                    ["AreaProfileApplyButton"] = "应用选中区域配置",
                 };
                 foreach (var (name, automationName) in areaCommands)
                 {
@@ -2351,6 +2352,42 @@ public sealed class WatchTicket21AreaAndResponsiveIntegrationTests
 
     private static T Find<T>(FrameworkElement root, string name)
         where T : class => Assert.IsAssignableFrom<T>(root.FindName(name));
+
+    private static string NotificationText(WatchWorkspaceWindow window)
+    {
+        window.UpdateLayout();
+        var cards = string.Join(
+            " · ",
+            Find<ItemsControl>(window, "NotificationItemsControl").Items
+                .Cast<object>()
+                .Select(item => item.GetType().GetProperty("AutomationName")?.GetValue(item)?.ToString())
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        return string.Join(
+            " · ",
+            new[]
+            {
+                Find<System.Windows.Controls.TextBlock>(window, "NotificationLiveRegion").Text,
+                cards,
+            }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 
     private static T? FindVisualDescendant<T>(
         DependencyObject root,

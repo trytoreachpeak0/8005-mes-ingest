@@ -27,7 +27,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
             try
             {
                 var compactFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText");
-                Assert.Contains("SnapshotReference 尚无快照", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("快照引用尚无快照", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Contains("阻断原因精确分面：尚无快照", compactFacts.Text, StringComparison.Ordinal);
                 Assert.DoesNotContain("阻断原因精确分面：无命中", compactFacts.Text, StringComparison.Ordinal);
             }
@@ -121,12 +121,12 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.True(header.IsVisible);
                 Assert.Equal(TextWrapping.NoWrap, header.TextWrapping);
                 Assert.Equal(TextTrimming.CharacterEllipsis, header.TextTrimming);
-                Assert.Contains("本机 AREA B 本机筛选", header.Text, StringComparison.Ordinal);
-                Assert.Contains("Host A1-1", header.Text, StringComparison.Ordinal);
-                Assert.DoesNotContain("Host B2-2", header.Text, StringComparison.Ordinal);
+                Assert.Contains("本机区域：AREA B 本机筛选", header.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端 A1-1", header.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("服务端 B2-2", header.Text, StringComparison.Ordinal);
                 var fullHeader = Assert.IsType<string>(header.ToolTip);
-                Assert.Contains("本机 AREA：AREA B 本机筛选", fullHeader, StringComparison.Ordinal);
-                Assert.Contains("Host 已提交范围：A1-1", fullHeader, StringComparison.Ordinal);
+                Assert.Contains("本机区域：AREA B 本机筛选", fullHeader, StringComparison.Ordinal);
+                Assert.Contains("服务端已提交范围：A1-1", fullHeader, StringComparison.Ordinal);
                 Assert.Equal(fullHeader, AutomationProperties.GetHelpText(header));
                 Assert.Contains(
                     fullHeader,
@@ -139,46 +139,22 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
 
                 var status = Find<Wpf.Ui.Controls.InfoBar>(window, "ReadabilityAuditInfoBar");
                 var statusRegion = Find<StackPanel>(window, "ReadabilityGlobalStatusRegion");
-                var layout = Find<Grid>(window, "ReadabilityAuditLayoutGrid");
-                var page = Find<ScrollViewer>(window, "ReadabilityAuditPage");
-                var master = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
-                Assert.True(status.IsOpen);
-                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Warning, status.Severity);
-                Assert.Equal("资格审计刷新失败，已保留上次快照", status.Title);
-                Assert.Contains("继续显示 Host 快照", status.Message, StringComparison.Ordinal);
-                Assert.Contains("AREA B audit projection is unavailable", status.Message, StringComparison.Ordinal);
+                Assert.False(status.IsOpen);
+                Assert.False(statusRegion.IsVisible);
+                var faultButton = Find<ButtonBase>(window, "ReadabilityFaultStatusButton");
+                Assert.True(faultButton.IsVisible);
                 Assert.Equal(
-                    $"{status.Title}。{status.Message}",
-                    AutomationProperties.GetName(status));
-                Assert.Contains(status, statusRegion.Children.Cast<UIElement>());
+                    "错误 · 1 个故障",
+                    Find<TextBlock>(window, "ReadabilityFaultStatusText").Text);
+                Assert.Contains(
+                    "资格审计读取持续失败",
+                    faultButton.ToolTip?.ToString(),
+                    StringComparison.Ordinal);
 
-                AssertGlobalStatusPrecedesMaster("1440");
                 window.Width = 720;
                 await Dispatcher.Yield(DispatcherPriority.Loaded);
                 window.UpdateLayout();
-                AssertGlobalStatusPrecedesMaster("720");
-
-                void AssertGlobalStatusPrecedesMaster(string widthLabel)
-                {
-                    Assert.True(statusRegion.IsVisible);
-                    Assert.True(status.IsVisible);
-                    Assert.InRange(status.ActualHeight, 1, page.ActualHeight);
-                    Assert.InRange(
-                        Math.Abs(statusRegion.ActualWidth - layout.ActualWidth),
-                        0,
-                        1.5);
-                    var statusTop = status.TranslatePoint(new Point(), layout).Y;
-                    var statusBottom = statusTop + status.ActualHeight;
-                    var masterTop = master.TranslatePoint(new Point(), layout).Y;
-                    Assert.True(
-                        statusBottom <= masterTop + 0.5,
-                        $"At {widthLabel}px the global Audit status must precede master; statusBottom={statusBottom:0.##}, masterTop={masterTop:0.##}.");
-                    var viewportTop = status.TranslatePoint(new Point(), page).Y;
-                    Assert.InRange(viewportTop, 0, page.ActualHeight);
-                    Assert.True(
-                        viewportTop + status.ActualHeight <= page.ActualHeight + 0.5,
-                        $"At {widthLabel}px the global Audit status must be initially visible; statusBottom={viewportTop + status.ActualHeight:0.##}, viewportHeight={page.ActualHeight:0.##}.");
-                }
+                Assert.True(faultButton.IsVisible);
             }
             finally
             {
@@ -303,7 +279,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(2, committed.Facets.Blockers.Count);
 
                 var pageSummary = Find<TextBlock>(window, "ReadabilityPageSummaryText");
-                Assert.Equal("精确 3 个 Demand 世代 · 第 1 / 1 页", pageSummary.Text);
+                Assert.Equal("精确 3 个运输需求代次 · 第 1 / 1 页", pageSummary.Text);
                 Assert.Contains(
                     pageSummary.Text,
                     AutomationProperties.GetName(pageSummary),
@@ -313,7 +289,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(2, stateFacets.Items.Count);
                 Assert.Equal(2, blockerFacets.Items.Count);
                 var grid = Find<DataGrid>(window, "ReadabilityAuditGrid");
-                Assert.Equal("资格审计 Demand 世代列表", AutomationProperties.GetName(grid));
+                Assert.Equal("资格审计运输需求代次列表", AutomationProperties.GetName(grid));
                 Assert.Single(grid.Items);
 
                 await window.SelectReadabilityDemandAndRenderAsync(demandId, timeout.Token);
@@ -341,13 +317,13 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal($"{demandId} · WIRE_TO_GATE", heading.Text);
                 var facts = Find<TextBlock>(window, "ReadabilityDetailFactsText");
                 Assert.Equal(
-                    $"SL-AUDIT-21 · series-audit-21 · Demand Generation 2 · 最后看见 {WatchTimeDisplay.Format(DateTimeOffset.Parse("2026-08-14T05:06:07Z"))}",
+                    $"SL-AUDIT-21 · series-audit-21 · 运输需求代次 2 · 最后看见 {WatchTimeDisplay.Format(DateTimeOffset.Parse("2026-08-14T05:06:07Z"))}",
                     facts.Text);
                 Assert.DoesNotContain("Snapshot", facts.Text, StringComparison.Ordinal);
                 Assert.DoesNotContain("PollTrace", facts.Text, StringComparison.Ordinal);
                 Assert.DoesNotContain("CatalogRevision", facts.Text, StringComparison.Ordinal);
                 var detailSnapshotEvidence = Assert.IsType<string>(facts.ToolTip);
-                Assert.Contains("CatalogRevision 7", detailSnapshotEvidence, StringComparison.Ordinal);
+                Assert.Contains("目录修订号 7", detailSnapshotEvidence, StringComparison.Ordinal);
                 Assert.Contains("audit-poll-21", detailSnapshotEvidence, StringComparison.Ordinal);
                 Assert.Contains("audit-commit-21", detailSnapshotEvidence, StringComparison.Ordinal);
                 Assert.Equal(
@@ -386,31 +362,32 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.True(
                     primaryBlockerCard.IsVisible,
                     $"Primary blocker must be visible; visibility={primaryBlockerCard.Visibility}, size={primaryBlockerCard.ActualWidth:0.##}x{primaryBlockerCard.ActualHeight:0.##}, detail-size={Find<Wpf.Ui.Controls.Card>(window, "ReadabilityDetailCard").ActualWidth:0.##}x{Find<Wpf.Ui.Controls.Card>(window, "ReadabilityDetailCard").ActualHeight:0.##}.");
-                Assert.Equal("INVALID_MES_FIELD_FORMAT", primaryBlockerCode.Text);
+                Assert.Equal("制造执行系统字段格式无效", primaryBlockerCode.Text);
                 Assert.Equal("Blocked", primaryBlockerCard.Tag);
                 Assert.Equal("Blocked", qualificationConclusionCard.Tag);
                 Assert.Equal(2, qualificationChecklist.Items.Count);
                 Assert.True(
                     qualificationChecklist.IsVisible,
                     $"Qualification checklist must be visible before capture; size={qualificationChecklist.ActualWidth:0.##}x{qualificationChecklist.ActualHeight:0.##}.");
-                Assert.Contains("NOT_READABLE", qualificationConclusion.Text, StringComparison.Ordinal);
+                Assert.Contains("不可读", qualificationConclusion.Text, StringComparison.Ordinal);
+                Assert.DoesNotContain("NOT_READABLE", qualificationConclusion.Text, StringComparison.Ordinal);
                 Assert.Equal(3, liveMesFields.ColumnDefinitions.Count);
-                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesAreaText").Text);
-                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesEqpText").Text);
-                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesStepText").Text);
-                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesDateText").Text);
-                Assert.Equal("—", Find<TextBlock>(window, "ReadabilityLiveMesPackageText").Text);
+                Assert.Equal("系统未知", Find<TextBlock>(window, "ReadabilityLiveMesAreaText").Text);
+                Assert.Equal("系统未知", Find<TextBlock>(window, "ReadabilityLiveMesEqpText").Text);
+                Assert.Equal("系统未知", Find<TextBlock>(window, "ReadabilityLiveMesStepText").Text);
+                Assert.Equal("系统未知", Find<TextBlock>(window, "ReadabilityLiveMesDateText").Text);
+                Assert.Equal("系统未知", Find<TextBlock>(window, "ReadabilityLiveMesPackageText").Text);
                 Assert.DoesNotContain("PollTrace", liveMesFacts.Text, StringComparison.Ordinal);
                 Assert.Contains(
-                    "PollTrace audit-poll-21",
+                    "轮询追踪 audit-poll-21",
                     AutomationProperties.GetHelpText(liveMesFields),
                     StringComparison.Ordinal);
-                Assert.Equal("Catalog Revision 7", revisionFacts.Text);
+                Assert.Equal("目录修订号 7", revisionFacts.Text);
                 var revisionEvidence = Assert.IsType<string>(revisionFacts.ToolTip);
-                Assert.Contains("Snapshot snapshot-audit-21", revisionEvidence, StringComparison.Ordinal);
-                Assert.Contains("Projection 211", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("快照 snapshot-audit-21", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("投影 211", revisionEvidence, StringComparison.Ordinal);
                 Assert.Contains("audit-commit-21", revisionEvidence, StringComparison.Ordinal);
-                Assert.Contains("PollTrace audit-poll-21", revisionEvidence, StringComparison.Ordinal);
+                Assert.Contains("轮询追踪 audit-poll-21", revisionEvidence, StringComparison.Ordinal);
                 Assert.Equal(revisionEvidence, AutomationProperties.GetHelpText(revisionFacts));
                 Assert.Equal("查看完整结构化证据", deepEvidence.Header);
                 Assert.False(deepEvidence.IsExpanded);
@@ -432,12 +409,12 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.Equal(
                     compactFacts.Text,
                     AutomationProperties.GetHelpText(compactFacts));
-                Assert.Contains("SnapshotReference snapshot-audit-21", compactFacts.Text, StringComparison.Ordinal);
-                Assert.Contains("Watch 最近成功", compactFacts.Text, StringComparison.Ordinal);
-                Assert.Contains("Host 固定排序", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("快照引用 snapshot-audit-21", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("运维台最近成功", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端固定排序", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Contains("阻断原因精确分面", compactFacts.Text, StringComparison.Ordinal);
                 Assert.Contains("原因可重叠", compactFacts.Text, StringComparison.Ordinal);
-                Assert.Contains("不可见总数按 Demand 世代去重", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("不可见总数按运输需求代次去重", compactFacts.Text, StringComparison.Ordinal);
                 var compactFactsBottom = compactFacts.TranslatePoint(
                     new Point(0, compactFacts.ActualHeight),
                     window).Y;
@@ -446,7 +423,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                     $"Persistent Audit facts must stay in the header before the 84px filter; factsBottom={compactFactsBottom:0.##}, filterTop={filterTop:0.##}.");
                 var filterPanel = Find<Grid>(window, "ReadabilityFilterPanel");
                 var filterHelp = AutomationProperties.GetHelpText(filterPanel);
-                Assert.Contains("Host 投影提交", filterHelp, StringComparison.Ordinal);
+                Assert.Contains("服务端投影提交", filterHelp, StringComparison.Ordinal);
                 Assert.Contains("阻断原因精确分面", filterHelp, StringComparison.Ordinal);
 
                 var master = Find<Wpf.Ui.Controls.Card>(window, "ReadabilityMasterCard");
@@ -486,11 +463,11 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                 Assert.InRange(Math.Abs(masterBottom - detailBottom), 0, 1.5);
                 Assert.InRange(Math.Abs(masterBottom - summaryBottom), 0, 1.5);
                 Assert.Equal(
-                    "Catalog Revision 7",
+                    "目录修订号 7",
                     Find<TextBlock>(window, "ReadabilityCatalogRevisionText").Text);
                 var headerFacts = Find<TextBlock>(window, "ReadabilityHeaderFactsText");
                 Assert.Contains(
-                    "更新于",
+                    "2026-08-14",
                     headerFacts.Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
@@ -498,21 +475,21 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                     headerFacts.Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "Host A1-1",
+                    "服务端 A1-1",
                     headerFacts.Text,
                     StringComparison.Ordinal);
                 var headerFullFacts = Assert.IsType<string>(headerFacts.ToolTip);
                 Assert.Equal(
                     headerFullFacts,
                     AutomationProperties.GetHelpText(headerFacts));
-                Assert.Contains("Host 已提交范围", headerFullFacts, StringComparison.Ordinal);
+                Assert.Contains("服务端已提交范围", headerFullFacts, StringComparison.Ordinal);
                 Assert.Contains("audit-commit-21", headerFullFacts, StringComparison.Ordinal);
                 Assert.Contains(
-                    "Host 投影提交",
+                    "服务端投影提交",
                     Find<TextBlock>(window, "ReadabilityCompactFactsText").Text,
                     StringComparison.Ordinal);
                 Assert.Contains(
-                    "不可见",
+                    "不可读",
                     Find<TextBlock>(window, "ReadabilityNotReadableCountText").Text,
                     StringComparison.Ordinal);
                 var conclusion = Find<Wpf.Ui.Controls.InfoBar>(
@@ -603,7 +580,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
                        || !Find<TextBlock>(window, "ReadabilityCompactFactsText")
                            .Text
                            .Contains(
-                               $"SnapshotReference {zeroSnapshotReference}",
+                               $"快照引用 {zeroSnapshotReference}",
                                StringComparison.Ordinal))
                 {
                     timeout.Token.ThrowIfCancellationRequested();
@@ -612,7 +589,7 @@ public sealed class WatchReadabilityAuditProductionIntegrationTests
 
                 var zeroFacts = Find<TextBlock>(window, "ReadabilityCompactFactsText").Text;
                 Assert.Contains(
-                    $"SnapshotReference {zeroSnapshotReference}",
+                    $"快照引用 {zeroSnapshotReference}",
                     zeroFacts,
                     StringComparison.Ordinal);
                 Assert.Contains(

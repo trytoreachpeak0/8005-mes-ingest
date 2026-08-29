@@ -233,16 +233,16 @@ internal sealed partial class WatchDemandSeriesText
 
     public string DescribeLifecycle(string rawCode) => rawCode switch
     {
-        "TRACKING" => WithCode(TrackingEntry, rawCode),
-        "ARCHIVED" => WithCode(ArchivedEntry, rawCode),
+        "TRACKING" => WithKnownCode(TrackingEntry, rawCode),
+        "ARCHIVED" => WithKnownCode(ArchivedEntry, rawCode),
         _ => WithCode(UnknownLifecycleEntry, rawCode),
     };
 
     public string DescribePresence(string rawCode) => rawCode switch
     {
-        "VISIBLE" => WithCode(VisibleEntry, rawCode),
-        "GONE" => WithCode(GoneEntry, rawCode),
-        "LONG_GONE_BUT_VISIBLE" => WithCode(LongGoneEntry, rawCode),
+        "VISIBLE" => WithKnownCode(VisibleEntry, rawCode),
+        "GONE" => WithKnownCode(GoneEntry, rawCode),
+        "LONG_GONE_BUT_VISIBLE" => WithKnownCode(LongGoneEntry, rawCode),
         _ => WithCode(UnknownPresenceEntry, rawCode),
     };
 
@@ -351,6 +351,11 @@ internal sealed partial class WatchDemandSeriesText
 
     private string WithCode(WatchTextCatalogEntry meaning, string rawCode) =>
         $"{Text(meaning)} ({rawCode})";
+
+    private string WithKnownCode(WatchTextCatalogEntry meaning, string rawCode) =>
+        Language is WatchDisplayLanguage.SimplifiedChinese
+            ? Text(meaning)
+            : WithCode(meaning, rawCode);
 
     private string F(WatchTextCatalogEntry entry, params object[] values) =>
         string.Format(CultureInfo.InvariantCulture, Text(entry), values);

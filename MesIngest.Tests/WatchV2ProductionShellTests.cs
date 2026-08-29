@@ -58,12 +58,12 @@ public sealed class WatchV2ProductionShellTests
             var navigation = Assert.IsType<NavigationView>(window.FindName("WorkspaceNavigation"));
             Assert.Equal("主导航", AutomationProperties.GetName(navigation));
             Assert.Equal(
-                new[] { "概览", "需求系列", "资格审计", "错误检索", "AREA 筛选", "接入告警" },
+                new[] { "概览", "需求系列", "资格审计", "错误检索", "区域筛选", "接入告警" },
                 navigation.MenuItems
                     .OfType<NavigationViewItem>()
                     .Select(item => item.Content?.ToString()));
             Assert.Equal(
-                new[] { "Host 未连接", "设置" },
+                new[] { "服务端未连接", "设置" },
                 navigation.FooterMenuItems
                     .OfType<NavigationViewItem>()
                     .Select(item => item.Content?.ToString()));
@@ -107,7 +107,7 @@ public sealed class WatchV2ProductionShellTests
             var hostFooter = Assert.IsType<NavigationViewItem>(
                 window.FindName("HostNavigationItem"));
             Assert.Contains("StoragePressurePause", hostFooter.Content?.ToString(), StringComparison.Ordinal);
-            Assert.Contains("MES 轮询暂停", AutomationProperties.GetName(hostFooter), StringComparison.Ordinal);
+            Assert.Contains("制造执行系统轮询暂停", AutomationProperties.GetName(hostFooter), StringComparison.Ordinal);
 
             window.NavigateFromOverview(new OverviewNavigationIntent(
                 OverviewNavigationTargets.CurrentIngestAttention,
@@ -119,7 +119,7 @@ public sealed class WatchV2ProductionShellTests
                 window.FindName("AttentionSummaryFacetText"));
             Assert.Contains("StoragePressurePause", protectionSummary.Text, StringComparison.Ordinal);
             Assert.Contains(
-                "MES 轮询暂停",
+                "制造执行系统轮询暂停",
                 AutomationProperties.GetName(protectionSummary),
                 StringComparison.Ordinal);
             var evidence = Assert.IsType<DataGrid>(
@@ -130,11 +130,11 @@ public sealed class WatchV2ProductionShellTests
                     Name: Assert.IsType<string>(item.GetType().GetProperty("Name")!.GetValue(item)),
                     Value: Assert.IsType<string>(item.GetType().GetProperty("Value")!.GetValue(item))))
                 .ToArray();
-            Assert.Contains(evidence, row => row.Name == "Reason" && row.Value.Contains(
+            Assert.Contains(evidence, row => row.Name == "原因" && row.Value.Contains(
                 "below pause threshold",
                 StringComparison.Ordinal));
-            Assert.Contains(evidence, row => row.Name == "EarliestAvailableHostUtc");
-            Assert.Contains(evidence, row => row.Name == "LocalAdministration" && row.Value.Contains(
+            Assert.Contains(evidence, row => row.Name == "服务端最早可用时间");
+            Assert.Contains(evidence, row => row.Name == "本地管理" && row.Value.Contains(
                 "resume-storage-pressure",
                 StringComparison.Ordinal));
             Assert.Null(window.FindName("ResumeStoragePressureButton"));
@@ -223,8 +223,8 @@ public sealed class WatchV2ProductionShellTests
 
             var context = Assert.IsAssignableFrom<TextBlock>(
                 window.FindName("DemandSeriesContextText"));
-            Assert.Equal("需求系列快照与 AREA 范围", AutomationProperties.GetName(context));
-            Assert.Contains("AREA", context.Text, StringComparison.Ordinal);
+            Assert.Equal("需求系列快照与区域范围", AutomationProperties.GetName(context));
+            Assert.Contains("区域", context.Text, StringComparison.Ordinal);
             Assert.Equal(
                 "需求系列读取状态",
                 AutomationProperties.GetName(Assert.IsType<Wpf.Ui.Controls.InfoBar>(
@@ -237,14 +237,14 @@ public sealed class WatchV2ProductionShellTests
             var filters = new Dictionary<string, string>
             {
                 ["DemandSeriesLifecycleAllButton"] = "生命周期：全部",
-                ["DemandSeriesLifecycleTrackingButton"] = "生命周期：跟踪中 (TRACKING)",
-                ["DemandSeriesLifecycleArchivedButton"] = "生命周期：已归档 (ARCHIVED)",
+                ["DemandSeriesLifecycleTrackingButton"] = "生命周期：跟踪中",
+                ["DemandSeriesLifecycleArchivedButton"] = "生命周期：已归档",
                 ["DemandSeriesPresenceFilter"] = "当前出现状态筛选",
-                ["DemandSeriesWorkTypeFilter"] = "WorkType 筛选",
-                ["DemandSeriesSublotFilter"] = "SUBLOT 筛选",
-                ["DemandSeriesSeriesIdFilter"] = "SeriesId 筛选",
-                ["DemandSeriesDemandIdFilter"] = "DemandId 筛选",
-                ["DemandSeriesAreaProfileSelector"] = "需求系列 AREA 配置选择器",
+                ["DemandSeriesWorkTypeFilter"] = "工序类型筛选",
+                ["DemandSeriesSublotFilter"] = "子批次筛选",
+                ["DemandSeriesSeriesIdFilter"] = "需求系列标识筛选",
+                ["DemandSeriesDemandIdFilter"] = "运输需求标识筛选",
+                ["DemandSeriesAreaProfileSelector"] = "需求系列区域配置选择器",
                 ["DemandSeriesPageSizeFilter"] = "每页数量",
             };
             foreach (var (name, automationName) in filters)
@@ -269,12 +269,12 @@ public sealed class WatchV2ProductionShellTests
 
             var openInspector = Assert.IsAssignableFrom<ButtonBase>(
                 window.FindName("DemandSeriesOpenInspectorButton"));
-            Assert.Equal("打开 Inspector", openInspector.Content);
+            Assert.Equal("打开调查窗口", openInspector.Content);
             Assert.Equal(
                 "DemandSeriesOpenInspectorButton",
                 AutomationProperties.GetAutomationId(openInspector));
             Assert.Equal(
-                "打开 Inspector",
+                "打开调查窗口",
                 AutomationProperties.GetName(openInspector));
             Assert.False(openInspector.IsEnabled);
 
@@ -287,12 +287,12 @@ public sealed class WatchV2ProductionShellTests
             Assert.Equal(
                 new[]
                 {
-                    "SeriesId",
-                    "WorkType",
-                    "SUBLOT",
+                    "需求系列标识",
+                    "工序类型",
+                    "子批次",
                     "生命周期 / 当前出现",
-                    "当前 AREA",
-                    "当前 Demand",
+                    "当前区域",
+                    "当前运输需求",
                     "世代",
                     "事件",
                     "开始时间",
@@ -520,7 +520,7 @@ public sealed class WatchV2ProductionShellTests
             var items = Assert.IsType<ItemsControl>(
                 window.FindName("NotificationItemsControl"));
             var item = Assert.Single(items.Items)!;
-            Assert.Equal("Host 连接持续失败", NotificationProperty(items, "Title"));
+            Assert.Equal("服务端连接持续失败", NotificationProperty(items, "Title"));
             Assert.Equal("打开设置", NotificationProperty(items, "ActionLabel"));
             Assert.DoesNotContain("must-not-leak", NotificationProperty(items, "Message"), StringComparison.Ordinal);
             Assert.Equal(
@@ -587,7 +587,7 @@ public sealed class WatchV2ProductionShellTests
             Assert.Equal("all-areas", window.ActiveWorkspaceDialogKind);
             var dialog = Assert.IsType<Wpf.Ui.Controls.ContentDialog>(
                 window.ActiveWorkspaceDialog);
-            Assert.Equal("切换到全部 AREA", dialog.PrimaryButtonText);
+            Assert.Equal("切换到全部区域", dialog.PrimaryButtonText);
             Assert.Equal("取消", dialog.CloseButtonText);
             Assert.Equal(Wpf.Ui.Controls.ContentDialogButton.Close, dialog.DefaultButton);
 
@@ -597,7 +597,7 @@ public sealed class WatchV2ProductionShellTests
             PumpUntilCompleted(window.Dispatcher, window.ActiveWorkspaceDialogTask);
 
             Assert.Null(window.ActiveWorkspaceDialog);
-            Assert.Equal(confirm ? "全部 AREA" : "东区", window.AreaContext.ProfileName);
+            Assert.Equal(confirm ? "全部区域" : "东区", window.AreaContext.ProfileName);
             Assert.Same(intent, window.LastOverviewNavigationIntent);
             Assert.Null(window.WorkspaceState.DemandSeries.SelectedId);
 

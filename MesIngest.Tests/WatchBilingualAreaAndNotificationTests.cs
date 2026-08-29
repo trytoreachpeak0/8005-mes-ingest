@@ -120,7 +120,7 @@ public sealed class WatchBilingualAreaFilterTests
                 language.ApplyCommitted(WatchDisplayLanguage.SimplifiedChinese);
 
                 Assert.Equal(expected.Title.SimplifiedChinese, infoBar.Title);
-                Assert.Contains("已回退到全部 AREA", infoBar.Message, StringComparison.Ordinal);
+                Assert.Contains("已回退到全部区域", infoBar.Message, StringComparison.Ordinal);
                 Assert.Equal(
                     $"{infoBar.Title}。{infoBar.Message}",
                     AutomationProperties.GetName(infoBar));

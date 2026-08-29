@@ -870,7 +870,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     var hostStatus = TextValue(FindRequiredById(window, "HostNavigationItem"));
                     return TextValue(FindRequiredById(window, "CurrentAttentionEmptyResultText"))
                             .Contains("精确 0 个", StringComparison.Ordinal)
-                        && hostStatus.Contains("Host 已连接", StringComparison.Ordinal)
+                        && hostStatus.Contains("服务端已连接", StringComparison.Ordinal)
                         && !hostStatus.Contains("StoragePressurePause", StringComparison.Ordinal)
                         && !hostStatus.Contains("存储空间严重告警", StringComparison.Ordinal)
                         && !hostStatus.Contains("历史重置待确认", StringComparison.Ordinal);
@@ -918,7 +918,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => TextValue(FindRequiredById(window, "OverviewContextText"))
                         .Contains("最近失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "OverviewHostStatusText"))
-                        .Contains("Host 已连接 · 读取失败", StringComparison.Ordinal)
+                        .Contains("服务端已连接 · 读取失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "StaleNoticeText"))
                         .Contains("数据可能已过期", StringComparison.Ordinal),
                 "the real Host refresh failure with retained Overview facts",
@@ -938,7 +938,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => TextValue(FindRequiredById(window, "OverviewContextText"))
                         .Contains("最近失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "OverviewHostStatusText"))
-                        .Contains("Host 已连接 · 读取失败", StringComparison.Ordinal)
+                        .Contains("服务端已连接 · 读取失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "StaleNoticeText"))
                         .Contains("数据可能已过期", StringComparison.Ordinal),
                 "the canonical reactivated retained Overview failure",
@@ -964,7 +964,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             Navigate(window, "OverviewNavigationItem", "OverviewPage");
             WaitUntil(
                 () => TextValue(FindRequiredById(window, "OverviewHostStatusText"))
-                        .Contains("Host 已连接", StringComparison.Ordinal)
+                        .Contains("服务端已连接", StringComparison.Ordinal)
                     && !TextValue(FindRequiredById(window, "OverviewHostStatusText"))
                         .Contains("读取失败", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "StaleNoticeText"))
@@ -1004,9 +1004,9 @@ public sealed class WatchWorkspaceProductionJourneyTests
             WaitUntil(
                 () => requestTimeoutInput.Text == "0"
                     && TextValue(FindRequiredById(window, "SettingsHostStatusText"))
-                        .Contains("Host 已连接", StringComparison.Ordinal)
+                        .Contains("服务端已连接", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "SettingsHostStateText")) is { } validation
-                    && validation.Contains("无法应用 Host 设置", StringComparison.Ordinal)
+                    && validation.Contains("无法应用服务端设置", StringComparison.Ordinal)
                     && validation.Contains("1–300", StringComparison.Ordinal)
                     && FindById(window, "NotificationItemsControl") is null,
                 "the real Settings request-timeout validation error",
@@ -1181,22 +1181,22 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 () => TextValue(FindRequiredById(
                         inspector,
                         "DemandSeriesInspectorEventContext"))
-                    .Contains("当前 Demand 相关事件", StringComparison.Ordinal),
-                "the current Demand related-event filter context",
+                    .Contains("当前运输需求相关事件", StringComparison.Ordinal),
+                "当前运输需求相关事件筛选上下文",
                 StepTimeout);
             Assert.Equal(
                 [
-                    "SeriesSequence",
-                    "EventId",
-                    "SeriesId",
-                    "OccurredAt",
-                    "EventType",
-                    "SubjectKind",
-                    "SubjectId",
-                    "PollTraceId",
-                    "ProjectionCommitId",
-                    "PayloadVersion",
-                    "PayloadJson",
+                    "需求系列序号",
+                    "事件标识",
+                    "需求系列标识",
+                    "发生时间",
+                    "事件类型",
+                    "主体类型",
+                    "主体标识",
+                    "轮询追踪标识",
+                    "投影提交标识",
+                    "载荷版本",
+                    "载荷内容",
                 ],
                 eventGrid.FindAllDescendants(
                         eventGrid.Automation.ConditionFactory.ByControlType(
@@ -1240,7 +1240,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 "the pinned all-AREA row and the four local AREA TXT profiles",
                 StepTimeout);
             Assert.Contains(
-                "全部 AREA",
+                "全部区域",
                 TextValue(profileList.Items[0]),
                 StringComparison.Ordinal);
             var invalidProfile = Assert.Single(
@@ -1270,7 +1270,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                     () => TextValue(FindRequiredById(window, "AreaProfileAppliedStateText"))
                         .Contains("东区", StringComparison.Ordinal)
                     && TextValue(FindRequiredById(window, "AreaProfileValidCountText"))
-                        .Contains("12 个有效 AREA", StringComparison.Ordinal),
+                        .Contains("12 个有效区域", StringComparison.Ordinal),
                 "the applied AREA profile state",
                 StepTimeout);
             EnsureVisibleIfOffscreen(
@@ -1336,7 +1336,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             longProfile.Select();
             WaitUntil(
                 () => TextValue(FindRequiredById(window, "AreaProfileValidCountText"))
-                    .Contains("24 个有效 AREA", StringComparison.Ordinal),
+                    .Contains("24 个有效区域", StringComparison.Ordinal),
                 "the 24-AREA profile loaded into the editor",
                 StepTimeout);
             CaptureWindowIncludingPopups(
@@ -2874,7 +2874,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 grid.Automation.ConditionFactory.ByControlType(ControlType.HeaderItem)),
             header => string.Equals(header.Name, name, StringComparison.Ordinal));
 
-        var seriesHeader = FindHeader("SeriesId");
+        var seriesHeader = FindHeader("需求系列标识");
         var before = seriesHeader.BoundingRectangle;
         Assert.True(before.Width > 0 && before.Height > 0);
 
@@ -2887,8 +2887,8 @@ public sealed class WatchWorkspaceProductionJourneyTests
             MouseButton.Left);
 
         WaitUntil(
-            () => FindHeader("SeriesId").BoundingRectangle.Width >= before.Width + 32,
-            "DemandSeries SeriesId column resized through the real themed header gripper",
+            () => FindHeader("需求系列标识").BoundingRectangle.Width >= before.Width + 32,
+            "需求系列标识列已通过真实主题标头拖拽调整宽度",
             StepTimeout);
     }
 
@@ -3077,7 +3077,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
 
     private static AutomationElement? FindAreaWriteConflictDialog(
         FlaUI.Core.AutomationElements.Window window) =>
-        FindAreaWriteConflictDialog(window, "AREA 文件已被其他程序修改");
+        FindAreaWriteConflictDialog(window, "区域文件已被其他程序修改");
 
     private static AutomationElement? FindAreaWriteConflictDialog(
         FlaUI.Core.AutomationElements.Window window,
@@ -3178,7 +3178,7 @@ public sealed class WatchWorkspaceProductionJourneyTests
             localAppData,
             languageTag: "zh-CN",
             viewport,
-            conflictTitle: "AREA 文件已被其他程序修改",
+            conflictTitle: "区域文件已被其他程序修改",
             conflictReload: "重新载入文件");
         uiaEvidence.AppendLine("=== Ticket 12 zh-CN main window ===");
         uiaEvidence.AppendLine(WatchWindowJourneySupport.DumpUiaTree(window, automation));

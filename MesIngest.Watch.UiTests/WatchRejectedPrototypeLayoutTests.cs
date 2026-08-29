@@ -95,10 +95,9 @@ public sealed class WatchRejectedPrototypeLayoutTests
                 var settingsPage = Find<ScrollViewer>(window, "SettingsPage");
                 Find<TextBox>(window, "RequestTimeoutInput").Text = "0";
                 Click(Find<ButtonBase>(window, "ApplyHostButton"));
-                var settingsInfo = Find<Wpf.Ui.Controls.InfoBar>(window, "SettingsInfoBar");
-                Assert.True(settingsInfo.IsOpen);
-                Assert.Equal("无法应用 Host 设置", settingsInfo.Title);
-                Assert.Equal("请求超时必须是 1–300 秒之间的整数。", settingsInfo.Message);
+                var settingsStatus = Find<TextBlock>(window, "SettingsHostStateText");
+                Assert.Contains("无法应用服务端设置", settingsStatus.Text, StringComparison.Ordinal);
+                Assert.Contains("请求超时必须是 1–300 秒之间的整数。", settingsStatus.Text, StringComparison.Ordinal);
                 window.UpdateLayout();
                 Assert.InRange(settingsPage.ScrollableHeight, 0, 0.5);
                 AssertFullyWithin(
@@ -125,11 +124,11 @@ public sealed class WatchRejectedPrototypeLayoutTests
                     Path.GetFullPath(areaDirectory));
                 Assert.Equal(
                     $"%LocalAppData%\\{relativeAreaDirectory} · UTF-8 · "
-                        + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
+                        + "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     directory.Text);
                 Assert.NotEqual(
                     "%LocalAppData%\\MesIngest.Watch\\area-filters · UTF-8 · "
-                        + "每行一个 AREA · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
+                        + "每行一个区域值 · 格式：A1-1 或 A11-11 · 空行和 # 注释会忽略",
                     directory.Text);
                 Assert.Equal(Path.GetFullPath(areaDirectory), directory.ToolTip);
                 Assert.Equal(Path.GetFullPath(areaDirectory), AutomationProperties.GetHelpText(directory));
@@ -156,6 +155,42 @@ public sealed class WatchRejectedPrototypeLayoutTests
 
     private static void Click(ButtonBase button) => button.RaiseEvent(
         new RoutedEventArgs(ButtonBase.ClickEvent, button));
+
+    private static string NotificationText(WatchWorkspaceWindow window)
+    {
+        window.UpdateLayout();
+        var cards = string.Join(
+            " · ",
+            Find<ItemsControl>(window, "NotificationItemsControl").Items
+                .Cast<object>()
+                .Select(item => item.GetType().GetProperty("AutomationName")?.GetValue(item)?.ToString())
+                .Where(text => !string.IsNullOrWhiteSpace(text)));
+        return string.Join(
+            " · ",
+            new[]
+            {
+                Find<System.Windows.Controls.TextBlock>(window, "NotificationLiveRegion").Text,
+                cards,
+            }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    }
+
+    private static IEnumerable<T> VisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var descendant in VisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
 
     private static void AssertScopeTheme(
         WatchWorkspaceWindow window,

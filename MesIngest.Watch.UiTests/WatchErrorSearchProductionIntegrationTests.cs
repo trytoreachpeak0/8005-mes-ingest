@@ -153,25 +153,13 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Equal("错误分类导航（可多选）", AutomationProperties.GetName(categories));
                 Assert.Collection(
                     categories.Items.Cast<object>(),
-                    item => Assert.Contains(
-                        "DATA_COMPLETENESS",
-                        CategoryAutomationName(categories, item),
-                        StringComparison.Ordinal),
-                    item => Assert.Contains(
-                        "DATA_FORMAT",
-                        CategoryAutomationName(categories, item),
-                        StringComparison.Ordinal),
-                    item => Assert.Contains(
-                        "OBSERVATION_CONFLICT",
-                        CategoryAutomationName(categories, item),
-                        StringComparison.Ordinal),
-                    item => Assert.Contains(
-                        "LIFECYCLE_CONFLICT",
-                        CategoryAutomationName(categories, item),
-                        StringComparison.Ordinal));
+                    item => Assert.Contains("数据完整性", CategoryAutomationName(categories, item), StringComparison.Ordinal),
+                    item => Assert.Contains("数据格式", CategoryAutomationName(categories, item), StringComparison.Ordinal),
+                    item => Assert.Contains("观测冲突", CategoryAutomationName(categories, item), StringComparison.Ordinal),
+                    item => Assert.Contains("生命周期冲突", CategoryAutomationName(categories, item), StringComparison.Ordinal));
 
-                var completeness = FindCategoryItem(categories, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
-                var format = FindCategoryItem(categories, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
+                var completeness = FindCategoryItem(categories, "DATA_COMPLETENESS", "服务端精确 5 个需求系列");
+                var format = FindCategoryItem(categories, "DATA_FORMAT", "服务端精确 3 个需求系列");
                 categories.SelectedItems.Add(completeness);
                 categories.SelectedItems.Add(format);
                 Assert.Equal(2, categories.SelectedItems.Count);
@@ -191,13 +179,13 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 AssertSelectedCategorySurface(window, categories, format);
 
                 var compactFacts = Find<TextBlock>(window, "ErrorSearchCompactFactsText");
-                Assert.Contains("Host 冻结快照", compactFacts.Text, StringComparison.Ordinal);
+                Assert.Contains("服务端冻结快照", compactFacts.Text, StringComparison.Ordinal);
                 var fullFacts = Assert.IsType<string>(compactFacts.ToolTip);
-                Assert.Contains("ErrorSearchAsOf", fullFacts, StringComparison.Ordinal);
-                Assert.Contains("UTC 半开窗口", fullFacts, StringComparison.Ordinal);
-                Assert.Contains("Host 已提交条件", fullFacts, StringComparison.Ordinal);
+                Assert.Contains("错误检索查询时点", fullFacts, StringComparison.Ordinal);
+                Assert.Contains("协调世界时半开窗口", fullFacts, StringComparison.Ordinal);
+                Assert.Contains("服务端已提交条件", fullFacts, StringComparison.Ordinal);
                 Assert.Contains(
-                    "ErrorSearchAsOf",
+                    "错误检索查询时点",
                     AutomationProperties.GetHelpText(compactFacts),
                     StringComparison.Ordinal);
 
@@ -205,6 +193,10 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 window.UpdateLayout();
                 Assert.Single(categories.Items);
                 Assert.Contains(
+                    "数据格式",
+                    CategoryAutomationName(categories, categories.Items[0]),
+                    StringComparison.Ordinal);
+                Assert.DoesNotContain(
                     "DATA_FORMAT",
                     CategoryAutomationName(categories, categories.Items[0]),
                     StringComparison.Ordinal);
@@ -367,8 +359,8 @@ public sealed class WatchErrorSearchProductionIntegrationTests
 
                 var categoryNavigation = Find<ListBox>(window, "ErrorSearchCategoryList");
                 Assert.Equal(4, categoryNavigation.Items.Count);
-                FindCategoryItem(categoryNavigation, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
-                FindCategoryItem(categoryNavigation, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
+                FindCategoryItem(categoryNavigation, "DATA_COMPLETENESS", "服务端精确 5 个需求系列");
+                FindCategoryItem(categoryNavigation, "DATA_FORMAT", "服务端精确 3 个需求系列");
                 Assert.Equal(2, Find<DataGrid>(window, "ErrorSearchActivityStateFacetGrid").Items.Count);
                 Assert.Single(Find<DataGrid>(window, "ErrorSearchSeriesGrid").Items);
                 var pageSummary = Find<TextBlock>(window, "ErrorSearchPageSummaryText");
@@ -376,7 +368,7 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Contains("第 1 / 3 页", pageSummary.Text, StringComparison.Ordinal);
                 Assert.Contains("2026-08-14", Find<TextBlock>(window, "ErrorSearchSnapshotText").Text, StringComparison.Ordinal);
                 var windowText = Find<TextBlock>(window, "ErrorSearchWindowText").Text;
-                Assert.Contains("UTC", windowText, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("协调世界时", windowText, StringComparison.OrdinalIgnoreCase);
                 Assert.Contains("[", windowText, StringComparison.Ordinal);
                 Assert.Contains(")", windowText, StringComparison.Ordinal);
 
@@ -759,14 +751,19 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Equal(WatchHostFailureKind.ServerQuery, failed.FailureKind);
                 Assert.Single(Find<DataGrid>(window, "ErrorSearchSeriesGrid").Items);
                 var retainedCategories = Find<ListBox>(window, "ErrorSearchCategoryList");
-                FindCategoryItem(retainedCategories, "DATA_COMPLETENESS", "Host 精确 5 个 DemandSeries");
-                FindCategoryItem(retainedCategories, "DATA_FORMAT", "Host 精确 3 个 DemandSeries");
+                FindCategoryItem(retainedCategories, "DATA_COMPLETENESS", "服务端精确 5 个需求系列");
+                FindCategoryItem(retainedCategories, "DATA_FORMAT", "服务端精确 3 个需求系列");
                 var failure = Find<Wpf.Ui.Controls.InfoBar>(window, "ErrorSearchStatusInfoBar");
-                Assert.True(failure.IsOpen);
-                Assert.Equal(Wpf.Ui.Controls.InfoBarSeverity.Error, failure.Severity);
-                Assert.Contains("失败", failure.Message, StringComparison.Ordinal);
-                Assert.Contains("保留", failure.Message, StringComparison.Ordinal);
-                Assert.DoesNotContain("没有历史", failure.Message, StringComparison.Ordinal);
+                Assert.False(failure.IsOpen);
+                Assert.Equal(
+                    "快照已陈旧",
+                    Find<TextBlock>(window, "ErrorSearchHeaderStatusText").Text);
+                var persistentFault = Find<TextBlock>(window, "ErrorSearchFaultStatusText");
+                Assert.True(persistentFault.IsVisible);
+                Assert.Contains(
+                    "错误检索读取持续失败",
+                    Find<ButtonBase>(window, "ErrorSearchFaultStatusButton").ToolTip?.ToString(),
+                    StringComparison.Ordinal);
                 Assert.Contains(
                     ErrorSearchAsOf.ToString("yyyy-MM-dd"),
                     Find<TextBlock>(window, "ErrorSearchSnapshotText").Text,
@@ -962,8 +959,8 @@ public sealed class WatchErrorSearchProductionIntegrationTests
                 Assert.Contains("sublot", limits, StringComparison.Ordinal);
                 Assert.Contains("package", limits, StringComparison.Ordinal);
                 Assert.Contains("2", limits, StringComparison.Ordinal);
-                Assert.Contains("2048", limits, StringComparison.Ordinal);
-                Assert.Contains("65536", limits, StringComparison.Ordinal);
+                Assert.Contains("2,048", limits, StringComparison.Ordinal);
+                Assert.Contains("65,536", limits, StringComparison.Ordinal);
 
                 await window.LoadErrorRawEvidenceAndRenderAsync(
                     "PERIOD-BOUNDARY-22",
@@ -1294,8 +1291,8 @@ public sealed class WatchErrorSearchProductionIntegrationTests
         string category,
         string? expectedCount = null)
     {
-        var item = categories.Items.Cast<object>().Single(candidate =>
-            CategoryAutomationName(categories, candidate).Contains(category, StringComparison.Ordinal));
+        var item = categories.Items.Cast<WatchErrorSearchCategoryNavigationItem>().Single(candidate =>
+            string.Equals(candidate.Category, category, StringComparison.Ordinal));
         if (expectedCount is not null)
         {
             Assert.Contains(

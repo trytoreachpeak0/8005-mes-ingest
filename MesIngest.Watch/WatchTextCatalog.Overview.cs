@@ -1,3 +1,4 @@
+using System.Globalization;
 using MesIngest.Core.SeriesProjection;
 
 namespace MesIngest.Watch;
@@ -13,6 +14,7 @@ internal sealed partial class WatchOverviewText
     private static readonly WatchTextCatalogEntry AreaEntry = E("overview.card.area", "AREA 筛选", "AREA filters");
     private static readonly WatchTextCatalogEntry AttentionEntry = E("overview.card.attention", "接入告警", "Ingest alerts");
     private static readonly WatchTextCatalogEntry ViewEntry = E("overview.action.view", "查看 →", "View →");
+    private static readonly WatchTextCatalogEntry ViewAllFirstPageEntry = E("overview.action.viewAllFirstPage", "查看全部{0}第一页", "View all {0}, first page");
     private static readonly WatchTextCatalogEntry ManageEntry = E("overview.action.manage", "管理 →", "Manage →");
     private static readonly WatchTextCatalogEntry ReadableEntry = E("overview.action.readable", "可读", "Readable");
     private static readonly WatchTextCatalogEntry NotReadableEntry = E("overview.action.notReadable", "不可读", "Not readable");
@@ -38,6 +40,10 @@ internal sealed partial class WatchOverviewText
     private static readonly WatchTextCatalogEntry NoStaleEntry = E("overview.automation.notStale", "概览数据未标记为陈旧", "Overview data is not marked stale");
     private static readonly WatchTextCatalogEntry AttentionAutomationEntry = E("overview.automation.attention", "存储与历史保护状态：{0}。{1}。接入告警严重度精确分面：{2}", "Storage and history protection: {0}. {1}. Exact ingest-alert severity facets: {2}");
     private static readonly WatchTextCatalogEntry HealthAutomationEntry = E("overview.automation.health", "概览健康区：{0}。{1}", "Overview health region: {0}. {1}");
+    private static readonly WatchTextCatalogEntry ErrorSeverityEntry = E("overview.severity.error", "错误", "ERROR");
+    private static readonly WatchTextCatalogEntry WarningSeverityEntry = E("overview.severity.warning", "警告", "WARNING");
+    private static readonly WatchTextCatalogEntry SeriesLifecycleActivityEntry = E("overview.activity.seriesLifecycle", "需求系列生命周期", "SERIES_LIFECYCLE");
+    private static readonly WatchTextCatalogEntry SeriesErrorPeriodActivityEntry = E("overview.activity.seriesErrorPeriod", "需求系列错误期间", "SERIES_ERROR_PERIOD");
     private static readonly WatchTextCatalogEntry ConciseNoScopeEntry = E("overview.concise.noScope", "Host 尚无范围", "Host scope is not loaded");
     private static readonly WatchTextCatalogEntry ConciseAllScopeEntry = E("overview.concise.allScope", "Host 全部 AREA", "All Host AREA values");
     private static readonly WatchTextCatalogEntry ConciseSomeScopeEntry = E("overview.concise.someScope", "Host {0}", "Host {0}");
@@ -46,12 +52,13 @@ internal sealed partial class WatchOverviewText
     private static readonly IReadOnlyList<WatchTextCatalogEntry> CatalogEntries =
     [
         PageTitleEntry, SeriesEntry, ReadabilityEntry, ErrorsEntry, AreaEntry, AttentionEntry,
-        ViewEntry, ManageEntry, ReadableEntry, NotReadableEntry, ActiveEntry,
+        ViewEntry, ViewAllFirstPageEntry, ManageEntry, ReadableEntry, NotReadableEntry, ActiveEntry,
         PriorSevenDaysEntry, RecentEntry, RecentHelpEntry, DescendingEntry, NoRecentEntry, SeriesUnitEntry,
         DemandUnitEntry, ErrorSeriesUnitEntry, AttentionUnitEntry, NoHostSnapshotEntry,
         WaitingEntry, HostNoScopeEntry, ProtectionEntry, SnapshotEntry, AllAreaEntry,
         ContextAutomationEntry, NoReadNoticeEntry, ReadNoticeEntry, NoStaleEntry,
-        AttentionAutomationEntry, HealthAutomationEntry, ConciseNoScopeEntry,
+        AttentionAutomationEntry, HealthAutomationEntry, ErrorSeverityEntry, WarningSeverityEntry,
+        SeriesLifecycleActivityEntry, SeriesErrorPeriodActivityEntry, ConciseNoScopeEntry,
         ConciseAllScopeEntry, ConciseSomeScopeEntry, ConciseManyScopeEntry,
     ];
 
@@ -65,6 +72,7 @@ internal sealed partial class WatchOverviewText
     public string Area => Text(AreaEntry);
     public string Attention => Text(AttentionEntry);
     public string View => Text(ViewEntry);
+    public string ViewAllFirstPage(string page) => string.Format(Text(ViewAllFirstPageEntry), page);
     public string Manage => Text(ManageEntry);
     public string Readable => Text(ReadableEntry);
     public string NotReadable => Text(NotReadableEntry);
@@ -149,7 +157,17 @@ internal sealed partial class WatchOverviewText
 
     public string ErrorsDetail(long priorSevenDays) => Format(WatchLegacyGeneratedText.Overview039, new object?[] { priorSevenDays }, new object?[] { priorSevenDays });
 
-    public string AttentionDetail(long errors, long warnings) => Format(WatchLegacyGeneratedText.Overview040, new object?[] { errors, warnings }, new object?[] { errors, warnings });
+    public string AttentionDetail(long errors, long warnings) =>
+        Language is WatchDisplayLanguage.SimplifiedChinese
+            ? string.Format(
+                CultureInfo.InvariantCulture,
+                "当前接入关注项 · {0:N0} 个错误 · {1:N0} 个警告",
+                errors,
+                warnings)
+            : Format(
+                WatchLegacyGeneratedText.Overview040,
+                new object?[] { errors, warnings },
+                new object?[] { errors, warnings });
 
     public string HostAreas(IReadOnlyList<string> areas) => areas.Count == 0
         ? Select(WatchLegacyGeneratedText.Overview041)
@@ -163,6 +181,8 @@ internal sealed partial class WatchOverviewText
         CurrentIngestAttentionKinds.PollRunFailure => Select(WatchLegacyGeneratedText.Overview044),
         CurrentIngestAttentionKinds.TaskTypeProtection => Select(WatchLegacyGeneratedText.Overview045),
         CurrentIngestAttentionKinds.UnassignedMesObservation => Select(WatchLegacyGeneratedText.Overview046),
+        "SERIES_LIFECYCLE" => Text(SeriesLifecycleActivityEntry),
+        "SERIES_ERROR_PERIOD" => Text(SeriesErrorPeriodActivityEntry),
         _ => kind,
     };
 
@@ -222,6 +242,8 @@ internal sealed partial class WatchOverviewText
         CurrentIngestAttentionKinds.HistoryCleanupFailure => Select(WatchLegacyGeneratedText.Overview083),
         CurrentIngestAttentionKinds.StoragePressure => Select(WatchLegacyGeneratedText.Overview084),
         CurrentIngestAttentionKinds.HistoryReset => Select(WatchLegacyGeneratedText.Overview085),
+        CurrentIngestAttentionSeverities.Error => Text(ErrorSeverityEntry),
+        CurrentIngestAttentionSeverities.Warning => Text(WarningSeverityEntry),
         _ => value,
     };
     public string WaitingAtomicSnapshot => Select(WatchLegacyGeneratedText.Overview086);
