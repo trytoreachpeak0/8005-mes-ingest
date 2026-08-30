@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using Microsoft.Data.SqlClient;
 
@@ -256,14 +257,38 @@ public sealed partial class SqlServerMesIngestProjection
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            SELECT TOP (5) EventId, Kind, EventType, Severity, OccurredAt,
-                SeriesId, WorkType, PollTraceId, SourceProjectionCommitId,
-                NavigationTarget
-            FROM mesingest.CurrentOverviewActivities
-            WHERE SnapshotProjectionCommitId = @projectionCommitId
-              AND OccurredAt >= @fromUtc
-              AND OccurredAt < @toUtc
-            ORDER BY OccurredAt DESC, EventId;
+            SELECT TOP (5)
+                activity.EventId, activity.Kind, activity.EventType, activity.Severity,
+                activity.OccurredAt, activity.SeriesId, activity.WorkType,
+                activity.PollTraceId, activity.SourceProjectionCommitId,
+                activity.NavigationTarget,
+                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.code'),
+                         openedPeriod.ErrorCode, closedPeriod.ErrorCode),
+                COALESCE(seriesEvent.SubjectKind,
+                         openedPeriod.SubjectKind, closedPeriod.SubjectKind),
+                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.observedValue'),
+                         periodEvidence.ObservedValue),
+                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.expectedRule'),
+                         JSON_VALUE(seriesEvent.Payload, '$.ExpectedRule'),
+                         periodEvidence.ExpectedRule),
+                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.endReason'),
+                         closedPeriod.EndReason),
+                pollTrace.DiagnosticSafeDetail
+            FROM mesingest.CurrentOverviewActivities AS activity
+            LEFT JOIN mesingest.DemandSeriesEvents AS seriesEvent
+                ON seriesEvent.EventId = activity.EventId
+            LEFT JOIN mesingest.DemandSeriesErrorPeriods AS openedPeriod
+                ON openedPeriod.OpenedEventId = activity.EventId
+            LEFT JOIN mesingest.DemandSeriesErrorPeriods AS closedPeriod
+                ON closedPeriod.ClosedEventId = activity.EventId
+            LEFT JOIN mesingest.SeriesErrorPeriodEvidence AS periodEvidence
+                ON periodEvidence.EventId = activity.EventId
+            LEFT JOIN mesingest.PollTraces AS pollTrace
+                ON pollTrace.PollTraceId = activity.PollTraceId
+            WHERE activity.SnapshotProjectionCommitId = @projectionCommitId
+              AND activity.OccurredAt >= @fromUtc
+              AND activity.OccurredAt < @toUtc
+            ORDER BY activity.OccurredAt DESC, activity.EventId;
             """;
         AddNVarChar(command, "@projectionCommitId", 64, snapshot.ProjectionCommitId);
         AddDateTimeOffset(command, "@fromUtc", snapshot.SnapshotAsOf.AddHours(-24));
@@ -272,25 +297,167 @@ public sealed partial class SqlServerMesIngestProjection
         await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
+            var eventType = reader.GetString(2);
+            var explanation = BuildOverviewActivityExplanation(
+                GetNullableString(reader, 10),
+                GetNullableString(reader, 11),
+                GetNullableString(reader, 12),
+                GetNullableString(reader, 13),
+                GetNullableString(reader, 14),
+                GetNullableString(reader, 15));
             result.Add(new WatchOverviewActivitySnapshot(
                 reader.GetString(0),
                 reader.GetString(1),
-                reader.GetString(2),
-                reader.GetString(3),
+                eventType,
+                ProjectOverviewActivitySeverity(eventType, reader.GetString(3), explanation?.EndReason),
                 reader.GetFieldValue<DateTimeOffset>(4).ToUniversalTime(),
                 GetNullableString(reader, 5),
                 GetNullableString(reader, 6),
                 reader.GetString(7),
                 GetNullableString(reader, 8),
-                new OverviewNavigationIntent(
+                BuildOverviewActivityNavigation(
+                    reader.GetString(1),
                     reader.GetString(9),
-                    SeriesId: GetNullableString(reader, 5),
-                    WorkType: GetNullableString(reader, 6),
-                    PollTraceId: reader.GetString(7))));
+                    GetNullableString(reader, 5),
+                    GetNullableString(reader, 6),
+                    reader.GetString(7)),
+                explanation));
         }
 
         return result;
     }
+
+    private static WatchOverviewActivityExplanation? BuildOverviewActivityExplanation(
+        string? code,
+        string? subjectKind,
+        string? observedValue,
+        string? expectedRule,
+        string? endReason,
+        string? safeDetail)
+    {
+        var observationCount = string.Equals(
+                code,
+                "DUPLICATE_TRANSPORT_DEMAND_KEY",
+                StringComparison.Ordinal)
+            ? JsonArrayCount(observedValue)
+            : null;
+        var relatedWorkTypes = string.Equals(
+                code,
+                "SUBLOT_MULTIPLE_WORK_TYPES",
+                StringComparison.Ordinal)
+            ? JsonStringArray(observedValue)
+            : null;
+        var scalarValue = observationCount is null && relatedWorkTypes is null
+            ? observedValue
+            : null;
+        return new[] { code, subjectKind, scalarValue, expectedRule, endReason, safeDetail }
+                .All(string.IsNullOrWhiteSpace)
+            && observationCount is null
+            && relatedWorkTypes is null
+                ? null
+                : new(
+                    code,
+                    subjectKind,
+                    scalarValue,
+                    expectedRule,
+                    endReason,
+                    observationCount,
+                    relatedWorkTypes,
+                    safeDetail);
+    }
+
+    private static long? JsonArrayCount(string? json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json ?? string.Empty);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.GetArrayLength()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static IReadOnlyList<string>? JsonStringArray(string? json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json ?? string.Empty);
+            return document.RootElement.ValueKind == JsonValueKind.Array
+                ? document.RootElement.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString()!)
+                    .ToArray()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private static string ProjectOverviewActivitySeverity(
+        string eventType,
+        string storedSeverity,
+        string? endReason) => eventType switch
+    {
+        "SERIES_ERROR_PERIOD_STARTED" or "POLL_RUN_FAILED"
+            or "UNASSIGNED_MES_OBSERVATION_APPEARED"
+            or "UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED" => "ERROR",
+        "SERIES_ERROR_PERIOD_ENDED" when string.Equals(
+            endReason,
+            "CONDITION_CLEARED",
+            StringComparison.Ordinal) => "SUCCESS",
+        "POLL_RUN_RECOVERED" or "TASK_TYPE_PROTECTION_CLEARED"
+            or "TASK_TYPE_ABSENCE_AUTHORITY_RESTORED"
+            or "UNASSIGNED_MES_OBSERVATION_CLEARED" => "SUCCESS",
+        "DEMAND_SERIES_STARTED" or "TRANSPORT_DEMAND_CREATED" => "INFORMATION",
+        "DEMAND_GONE" or "GONE_TIMEOUT_ARCHIVED"
+            or "TASK_TYPE_PROTECTION_ENTERED"
+            or "TASK_TYPE_PROTECTION_RECOVERY_PROGRESS"
+            or "SERIES_ERROR_PERIOD_ENDED" => "WARNING",
+        _ => storedSeverity,
+    };
+
+    private static OverviewNavigationIntent BuildOverviewActivityNavigation(
+        string kind,
+        string storedTarget,
+        string? seriesId,
+        string? workType,
+        string pollTraceId) => kind switch
+    {
+        "SERIES_ERROR_PERIOD" => new(
+            OverviewNavigationTargets.ErrorSearch,
+            ErrorActivityStates: [
+                ErrorSearchActivityStates.Active,
+                ErrorSearchActivityStates.Ended,
+            ],
+            ErrorWindow: ErrorSearchWindowKinds.Last7Days,
+            SeriesId: seriesId,
+            WorkType: workType,
+            PollTraceId: pollTraceId),
+        "TASK_TYPE_PROTECTION" => new(
+            OverviewNavigationTargets.CurrentIngestAttention,
+            AttentionKinds: [CurrentIngestAttentionKinds.TaskTypeProtection],
+            WorkType: workType,
+            PollTraceId: pollTraceId),
+        "UNASSIGNED_MES_OBSERVATION" => new(
+            OverviewNavigationTargets.CurrentIngestAttention,
+            AttentionKinds: [CurrentIngestAttentionKinds.UnassignedMesObservation],
+            PollTraceId: pollTraceId),
+        "POLL_RUN_FAILURE" => new(
+            OverviewNavigationTargets.CurrentIngestAttention,
+            AttentionKinds: [CurrentIngestAttentionKinds.PollRunFailure],
+            PollTraceId: pollTraceId),
+        _ => new(
+            storedTarget,
+            SeriesId: seriesId,
+            WorkType: workType,
+            PollTraceId: pollTraceId),
+    };
 
     private static async Task UpdateCurrentOverviewReadabilityAsync(
         SqlConnection connection,

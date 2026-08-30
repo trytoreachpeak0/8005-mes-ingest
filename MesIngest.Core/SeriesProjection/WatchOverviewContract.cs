@@ -123,7 +123,18 @@ public sealed record WatchOverviewActivitySnapshot(
     string? WorkType,
     string? PollTraceId,
     string? ProjectionCommitId,
-    OverviewNavigationIntent Navigation);
+    OverviewNavigationIntent Navigation,
+    WatchOverviewActivityExplanation? Explanation = null);
+
+public sealed record WatchOverviewActivityExplanation(
+    string? Code = null,
+    string? SubjectKind = null,
+    string? ObservedValue = null,
+    string? ExpectedRule = null,
+    string? EndReason = null,
+    long? ObservationCount = null,
+    IReadOnlyList<string>? RelatedWorkTypes = null,
+    string? SafeDetail = null);
 
 public static class WatchOverviewRecentActivityStates
 {

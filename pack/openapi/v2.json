@@ -6230,6 +6230,59 @@
           },
           "navigation": {
             "$ref": "#/components/schemas/OverviewNavigationIntentDto"
+          },
+          "explanation": {
+            "$ref": "#/components/schemas/WatchOverviewActivityExplanationDto"
+          }
+        },
+        "additionalProperties": false
+      },
+      "WatchOverviewActivityExplanationDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.code contract field.",
+            "nullable": true
+          },
+          "subjectKind": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.subjectKind contract field.",
+            "nullable": true
+          },
+          "observedValue": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.observedValue contract field.",
+            "nullable": true
+          },
+          "expectedRule": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.expectedRule contract field.",
+            "nullable": true
+          },
+          "endReason": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.endReason contract field.",
+            "nullable": true
+          },
+          "observationCount": {
+            "type": "integer",
+            "description": "Frozen WatchOverviewActivityExplanationDto.observationCount contract field.",
+            "format": "int64",
+            "nullable": true
+          },
+          "relatedWorkTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Frozen WatchOverviewActivityExplanationDto.relatedWorkTypes contract field.",
+            "nullable": true
+          },
+          "safeDetail": {
+            "type": "string",
+            "description": "Frozen WatchOverviewActivityExplanationDto.safeDetail contract field.",
+            "nullable": true
           }
         },
         "additionalProperties": false

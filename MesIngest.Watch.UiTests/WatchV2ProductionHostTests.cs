@@ -462,14 +462,17 @@ public sealed class WatchV2ProductionHostTests
         var activity = new WatchOverviewActivitySnapshot(
             "overview-flat-row-event",
             CurrentIngestAttentionKinds.SeriesError,
-            "REQUIRED_MES_FIELD_MISSING",
+            "SERIES_ERROR_PERIOD_STARTED",
             CurrentIngestAttentionSeverities.Error,
             DateTimeOffset.Parse("2026-08-14T05:06:07Z"),
             "SERIES-22",
             "WIRE_TO_GATE",
             "poll-overview-flat-row",
             "projection-overview-flat-row",
-            navigation);
+            navigation,
+            new WatchOverviewActivityExplanation(
+                Code: "REQUIRED_MES_FIELD_MISSING",
+                SubjectKind: "AREA"));
         await using var host = await ScriptedFakeHost.StartV2Async(
             new FakeHostV2Scenario("overview-flat-row", credential)
             {
@@ -506,9 +509,8 @@ public sealed class WatchV2ProductionHostTests
                 Assert.Equal(Brushes.Transparent, action.Background);
                 Assert.Null(action.Effect);
                 Assert.Equal(navigation, action.Tag);
-                Assert.Equal(
-                    "打开重点动态 错误检索",
-                    AutomationProperties.GetName(action));
+                Assert.Contains("AREA 缺失", AutomationProperties.GetName(action), StringComparison.Ordinal);
+                Assert.Contains("错误", AutomationProperties.GetName(action), StringComparison.Ordinal);
             }
             finally
             {

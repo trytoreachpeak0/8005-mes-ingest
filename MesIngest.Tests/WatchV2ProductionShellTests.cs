@@ -3,6 +3,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Reflection;
 using MesIngest.Core.SeriesProjection;
 using MesIngest.Watch;
@@ -12,6 +13,8 @@ using TitleBar = Wpf.Ui.Controls.TitleBar;
 using TitleBarButton = Wpf.Ui.Controls.TitleBarButton;
 using WindowCornerPreference = Wpf.Ui.Controls.WindowCornerPreference;
 using ControlAppearance = Wpf.Ui.Controls.ControlAppearance;
+using SymbolIcon = Wpf.Ui.Controls.SymbolIcon;
+using SymbolRegular = Wpf.Ui.Controls.SymbolRegular;
 
 namespace MesIngest.Tests;
 
@@ -21,6 +24,129 @@ public sealed class WatchV2ProductionShellTests
     private static void Click(WatchWorkspaceWindow window, string name) =>
         Assert.IsAssignableFrom<ButtonBase>(window.FindName(name))
             .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+
+    [Fact]
+    public void Recent_activity_rows_expose_distinct_shape_color_and_visible_severity_text() =>
+        StaTestRunner.Run(() =>
+        {
+            var root = Path.Combine(Path.GetTempPath(), $"watch-v2-activity-accessibility-{Guid.NewGuid():N}");
+            var navigation = new OverviewNavigationIntent(
+                OverviewNavigationTargets.CurrentIngestAttention);
+            IReadOnlyList<WatchOverviewActivitySnapshot> activities =
+            [
+                new(
+                    "event-error",
+                    "SERIES_ERROR_PERIOD",
+                    "SERIES_ERROR_PERIOD_STARTED",
+                    "ERROR",
+                    DateTimeOffset.Parse("2026-08-14T07:59:00Z"),
+                    "series-error",
+                    "WIRE_TO_NITROGEN",
+                    "poll-error",
+                    "commit-activity",
+                    navigation with { Target = OverviewNavigationTargets.ErrorSearch },
+                    new("INVALID_MES_FIELD_FORMAT", "AREA", "D7-04", "D7-4")),
+                new(
+                    "event-warning",
+                    "SERIES_LIFECYCLE",
+                    "DEMAND_GONE",
+                    "WARNING",
+                    DateTimeOffset.Parse("2026-08-14T07:58:00Z"),
+                    "series-warning",
+                    "WIRE_TO_NITROGEN",
+                    "poll-warning",
+                    "commit-activity",
+                    navigation with { Target = OverviewNavigationTargets.DemandSeriesDetail }),
+                new(
+                    "event-success",
+                    "POLL_RUN_FAILURE",
+                    "POLL_RUN_RECOVERED",
+                    "SUCCESS",
+                    DateTimeOffset.Parse("2026-08-14T07:57:00Z"),
+                    null,
+                    null,
+                    "poll-success",
+                    "commit-activity",
+                    navigation),
+                new(
+                    "event-information",
+                    "SERIES_LIFECYCLE",
+                    "DEMAND_SERIES_STARTED",
+                    "INFORMATION",
+                    DateTimeOffset.Parse("2026-08-14T07:56:00Z"),
+                    "series-information",
+                    "WIRE_TO_NITROGEN",
+                    "poll-information",
+                    "commit-activity",
+                    navigation with { Target = OverviewNavigationTargets.DemandSeriesDetail }),
+            ];
+            using var composition = WatchV2ApplicationComposition.Create(
+                new WatchOptions { BaseUrl = "http://host-a" },
+                _ => new ChangingOverviewClient(recentActivity: activities),
+                connectionPreferencesPath: Path.Combine(root, "connection.json"),
+                workspacePreferencesPath: Path.Combine(root, "workspace.json"));
+            var window = composition.CreateMainWindow(initializeOnLoaded: false);
+
+            try
+            {
+                window.InitializeAsync().GetAwaiter().GetResult();
+                window.Show();
+                DrainDispatcher(window.Dispatcher);
+                var list = Assert.IsType<StackPanel>(window.FindName("RecentActivityItems"));
+                var rows = list.Children.Cast<Border>().ToArray();
+                Assert.Equal(4, rows.Length);
+
+                var symbols = new List<SymbolRegular>();
+                var colors = new List<Color>();
+                var visibleLabels = new List<string>();
+                var accessibleNames = new List<string>();
+                foreach (var row in rows)
+                {
+                    var action = Assert.IsType<Wpf.Ui.Controls.Button>(row.Child);
+                    var content = Assert.IsType<Grid>(action.Content);
+                    var icon = Assert.Single(content.Children.OfType<SymbolIcon>());
+                    symbols.Add(icon.Symbol);
+                    colors.Add(Assert.IsType<SolidColorBrush>(icon.Foreground).Color);
+                    var text = Assert.Single(
+                        content.Children.OfType<StackPanel>(),
+                        panel => Grid.GetColumn(panel) == 1);
+                    visibleLabels.AddRange(text.Children.OfType<Wpf.Ui.Controls.TextBlock>()
+                        .Select(text => text.Text));
+                    var trailing = Assert.Single(
+                        content.Children.OfType<StackPanel>(),
+                        panel => Grid.GetColumn(panel) == 2);
+                    var status = Assert.IsType<Border>(trailing.Children[0]);
+                    visibleLabels.Add(Assert.IsType<Wpf.Ui.Controls.TextBlock>(status.Child).Text);
+                    accessibleNames.Add(AutomationProperties.GetName(action));
+                }
+
+                Assert.Equal(
+                    [
+                        SymbolRegular.ErrorCircle24,
+                        SymbolRegular.Warning24,
+                        SymbolRegular.CheckmarkCircle24,
+                        SymbolRegular.Info24,
+                    ],
+                    symbols);
+                Assert.Equal(4, colors.Distinct().Count());
+                Assert.Contains("错误", visibleLabels);
+                Assert.Contains("警告", visibleLabels);
+                Assert.Contains("已恢复", visibleLabels);
+                Assert.Contains("信息", visibleLabels);
+                Assert.Contains(accessibleNames, name => name.Contains("错误", StringComparison.Ordinal));
+                Assert.Contains(accessibleNames, name => name.Contains("警告", StringComparison.Ordinal));
+                Assert.Contains(accessibleNames, name => name.Contains("已恢复", StringComparison.Ordinal));
+                Assert.Contains(accessibleNames, name => name.Contains("信息", StringComparison.Ordinal));
+            }
+            finally
+            {
+                window.Close();
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+        });
 
     [Fact]
     public void Production_app_owns_only_the_v2_composition_root()
@@ -638,7 +764,8 @@ public sealed class WatchV2ProductionShellTests
     private sealed class ChangingOverviewClient(
         bool includeProtectionState = false,
         IReadOnlySet<int>? failedOverviewCalls = null,
-        bool verifyContractFailure = false)
+        bool verifyContractFailure = false,
+        IReadOnlyList<WatchOverviewActivitySnapshot>? recentActivity = null)
         : IWatchV2ApiClient
     {
         public int OverviewCallCount { get; private set; }
@@ -717,9 +844,13 @@ public sealed class WatchV2ProductionShellTests
                             attention)]
                         : [],
                     attention),
-                [],
-                WatchOverviewRecentActivityStates.NoRecentHighlights,
-                WatchOverviewRecentActivityStates.NoRecentHighlightsMessage));
+                recentActivity ?? [],
+                recentActivity?.Count > 0
+                    ? WatchOverviewRecentActivityStates.HasRecentHighlights
+                    : WatchOverviewRecentActivityStates.NoRecentHighlights,
+                recentActivity?.Count > 0
+                    ? null
+                    : WatchOverviewRecentActivityStates.NoRecentHighlightsMessage));
         }
 
         public Task<DemandSeriesListSnapshot> FetchDemandSeriesAsync(

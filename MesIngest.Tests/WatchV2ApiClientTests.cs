@@ -122,6 +122,17 @@ public sealed class WatchV2ApiClientTests
         Assert.Equal("?area=A1-1&area=B2-2", observed.Query);
         Assert.Equal("commit-overview", actual.Snapshot.ProjectionCommitId);
         Assert.Equal(["A1-1", "B2-2"], actual.MesAreas);
+        var activity = Assert.Single(actual.RecentActivity);
+        Assert.Equal("commit-overview", activity.ProjectionCommitId);
+        var explanation = Assert.IsType<WatchOverviewActivityExplanation>(activity.Explanation);
+        Assert.Equal("INVALID_MES_FIELD_FORMAT", explanation.Code);
+        Assert.Equal("AREA", explanation.SubjectKind);
+        Assert.Equal("D7-04", explanation.ObservedValue);
+        Assert.Equal("D7-4", explanation.ExpectedRule);
+        Assert.Equal("CONDITION_CLEARED", explanation.EndReason);
+        Assert.Equal(3, explanation.ObservationCount);
+        Assert.Equal(["WIRE_TO_NITROGEN", "DIE_TO_OVEN"], explanation.RelatedWorkTypes);
+        Assert.Equal("安全诊断详情", explanation.SafeDetail);
     }
 
     [Fact]
@@ -691,9 +702,30 @@ public sealed class WatchV2ApiClientTests
             new WatchOverviewReadabilitySummary(4, 3, 1, audit, audit, audit),
             new WatchOverviewErrorSummary(1, 2, errors, errors, errors),
             new WatchOverviewAttentionSummary(1, [], [], attention),
-            [],
-            WatchOverviewRecentActivityStates.NoRecentHighlights,
-            WatchOverviewRecentActivityStates.NoRecentHighlightsMessage);
+            [
+                new WatchOverviewActivitySnapshot(
+                    "event-overview",
+                    "SERIES_ERROR_PERIOD",
+                    "SERIES_ERROR_PERIOD_STARTED",
+                    "ERROR",
+                    at,
+                    "series-overview",
+                    "WIRE_TO_NITROGEN",
+                    "poll-overview",
+                    projectionCommitId,
+                    errors,
+                    new WatchOverviewActivityExplanation(
+                        Code: "INVALID_MES_FIELD_FORMAT",
+                        SubjectKind: "AREA",
+                        ObservedValue: "D7-04",
+                        ExpectedRule: "D7-4",
+                        EndReason: "CONDITION_CLEARED",
+                        ObservationCount: 3,
+                        RelatedWorkTypes: ["WIRE_TO_NITROGEN", "DIE_TO_OVEN"],
+                        SafeDetail: "安全诊断详情")),
+            ],
+            WatchOverviewRecentActivityStates.HasRecentHighlights,
+            null);
     }
 
     private static DemandSeriesListSnapshot DemandSeriesList(DemandSeriesBrowseFilter filter)

@@ -2126,41 +2126,83 @@ public sealed class WatchWorkspaceProductionJourneyTests
                 attentionNavigation with { AttentionSeverities = [facet.Value] }))
             .ToArray();
 
-        var demandEvent = demandDetail.Series.Events
-            .OrderByDescending(item => item.OccurredAt)
-            .ThenBy(item => item.EventId, StringComparer.Ordinal)
-            .First();
-        var recentActivity = attention.Items
-            .Select(item => new WatchOverviewActivitySnapshot(
-                item.StableIdentity,
-                item.Kind,
-                item.ErrorCode ?? item.Kind,
-                item.Severity,
-                item.OccurredAt,
-                item.SeriesId,
-                item.WorkType,
-                item.Evidence.PollTraceId,
-                item.Evidence.ProjectionCommitId,
-                item.Navigation))
-            .Append(new WatchOverviewActivitySnapshot(
-                demandEvent.EventId,
+        var previewSeriesId = demandDetail.Series.SeriesId;
+        var previewPollTraceId = "9649ec2ab92d4067ad5f07e4a443bb2b";
+        var recentActivity = new[]
+        {
+            new WatchOverviewActivitySnapshot(
+                "overview-preview-invalid-area",
+                "SERIES_ERROR_PERIOD",
+                "SERIES_ERROR_PERIOD_STARTED",
+                CurrentIngestAttentionSeverities.Error,
+                PreviewErrorAsOf,
+                previewSeriesId,
+                "DIE_TO_OVEN",
+                previewPollTraceId,
+                "overview-preview-commit-19-22",
+                errorNavigation with
+                {
+                    ErrorActivityStates = [ErrorSearchActivityStates.Active],
+                    SeriesId = previewSeriesId,
+                },
+                new WatchOverviewActivityExplanation(
+                    Code: "INVALID_MES_FIELD_FORMAT",
+                    SubjectKind: "AREA",
+                    ObservedValue: "D7-04",
+                    ExpectedRule: "^[A-Z][1-9][0-9]?-[1-9][0-9]?$")),
+            new WatchOverviewActivitySnapshot(
+                "overview-preview-gone",
                 "SERIES_LIFECYCLE",
-                demandEvent.EventType,
+                "DEMAND_GONE",
                 CurrentIngestAttentionSeverities.Warning,
-                demandEvent.OccurredAt,
-                demandEvent.SeriesId,
-                demandDetail.Series.WorkType,
-                demandEvent.PollTraceId,
-                demandEvent.ProjectionCommitId,
+                PreviewErrorAsOf.AddMinutes(-2),
+                DemandSeriesId,
+                "WIRE_TO_NITROGEN",
+                "7e6a085ef4934ef6b2c0df5695eacd21",
+                "overview-preview-commit-19-22",
                 new OverviewNavigationIntent(
                     OverviewNavigationTargets.DemandSeriesDetail,
                     MesAreas: normalizedAreas,
-                    SeriesId: demandEvent.SeriesId,
-                    Cursor: null)))
-            .OrderByDescending(activity => activity.OccurredAt)
-            .ThenBy(activity => activity.EventId, StringComparer.Ordinal)
-            .Take(5)
-            .ToArray();
+                    SeriesId: DemandSeriesId)),
+            new WatchOverviewActivitySnapshot(
+                "overview-preview-recovered",
+                "SERIES_ERROR_PERIOD",
+                "SERIES_ERROR_PERIOD_ENDED",
+                "SUCCESS",
+                PreviewErrorAsOf.AddMinutes(-4),
+                PreviewErrorSeriesId,
+                "WIRE_TO_GATE",
+                "9be5151f73e4424d822d2fad1741ee29",
+                "overview-preview-commit-19-22",
+                errorNavigation with { SeriesId = PreviewErrorSeriesId },
+                new WatchOverviewActivityExplanation(
+                    Code: "INVALID_MES_FIELD_FORMAT",
+                    SubjectKind: "AREA",
+                    EndReason: "CONDITION_CLEARED")),
+            new WatchOverviewActivitySnapshot(
+                "overview-preview-started",
+                "SERIES_LIFECYCLE",
+                "DEMAND_SERIES_STARTED",
+                "INFORMATION",
+                PreviewErrorAsOf.AddMinutes(-6),
+                "e200065e96984995a035854b71422e12",
+                "WIRE_TO_OPTICAL",
+                "9be5151f73e4424d822d2fad1741ee29",
+                "overview-preview-commit-19-22",
+                seriesNavigation with { SeriesId = "e200065e96984995a035854b71422e12" }),
+            new WatchOverviewActivitySnapshot(
+                "overview-preview-poll",
+                CurrentIngestAttentionKinds.PollRunFailure,
+                "POLL_RUN_FAILED",
+                CurrentIngestAttentionSeverities.Error,
+                PreviewErrorAsOf.AddMinutes(-8),
+                null,
+                null,
+                "5f8c22ab92d4067ad5f07e1af155b225",
+                "overview-preview-commit-19-22",
+                attentionNavigation with { AttentionKinds = [CurrentIngestAttentionKinds.PollRunFailure] },
+                new WatchOverviewActivityExplanation(SafeDetail: "连接制造执行系统时超时，服务端将自动重试。")),
+        };
 
         return new WatchOverviewSnapshot(
             new OperationalSnapshotIdentity(

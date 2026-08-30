@@ -1420,7 +1420,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var icon = new Wpf.Ui.Controls.SymbolIcon
             {
-                Symbol = ActivitySymbol(activity.Navigation.Target),
+                Symbol = ActivitySymbol(activity.Severity),
                 VerticalAlignment = VerticalAlignment.Top,
             };
             icon.SetResourceReference(
@@ -1429,6 +1429,7 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 {
                     WatchPresentationSeverity.Error => "SystemFillColorCriticalBrush",
                     WatchPresentationSeverity.Warning => "SystemFillColorCautionBrush",
+                    WatchPresentationSeverity.Success => "SystemFillColorSuccessBrush",
                     _ => "AccentTextFillColorPrimaryBrush",
                 });
             content.Children.Add(icon);
@@ -1439,24 +1440,56 @@ internal partial class WatchWorkspaceWindow : IDisposable
                 FontTypography = Wpf.Ui.Controls.FontTypography.BodyStrong,
                 TextWrapping = TextWrapping.Wrap,
             });
-            var detail = new Wpf.Ui.Controls.TextBlock
+            text.Children.Add(new Wpf.Ui.Controls.TextBlock
             {
-                Text = activity.Detail,
+                Text = activity.Explanation,
+                FontTypography = Wpf.Ui.Controls.FontTypography.Body,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 12, 0),
+            });
+            var metadata = new Wpf.Ui.Controls.TextBlock
+            {
+                Text = activity.Metadata,
                 Style = (Style)FindResource("CaptionText"),
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 8, 0),
+                Margin = new Thickness(0, 5, 12, 0),
             };
-            text.Children.Add(detail);
+            text.Children.Add(metadata);
             Grid.SetColumn(text, 1);
             content.Children.Add(text);
+
+            var status = new Border
+            {
+                Style = (Style)FindResource(activity.Severity switch
+                {
+                    WatchPresentationSeverity.Error => "StatusPillCritical",
+                    WatchPresentationSeverity.Warning => "StatusPillCaution",
+                    WatchPresentationSeverity.Success => "StatusPillSuccess",
+                    _ => "StatusPillAccent",
+                }),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Child = new Wpf.Ui.Controls.TextBlock
+                {
+                    Text = activity.SeverityText,
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                },
+            };
             var occurredAt = new Wpf.Ui.Controls.TextBlock
             {
                 Text = activity.OccurredAt,
                 Style = (Style)FindResource("CaptionText"),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(12, 7, 0, 0),
+            };
+            var trailing = new StackPanel
+            {
                 VerticalAlignment = VerticalAlignment.Top,
             };
-            Grid.SetColumn(occurredAt, 2);
-            content.Children.Add(occurredAt);
+            trailing.Children.Add(status);
+            trailing.Children.Add(occurredAt);
+            Grid.SetColumn(trailing, 2);
+            content.Children.Add(trailing);
 
             var action = new Wpf.Ui.Controls.Button
             {
@@ -1473,7 +1506,8 @@ internal partial class WatchWorkspaceWindow : IDisposable
             };
             AutomationProperties.SetName(
                 action,
-                _displayLanguageState.Catalog.Overview.OpenActivity(activity.Heading));
+                $"{activity.Heading}，{activity.SeverityText}。{activity.Explanation}");
+            AutomationProperties.SetHelpText(action, activity.TechnicalDetail);
             action.Click += OnOverviewIntentClick;
             var row = new Border
             {
@@ -1485,13 +1519,12 @@ internal partial class WatchWorkspaceWindow : IDisposable
         }
     }
 
-    private static SymbolRegular ActivitySymbol(string target) => target switch
+    private static SymbolRegular ActivitySymbol(WatchPresentationSeverity severity) => severity switch
     {
-        OverviewNavigationTargets.ErrorSearch => SymbolRegular.Warning24,
-        OverviewNavigationTargets.ReadabilityAudit => SymbolRegular.DocumentBulletList24,
-        OverviewNavigationTargets.DemandSeries or OverviewNavigationTargets.DemandSeriesDetail =>
-            SymbolRegular.Timeline24,
-        _ => SymbolRegular.Alert24,
+        WatchPresentationSeverity.Error => SymbolRegular.ErrorCircle24,
+        WatchPresentationSeverity.Warning => SymbolRegular.Warning24,
+        WatchPresentationSeverity.Success => SymbolRegular.CheckmarkCircle24,
+        _ => SymbolRegular.Info24,
     };
 
     private void RenderHostFooter(

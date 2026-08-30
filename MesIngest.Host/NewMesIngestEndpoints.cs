@@ -1832,7 +1832,8 @@ internal sealed record WatchOverviewActivityDto(
     string? WorkType,
     string? PollTraceId,
     string? ProjectionCommitId,
-    OverviewNavigationIntentDto Navigation)
+    OverviewNavigationIntentDto Navigation,
+    WatchOverviewActivityExplanationDto? Explanation)
 {
     public static WatchOverviewActivityDto From(WatchOverviewActivitySnapshot activity) =>
         new(
@@ -1845,7 +1846,33 @@ internal sealed record WatchOverviewActivityDto(
             activity.WorkType,
             activity.PollTraceId,
             activity.ProjectionCommitId,
-            OverviewNavigationIntentDto.From(activity.Navigation));
+            OverviewNavigationIntentDto.From(activity.Navigation),
+            WatchOverviewActivityExplanationDto.From(activity.Explanation));
+}
+
+internal sealed record WatchOverviewActivityExplanationDto(
+    string? Code,
+    string? SubjectKind,
+    string? ObservedValue,
+    string? ExpectedRule,
+    string? EndReason,
+    long? ObservationCount,
+    IReadOnlyList<string>? RelatedWorkTypes,
+    string? SafeDetail)
+{
+    public static WatchOverviewActivityExplanationDto? From(
+        WatchOverviewActivityExplanation? explanation) =>
+        explanation is null
+            ? null
+            : new(
+                explanation.Code,
+                explanation.SubjectKind,
+                explanation.ObservedValue,
+                explanation.ExpectedRule,
+                explanation.EndReason,
+                explanation.ObservationCount,
+                explanation.RelatedWorkTypes,
+                explanation.SafeDetail);
 }
 
 internal sealed record WatchOverviewDto(

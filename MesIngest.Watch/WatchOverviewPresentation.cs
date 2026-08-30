@@ -49,9 +49,12 @@ internal sealed record WatchAreaDisplayContext(
 
 internal sealed record WatchOverviewActivityPresentation(
     string Heading,
-    string Detail,
+    string Explanation,
+    string Metadata,
+    string TechnicalDetail,
     string OccurredAt,
     WatchPresentationSeverity Severity,
+    string SeverityText,
     OverviewNavigationIntent Navigation);
 
 internal sealed record WatchProtectionStatusPresentation(
@@ -162,14 +165,19 @@ internal sealed record WatchOverviewPresentation(
 
         var activities = snapshot.RecentActivity
             .Take(5)
-            .Select(activity => new WatchOverviewActivityPresentation(
-                catalog.Language == WatchDisplayLanguage.SimplifiedChinese
-                    ? text.ActivityKind(activity.Kind)
-                    : $"{text.ActivityKind(activity.Kind)} · {activity.EventType}",
-                ActivityDetail(activity),
-                catalog.FormatAbsoluteTime(activity.OccurredAt),
-                ActivitySeverity(activity.Severity),
-                activity.Navigation))
+            .Select(activity =>
+            {
+                var severity = ActivitySeverity(activity.Severity);
+                return new WatchOverviewActivityPresentation(
+                    text.ActivityHeading(activity.EventType, activity.Explanation),
+                    text.ActivityExplanation(activity.EventType, activity.Explanation),
+                    text.ActivityMetadata(activity),
+                    text.ActivityTechnicalDetail(activity),
+                    catalog.FormatAbsoluteTime(activity.OccurredAt),
+                    severity,
+                    text.ActivitySeverity(severity),
+                    activity.Navigation);
+            })
             .ToArray();
         var recentActivityHeading = activities.Length == 0
             ? text.NoRecentHighlights
@@ -432,24 +440,13 @@ internal sealed record WatchOverviewPresentation(
         return text.AttentionDetail(errors, warnings);
     }
 
-    private static string ActivityDetail(WatchOverviewActivitySnapshot activity)
-    {
-        var parts = new[]
-            {
-                activity.SeriesId,
-                activity.WorkType,
-                activity.PollTraceId,
-            }
-            .Where(value => !string.IsNullOrWhiteSpace(value));
-        var detail = string.Join(" · ", parts);
-        return string.IsNullOrEmpty(detail) ? activity.EventId : detail;
-    }
-
     private static WatchPresentationSeverity ActivitySeverity(string severity) =>
         severity switch
         {
             CurrentIngestAttentionSeverities.Error => WatchPresentationSeverity.Error,
             CurrentIngestAttentionSeverities.Warning => WatchPresentationSeverity.Warning,
+            "SUCCESS" => WatchPresentationSeverity.Success,
+            "INFORMATION" => WatchPresentationSeverity.Informational,
             _ => WatchPresentationSeverity.Informational,
         };
 

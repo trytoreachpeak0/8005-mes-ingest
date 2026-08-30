@@ -333,11 +333,165 @@ public sealed class WatchOverviewPresentationTests
         Assert.Same(errorsIntent, presentation.ErrorsNavigation);
         Assert.Same(attentionIntent, presentation.AttentionNavigation);
         Assert.Single(presentation.RecentActivity);
-        Assert.Equal("轮询运行失败", presentation.RecentActivity[0].Heading);
+        Assert.Equal("制造执行系统轮询失败", presentation.RecentActivity[0].Heading);
         Assert.Same(activityIntent, presentation.RecentActivity[0].Navigation);
         Assert.Equal(1, presentation.SeriesNavigation!.PageNumber);
         Assert.Null(presentation.SeriesNavigation.Cursor);
         Assert.Equal(["A1-1"], presentation.SeriesNavigation.MesAreas);
+    }
+
+    public static IEnumerable<object[]> KnownOverviewEventCases()
+    {
+        yield return ["DEMAND_SERIES_STARTED", "需求系列开始跟踪", "INFORMATION", "Informational", "信息", OverviewNavigationTargets.DemandSeriesDetail, null!];
+        yield return ["DEMAND_GONE", "运输需求已消失", "WARNING", "Warning", "警告", OverviewNavigationTargets.DemandSeriesDetail, null!];
+        yield return ["GONE_TIMEOUT_ARCHIVED", "需求系列已超时归档", "WARNING", "Warning", "警告", OverviewNavigationTargets.DemandSeriesDetail, null!];
+        yield return ["SERIES_ERROR_PERIOD_STARTED", "需求系列错误已开始", "ERROR", "Error", "错误", OverviewNavigationTargets.ErrorSearch, null!];
+        yield return ["SERIES_ERROR_PERIOD_ENDED", "需求系列错误已恢复", "SUCCESS", "Success", "已恢复", OverviewNavigationTargets.ErrorSearch, "CONDITION_CLEARED"];
+        yield return ["TRANSPORT_DEMAND_CREATED", "运输需求再次出现", "INFORMATION", "Informational", "信息", OverviewNavigationTargets.DemandSeriesDetail, null!];
+        yield return ["TASK_TYPE_PROTECTION_ENTERED", "工序类型保护已启动", "WARNING", "Warning", "警告", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["TASK_TYPE_PROTECTION_RECOVERY_PROGRESS", "工序类型保护正在恢复", "WARNING", "Warning", "警告", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["TASK_TYPE_PROTECTION_CLEARED", "工序类型保护已解除", "SUCCESS", "Success", "已恢复", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["TASK_TYPE_ABSENCE_AUTHORITY_RESTORED", "工序类型缺席判定已恢复", "SUCCESS", "Success", "已恢复", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["UNASSIGNED_MES_OBSERVATION_APPEARED", "出现未归属的制造执行系统观测", "ERROR", "Error", "错误", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED", "未归属的制造执行系统观测已变化", "ERROR", "Error", "错误", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["UNASSIGNED_MES_OBSERVATION_CLEARED", "未归属的制造执行系统观测已清除", "SUCCESS", "Success", "已恢复", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["POLL_RUN_FAILED", "制造执行系统轮询失败", "ERROR", "Error", "错误", OverviewNavigationTargets.CurrentIngestAttention, null!];
+        yield return ["POLL_RUN_RECOVERED", "制造执行系统轮询已恢复", "SUCCESS", "Success", "已恢复", OverviewNavigationTargets.CurrentIngestAttention, null!];
+    }
+
+    [Theory]
+    [MemberData(nameof(KnownOverviewEventCases))]
+    public void Known_overview_event_types_project_human_conclusions_semantic_severity_and_navigation(
+        string eventType,
+        string expectedHeading,
+        string sourceSeverity,
+        string expectedSeverity,
+        string expectedSeverityText,
+        string expectedNavigationTarget,
+        string? endReason)
+    {
+        var activity = ProjectActivity(
+            eventType,
+            sourceSeverity,
+            expectedNavigationTarget,
+            endReason is null ? null : new WatchOverviewActivityExplanation(EndReason: endReason));
+
+        Assert.Equal(expectedHeading, activity.Heading);
+        Assert.Equal(expectedSeverity, activity.Severity.ToString());
+        Assert.Equal(expectedSeverityText, activity.SeverityText);
+        Assert.Equal(expectedNavigationTarget, activity.Navigation.Target);
+        Assert.DoesNotContain(eventType, activity.Heading, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("CONDITION_CLEARED", "需求系列错误已恢复", "错误条件已消除")]
+    [InlineData("DEMAND_GONE", "需求消失，错误期间已结束", "需求已消失")]
+    [InlineData("GONE_TIMEOUT_ARCHIVED", "需求系列归档，错误期间已结束", "需求系列已归档")]
+    public void Ended_error_periods_distinguish_recovery_demand_disappearance_and_series_archive(
+        string endReason,
+        string expectedHeading,
+        string expectedExplanation)
+    {
+        var activity = ProjectActivity(
+            "SERIES_ERROR_PERIOD_ENDED",
+            endReason == "CONDITION_CLEARED" ? "SUCCESS" : "WARNING",
+            OverviewNavigationTargets.ErrorSearch,
+            new WatchOverviewActivityExplanation(EndReason: endReason));
+
+        Assert.Equal(expectedHeading, activity.Heading);
+        Assert.Contains(expectedExplanation, activity.Explanation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Invalid_area_format_explains_observed_and_expected_values_from_the_frozen_snapshot()
+    {
+        var activity = ProjectActivity(
+            "SERIES_ERROR_PERIOD_STARTED",
+            "ERROR",
+            OverviewNavigationTargets.ErrorSearch,
+            new WatchOverviewActivityExplanation(
+                Code: "INVALID_MES_FIELD_FORMAT",
+                SubjectKind: "AREA",
+                ObservedValue: "D7-04",
+                ExpectedRule: "D7-4"),
+            workType: "WIRE_TO_NITROGEN");
+
+        Assert.Contains("D7-04", activity.Explanation, StringComparison.Ordinal);
+        Assert.Contains("D7-4", activity.Explanation, StringComparison.Ordinal);
+        Assert.Contains("对象类型：区域", activity.Metadata, StringComparison.Ordinal);
+        Assert.Contains("需求系列：", activity.Metadata, StringComparison.Ordinal);
+        Assert.Contains("工序类型：焊线1机台 → 氮气柜", activity.Metadata, StringComparison.Ordinal);
+        Assert.Contains("轮询追踪：", activity.Metadata, StringComparison.Ordinal);
+        Assert.DoesNotContain("INVALID_MES_FIELD_FORMAT", activity.Metadata, StringComparison.Ordinal);
+        Assert.Contains("Code=INVALID_MES_FIELD_FORMAT", activity.TechnicalDetail, StringComparison.Ordinal);
+        Assert.Contains("SeriesId=series-activity-test", activity.TechnicalDetail, StringComparison.Ordinal);
+        Assert.Contains("PollTraceId=poll-activity-test", activity.TechnicalDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Chinese_activity_metadata_localizes_known_work_type_and_escalates_unknown_codes()
+    {
+        var known = ProjectActivity(
+            "DEMAND_SERIES_STARTED",
+            "INFORMATION",
+            OverviewNavigationTargets.DemandSeriesDetail,
+            workType: "WIRE_TO_NITROGEN");
+        var unknown = ProjectActivity(
+            "FUTURE_OVERVIEW_EVENT_99",
+            "WARNING",
+            OverviewNavigationTargets.CurrentIngestAttention,
+            workType: "FUTURE_WORK_TYPE_99");
+
+        Assert.Contains("工序类型：焊线1机台 → 氮气柜", known.Metadata, StringComparison.Ordinal);
+        Assert.DoesNotContain("WIRE_TO_NITROGEN", known.Metadata, StringComparison.Ordinal);
+        Assert.Equal("未知概览事件（请升级应用）", unknown.Heading);
+        Assert.Contains("请升级", unknown.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("Watch", unknown.Explanation, StringComparison.Ordinal);
+        Assert.Contains("未知工序（请升级应用）", unknown.Metadata, StringComparison.Ordinal);
+        Assert.DoesNotContain("FUTURE_WORK_TYPE_99", unknown.Metadata, StringComparison.Ordinal);
+        Assert.Contains("EventType=FUTURE_OVERVIEW_EVENT_99", unknown.TechnicalDetail, StringComparison.Ordinal);
+        Assert.Contains("WorkType=FUTURE_WORK_TYPE_99", unknown.TechnicalDetail, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Poll_failure_uses_safe_detail_without_reclassifying_it_as_an_observed_value()
+    {
+        const string safeDetail = "连接制造执行系统超时，已保留上次完整快照。";
+
+        var activity = ProjectActivity(
+            "POLL_RUN_FAILED",
+            "ERROR",
+            OverviewNavigationTargets.CurrentIngestAttention,
+            new WatchOverviewActivityExplanation(SafeDetail: safeDetail));
+
+        Assert.Contains(safeDetail, activity.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("观测值：", activity.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("观测值：", activity.Metadata, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Structured_conflict_explanations_use_counts_and_localized_related_work_types()
+    {
+        var duplicate = ProjectActivity(
+            "SERIES_ERROR_PERIOD_STARTED",
+            "ERROR",
+            OverviewNavigationTargets.ErrorSearch,
+            new WatchOverviewActivityExplanation(
+                Code: "DUPLICATE_TRANSPORT_DEMAND_KEY",
+                ObservationCount: 3));
+        var multipleWorkTypes = ProjectActivity(
+            "SERIES_ERROR_PERIOD_STARTED",
+            "ERROR",
+            OverviewNavigationTargets.ErrorSearch,
+            new WatchOverviewActivityExplanation(
+                Code: "SUBLOT_MULTIPLE_WORK_TYPES",
+                RelatedWorkTypes: ["WIRE_TO_NITROGEN", "DIE_TO_OVEN"]));
+
+        Assert.Contains("3", duplicate.Explanation, StringComparison.Ordinal);
+        Assert.Contains("焊线1机台 → 氮气柜", multipleWorkTypes.Explanation, StringComparison.Ordinal);
+        Assert.Contains("装片机台 → 烘箱间", multipleWorkTypes.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("WIRE_TO_NITROGEN", multipleWorkTypes.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("DIE_TO_OVEN", multipleWorkTypes.Explanation, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -718,7 +872,7 @@ public sealed class WatchOverviewPresentationTests
                 new WatchOverviewActivitySnapshot(
                     "event-ticket-19",
                     CurrentIngestAttentionKinds.PollRunFailure,
-                    "POLL_FAILED",
+                    "POLL_RUN_FAILED",
                     CurrentIngestAttentionSeverities.Error,
                     DateTimeOffset.Parse("2026-08-14T01:12:00Z"),
                     "series-ticket-19",
@@ -729,6 +883,53 @@ public sealed class WatchOverviewPresentationTests
             ],
             WatchOverviewRecentActivityStates.HasRecentHighlights,
             null);
+    }
+
+    private static WatchOverviewActivityPresentation ProjectActivity(
+        string eventType,
+        string severity,
+        string navigationTarget,
+        WatchOverviewActivityExplanation? explanation = null,
+        string? workType = null)
+    {
+        var kind = eventType switch
+        {
+            "SERIES_ERROR_PERIOD_STARTED" or "SERIES_ERROR_PERIOD_ENDED" => "SERIES_ERROR_PERIOD",
+            "TASK_TYPE_PROTECTION_ENTERED" or "TASK_TYPE_PROTECTION_RECOVERY_PROGRESS"
+                or "TASK_TYPE_PROTECTION_CLEARED" or "TASK_TYPE_ABSENCE_AUTHORITY_RESTORED" => "TASK_TYPE_PROTECTION",
+            "UNASSIGNED_MES_OBSERVATION_APPEARED" or "UNASSIGNED_MES_OBSERVATION_CONTENT_CHANGED"
+                or "UNASSIGNED_MES_OBSERVATION_CLEARED" => "UNASSIGNED_MES_OBSERVATION",
+            "POLL_RUN_FAILED" or "POLL_RUN_RECOVERED" => "POLL_RUN_FAILURE",
+            _ => "SERIES_LIFECYCLE",
+        };
+        var navigation = new OverviewNavigationIntent(
+            navigationTarget,
+            SeriesId: "series-activity-test",
+            WorkType: workType,
+            PollTraceId: "poll-activity-test");
+        var snapshot = OverviewSnapshot() with
+        {
+            RecentActivity =
+            [
+                new WatchOverviewActivitySnapshot(
+                    "event-activity-test",
+                    kind,
+                    eventType,
+                    severity,
+                    DateTimeOffset.Parse("2026-08-14T01:12:00Z"),
+                    "series-activity-test",
+                    workType,
+                    "poll-activity-test",
+                    "projection-ticket-19",
+                    navigation,
+                    explanation),
+            ],
+        };
+        var presentation = WatchOverviewPresentation.Project(
+            ConnectedWorkspace(SuccessfulView(snapshot)),
+            WatchAreaDisplayContext.AllAreas);
+
+        return Assert.Single(presentation.RecentActivity);
     }
 
     private static void AssertSnapshotProjectionEqual(

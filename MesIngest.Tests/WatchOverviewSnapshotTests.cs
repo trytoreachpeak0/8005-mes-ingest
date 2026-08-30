@@ -561,6 +561,43 @@ public sealed class WatchOverviewSnapshotTests : IClassFixture<WebApplicationFac
             recovery.GetProperty("projectionCommitId").GetString()));
     }
 
+    [Ticket01SqlServerFact]
+    public async Task Invalid_area_activity_carries_a_same_snapshot_structured_explanation()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var hostEnvironment = ConfigureProductionV2Environment(database.ConnectionString);
+        var observedAt = new DateTimeOffset(2026, 8, 14, 19, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(observedAt.AddMinutes(1));
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+
+        var receipt = await ingestor.IngestAsync(SuccessRound(
+            "poll-overview-invalid-area",
+            observedAt,
+            ValidObservation(
+                "WIRE_TO_NITROGEN",
+                "SL-OVERVIEW-INVALID-AREA",
+                "D7-04",
+                observedAt)));
+
+        using var overview = await ReadOverviewAsync(client, "/api/v2/watch-overview");
+        var snapshotCommit = overview.RootElement.GetProperty("snapshot")
+            .GetProperty("projectionCommitId").GetString();
+        var activity = Assert.Single(
+            overview.RootElement.GetProperty("recentActivity").EnumerateArray(),
+            item => item.GetProperty("eventType").GetString() == "SERIES_ERROR_PERIOD_STARTED");
+        var explanation = activity.GetProperty("explanation");
+
+        Assert.Equal(receipt.ProjectionCommitId, snapshotCommit);
+        Assert.Equal(snapshotCommit, activity.GetProperty("projectionCommitId").GetString());
+        Assert.Equal("ERROR_SEARCH", activity.GetProperty("navigation").GetProperty("target").GetString());
+        Assert.Equal("INVALID_MES_FIELD_FORMAT", explanation.GetProperty("code").GetString());
+        Assert.Equal("AREA", explanation.GetProperty("subjectKind").GetString());
+        Assert.Equal("D7-04", explanation.GetProperty("observedValue").GetString());
+        Assert.Equal("D7-4", explanation.GetProperty("expectedRule").GetString());
+    }
+
     private static MesTaskUnionRound SuccessRound(
         string pollTraceId,
         DateTimeOffset completedAt,
