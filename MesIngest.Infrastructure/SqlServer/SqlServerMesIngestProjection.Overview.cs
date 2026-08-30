@@ -262,17 +262,24 @@ public sealed partial class SqlServerMesIngestProjection
                 activity.OccurredAt, activity.SeriesId, activity.WorkType,
                 activity.PollTraceId, activity.SourceProjectionCommitId,
                 activity.NavigationTarget,
-                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.code'),
-                         openedPeriod.ErrorCode, closedPeriod.ErrorCode),
-                COALESCE(seriesEvent.SubjectKind,
-                         openedPeriod.SubjectKind, closedPeriod.SubjectKind),
-                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.observedValue'),
-                         periodEvidence.ObservedValue),
-                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.expectedRule'),
-                         JSON_VALUE(seriesEvent.Payload, '$.ExpectedRule'),
-                         periodEvidence.ExpectedRule),
-                COALESCE(JSON_VALUE(seriesEvent.Payload, '$.endReason'),
-                         closedPeriod.EndReason),
+                COALESCE(
+                    JSON_VALUE(seriesEvent.Payload, '$.code') COLLATE Latin1_General_100_BIN2,
+                    openedPeriod.ErrorCode COLLATE Latin1_General_100_BIN2,
+                    closedPeriod.ErrorCode COLLATE Latin1_General_100_BIN2),
+                COALESCE(
+                    seriesEvent.SubjectKind COLLATE Latin1_General_100_BIN2,
+                    openedPeriod.SubjectKind COLLATE Latin1_General_100_BIN2,
+                    closedPeriod.SubjectKind COLLATE Latin1_General_100_BIN2),
+                COALESCE(
+                    JSON_VALUE(seriesEvent.Payload, '$.observedValue') COLLATE Latin1_General_100_BIN2,
+                    periodEvidence.ObservedValue COLLATE Latin1_General_100_BIN2),
+                COALESCE(
+                    JSON_VALUE(seriesEvent.Payload, '$.expectedRule') COLLATE Latin1_General_100_BIN2,
+                    JSON_VALUE(seriesEvent.Payload, '$.ExpectedRule') COLLATE Latin1_General_100_BIN2,
+                    periodEvidence.ExpectedRule COLLATE Latin1_General_100_BIN2),
+                COALESCE(
+                    JSON_VALUE(seriesEvent.Payload, '$.endReason') COLLATE Latin1_General_100_BIN2,
+                    closedPeriod.EndReason COLLATE Latin1_General_100_BIN2),
                 pollTrace.DiagnosticSafeDetail
             FROM mesingest.CurrentOverviewActivities AS activity
             LEFT JOIN mesingest.DemandSeriesEvents AS seriesEvent
@@ -350,7 +357,14 @@ public sealed partial class SqlServerMesIngestProjection
         var scalarValue = observationCount is null && relatedWorkTypes is null
             ? observedValue
             : null;
-        return new[] { code, subjectKind, scalarValue, expectedRule, endReason, safeDetail }
+        var projectedExpectedRule = string.Equals(
+                code,
+                "INVALID_MES_FIELD_FORMAT",
+                StringComparison.Ordinal)
+            && string.Equals(subjectKind, "AREA", StringComparison.Ordinal)
+                ? "D7-4"
+                : expectedRule;
+        return new[] { code, subjectKind, scalarValue, projectedExpectedRule, endReason, safeDetail }
                 .All(string.IsNullOrWhiteSpace)
             && observationCount is null
             && relatedWorkTypes is null
@@ -359,7 +373,7 @@ public sealed partial class SqlServerMesIngestProjection
                     code,
                     subjectKind,
                     scalarValue,
-                    expectedRule,
+                    projectedExpectedRule,
                     endReason,
                     observationCount,
                     relatedWorkTypes,

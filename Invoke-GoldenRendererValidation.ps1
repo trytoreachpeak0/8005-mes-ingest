@@ -94,6 +94,15 @@ $credentialPath = Join-Path $env:LOCALAPPDATA 'MesIngestWatch\gpt_win11.credenti
 if (-not (Test-Path -LiteralPath $credentialPath)) {
     throw "PowerShell Direct credential not found: $credentialPath"
 }
+
+$hostOperatingSystem = Get-CimInstance -ClassName Win32_OperatingSystem
+$hostFreePhysicalBytes = [int64]$hostOperatingSystem.FreePhysicalMemory * 1KB
+$minimumHostFreePhysicalBytes = 3GB
+if ($hostFreePhysicalBytes -lt $minimumHostFreePhysicalBytes) {
+    $hostFreePhysicalGiB = [Math]::Round($hostFreePhysicalBytes / 1GB, 1)
+    throw "Golden renderer host has only $hostFreePhysicalGiB GiB free physical memory; at least 3 GiB is required to protect co-hosted services. Save the VM or free host memory before retrying."
+}
+
 if ((Get-VM -Name $VmName -ErrorAction Stop).State -ne 'Running') {
     throw "Golden renderer VM is not running: $VmName"
 }
