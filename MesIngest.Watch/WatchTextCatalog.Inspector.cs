@@ -44,7 +44,7 @@ internal sealed partial class WatchInspectorText
     private static readonly WatchTextCatalogEntry UnknownReasonEntry = E("inspector.reason.unknown", "形成原因暂无法确认", "Formation reason cannot be determined");
     private static readonly WatchTextCatalogEntry PredecessorFactEntry = E("inspector.fact.predecessor", "前代 Demand", "Predecessor Demand");
     private static readonly WatchTextCatalogEntry PredecessorObservationEntry = E("inspector.fact.predecessorObservation", "前代最后匹配观测", "Predecessor's last matching observation");
-    private static readonly WatchTextCatalogEntry GoneFactEntry = E("inspector.fact.gone", "权威缺失 / GONE", "Authoritative absence / GONE");
+    private static readonly WatchTextCatalogEntry GoneFactEntry = E("inspector.fact.gone", "权威缺失", "Authoritative absence / GONE");
     private static readonly WatchTextCatalogEntry ArchiveFactEntry = E("inspector.fact.archive", "需求系列归档", "Demand series archive");
     private static readonly WatchTextCatalogEntry FirstObservationFactEntry = E("inspector.fact.firstObservation", "首次匹配观测", "First matching observation");
     private static readonly WatchTextCatalogEntry NewObservationFactEntry = E("inspector.fact.newObservation", "新世代首次匹配观测", "New generation's first matching observation");

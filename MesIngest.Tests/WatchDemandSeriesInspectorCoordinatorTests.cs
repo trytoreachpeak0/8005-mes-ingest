@@ -1013,7 +1013,7 @@ public sealed class WatchDemandSeriesInspectorCoordinatorTests
                         9),
                     new WatchDemandFormationFactPresentation(
                         WatchDemandFormationFactKind.AuthoritativeGone,
-                        "权威缺失 / GONE",
+                        "权威缺失",
                         "冻结快照中未找到",
                         OccurredAt: null,
                         PollTraceId: null,
