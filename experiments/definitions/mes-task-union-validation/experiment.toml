@@ -1,0 +1,9 @@
+query_ids = ["MES_TASK_UNION"]
+source_manifests = [
+  "../../../sources/customer/2026-07-16/mes-task-original-queries/01_DIE_TO_WIRE_STAGING.toml",
+  "../../../sources/customer/2026-07-16/mes-task-original-queries/02_DIE_TO_OVEN.toml",
+  "../../../sources/customer/2026-07-16/mes-task-original-queries/03_WIRE_TO_GATE.toml",
+  "../../../sources/customer/2026-07-16/mes-task-original-queries/04_WIRE_TO_OPTICAL.toml",
+  "../../../sources/customer/2026-07-16/mes-task-original-queries/05_STAGING_TO_WIRE.toml",
+  "../../../sources/customer/2026-07-24/mes-task-original-queries/06_WIRE_TO_NITROGEN.toml",
+]

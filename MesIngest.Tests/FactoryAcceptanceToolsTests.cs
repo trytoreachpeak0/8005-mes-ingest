@@ -124,7 +124,7 @@ public sealed class FactoryAcceptanceToolsTests
     public void Canonical_statement_is_one_read_only_six_branch_union_all()
     {
         var query = Path.Combine(
-            RepositoryPaths.CSharpRoot, "..", "..", "queries", "mes-task-union", "query.sql");
+            RepositoryPaths.CSharpRoot, "queries", "mes-task-union", "query.sql");
         Assert.True(File.Exists(query), $"Missing canonical query: {query}");
 
         var output = RunTools(

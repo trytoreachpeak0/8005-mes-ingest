@@ -1,0 +1,19 @@
+{
+  "files": [
+    {
+      "bytes": 1087,
+      "name": "查询MES字段类型与长度result.csv",
+      "sha256": "db0507124de5a85a669cb88df945f7ab424c512ba7870d9213d29f22d365d985"
+    },
+    {
+      "bytes": 3636,
+      "name": "MES字段类型与长度说明.md",
+      "sha256": "941ecd8a04a5fcbef0b0587f8410c0b2295db434b1908f004eabe25247fec7bd"
+    }
+  ],
+  "kind": "legacy-evidence-migration",
+  "migrated_at": "2026-07-16T07:54:48.123401+00:00",
+  "promotable_to_samples": false,
+  "schema_version": 1,
+  "source_note": "重构前本地目录；路径仅作迁移说明，不是运行时依赖"
+}

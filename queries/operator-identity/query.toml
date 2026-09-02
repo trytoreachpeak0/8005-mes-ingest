@@ -1,0 +1,7 @@
+id = "OP_OPERATOR_IDENTITY"
+title = "按工号查询 MES 操作员身份"
+sql = "query.sql"
+readonly = true
+requires_approval = false
+parameters = [{ name = "user_id", bind = ":user_id", required = true }]
+expected_columns = ["OPERATOR_NAME"]

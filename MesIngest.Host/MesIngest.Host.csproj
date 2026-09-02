@@ -12,12 +12,12 @@
 
   <!-- Official MES query manuscript from repo; no divergent SQL fork in csharp tree. -->
   <ItemGroup>
-    <Content Include="..\..\..\queries\mes-task-union\**\*">
+    <Content Include="..\queries\mes-task-union\**\*">
       <Link>queries\mes-task-union\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="..\..\..\queries\sublot-box-count\**\*">
+    <Content Include="..\queries\sublot-box-count\**\*">
       <Link>queries\sublot-box-count\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

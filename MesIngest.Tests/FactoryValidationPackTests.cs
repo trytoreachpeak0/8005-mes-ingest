@@ -31,15 +31,10 @@ public class FactoryValidationPackTests
 
     private static string ValidationRoot => Path.Combine(PackRoot, "validation");
 
-    private static string MesRoot
-    {
-        get
-        {
-            var csharp = new DirectoryInfo(CSharpRoot);
-            // mes/ingest/csharp -> mes
-            return csharp.Parent!.Parent!.FullName;
-        }
-    }
+    // Since the 2026-09-02 split this repository *is* the MES ingest root:
+    // queries/, experiments/ and evidence/ sit beside the projects rather than
+    // two levels up in the old mes/ingest/csharp monorepo layout.
+    private static string MesRoot => CSharpRoot;
 
     [Fact]
     public void Pack_includes_factory_validation_checklist_and_return_templates()

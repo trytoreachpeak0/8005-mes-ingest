@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-07-24T07:08:14.228872+00:00",
+  "input": "C:\\Users\\szy\\Desktop\\xinji\\8005多仓位AGV\\mes\\evidence\\runs\\.run-20260724T065734Z-7342006d71.h6x9yw9j\\results\\MES_TASK_UNION-round-001.csv",
+  "input_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+  "outputs": {
+    "matched_packages.csv": "778f0314cf5668d8c89d473bb93a07b76ca9196804b44f76340da1367746101a",
+    "prefix_matches.csv": "364c4cfbb288f63fe967ea980ee1e50ef452ec64a3692e78e759a64a4384fb3a",
+    "summary.md": "c8cf76a6d4e7dab673ba096dee1133ff8c779c999e0cdaefd9a235c8d5084457",
+    "unmatched_packages.csv": "d00209edd10bc2d0d4d2670ce884a5c3baec4ab118ee9c992ad5a352446c43d0"
+  },
+  "rules": "C:\\Users\\szy\\Desktop\\xinji\\8005多仓位AGV\\mes\\reference\\package-basket-capacity.csv",
+  "rules_sha256": "3214f6e849861de452c4132f0f733f20f657a9149dd05953ccc956deab766ece",
+  "schema_version": 1
+}

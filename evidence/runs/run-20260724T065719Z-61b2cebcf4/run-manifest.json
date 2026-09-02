@@ -1,0 +1,73 @@
+{
+  "approval": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "bundle_id": "bundle-20260724T054217Z-b527b6d1",
+  "bundle_manifest_sha256": "1d652201f762fcd484ca781e6199dfbecfc882c9593b83e55731dd1dc08de0a3",
+  "created_at": "2026-07-24T06:57:23.574412+00:00",
+  "derived_outputs": [
+    {
+      "path": "reports/mes-task-union-quality.json",
+      "sha256": "04f090033248c8b8c02bf914b11287c3529ca310fb3615836107e0cdb152b541"
+    },
+    {
+      "path": "reports/mes-task-union-quality.md",
+      "sha256": "a11440aaf112f8e04385e8607cefe89b381fb4362b2a2e1dd426a8cedd7ecfd5"
+    },
+    {
+      "path": "reports/mes-task-union-performance.json",
+      "sha256": "fc02a1faba2186b29a22a92feed929b32ed422b2308ad69830d8889c10304ad4"
+    }
+  ],
+  "environment": {
+    "oracle": {
+      "actual_mode": "thick",
+      "driver": "python-oracledb",
+      "driver_version": "4.0.1",
+      "requested_mode": "thick"
+    },
+    "platform": "Windows-2016Server-10.0.14393-SP0",
+    "python": "3.14.6"
+  },
+  "executions": [
+    {
+      "duration_seconds": 2.933239,
+      "ended_at": "2026-07-24T06:57:23.422003+00:00",
+      "output": "results/MES_TASK_UNION-round-001.csv",
+      "output_sha256": "1fa62b57cc46cb2f65f89aa9bf3577f173494299d52f46a5b5c01ce5e2f927bc",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 1,
+      "row_count": 673,
+      "started_at": "2026-07-24T06:57:20.488762+00:00"
+    }
+  ],
+  "experiment_record": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "mode": "phase1",
+  "queries": [
+    {
+      "id": "MES_TASK_UNION",
+      "query_manifest": "queries/MES_TASK_UNION/query.toml",
+      "sha256": {
+        "query_manifest": "0fbb5585c45c8b034e38ddf17fed9b8c51a8da821a7884cbfe15a0aec06d7e96",
+        "sql": "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae"
+      },
+      "sql": "queries/MES_TASK_UNION/query.sql"
+    }
+  ],
+  "rounds": 1,
+  "run_id": "run-20260724T065719Z-61b2cebcf4",
+  "schema_version": 1,
+  "status": "completed",
+  "wait_seconds": 0
+}

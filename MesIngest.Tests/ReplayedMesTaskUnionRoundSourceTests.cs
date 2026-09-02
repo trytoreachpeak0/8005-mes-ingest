@@ -145,7 +145,7 @@ public sealed class ReplayedMesTaskUnionRoundSourceTests : IDisposable
     }
 
     private static string RepositoryCanonicalQueryPath => Path.GetFullPath(
-        Path.Combine(CSharpRoot, "..", "..", "queries", "mes-task-union", "query.sql"));
+        Path.Combine(CSharpRoot, "queries", "mes-task-union", "query.sql"));
 
     private static string CSharpRoot
     {

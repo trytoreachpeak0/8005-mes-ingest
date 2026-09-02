@@ -706,10 +706,10 @@ public sealed class ReleasePackageValidationTests
     }
 
     private static string RepositoryCanonicalQueryPath => Path.GetFullPath(
-        Path.Combine(CSharpRoot, "..", "..", "queries", "mes-task-union", "query.sql"));
+        Path.Combine(CSharpRoot, "queries", "mes-task-union", "query.sql"));
 
     private static string RepositorySublotBoxCountQueryPath => Path.GetFullPath(
-        Path.Combine(CSharpRoot, "..", "..", "queries", "sublot-box-count", "query.sql"));
+        Path.Combine(CSharpRoot, "queries", "sublot-box-count", "query.sql"));
 
     private sealed record ValidationResult(int ExitCode, string Output);
 }

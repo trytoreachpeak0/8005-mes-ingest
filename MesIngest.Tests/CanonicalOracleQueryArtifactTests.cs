@@ -115,7 +115,6 @@ public sealed class CanonicalOracleQueryArtifactTests
         {
             var candidate = Path.Combine(
                 directory.FullName,
-                "mes",
                 "queries",
                 queryDirectory,
                 "query.sql");

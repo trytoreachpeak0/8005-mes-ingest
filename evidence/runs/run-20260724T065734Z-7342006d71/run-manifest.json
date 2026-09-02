@@ -1,0 +1,197 @@
+{
+  "approval": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "bundle_id": "bundle-20260724T054217Z-b527b6d1",
+  "bundle_manifest_sha256": "1d652201f762fcd484ca781e6199dfbecfc882c9593b83e55731dd1dc08de0a3",
+  "created_at": "2026-07-24T06:57:41.223038+00:00",
+  "derived_outputs": [
+    {
+      "path": "reports/mes-task-union-quality.json",
+      "sha256": "0a92ec2fe3cb9c1999760e15f2a813e2f373f6b7fb0f7d857fc0a1727c0cfb63"
+    },
+    {
+      "path": "reports/mes-task-union-quality.md",
+      "sha256": "06a48b375369540e8bfa9ac8d4c67eedf85e8bf8b3ade998a07cec587ad663ce"
+    },
+    {
+      "path": "reports/mes-task-union-performance.json",
+      "sha256": "8822928edabf3752409b182ba719e200753efe9ecb5f9da0726a9598ef164178"
+    },
+    {
+      "path": "reports/customer-baseline-counts.csv",
+      "sha256": "3ce75e603f1e42135727115609e187527e3d9f867ef9a86abbed4719608e58fc"
+    }
+  ],
+  "environment": {
+    "oracle": {
+      "actual_mode": "thick",
+      "driver": "python-oracledb",
+      "driver_version": "4.0.1",
+      "requested_mode": "thick"
+    },
+    "platform": "Windows-2016Server-10.0.14393-SP0",
+    "python": "3.14.6"
+  },
+  "executions": [
+    {
+      "duration_seconds": 3.081932,
+      "ended_at": "2026-07-24T06:57:37.841568+00:00",
+      "output": "results/MES_TASK_UNION-round-001.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 1,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:57:34.759641+00:00"
+    },
+    {
+      "duration_seconds": 0.707575,
+      "ended_at": "2026-07-24T06:57:38.553957+00:00",
+      "output": "results/CUSTOMER_BASELINE_DIE_TO_WIRE_STAGING-round-001.csv",
+      "output_sha256": "dad08cb15f3897d56f54cd71b6472d026014adcec197b0b8aac0474de2ec6ade",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_DIE_TO_WIRE_STAGING",
+      "round": 1,
+      "row_count": 105,
+      "started_at": "2026-07-24T06:57:37.846393+00:00"
+    },
+    {
+      "duration_seconds": 0.809811,
+      "ended_at": "2026-07-24T06:57:39.367842+00:00",
+      "output": "results/CUSTOMER_BASELINE_DIE_TO_OVEN-round-001.csv",
+      "output_sha256": "4a9950ae972e5c2cdeb4d8a1f31b20ba941f422bb0e4486afe5a802b3a8c50ca",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_DIE_TO_OVEN",
+      "round": 1,
+      "row_count": 94,
+      "started_at": "2026-07-24T06:57:38.558044+00:00"
+    },
+    {
+      "duration_seconds": 0.316791,
+      "ended_at": "2026-07-24T06:57:39.688861+00:00",
+      "output": "results/CUSTOMER_BASELINE_WIRE_TO_GATE-round-001.csv",
+      "output_sha256": "a7771f70e5497a4622b2ba9c12a91289999e47675333840c262d107c0b719be0",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_WIRE_TO_GATE",
+      "round": 1,
+      "row_count": 84,
+      "started_at": "2026-07-24T06:57:39.372089+00:00"
+    },
+    {
+      "duration_seconds": 0.240238,
+      "ended_at": "2026-07-24T06:57:39.933445+00:00",
+      "output": "results/CUSTOMER_BASELINE_WIRE_TO_OPTICAL-round-001.csv",
+      "output_sha256": "53431ef819214ce7dd09d14156ab06feea3b29ef6b11e48afe532c612ca0437f",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_WIRE_TO_OPTICAL",
+      "round": 1,
+      "row_count": 52,
+      "started_at": "2026-07-24T06:57:39.693214+00:00"
+    },
+    {
+      "duration_seconds": 0.86115,
+      "ended_at": "2026-07-24T06:57:40.798034+00:00",
+      "output": "results/CUSTOMER_BASELINE_STAGING_TO_WIRE-round-001.csv",
+      "output_sha256": "95fc57915a02e3cf635cf6db0cca986513acd66db089225035226ceb7552dfca",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_STAGING_TO_WIRE",
+      "round": 1,
+      "row_count": 246,
+      "started_at": "2026-07-24T06:57:39.936903+00:00"
+    },
+    {
+      "duration_seconds": 0.306786,
+      "ended_at": "2026-07-24T06:57:41.108476+00:00",
+      "output": "results/CUSTOMER_BASELINE_WIRE_TO_NITROGEN-round-001.csv",
+      "output_sha256": "c933a9c5879a848c4101a363865c333bf51b39fc719df8b922bfbce9c7aa9818",
+      "parameter_names": [],
+      "query_id": "CUSTOMER_BASELINE_WIRE_TO_NITROGEN",
+      "round": 1,
+      "row_count": 91,
+      "started_at": "2026-07-24T06:57:40.801713+00:00"
+    }
+  ],
+  "experiment_record": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "mode": "compare_sources",
+  "queries": [
+    {
+      "id": "MES_TASK_UNION",
+      "query_manifest": "queries/MES_TASK_UNION/query.toml",
+      "sha256": {
+        "query_manifest": "0fbb5585c45c8b034e38ddf17fed9b8c51a8da821a7884cbfe15a0aec06d7e96",
+        "sql": "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae"
+      },
+      "sql": "queries/MES_TASK_UNION/query.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_DIE_TO_WIRE_STAGING",
+      "query_manifest": "queries/CUSTOMER_BASELINE_DIE_TO_WIRE_STAGING/query.toml",
+      "sha256": {
+        "query_manifest": "a9a24185a5ef0702386f7de4837e0a2e02b499b0c6212a4d9cbf45116795c44e",
+        "sql": "4be1e84172e85383f3dad7499407abd345eb3db6a31e94d88d7307a6c74543b8"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_DIE_TO_WIRE_STAGING/01_DIE_TO_WIRE_STAGING.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_DIE_TO_OVEN",
+      "query_manifest": "queries/CUSTOMER_BASELINE_DIE_TO_OVEN/query.toml",
+      "sha256": {
+        "query_manifest": "344ac6ca0d55bcfad87bfb7eed9d21f563f30d0294e1e944bf5817d7b45c7c40",
+        "sql": "8f824c63932d4abacc90da866a5606af487fac3c252ea5d4a4362969809bf771"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_DIE_TO_OVEN/02_DIE_TO_OVEN.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_WIRE_TO_GATE",
+      "query_manifest": "queries/CUSTOMER_BASELINE_WIRE_TO_GATE/query.toml",
+      "sha256": {
+        "query_manifest": "a6d6544fdc4d0807153c5eba82846651d27d0b7b24de3d85f2d3b13d97c813df",
+        "sql": "d946f33162e674662290118f4dffc7d33dba6ac4708ed1a082af118505bdf9ff"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_WIRE_TO_GATE/03_WIRE_TO_GATE.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_WIRE_TO_OPTICAL",
+      "query_manifest": "queries/CUSTOMER_BASELINE_WIRE_TO_OPTICAL/query.toml",
+      "sha256": {
+        "query_manifest": "f626b4c9edb3a500b3b9675f897056078541ae92fdec53885aa65ce938370426",
+        "sql": "4ce90cd6127b9a59f0f7a228d4ce667b3be571f530a9c7c32faf28f9e4ac0b79"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_WIRE_TO_OPTICAL/04_WIRE_TO_OPTICAL.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_STAGING_TO_WIRE",
+      "query_manifest": "queries/CUSTOMER_BASELINE_STAGING_TO_WIRE/query.toml",
+      "sha256": {
+        "query_manifest": "1477846bf054e527d2a950e7cff00aceb9b09400038a8b8c90f90b1486498fa8",
+        "sql": "523bd1ccf7430d6de86a7d5026d851f822dba2d792c32e070edd7f5a997b82a2"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_STAGING_TO_WIRE/05_STAGING_TO_WIRE.sql"
+    },
+    {
+      "id": "CUSTOMER_BASELINE_WIRE_TO_NITROGEN",
+      "query_manifest": "queries/CUSTOMER_BASELINE_WIRE_TO_NITROGEN/query.toml",
+      "sha256": {
+        "query_manifest": "c128c5c2fd0760a31a8e585cc2f25c492cd2d02258c8fa149b4017b75b5691e6",
+        "sql": "b1d4961adcd5d06381cc8791c55933361e50528a126a36b3378e7905d86b4593"
+      },
+      "sql": "queries/CUSTOMER_BASELINE_WIRE_TO_NITROGEN/06_WIRE_TO_NITROGEN.sql"
+    }
+  ],
+  "rounds": 1,
+  "run_id": "run-20260724T065734Z-7342006d71",
+  "schema_version": 1,
+  "status": "completed",
+  "wait_seconds": 0
+}

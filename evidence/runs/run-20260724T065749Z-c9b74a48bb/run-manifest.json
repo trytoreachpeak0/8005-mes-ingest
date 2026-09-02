@@ -1,0 +1,172 @@
+{
+  "approval": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "bundle_id": "bundle-20260724T054217Z-b527b6d1",
+  "bundle_manifest_sha256": "1d652201f762fcd484ca781e6199dfbecfc882c9593b83e55731dd1dc08de0a3",
+  "created_at": "2026-07-24T06:59:49.107550+00:00",
+  "derived_outputs": [
+    {
+      "path": "reports/mes-task-union-quality.json",
+      "sha256": "0a92ec2fe3cb9c1999760e15f2a813e2f373f6b7fb0f7d857fc0a1727c0cfb63"
+    },
+    {
+      "path": "reports/mes-task-union-quality.md",
+      "sha256": "06a48b375369540e8bfa9ac8d4c67eedf85e8bf8b3ade998a07cec587ad663ce"
+    },
+    {
+      "path": "reports/mes-task-union-performance.json",
+      "sha256": "6c8e5a065ba13be7c8179c4a42b84af3ec06659e76a16cddab59ce0fbeeeb07b"
+    }
+  ],
+  "environment": {
+    "oracle": {
+      "actual_mode": "thick",
+      "driver": "python-oracledb",
+      "driver_version": "4.0.1",
+      "requested_mode": "thick"
+    },
+    "platform": "Windows-2016Server-10.0.14393-SP0",
+    "python": "3.14.6"
+  },
+  "executions": [
+    {
+      "duration_seconds": 3.095206,
+      "ended_at": "2026-07-24T06:57:52.879054+00:00",
+      "output": "results/MES_TASK_UNION-round-001.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 1,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:57:49.783837+00:00"
+    },
+    {
+      "duration_seconds": 2.914619,
+      "ended_at": "2026-07-24T06:58:05.803157+00:00",
+      "output": "results/MES_TASK_UNION-round-002.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 2,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:58:02.888522+00:00"
+    },
+    {
+      "duration_seconds": 3.49858,
+      "ended_at": "2026-07-24T06:58:19.311704+00:00",
+      "output": "results/MES_TASK_UNION-round-003.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 3,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:58:15.813120+00:00"
+    },
+    {
+      "duration_seconds": 3.003797,
+      "ended_at": "2026-07-24T06:58:32.325024+00:00",
+      "output": "results/MES_TASK_UNION-round-004.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 4,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:58:29.321220+00:00"
+    },
+    {
+      "duration_seconds": 2.764378,
+      "ended_at": "2026-07-24T06:58:45.098747+00:00",
+      "output": "results/MES_TASK_UNION-round-005.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 5,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:58:42.334370+00:00"
+    },
+    {
+      "duration_seconds": 2.789099,
+      "ended_at": "2026-07-24T06:58:57.896817+00:00",
+      "output": "results/MES_TASK_UNION-round-006.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 6,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:58:55.107710+00:00"
+    },
+    {
+      "duration_seconds": 2.766015,
+      "ended_at": "2026-07-24T06:59:10.672290+00:00",
+      "output": "results/MES_TASK_UNION-round-007.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 7,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:59:07.906270+00:00"
+    },
+    {
+      "duration_seconds": 2.809,
+      "ended_at": "2026-07-24T06:59:23.491596+00:00",
+      "output": "results/MES_TASK_UNION-round-008.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 8,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:59:20.682592+00:00"
+    },
+    {
+      "duration_seconds": 2.725104,
+      "ended_at": "2026-07-24T06:59:36.226663+00:00",
+      "output": "results/MES_TASK_UNION-round-009.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 9,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:59:33.501550+00:00"
+    },
+    {
+      "duration_seconds": 2.771396,
+      "ended_at": "2026-07-24T06:59:49.007922+00:00",
+      "output": "results/MES_TASK_UNION-round-010.csv",
+      "output_sha256": "cf936f2d760d1feb189a2a7e9fdd40ef275817069f97bf722770ad858a92a6df",
+      "parameter_names": [],
+      "query_id": "MES_TASK_UNION",
+      "round": 10,
+      "row_count": 672,
+      "started_at": "2026-07-24T06:59:46.236520+00:00"
+    }
+  ],
+  "experiment_record": {
+    "notes": "第6类 WIRE_TO_NITROGEN 复验",
+    "recorded_at": "<ISO8601 时间>",
+    "recorded_by": "<你的名字>",
+    "scope": "MES_TASK_UNION、六客户基线、10轮顺序性能测试",
+    "status": "self-run"
+  },
+  "mode": "performance",
+  "queries": [
+    {
+      "id": "MES_TASK_UNION",
+      "query_manifest": "queries/MES_TASK_UNION/query.toml",
+      "sha256": {
+        "query_manifest": "0fbb5585c45c8b034e38ddf17fed9b8c51a8da821a7884cbfe15a0aec06d7e96",
+        "sql": "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae"
+      },
+      "sql": "queries/MES_TASK_UNION/query.sql"
+    }
+  ],
+  "rounds": 10,
+  "run_id": "run-20260724T065749Z-c9b74a48bb",
+  "schema_version": 1,
+  "status": "completed",
+  "wait_seconds": 10.0
+}

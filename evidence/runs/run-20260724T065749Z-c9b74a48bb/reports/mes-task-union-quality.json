@@ -1,0 +1,47 @@
+{
+  "before_go_live_count": 0,
+  "counts": {
+    "DIE_TO_OVEN": 94,
+    "DIE_TO_WIRE_STAGING": 105,
+    "STAGING_TO_WIRE": 246,
+    "WIRE_TO_GATE": 84,
+    "WIRE_TO_NITROGEN": 91,
+    "WIRE_TO_OPTICAL": 52
+  },
+  "cross_type_conflict_count": 0,
+  "cross_type_conflict_samples": [],
+  "date_max": null,
+  "date_min": null,
+  "eqp_multi_area_count": 0,
+  "eqp_multi_area_samples": [],
+  "gate_optical_conflict_count": 0,
+  "gate_optical_conflict_samples": [],
+  "hard_failure": false,
+  "hard_failures": [],
+  "input": "MES_TASK_UNION-round-001.csv",
+  "invalid_date_count": 672,
+  "max_utf8_bytes": {
+    "AREA": 7,
+    "EQP": 8,
+    "STEP": 18,
+    "SUBLOT": 14
+  },
+  "nulls": {
+    "AREA": 0,
+    "DATES": 0,
+    "EQP": 0,
+    "PACKAGE": 0,
+    "STEP": 0,
+    "SUBLOT": 0,
+    "TASK_TYPE": 0
+  },
+  "over_declared_bytes": {},
+  "row_count": 672,
+  "suspicious_short_areas": [
+    "N"
+  ],
+  "task_sublot_duplicate_count": 0,
+  "task_sublot_duplicate_extra_rows": 0,
+  "task_sublot_duplicate_samples": [],
+  "unknown_task_types": []
+}

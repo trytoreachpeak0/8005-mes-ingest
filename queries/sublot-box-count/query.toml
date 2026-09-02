@@ -1,0 +1,7 @@
+id = "SUBLOT_BOX_COUNT"
+title = "按 SUBLOT 查询最大料盒数"
+sql = "query.sql"
+readonly = true
+requires_approval = false
+parameters = [{ name = "sublot", bind = ":sublot", required = true }]
+expected_columns = ["MAX_BOX_COUNT"]

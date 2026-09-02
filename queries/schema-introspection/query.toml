@@ -1,0 +1,7 @@
+id = "MES_SCHEMA_INTROSPECTION"
+title = "MES 任务相关 Oracle Schema 核验"
+sql = "query.sql"
+readonly = true
+requires_approval = false
+parameters = []
+expected_columns = ["CURRENT_USER", "CURRENT_SCHEMA", "SESSION_TIMEZONE", "DATABASE_TIMEZONE", "OBJECT_NAME", "COLUMN_NAME", "FOUND", "DATA_TYPE", "FULL_DATA_TYPE", "DECLARED_MAX_BYTES", "DECLARED_MAX_CHARS", "CHAR_USED", "DATA_PRECISION", "DATA_SCALE", "NULLABLE", "DATA_DEFAULT"]

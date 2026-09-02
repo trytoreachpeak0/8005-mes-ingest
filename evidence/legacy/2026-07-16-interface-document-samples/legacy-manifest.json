@@ -1,0 +1,14 @@
+{
+  "files": [
+    {
+      "bytes": 59536,
+      "name": "legacy-task-samples.csv",
+      "sha256": "a66a1f2dd7df37deff16b588330c1592321c00d94b87b5137b3ad508bf95c961"
+    }
+  ],
+  "kind": "legacy-evidence-migration",
+  "migrated_at": "2026-07-16T07:57:06.588509+00:00",
+  "promotable_to_samples": false,
+  "schema_version": 1,
+  "source_note": "重构前本地目录；路径仅作迁移说明，不是运行时依赖"
+}

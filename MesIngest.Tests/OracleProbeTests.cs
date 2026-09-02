@@ -310,7 +310,7 @@ public class OracleProbeTests
 
         var manuscript = Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory,
-            "..", "..", "..", "..", "..", "..",
+            "..", "..", "..", "..",
             "queries", "mes-task-union", "query.sql"));
         Assert.True(File.Exists(manuscript), $"Missing manuscript at {manuscript}");
 

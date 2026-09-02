@@ -1,0 +1,34 @@
+{
+  "files": [
+    {
+      "bytes": 46929,
+      "name": "MES五类任务合并查询result.csv",
+      "sha256": "b36f076681b147c493dc29ad98c91b30a753586a9331fbea55689dda224c33e3"
+    },
+    {
+      "bytes": 219,
+      "name": "MES五类任务合并查询测试记录.md",
+      "sha256": "09a9857201fa81c7d13a5c454e9fd73ea077073e9edf4b6872ef4d1a19a8b226"
+    },
+    {
+      "bytes": 591,
+      "name": "phase2_original_counts.csv",
+      "sha256": "6df255302b7bfa1cb49ef1531d7347c180bc3888c045f252e035f92746f046ba"
+    },
+    {
+      "bytes": 657,
+      "name": "phase3_perf_rounds.csv",
+      "sha256": "809e9d510b10e91d588a50a4ece76ad1bb490b887134aeda1c782cee5356d698"
+    },
+    {
+      "bytes": 1495,
+      "name": "test_summary.md",
+      "sha256": "5e0dc390893136be98a8502525e5c462a75f7159cf3aeced2b2ef28917efb371"
+    }
+  ],
+  "kind": "legacy-evidence-migration",
+  "migrated_at": "2026-07-16T07:54:32.268149+00:00",
+  "promotable_to_samples": false,
+  "schema_version": 1,
+  "source_note": "重构前本地目录；路径仅作迁移说明，不是运行时依赖"
+}

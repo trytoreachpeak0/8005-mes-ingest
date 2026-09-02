@@ -1,0 +1,7 @@
+id = "MES_TASK_UNION"
+title = "MES 六类运输任务合并查询"
+sql = "query.sql"
+readonly = true
+requires_approval = false
+parameters = []
+expected_columns = ["TASK_TYPE", "SUBLOT", "AREA", "EQP", "STEP", "DATES", "PACKAGE"]

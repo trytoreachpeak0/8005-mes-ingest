@@ -1,0 +1,7 @@
+{
+  "average_seconds": 2.933239,
+  "max_seconds": 2.933239,
+  "rounds": 1,
+  "target_average_le_5_seconds": true,
+  "target_max_le_10_seconds": true
+}
