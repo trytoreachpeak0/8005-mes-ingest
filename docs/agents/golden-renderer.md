@@ -8,42 +8,61 @@ behavior, or screenshot/XAML baselines.
 
 | Item | Required value |
 | --- | --- |
-| Hyper-V VM | `gpt_win11` |
-| Guest host | `GPT-WIN11` |
-| Interactive user | `GPT-WIN11\gpt` |
+| Hyper-V VM | `win11-01`, on the factory server's Hyper-V |
+| Guest host | `DESKTOP-F9HC40O` |
+| Interactive user | `DESKTOP-F9HC40O\agvops`, session 1, autologon |
 | Desktop | 1920x1080, 100% / 96 DPI |
 | Locale / timezone | `zh-CN` / `China Standard Time` |
 | Theme | Windows apps light theme |
 | Fonts | Microsoft YaHei UI and Consolas |
 | WPF rendering | `SoftwareOnly` |
 | PowerShell | 7.x |
-| .NET SDK | 8.0.423 |
-| Offline NuGet cache | `C:\MesIngest\Ticket11\NuGetPackages` |
+| .NET SDK | 8.0.424, pinned by `global.json` |
+| NuGet | direct, from the guest |
 
-The host-side PowerShell Direct credential is stored outside the repository:
+`Test-GoldenRendererEnvironment.ps1` checks every row that is observable from
+inside the process, and the workflow runs it before any pixel is produced. Trust
+that report over this table: the timezone row in particular is load-bearing and
+was silently violated once. `WatchTimeDisplay.Format` renders through
+`TimeZoneInfo.Local`, so a machine on UTC bakes `+00:00` timestamps into the
+baselines instead of `+08:00` — which is exactly how the 2026-08-28 baselines
+were captured, on a machine the gate never checked.
 
-```text
-%LOCALAPPDATA%\MesIngestWatch\gpt_win11.credential.xml
-```
-
-Do not put the guest password, an exported credential, or any other secret in
-the repository, ticket comments, logs, or validation artifacts.
+The machine moved here from `gpt_win11` on the control machine on 2026-09-02.
+Nothing about the *contract* changed; what changed is that the desktop now
+belongs to a CI runner instead of a scheduled task driven over PowerShell
+Direct, so the orchestration around it is gone.
 
 ## Connection rules
 
-- Use Hyper-V Basic Session only when a human must inspect the real desktop:
-  `vmconnect.exe localhost gpt_win11`.
+- The desktop is driven by the `golden-renderer`-labelled GitHub Actions runner,
+  which runs in the guest's session 1 under a logon-triggered scheduled task.
+  Everything below happens as a workflow step on that runner.
+- `ssh vm01` reaches the guest, but lands in session 0. That session has no
+  interactive window station: WPF fails there with dispatcher thread-affinity
+  errors that name nothing resembling the real cause, and
+  `Invoke-WatchUiTests.ps1` refuses to start. Use it for inspection, never to
+  run a suite.
+- Use Hyper-V Basic Session only when a human must inspect the real desktop.
+  It runs on the factory server: `vmconnect.exe localhost win11-01`, or
+  `remote-ops/factory-server/scripts/vm-screenshot.ps1` for a still.
 - Do not use RDP or Hyper-V Enhanced Session. They can change desktop session,
   resolution, scaling, font rasterization, and screenshot output.
-- Use PowerShell Direct to copy files, register/monitor tasks, and retrieve
-  evidence. A PowerShell Direct process is not the interactive desktop and must
-  not capture WPF screenshots or drive FlaUI.
-- Keep one `PSSession` for a validation run instead of reconnecting repeatedly.
-- Never run two desktop suites in parallel.
+- Never run two desktop suites in parallel. Within this repository the
+  `concurrency: desktop` group enforces that. It does **not** reach across
+  repositories — GitHub's concurrency is per-repository, and `win11-01` carries
+  runners for several — so the `Global\MesIngestWatchUiTests` mutex in
+  `Invoke-WatchUiTests.ps1` remains the real guarantee.
+- The guest also hosts `headless` runners for this and other repositories, and
+  they are not covered by either mechanism. A full `dotnet test` running
+  concurrently competes for the same 20 vCPU and 8 GB, which shifts render
+  timing. Check that the machine is idle before a capture that will become a
+  baseline.
 
 ## Standard entry points
 
-Run from `mes\ingest\csharp` inside the interactive guest session:
+These are the suites. On the runner they are workflow steps; at the guest's own
+desktop they are what you type from the repository root:
 
 ```powershell
 .\Invoke-WatchUiTests.ps1 -Configuration Release -Suite watch-vm-tests
@@ -54,22 +73,52 @@ Run from `mes\ingest\csharp` inside the interactive guest session:
 ```
 
 `watch-production-preview` runs `watch-vm-tests` followed by the production
-`watch-ui-journeys` inside one payload deployment and desktop-mutex lease. It is
-the implementation-train preview entry point: it does not run either baseline
+`watch-ui-journeys` inside one desktop-mutex lease. It is the
+implementation-train preview entry point: it does not run either baseline
 comparison suite and does not create, promote, or approve a baseline.
 
-For normal host-side orchestration, use the repository wrapper:
+For the baseline work, dispatch `.github/workflows/golden-renderer.yml`. It is
+`workflow_dispatch`-only and takes two modes:
 
-```powershell
-.\Invoke-GoldenRendererValidation.ps1 `
-    -Ticket 12 `
-    -Suite watch-ui-journeys
+```bash
+gh workflow run golden-renderer.yml --ref main -f mode=verify     -f runs=3
+gh workflow run golden-renderer.yml --ref main -f mode=candidates -f runs=3
 ```
 
-The wrapper creates an isolated guest run directory, excludes local build/test
-outputs from the payload, registers an `Interactive` scheduled task, waits for
-completion, retrieves results, unregisters the task, and cleans residual test
-processes. It never changes an approved baseline.
+- `verify` drives `Test-WatchWindowBaselineStability.ps1 -Mode Promoted`: it
+  renders the 11 windows and requires every one to reproduce the approved
+  baseline. **0 received is the pass condition.**
+- `candidates` drives `-Mode Candidate`: it renders 11 fresh candidates `runs`
+  times and requires them to agree across every run, byte for byte or under the
+  bounded predicate below.
+
+Neither mode promotes anything, and neither can: the runner has no write access
+to the repository. Candidates leave the machine as a build artifact, and turning
+them into baselines is a commit a human makes.
+
+## Packaged release gate
+
+`Invoke-PackagedReleaseGate.ps1` is a different gate that happens to need the same
+desktop. It builds the release package, installs it clean, and proves the
+*published binaries* start, connect, and drive the key journeys — release smoke
+with `-IncludePackagedWatch`, the `MesIngest.Tests` regression against a real SQL
+Server with every skip named and approved, and `Invoke-WatchAcceptance.ps1`
+driving the packaged Watch through the non-pixel suites. It does not repeat the
+pixel work.
+
+It is not in a workflow, and deliberately: it needs a DPAPI-protected credential
+for a dedicated, disposable, empty SQL Server database, which is not a repository
+secret. Run it on the golden desktop when cutting a release candidate.
+
+Until 2026-09-02 this was `Invoke-GoldenRendererValidation.ps1 -Suite
+watch-package-release`: 823 lines of which the majority staged a payload, opened a
+`PSSession` to `gpt_win11`, registered an Interactive scheduled task, polled it,
+copied evidence back and tore it down. The golden desktop is now a CI runner in
+the same session, so that transport described a hop that no longer exists. The
+gate itself is unchanged, including its two ordering invariants: no signoff and no
+release zip until residual processes are gone and the environment gate passes a
+second time. `InstallPackageLayoutTests` pins both, because the gate cannot run in
+CI.
 
 ## Narrowing a suite while iterating
 
@@ -98,8 +147,10 @@ requires an un-narrowed run.
 
 ## Required environment gate
 
-The interactive task must run `Test-GoldenRendererEnvironment.ps1` before the
-suite. Formal 100% visual runs require all of the following:
+`Test-GoldenRendererEnvironment.ps1` runs before the suite — as the workflow's
+own step, so a drifted machine fails in the log rather than surfacing later as a
+mysterious pixel difference. Formal 100% visual runs require all of the
+following:
 
 - Explorer and an input desktop in the same interactive session;
 - 1920x1080 desktop and 96 DPI;
@@ -112,23 +163,45 @@ suite. Formal 100% visual runs require all of the following:
 If any condition differs, stop before producing `received` files or new
 baselines. Retain the environment report as red evidence.
 
-## Approval and baseline order
+## Baseline order
 
 For visual changes, the order is mandatory:
 
 1. Run code/non-pixel regressions.
-2. Generate real golden-machine previews for all affected pages/states.
-3. Show the final preview images to the user and obtain explicit approval.
-4. Generate a fresh candidate matrix; do not bulk-promote historical candidates.
-5. Run the candidate matrix `-Runs` consecutive times (default 3) and require every
-   run to be byte-identical or visually equivalent under the bounded predicate below.
-6. Produce per-scenario before/after/diff evidence.
-7. Promote only the explicitly approved candidate.
-8. Run the same command against the promoted baselines and require `0 received`.
+2. Check the machine is idle, then dispatch `mode=candidates`. It generates a
+   fresh candidate matrix; do not bulk-promote historical candidates.
+3. That run repeats the matrix `-Runs` consecutive times (default 3) and requires
+   every run to be byte-identical or visually equivalent under the bounded
+   predicate below. A run that is not stable produces no baseline.
+4. Show the candidate images to the repository owner. They decide; the images do
+   not block the machine work, so send them and continue.
+5. Promote the reference run's candidates — the run the stability manifest was
+   built from, `run-01`. Copy `*.candidate.png` and `*.candidate.text-mask.json`
+   to `*.verified.png` and `*.verified.text-mask.json`; both files, always
+   together. A promoted PNG whose mask stayed behind fails the next comparison
+   on mask growth rather than on pixels, which reads as a rendering problem and
+   is not one.
+6. Commit the promotion with the run id, the stability result, and the reason the
+   old baselines were invalid.
+7. Dispatch `mode=verify` and require `0 received`.
 
-A later UI change invalidates an earlier visual approval. Test-only
-normalization may reuse approval only when all approved PNG SHA-256 hashes remain
-identical; record that comparison in evidence.
+**This repository has one owner, and that is the whole approval process.** There
+is no proposal record, no second reviewer, and no `approvalState` field; a script
+that manufactured those existed until 2026-09-02 and was deleted because it could
+only ever be filled in with a reviewer who does not exist. What replaces it is
+step 6: the commit message is the record, and it must say enough that the next
+person can tell an intentional change from a drifted machine.
+
+A later UI change invalidates an earlier visual approval — and that is not
+hypothetical. The baselines promoted on 2026-08-28 were invalidated the next day
+by `614cc6a`, which deliberately replaced the bilingual UI labels with Chinese
+ones, and nobody re-ran the renderer for five days. Nothing detects this on its
+own: `verify` is manual, and until someone dispatches it the repository holds
+baselines that match no machine's output. Re-run it after any commit that touches
+`MesIngest.Watch` UI.
+
+Test-only normalization may reuse approval only when all approved PNG SHA-256
+hashes remain identical; record that comparison in evidence.
 
 Never hide a red run with a successful rerun. Keep the first failure, explain
 the cause, add a regression test when possible, and restart the required
@@ -232,7 +305,7 @@ Acceptance is never silent. Every accepted capture writes
 into the evidence directory, and the run logs
 `WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED: step=… pixels=… maxDelta=… classification=…`.
 Any step that used text masking or either tolerance path must be listed in the ticket
-evidence and reviewed by a human at approval time, exactly like a `received` file.
+evidence and looked at by the repository owner, exactly like a `received` file.
 
 The predicate is covered by `WatchWindowVisualEquivalenceTests` and, against real
 golden-machine captures, by `WatchWindowVisualEquivalenceGoldenFixtureTests`
@@ -251,8 +324,10 @@ approval, not a tolerance change.
 ## Repetition count
 
 `-Runs` defaults to **3** for every stability gate. A full journey run costs roughly
-two and a half minutes on `gpt_win11`, so 3 runs is about 8 minutes and 20 runs is
-close to an hour; the default is set so that routine verification stays usable.
+two and a half minutes on `win11-01` — measured 2026-09-02, three candidate runs in
+9m12s including checkout, restore and build — so 3 runs is under ten minutes and 20
+runs is close to an hour; the default is set so that routine verification stays
+usable.
 
 The count used to be 10 because repetition was the only defence against
 nondeterministic rasterisation: the gate could not tell a harmless antialiasing flip
@@ -279,39 +354,47 @@ evidence.
 
 ## DPI validation
 
-Do not change the calibrated `gpt_win11` desktop away from 100% for Ticket-level
-DPI work. Export/import a disposable clone with a new VM ID, disconnect its
-network adapter before boot, and change DPI only inside the clone.
+Do not change the calibrated `win11-01` desktop away from 100% for Ticket-level
+DPI work — it is a CI runner, and a changed scale silently mis-renders every
+later baseline run. Export/import a disposable clone on the factory server's
+Hyper-V with a new VM ID, disconnect its network adapter before boot, and change
+DPI only inside the clone.
 
 - 125% means 120 DPI.
 - 150% means 144 DPI.
 - The interactive environment report must prove the effective DPI; registry
-  values observed through PowerShell Direct are not sufficient.
+  values read from a non-interactive session are not sufficient.
 - Run `watch-ui-journeys` at each required scale.
-- Retrieve evidence, remove scheduled tasks and residual processes, stop and
-  delete the clone, then remove the exact export/import directories.
-- Recheck the original VM is 1920x1080, 96 DPI, Explorer is in Session 1, and no
-  Ticket test task/process remains.
+- Retrieve evidence, remove residual processes, stop and delete the clone, then
+  remove the exact export/import directories.
+- Recheck `win11-01` is 1920x1080, 96 DPI, Explorer is in session 1, and the
+  three runner listeners are back — `Get-Process Runner.Listener` should show the
+  desktop one in session 1. It does not restart itself; see
+  `remote-ops/factory-server/docs/USAGE.md` section 8.
 
 ## Evidence contract
 
 Use a unique directory per attempt; never overwrite earlier evidence:
 
+A workflow run gives this for free: the run id is the unique attempt, and the
+`golden-renderer-<mode>` artifact holds the evidence tree. Download it with
+`gh run download <id>`. Only copy evidence into `<repo>\.artifacts\` when a
+ticket needs it to outlive GitHub's artifact retention.
+
 ```text
-C:\MesIngest\<Ticket-or-purpose>\run-YYYYMMDD-HHmmss\
+<workflow run id>/golden-renderer-<mode>/watch-window-visual/run-NN/<journey>/
 <repo>\.artifacts\golden-renderer\ticket-<NN>\run-YYYYMMDD-HHmmss\
 ```
 
 Record at least:
 
-- source commit and dirty-diff identity;
+- source commit and dirty-diff identity — for a workflow run, the run's own SHA;
 - environment JSON;
-- scheduled-task result and native exit code;
+- workflow run id and job conclusion;
 - restore/build/test logs;
 - screenshots, UIA trees, Verify XML, and received/diff files when applicable;
 - pass/fail/skip counts, with every skip named and assigned to a release gate;
-- user approval message for visual candidates;
-- cleanup and original-VM restoration result.
+- for a promotion, the stability result and which run was promoted.
 
 Expected offline `NU1801`/`NU1603` warnings remain in logs. They are not failures
 when restore/build/test exits successfully, and they must not be suppressed.
@@ -322,8 +405,8 @@ Every affected ticket should contain:
 
 ```md
 - [ ] Read `docs/agents/golden-renderer.md`.
-- [ ] Ran the required golden-machine suites through an interactive task.
-- [ ] User approved the final real-window preview (visual changes only).
-- [ ] Recorded the unique evidence directory and all named skips.
-- [ ] Cleaned scheduled tasks/processes and rechecked the original VM at 96 DPI.
+- [ ] Ran the required golden-machine suites on the `golden-renderer` runner.
+- [ ] Sent the real-window preview to the repository owner (visual changes only).
+- [ ] Recorded the workflow run id and all named skips.
+- [ ] `mode=verify` reports 0 received against the baselines on the branch.
 ```

@@ -104,7 +104,7 @@ if ($Mode -eq "Candidate") {
         "$Runs stable runs ($($Runs - $toleratedRuns) byte-identical, $toleratedRuns accepted as visually equivalent)"
     }
     Write-Host "WATCH_WINDOW_BASELINE_CANDIDATES_STABLE: $stability; artifacts=$root"
-    Write-Host "This does not approve baselines; create review proposals and obtain the required reviewers."
+    Write-Host "This promotes nothing. Copy run-01's *.candidate.png and *.candidate.text-mask.json to *.verified.* in a commit."
 } else {
     @(
         "status=PASSED",

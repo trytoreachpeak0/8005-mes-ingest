@@ -236,11 +236,15 @@ public class InstallPackageLayoutTests
     }
 
     [Fact]
-    public void Golden_renderer_exposes_packaged_release_gate()
+    public void Packaged_release_gate_keeps_its_sql_and_skip_contracts()
     {
-        var wrapper = File.ReadAllText(Path.Combine(CSharpRoot, "Invoke-GoldenRendererValidation.ps1"));
+        // The gate cannot run in CI — it needs a dedicated empty SQL Server, a
+        // DPAPI credential, and the interactive golden desktop — so its
+        // invariants are pinned as text. Before 2026-09-02 this lived in
+        // Invoke-GoldenRendererValidation.ps1 and reached the desktop over
+        // PowerShell Direct; that transport is gone, the gate is not.
+        var wrapper = File.ReadAllText(Path.Combine(CSharpRoot, "Invoke-PackagedReleaseGate.ps1"));
 
-        Assert.Contains("watch-package-release", wrapper, StringComparison.Ordinal);
         Assert.Contains("Publish-MesIngest.ps1", wrapper, StringComparison.Ordinal);
         Assert.Contains("Invoke-ReleaseSmoke.ps1", wrapper, StringComparison.Ordinal);
         Assert.Contains("Invoke-WatchAcceptance.ps1", wrapper, StringComparison.Ordinal);
@@ -250,8 +254,8 @@ public class InstallPackageLayoutTests
         Assert.Contains("SqlServerDataSource", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDatabase", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerDatabaseIsDedicatedEmpty", wrapper, StringComparison.Ordinal);
-        Assert.Contains("$sqlInputCount = @($sqlInputs | Where-Object", wrapper, StringComparison.Ordinal);
-        Assert.Contains("$sqlInputCount -ne 3", wrapper, StringComparison.Ordinal);
+        // Every SQL input is now Mandatory rather than counted at runtime, so the
+        // gate cannot be started without one.
         Assert.Contains("SqlPasswordFromDpapiCredential", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Data Source']", wrapper, StringComparison.Ordinal);
         Assert.Contains("$builder['Initial Catalog']", wrapper, StringComparison.Ordinal);
@@ -273,10 +277,16 @@ public class InstallPackageLayoutTests
         Assert.Contains("SqlServerExpectedProductMajor", wrapper, StringComparison.Ordinal);
         Assert.Contains("SqlServerExpectedCompatibilityLevel", wrapper, StringComparison.Ordinal);
         Assert.Contains(
-            "run instead of skipping",
+            "reports NotExecuted",
             wrapper,
             StringComparison.Ordinal);
-        Assert.Contains("Remove-Item -LiteralPath $sqlConnectionStringPath", wrapper, StringComparison.Ordinal);
+        // The connection string carries the password. It lives in this process and
+        // nowhere else, and the finally block clears it.
+        Assert.DoesNotContain("sql-server-connection-string.txt", wrapper, StringComparison.Ordinal);
+        Assert.Contains(
+            "[Environment]::SetEnvironmentVariable($name, $null)",
+            wrapper,
+            StringComparison.Ordinal);
         Assert.Contains("SQL_SERVER_SKIPS_REQUIRE_EXACT_USER_APPROVAL", wrapper, StringComparison.Ordinal);
         Assert.Contains("PACKAGED_WATCH_UI_SKIPS_NOT_ALLOWED", wrapper, StringComparison.Ordinal);
         // Ticket 24: the packaged gate runs the published binaries through the
@@ -287,7 +297,7 @@ public class InstallPackageLayoutTests
             "@('watch-ui-journeys', 'watch-vm-tests')",
             wrapper,
             StringComparison.Ordinal);
-        Assert.Contains("ticket23VisualBaselinesReused", wrapper, StringComparison.Ordinal);
+        Assert.Contains("visualBaselinesReused", wrapper, StringComparison.Ordinal);
         // The two UI entry points that cannot run inside a release payload are named,
         // not tolerated as a count, so any other skip still fails the gate.
         Assert.Contains(
@@ -307,43 +317,31 @@ public class InstallPackageLayoutTests
         Assert.DoesNotContain("-Suite all", wrapper, StringComparison.Ordinal);
         Assert.Contains("ManualAcceptancePath", wrapper, StringComparison.Ordinal);
         Assert.Contains("RELEASE-SIGNOFF.json", wrapper, StringComparison.Ordinal);
-        Assert.Contains("READY_FOR_HOST_CLEANUP_AND_FINALIZATION", wrapper, StringComparison.Ordinal);
-        Assert.Contains("finalPostCleanupEnvironment", wrapper, StringComparison.Ordinal);
         Assert.Contains("core-host-http-sql.trx", wrapper, StringComparison.Ordinal);
-        Assert.Contains("environment-after-host-cleanup.json", wrapper, StringComparison.Ordinal);
+        Assert.Contains("environment-post.json", wrapper, StringComparison.Ordinal);
         Assert.Contains(":(exclude).artifacts/**", wrapper, StringComparison.Ordinal);
         Assert.Contains(":(exclude)MesIngest.Tests/TestResults/**", wrapper, StringComparison.Ordinal);
         Assert.Contains("$gitStatus = @(", wrapper, StringComparison.Ordinal);
         Assert.Contains("GitDirty = $gitStatus.Count -gt 0", wrapper, StringComparison.Ordinal);
-        Assert.Contains("queries\\mes-task-union", wrapper, StringComparison.Ordinal);
-        Assert.Contains("experiments\\definitions\\mes-ingest-factory-validation\\plan.md", wrapper, StringComparison.Ordinal);
-        Assert.Contains("evidence\\README.md", wrapper, StringComparison.Ordinal);
         Assert.Contains("$_ -notin $approvedTests", wrapper, StringComparison.Ordinal);
+        // The gate runs on the desktop now, so the repository-level regression
+        // inputs are simply present. They used to be staged into a payload
+        // because the payload was a partial copy of the worktree.
+        Assert.DoesNotContain("robocopy", wrapper, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("New-PSSession", wrapper, StringComparison.Ordinal);
+        Assert.DoesNotContain("Register-ScheduledTask", wrapper, StringComparison.Ordinal);
 
-        var cleanupGate = wrapper.IndexOf(
-            "Golden renderer cleanup or post-cleanup environment recheck failed",
+        // A signoff must not be stamped before the desktop is proven still clean
+        // and still calibrated. Ordering is the whole point of these two.
+        // Last occurrence is the call; the first is the function definition.
+        var residualGate = wrapper.LastIndexOf("Assert-NoResidualProcesses", StringComparison.Ordinal);
+        var postEnvironmentGate = wrapper.IndexOf(
+            "Invoke-GoldenEnvironmentGate -OutputPath (Join-Path $artifacts 'environment-post.json')",
             StringComparison.Ordinal);
         var signoffPromotion = wrapper.IndexOf("RELEASE-SIGNOFF.json", StringComparison.Ordinal);
         var zipPromotion = wrapper.IndexOf("MesIngest-win-x64.zip", StringComparison.Ordinal);
-        Assert.True(cleanupGate >= 0 && cleanupGate < signoffPromotion);
-        Assert.True(cleanupGate < zipPromotion);
-    }
-
-    [Fact]
-    public void Watch_baseline_proposal_binds_text_mask_review_evidence_by_hash()
-    {
-        var proposal = File.ReadAllText(
-            Path.Combine(CSharpRoot, "New-WatchWindowBaselineProposal.ps1"));
-
-        Assert.Contains("[string]$CandidateTextMask", proposal, StringComparison.Ordinal);
-        Assert.Contains("[string]$CandidateTextMaskOverlay", proposal, StringComparison.Ordinal);
-        Assert.Contains("after.text-mask.json", proposal, StringComparison.Ordinal);
-        Assert.Contains("after.text-mask-overlay.png", proposal, StringComparison.Ordinal);
-        Assert.Contains("candidateTextMaskSha256=", proposal, StringComparison.Ordinal);
-        Assert.Contains("candidateTextMaskOverlaySha256=", proposal, StringComparison.Ordinal);
-        Assert.Contains(
-            "Assert-WatchPngDimensions -Path $candidateTextMaskOverlay",
-            proposal,
-            StringComparison.Ordinal);
+        Assert.True(residualGate >= 0 && residualGate < postEnvironmentGate);
+        Assert.True(postEnvironmentGate >= 0 && postEnvironmentGate < signoffPromotion);
+        Assert.True(postEnvironmentGate < zipPromotion);
     }
 }

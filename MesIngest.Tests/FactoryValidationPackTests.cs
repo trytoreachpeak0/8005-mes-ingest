@@ -66,11 +66,11 @@ public class FactoryValidationPackTests
         Assert.Contains("FILE_REPLAY", checklist, StringComparison.Ordinal);
         Assert.Contains("live_oracle_probe_passed", checklist, StringComparison.Ordinal);
         Assert.Contains("--probe-oracle", checklist, StringComparison.Ordinal);
-        // Real WPF on the golden machine goes through the interactive scheduled task;
-        // PowerShell Direct stays a deployment and evidence-retrieval channel.
-        Assert.Contains("gpt_win11", checklist, StringComparison.Ordinal);
-        Assert.Contains("交互计划任务", checklist, StringComparison.Ordinal);
-        Assert.Contains("PowerShell Direct", checklist, StringComparison.Ordinal);
+        // Real WPF on the golden machine runs in the interactive session; a session-0
+        // login can look but cannot drive the UI.
+        Assert.Contains("win11-01", checklist, StringComparison.Ordinal);
+        Assert.Contains("交互会话", checklist, StringComparison.Ordinal);
+        Assert.Contains("session 0", checklist, StringComparison.Ordinal);
 
         Assert.Contains("具名 skip", returnChecklist, StringComparison.Ordinal);
         Assert.Contains("PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET", returnChecklist, StringComparison.Ordinal);

@@ -28,7 +28,7 @@
 
 | 证据类别 | 在哪里跑 | 证明什么 | 不能证明什么 |
 |---|---|---|---|
-| **本机 / 黄金机门禁** | 开发机 tier 1，或校准黄金机 `gpt_win11` 交互计划任务 | 已发布二进制的启动、连接、契约严格匹配、只读鉴权、条件读取、UI 行为与视觉基线 | 真实 SQL Server 兼容性、真实 Oracle 可达性与业务语义 |
+| **本机 / 黄金机门禁** | 开发机 tier 1，或校准黄金机 `win11-01` 的交互会话 | 已发布二进制的启动、连接、契约严格匹配、只读鉴权、条件读取、UI 行为与视觉基线 | 真实 SQL Server 兼容性、真实 Oracle 可达性与业务语义 |
 | **真实兼容 SQL Server 门禁** | 指向专用、可丢弃、当前无用户表的真实 SQL Server 实例 | schema bootstrap/校验、ProjectionCommit 原子性、重启后投影持久化 | 工厂 Oracle 行为与 DATES/STEP 业务语义 |
 | **工厂 Oracle 验收** | 工厂现场，连真实 MES Oracle | `execution_scope=LIVE_ORACLE` 探针、正式 PollTrace 身份、逐 TASK_TYPE 的人工业务确认 | —— |
 
@@ -37,8 +37,9 @@
 它永远不能写进 `live_oracle_probe_passed`，也不能顶替本清单第二、三节的现场探针。
 配置了录制时 `--probe-oracle` 会直接拒绝执行。
 
-黄金机上的 WPF 启动、操作与截图一律通过 `gpt_win11` 的交互计划任务执行；
-PowerShell Direct 只用于部署、监控与取回证据，不用于驱动 UI。
+黄金机上的 WPF 启动、操作与截图一律在 `win11-01` 的交互会话（session 1）里执行，
+由带 `golden-renderer` 标签的 CI runner 驱动。SSH 登录落在 session 0，那里没有交互
+窗口站，WPF 起不来，只能用于查看状态，不能用于驱动 UI。
 
 ## 建议回传目录（工厂机本地新建）
 

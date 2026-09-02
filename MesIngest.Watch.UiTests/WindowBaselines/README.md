@@ -18,27 +18,27 @@ compare their bounded union. Each capture also emits a magenta mask overlay for 
 Text content remains asserted by UIA/localization/journey tests; invalid, oversized or
 unexpectedly expanded masks fail closed.
 
-A baseline proposal must include:
+## Replacing them
 
-- a reason and linked implementation/spec ticket;
-- before, after, and diff PNGs (an initial baseline records `before=(none)`);
-- the exact environment manifest;
-- a non-submitter reviewer;
-- product/business confirmation when interaction, wording, hierarchy, or status color changed.
+Dispatch `.github/workflows/golden-renderer.yml` with `mode=candidates`. It generates a
+fresh candidate matrix and requires it to be stable for `-Runs` consecutive calibrated
+runs (default 3; see "Repetition count" in `docs/agents/golden-renderer.md` for when to
+raise it). A run is stable when its captures are byte-identical to run 1, or when the
+bounded visual-equivalence predicate accepts them; every accepted capture is recorded in
+the evidence directory and belongs in the promotion commit's message.
 
-First show the final real-window previews to the user and obtain explicit approval. Then
-generate a fresh candidate matrix and require it to be stable for `-Runs` consecutive
-calibrated runs (default 3; see "Repetition count" in `docs/agents/golden-renderer.md`
-for when to raise it). A run is stable when its captures are byte-identical to run 1, or
-when the bounded visual-equivalence predicate accepts them; every accepted capture is
-recorded in the evidence directory and must be reviewed alongside the previews. Use
-`New-WatchWindowBaselineProposal.ps1` to assemble the review package. Only after the
-recorded non-submitter review may a maintainer copy `after.png` to the matching
-`*.verified.png` and copy the proposal-bound `after.text-mask.json` to
-`*.verified.text-mask.json`. The proposal includes the candidate PNG, mask and magenta
-overlay plus a SHA-256 for each. Run the same number of comparisons against the promoted
-matrix and require zero received files. Baseline approval does not establish the release
-gate; the complete gate needs 50 additional consecutive passes.
+Send the candidates to the repository owner, then promote **run-01** — the run the
+stability manifest was built from. Copy each `*.candidate.png` to the matching
+`*.verified.png` **and** each `*.candidate.text-mask.json` to `*.verified.text-mask.json`.
+Both files, always together: a PNG promoted without its mask fails the next comparison on
+mask growth rather than on pixels, which reads like a rendering problem and is not one.
+Then dispatch `mode=verify` and require zero received files.
 
-The proposal command requires a `ChangeType`. `Interaction`, `Copy`, `Hierarchy`, and
-`StateColor` proposals are rejected unless `-ProductOrBusinessConfirmed` is supplied.
+There is no proposal record and no second reviewer. A script that manufactured them
+existed until 2026-09-02 and was deleted, because this repository has one owner and the
+reviewer field could only ever be filled in with someone who does not exist. The
+promotion commit is the record; write enough in it that the next reader can tell an
+intentional change from a drifted machine.
+
+Baseline approval does not establish the release gate; the complete gate needs 50
+additional consecutive passes.

@@ -17,7 +17,7 @@
 .PARAMETER IncludePackagedWatch
   Also start and close the packaged WPF Watch to prove the Service keeps polling
   and serving after the Watch exits. Requires an interactive Windows desktop, so
-  it belongs to the gpt_win11 interactive scheduled task; without it that check
+  it belongs to the golden desktop's interactive session on win11-01; without it that check
   is recorded as the named skip PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET.
 
 .PARAMETER PackagedWatchStartupBudgetSeconds
@@ -370,7 +370,7 @@ if ($IncludePackagedWatch) {
         throw "IncludePackagedWatch requires the packaged Watch: $watchExecutable"
     }
     if (-not [Environment]::UserInteractive) {
-        throw 'IncludePackagedWatch needs the interactive golden desktop; run it through the gpt_win11 scheduled task.'
+        throw 'IncludePackagedWatch needs the interactive golden desktop; run it on the golden-renderer runner in session 1 of win11-01.'
     }
 }
 
@@ -844,7 +844,7 @@ try {
         $watchIndependence = [ordered]@{
             checked = $false
             namedSkip = 'PACKAGED_WATCH_PROCESS_INDEPENDENCE_AND_STARTUP_BUDGET'
-            reason = 'Starting the packaged WPF Watch needs the gpt_win11 interactive scheduled task; rerun with -IncludePackagedWatch there.'
+            reason = 'Starting the packaged WPF Watch needs the interactive golden desktop; rerun with -IncludePackagedWatch in session 1 of win11-01.'
         }
     }
 

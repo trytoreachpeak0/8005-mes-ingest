@@ -92,8 +92,11 @@ jobs:
             "| received (baseline missing or unmatched) | $((& $find '*.received.png').Count) |"
             "| mismatch (expected/actual/diff written) | $((& $find 'diff.png').Count) |"
             "| accepted under visual-equivalence tolerance | $((& $note 'WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED').Count) |"
-            "| suite runs that passed | $((& $note 'WATCH_UI_ALL_PASSED').Count) |"
           )
+          # Deliberately no pass counter here. Invoke-WatchUiTests.ps1 prints
+          # WATCH_UI_ALL_PASSED after it has already written the runner log, so a
+          # count taken from the log is always zero. The step log above and this
+          # job's own conclusion are the pass signal.
           $summary += ''
           $summary += & $note 'WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED|Window baseline mismatch for' |
             ForEach-Object { '    ' + $_.Line }

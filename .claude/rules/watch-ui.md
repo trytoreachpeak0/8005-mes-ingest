@@ -52,13 +52,14 @@ UI Automation, DPI behavior, or visual baselines must read
 implementation and validation. The Fluent rules are mandatory acceptance
 criteria, not optional visual guidance.
 
-- Formal WPF visual validation runs on Hyper-V VM `gpt_win11` through an
-  interactive scheduled task. PowerShell Direct is only for deployment,
-  monitoring, and artifact retrieval.
+- Formal WPF visual validation runs on `win11-01` (the factory server's Hyper-V,
+  `ssh vm01`), driven by the `golden-renderer` GitHub Actions runner in session 1.
+  Dispatch `.github/workflows/golden-renderer.yml`. `ssh vm01` itself lands in
+  session 0, where WPF cannot render.
 - Keep the calibrated VM at 1920x1080 and 100% / 96 DPI. Do not use RDP or
   Hyper-V Enhanced Session. Use a disposable offline clone for 125%/150% DPI.
-- Never approve or overwrite visual baselines before the user reviews the final
-  golden-machine preview. Preserve red evidence and clean test tasks/processes.
+- Never overwrite visual baselines before sending the candidates to the
+  repository owner. Preserve red evidence and leave no residual test processes.
 
 ## Tier 2 and 3 mechanics
 

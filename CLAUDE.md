@@ -95,11 +95,13 @@ is images for the user to judge. Read `docs/agents/golden-renderer.md` and
 
 | Stage | Command | When |
 | --- | --- | --- |
-| Preview | `.\Invoke-WatchUiTests.ps1 -Configuration Release -Suite <one suite>` | The change touches `MesIngest.Watch` UI. Minutes, needs the interactive golden desktop. |
-| Validation | `.\Invoke-GoldenRendererValidation.ps1`, `Test-*Stability.ps1 -Runs 3` | **Only when cutting a release candidate, or on an explicit request to promote a visual baseline.** Tens of minutes. |
+| Preview | `gh workflow run golden-renderer.yml -f mode=verify` | The change touches `MesIngest.Watch` UI. Under ten minutes; proves the baselines still reproduce (`0 received`). |
+| Validation | `gh workflow run golden-renderer.yml -f mode=candidates`, `Invoke-PackagedReleaseGate.ps1` | **Only when cutting a release candidate, or on an explicit request to promote a visual baseline.** Tens of minutes, and `candidates` produces images someone must judge. |
 
 - **Never enter either stage on your own initiative.** Say which suite, what it
   costs and what it proves, then ask.
+- Both run on the `golden-renderer` runner in session 1 of `win11-01`. `ssh vm01`
+  lands in session 0, where WPF cannot render and the suite refuses to start.
 - Validation is deliberately narrow. Its one irreplaceable job is catching
   intermittent defects — the Ticket 23 antialiasing flip appeared in ~12% of
   runs, which 3 runs miss about a third of the time — and that job does not arise
@@ -109,11 +111,13 @@ is images for the user to judge. Read `docs/agents/golden-renderer.md` and
   copied to the build output by the csproj. Anything under `.artifacts/` is
   evidence, not a baseline.
 
-**The golden VM `gpt_win11` runs on the control machine's own Hyper-V.** That is
-the one sanctioned exception to the workspace rule that experiments belong on the
-factory server's `ssh vm01`; it still requires the user's authorization each
-time, and its calibration (1920x1080 at 100% / 96 DPI, no RDP or Enhanced
-Session) is load-bearing.
+**The golden renderer is `win11-01` on the factory server** (`ssh vm01`), as of
+2026-09-02. It replaced `gpt_win11` on the control machine, which is retired from
+this role. The calibration is unchanged and still load-bearing: 1920x1080 at
+100% / 96 DPI, `zh-CN`, China Standard Time, light theme, no RDP or Enhanced
+Session. `Test-GoldenRendererEnvironment.ps1` checks all of it before any pixel
+is produced — the 2026-08-28 baselines were captured on a machine running UTC and
+carry `+00:00` timestamps as a result, which is what that gate exists to prevent.
 
 ## Toolchain baseline
 
