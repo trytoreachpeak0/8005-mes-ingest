@@ -37,11 +37,21 @@ jobs:
 
       # 只构建被测项目及其依赖，不碰 MesIngest.Watch.UiTests —— 那套
       # 要交互式金机桌面，CI 上跑不了也不该跑。
+      # 排除在托管 runner 上根本跑不了的两类：
+      #   WatchWindowLayoutPersistenceTests —— 测试自己要求 >=1280x760 的真实
+      #     桌面工作区，GitHub runner 没有；
+      #   OracleClientModeConfigurationTests —— thick 模式要 Oracle 客户端，
+      #     只有厂区局域网里才有。
+      # 这两类只能本地跑，job summary 里写明了。
       - name: 测试
         id: test
         shell: pwsh
         run: |
-          dotnet test MesIngest.Tests --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
+          $skip = @(
+            'WatchWindowLayoutPersistenceTests'
+            'OracleClientModeConfigurationTests'
+          ) | ForEach-Object { "FullyQualifiedName!~$_" }
+          dotnet test MesIngest.Tests --filter ($skip -join '&') --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
           $exit = $LASTEXITCODE
           $line = $out | Select-String -Pattern 'Failed:\s*\d+.*Skipped:\s*\d+' | Select-Object -Last 1
           if ($line) { "summary=$($line.Line.Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
@@ -67,6 +77,11 @@ jobs:
           >
           > ``MesIngest.Watch.UiTests`` 不在 CI 范围内：它需要交互式金机桌面
           > （``gpt_win11``，1920x1080 / 96 DPI），只能本地跑。
+          >
+          > **另有两类测试被 --filter 排除，因为托管 runner 上不可能通过：**
+          > ``WatchWindowLayoutPersistenceTests`` 要求至少 1280x760 的真实桌面工作区，
+          > ``OracleClientModeConfigurationTests`` 的 thick 模式要 Oracle 客户端（只有
+          > 厂区局域网里有）。**这两类必须在本地跑过才算验证。**
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
         env:
           TEST_SUMMARY: ${{ steps.test.outputs.summary }}

@@ -1,0 +1,6 @@
+# 这两个文件的 SHA-256 摘要被编译进产品代码（CanonicalMesTaskUnionQuery /
+# CanonicalSublotBoxCountQuery 的 ExpectedSha256），摘要是按原始字节算的。
+# 少了这两条规则，git 会按平台改行尾，摘要立刻对不上、构建出来的包被判为
+# 未批准。规则从拆分前 8005---AGV 的根 .gitattributes 原样继承。
+queries/mes-task-union/query.sql text eol=crlf
+queries/sublot-box-count/query.sql -text -diff
