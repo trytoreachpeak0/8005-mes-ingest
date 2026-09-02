@@ -1,0 +1,71 @@
+name: desktop-tests
+
+# Tests that need a real interactive desktop. They run on the runner registered
+# with the 'golden-renderer' label, which is started by a logon-triggered
+# scheduled task inside session 1 rather than as a service — session 0 has no
+# interactive window station and WPF fails there with dispatcher thread-affinity
+# errors that name nothing resembling the real cause.
+#
+# **This is not the golden renderer.** It runs ordinary xunit tests that happen
+# to need a desktop. The golden-renderer Preview and Validation stages are a
+# visual approval process whose output is images for the user to judge, and
+# Validation produces candidate baselines; per CLAUDE.md an agent never enters
+# either stage on its own initiative. They are not in this workflow and must not
+# be added to it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'MesIngest.Watch/**'
+      - 'MesIngest.Tests/Watch*'
+      - '**/*.xaml'
+
+# Only one desktop job at a time — they contend for the single desktop.
+# Note this guarantees nothing across repositories; GitHub's concurrency is
+# per-repository. Cross-repository desktop exclusion remains the desktop mutex's
+# job.
+concurrency:
+  group: desktop
+  cancel-in-progress: false
+
+jobs:
+  desktop:
+    runs-on: [self-hosted, golden-renderer]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The golden-renderer machine contract is load-bearing. Print it every run
+      # so a drifted machine is visible in the log rather than showing up as a
+      # mysterious test failure.
+      - name: Desktop environment
+        shell: pwsh
+        run: |
+          $s = [System.Diagnostics.Process]::GetCurrentProcess().SessionId
+          Write-Output "SessionId          $s"
+          if ($s -eq 0) { throw 'Running in session 0 — this job needs an interactive desktop.' }
+          $v = Get-CimInstance Win32_VideoController | Select-Object -First 1
+          Write-Output "Resolution         $($v.CurrentHorizontalResolution)x$($v.CurrentVerticalResolution)"
+          Write-Output "DPI                $((Get-ItemProperty 'HKCU:\Control Panel\Desktop\WindowMetrics' -EA SilentlyContinue).AppliedDPI)"
+          Write-Output "Culture            $((Get-Culture).Name) / $((Get-UICulture).Name)"
+          Write-Output "TimeZone           $((Get-TimeZone).Id)"
+          Write-Output "AppsUseLightTheme  $((Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -EA SilentlyContinue).AppsUseLightTheme)"
+          Write-Output "Explorer sessions  $((Get-Process explorer -EA SilentlyContinue | Select-Object -ExpandProperty SessionId) -join ',')"
+
+      # Exit code is the contract — the guest is zh-CN and prints 已通过! not Passed!.
+      - name: Desktop-dependent tests
+        shell: pwsh
+        run: |
+          dotnet test MesIngest.Tests `
+            --filter 'FullyQualifiedName~WatchAreaProfileAppliedSnapshotTests|FullyQualifiedName~WatchAreaProfileAutoSaveTests' `
+            --logger 'trx;LogFileName=desktop-results.trx'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-results
+          path: MesIngest.Tests/TestResults/desktop-results.trx
+          if-no-files-found: warn

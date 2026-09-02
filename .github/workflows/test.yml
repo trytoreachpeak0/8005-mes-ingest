@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: [self-hosted, win11-01]
+    runs-on: [self-hosted, headless]
     timeout-minutes: 45
 
     steps:
