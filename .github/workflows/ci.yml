@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.claude/**']
+  workflow_dispatch:
+
+# 同一分支上新的推送取消尚未跑完的旧运行。Windows runner 在私有仓按 2 倍
+# 计费，所以这里既取消旧运行，也用 paths-ignore 让纯文档改动不触发。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 测试
+    # 必须是 Windows：MesIngest.Tests 的目标框架是 net8.0-windows。
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: 缓存 NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~\.nuget\packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # 只构建被测项目及其依赖，不碰 MesIngest.Watch.UiTests —— 那套
+      # 要交互式金机桌面，CI 上跑不了也不该跑。
+      - name: 测试
+        id: test
+        shell: pwsh
+        run: |
+          dotnet test MesIngest.Tests --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
+          $exit = $LASTEXITCODE
+          $line = $out | Select-String -Pattern 'Failed:\s*\d+.*Skipped:\s*\d+' | Select-Object -Last 1
+          if ($line) { "summary=$($line.Line.Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
+          exit $exit
+
+      # 三个环境变量没配时，88 个真实 SQL Server 测试会被静默跳过，而结果
+      # 仍然显示 Failed: 0。把跳过数写进摘要，避免把绿色当成全覆盖。
+      - name: 说明 SQL 测试的跳过
+        if: always()
+        shell: pwsh
+        run: |
+          @"
+          ## 测试结果
+
+          ``$($env:TEST_SUMMARY)``
+
+          > **CI 上的绿色不等于全覆盖。**
+          > 真实 SQL Server 集成测试需要 ``MES_INGEST_TICKET01_SQLSERVER``、
+          > ``MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR`` 和
+          > ``MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL``。CI 上没有 SQL Server
+          > 实例，所以这些测试被跳过，但结果仍报 ``Failed: 0``。
+          > **改了 ``SqlServerMesIngestProjection.*.cs`` 就必须在本地连真实实例跑一遍。**
+          >
+          > ``MesIngest.Watch.UiTests`` 不在 CI 范围内：它需要交互式金机桌面
+          > （``gpt_win11``，1920x1080 / 96 DPI），只能本地跑。
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+        env:
+          TEST_SUMMARY: ${{ steps.test.outputs.summary }}
