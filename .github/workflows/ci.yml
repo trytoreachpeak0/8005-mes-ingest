@@ -23,6 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 这套测试断言 +08:00 的偏移和中文呈现，与 golden-renderer 的机器契约
+      # 一致（docs/agents/golden-renderer.md 要求 zh-CN / China Standard Time）。
+      # GitHub runner 默认 UTC + en-US，不设的话本地化与时间戳断言必失败。
+      - name: 对齐时区与区域
+        shell: pwsh
+        run: |
+          tzutil /s "China Standard Time"
+          Write-Host "时区: $(tzutil /g)"
+
       - name: 安装 .NET 8
         uses: actions/setup-dotnet@v4
         with:
@@ -37,9 +46,10 @@ jobs:
 
       # 只构建被测项目及其依赖，不碰 MesIngest.Watch.UiTests —— 那套
       # 要交互式金机桌面，CI 上跑不了也不该跑。
-      # 排除在托管 runner 上根本跑不了的两类：
-      #   WatchWindowLayoutPersistenceTests —— 测试自己要求 >=1280x760 的真实
-      #     桌面工作区，GitHub runner 没有；
+      # 排除在托管 runner 上根本跑不了的几类：
+      #   WatchWindowLayoutPersistenceTests / WatchAreaProfileAppliedSnapshotTests
+      #     —— 断言真实桌面工作区尺寸（>=1280x760、编辑区高度），
+      #     GitHub runner 的虚拟桌面达不到；
       #   OracleClientModeConfigurationTests —— thick 模式要 Oracle 客户端，
       #     只有厂区局域网里才有。
       # 这两类只能本地跑，job summary 里写明了。
@@ -49,6 +59,7 @@ jobs:
         run: |
           $skip = @(
             'WatchWindowLayoutPersistenceTests'
+            'WatchAreaProfileAppliedSnapshotTests'
             'OracleClientModeConfigurationTests'
           ) | ForEach-Object { "FullyQualifiedName!~$_" }
           dotnet test MesIngest.Tests --filter ($skip -join '&') --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
@@ -79,9 +90,9 @@ jobs:
           > （``gpt_win11``，1920x1080 / 96 DPI），只能本地跑。
           >
           > **另有两类测试被 --filter 排除，因为托管 runner 上不可能通过：**
-          > ``WatchWindowLayoutPersistenceTests`` 要求至少 1280x760 的真实桌面工作区，
-          > ``OracleClientModeConfigurationTests`` 的 thick 模式要 Oracle 客户端（只有
-          > 厂区局域网里有）。**这两类必须在本地跑过才算验证。**
+          > ``WatchWindowLayoutPersistenceTests`` 与 ``WatchAreaProfileAppliedSnapshotTests``
+          > 断言真实桌面工作区尺寸，``OracleClientModeConfigurationTests`` 的 thick 模式要
+          > Oracle 客户端（只有厂区局域网里有）。**这三类必须在本地跑过才算验证。**
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
         env:
           TEST_SUMMARY: ${{ steps.test.outputs.summary }}
