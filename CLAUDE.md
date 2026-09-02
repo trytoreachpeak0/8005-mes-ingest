@@ -115,6 +115,35 @@ factory server's `ssh vm01`; it still requires the user's authorization each
 time, and its calibration (1920x1080 at 100% / 96 DPI, no RDP or Enhanced
 Session) is load-bearing.
 
+## Toolchain baseline
+
+This repository is pinned to the workspace-wide .NET toolchain. The authority is
+`8005-agv-program/docs/adr/cross/0056-dotnet-toolchain-baseline.md`.
+
+| Item | Pinned value | Enforced by |
+| --- | --- | --- |
+| SDK | 8.0.424, `rollForward: disable` | `global.json` |
+| Target framework | `net8.0` and `net8.0-windows` | per project |
+| Test stack | xunit.v3 3.2.2, Microsoft.NET.Test.Sdk 18.8.1, xunit.runner.visualstudio 3.1.5 | `MesIngest.Watch.UiTests` today |
+
+Unlike the other repositories this one legitimately carries two target
+frameworks — the WPF projects and their tests are `net8.0-windows`, the service
+side is `net8.0`. Do not "unify" that; it is not drift.
+
+**The test stack here is mid-migration.** `MesIngest.Watch.UiTests` is already
+xunit.v3; `MesIngest.Tests` is still xunit 2.4.2 with Microsoft.NET.Test.Sdk
+17.6.0 and an unused `coverlet.collector`. That is a known debt with a plan, not
+a licence to add more xunit v2. Any new test project uses xunit.v3.
+
+Central package management and the banned-package build guard land together with
+the `MesIngest.Tests` migration — installing the guard first would simply break
+that project's build, and granting it an exemption would leave a permanent hole.
+Until then, run `check-toolchain.ps1` from the workspace root to see the exact
+remaining gap; it lists those four items and nothing else.
+
+Never raise a version in one repository alone. Change the ADR and every
+repository together.
+
 ## Build artifacts stay out of git
 
 `.gitignore` covers `.artifacts/`. History before 2026-09-02 contained ~885 MB of
