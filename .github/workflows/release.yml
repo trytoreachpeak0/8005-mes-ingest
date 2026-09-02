@@ -1,0 +1,100 @@
+name: release
+
+# Builds the deployable MesIngest install package and uploads it as an artifact.
+# It does not deploy anything: the control host pulls this artifact, verifies its
+# hash and pushes it to the factory server. See
+# remote-ops/factory-server/docs/mes-ingest-cd.md in the workspace repository.
+#
+# Manual dispatch only, and deliberately so. A deployment stops a Windows service
+# and replaces a directory on a machine that also runs the production AGV stack;
+# that is not something a push should start. The same reasoning already governs
+# golden-renderer Validation.
+#
+# This runs on `headless`, not `golden-renderer`. Publishing the WPF Watch only
+# compiles it — no window is ever created — so session 0 is fine, and the
+# interactive runner stays free for work that actually needs a desktop.
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Build configuration'
+        required: false
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+# Shared with test.yml, desktop-tests.yml, repo-scan.yml and golden-renderer.yml.
+# Every runner this repository uses lives on the same 20-vCPU guest, so two
+# workflows firing at once are one machine oversubscribed. cancel-in-progress
+# must stay false: a true anywhere in this group lets an ordinary push cancel a
+# running golden-renderer job mid-capture.
+concurrency:
+  group: win11-01
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: [self-hosted, headless]
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: dotnet --info
+        shell: pwsh
+        run: dotnet --info
+
+      # Publish-MesIngest.ps1 ends by running Test-ReleasePackage.ps1, which
+      # rebuilds RELEASE-MANIFEST.json and fails the build on a contract,
+      # canonical-query or forbidden-content violation. There is no separate
+      # verification step here because that one is not skippable.
+      - name: Publish install package
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'MesIngest'
+          ./pack/Publish-MesIngest.ps1 -OutputDir $out -Configuration '${{ inputs.configuration }}'
+          "PACKAGE_ROOT=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # VERSION.txt records the source commit and whether the worktree was dirty.
+      # A CI checkout is clean by construction, so SourceDirty=False here is a
+      # fact rather than a hope — and the deploy script refuses a dirty package.
+      - name: Show package version
+        shell: pwsh
+        run: Get-Content (Join-Path $env:PACKAGE_ROOT 'VERSION.txt')
+
+      # One zip plus one hash file. The control host verifies the hash before it
+      # copies anything to the factory server, so the hash must travel beside the
+      # zip rather than only inside GitHub's artifact metadata.
+      - name: Archive package
+        shell: pwsh
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'release-stage'
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          New-Item -ItemType Directory -Path $stage | Out-Null
+
+          $sha = '${{ github.sha }}'.Substring(0, 7)
+          $stamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
+          $name = "MesIngest-$stamp-$sha"
+          $zip = Join-Path $stage "$name.zip"
+
+          Compress-Archive -Path (Join-Path $env:PACKAGE_ROOT '*') -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash *$name.zip" | Set-Content -LiteralPath (Join-Path $stage "$name.zip.sha256") -Encoding ascii
+
+          Copy-Item (Join-Path $env:PACKAGE_ROOT 'VERSION.txt') $stage
+          Copy-Item (Join-Path $env:PACKAGE_ROOT 'RELEASE-MANIFEST.json') $stage
+
+          Write-Output "zip=$zip"
+          Write-Output "sha256=$hash"
+          "ARTIFACT_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "STAGE_DIR=$stage" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.STAGE_DIR }}
+          if-no-files-found: error
+          retention-days: 30
