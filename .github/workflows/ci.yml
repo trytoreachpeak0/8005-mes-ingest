@@ -51,8 +51,11 @@ jobs:
       #     —— 断言真实桌面工作区尺寸（>=1280x760、编辑区高度），
       #     GitHub runner 的虚拟桌面达不到；
       #   OracleClientModeConfigurationTests —— thick 模式要 Oracle 客户端，
-      #     只有厂区局域网里才有。
-      # 这两类只能本地跑，job summary 里写明了。
+      #     只有厂区局域网里才有；
+      #   两个 HistoryCleanup 取消测试 —— 断言"取消在 3 秒内返回"这种挂钟行为，
+      #     runner 上实测 46-53 秒。试过 xunit.maxParallelThreads=2 无效，说明
+      #     不是简单的并行争抢。
+      # 这些只能本地跑，job summary 里写明了。
       - name: 测试
         id: test
         shell: pwsh
@@ -61,12 +64,10 @@ jobs:
             'WatchWindowLayoutPersistenceTests'
             'WatchAreaProfileAppliedSnapshotTests'
             'OracleClientModeConfigurationTests'
+            'HistoryCleanupPolicyTests.Cancellation_does_not_wait_unboundedly'
+            'HistoryCleanupHostedServiceTests.Host_checks_cleanup_once_per_default_hour'
           ) | ForEach-Object { "FullyQualifiedName!~$_" }
-          # HistoryCleanup* 断言"取消必须在 3 秒内返回"，靠挂起的任务做门控。
-          # runner 核数远少于开发机，xunit 满并行时续体排不上，实测跑到 50 秒以上。
-          # 限制并行度是对症的，比排除这两个测试更可取——它们守的是真实的取消语义。
-          dotnet test MesIngest.Tests --filter ($skip -join '&') `
-            -- xunit.maxParallelThreads=2 2>&1 | Tee-Object -Variable out
+          dotnet test MesIngest.Tests --filter ($skip -join '&') --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
           $exit = $LASTEXITCODE
           $line = $out | Select-String -Pattern 'Failed:\s*\d+.*Skipped:\s*\d+' | Select-Object -Last 1
           if ($line) { "summary=$($line.Line.Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
@@ -93,10 +94,12 @@ jobs:
           > ``MesIngest.Watch.UiTests`` 不在 CI 范围内：它需要交互式金机桌面
           > （``gpt_win11``，1920x1080 / 96 DPI），只能本地跑。
           >
-          > **另有两类测试被 --filter 排除，因为托管 runner 上不可能通过：**
+          > **另有四类测试被 --filter 排除，因为托管 runner 上不可能通过：**
           > ``WatchWindowLayoutPersistenceTests`` 与 ``WatchAreaProfileAppliedSnapshotTests``
-          > 断言真实桌面工作区尺寸，``OracleClientModeConfigurationTests`` 的 thick 模式要
-          > Oracle 客户端（只有厂区局域网里有）。**这三类必须在本地跑过才算验证。**
+          > 断言真实桌面工作区尺寸；``OracleClientModeConfigurationTests`` 的 thick 模式要
+          > Oracle 客户端（只有厂区局域网里有）；两个 ``HistoryCleanup`` 取消测试断言
+          > "取消在 3 秒内返回"这种挂钟行为，runner 上要 46-53 秒。
+          > **这些必须在本地跑过才算验证——CI 绿不代表它们通过。**
           "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
         env:
           TEST_SUMMARY: ${{ steps.test.outputs.summary }}
