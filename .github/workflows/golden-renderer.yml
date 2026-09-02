@@ -1,0 +1,108 @@
+name: golden-renderer
+
+# The golden WPF renderer, on the machine that now owns that role: the
+# interactive session-1 runner on win11-01. Two modes, both manual.
+#
+#   verify      - render the 11 production-workspace windows and require every
+#                 one to reproduce the approved baseline. 0 received is the pass
+#                 condition. This is the Preview stage of
+#                 docs/agents/golden-renderer.md; it writes no candidate and
+#                 touches no *.verified.png.
+#
+#   candidates  - render 11 fresh candidates `runs` times and require them to be
+#                 byte-identical, or visually equivalent under the bounded
+#                 predicate, across every run. It still promotes nothing: the
+#                 candidates leave here as a build artifact, and turning them
+#                 into baselines is a commit a human makes.
+#
+# Manual trigger only. Either mode occupies the machine's single desktop for
+# tens of minutes, and the result is a judgement someone asked for rather than
+# something a push should start on its own.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to render
+        type: choice
+        options: [verify, candidates]
+        default: verify
+      runs:
+        description: Consecutive runs that must agree
+        type: number
+        default: 3
+
+# Shared with desktop-tests.yml: one desktop, one job. This says nothing about
+# other repositories — GitHub's concurrency is per-repository, and cross-repo
+# desktop exclusion remains the desktop mutex's job.
+concurrency:
+  group: desktop
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: [self-hosted, golden-renderer]
+    timeout-minutes: 180
+
+    # Required by the environment gate. The Watch process the journey launches
+    # sets it for itself as well; declaring it here makes the gate and the
+    # process agree instead of hoping the machine exports it.
+    env:
+      MesIngestWatch__RenderingMode: SoftwareOnly
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # A hard stop, per docs/agents/golden-renderer.md: if any condition
+      # differs, fail here rather than producing pixels from a drifted machine.
+      - name: Environment gate
+        shell: pwsh
+        run: ./Test-GoldenRendererEnvironment.ps1 -OutputPath artifacts/golden-renderer-environment.json
+
+      # The dispatch inputs reach PowerShell through the environment rather than
+      # ${{ }} interpolation, so they stay data instead of becoming script.
+      - name: Render
+        shell: pwsh
+        env:
+          MODE: ${{ inputs.mode }}
+          RUNS: ${{ inputs.runs }}
+        run: |
+          $mode = if ($env:MODE -eq 'candidates') { 'Candidate' } else { 'Promoted' }
+          ./Test-WatchWindowBaselineStability.ps1 `
+            -Configuration Release `
+            -Mode $mode `
+            -Runs ([int]$env:RUNS) `
+            -ArtifactsDirectory artifacts/watch-window-visual
+
+      # The point of the run. Three outcomes carry very different costs, and
+      # they are distinguished by what the evidence directory holds, not by the
+      # exit code alone.
+      - name: Verdict
+        if: always()
+        shell: pwsh
+        run: |
+          $root = 'artifacts/watch-window-visual'
+          $find = { param($pattern) @(Get-ChildItem -Path $root -Recurse -Filter $pattern -File -ErrorAction SilentlyContinue) }
+          $log = & $find '*.runner.log'
+          $note = { param($pattern) @($log | Select-String -Pattern $pattern) }
+
+          $summary = @(
+            '| Signal | Count |'
+            '| --- | --- |'
+            "| candidates rendered | $((& $find '*.candidate.png').Count) |"
+            "| received (baseline missing or unmatched) | $((& $find '*.received.png').Count) |"
+            "| mismatch (expected/actual/diff written) | $((& $find 'diff.png').Count) |"
+            "| accepted under visual-equivalence tolerance | $((& $note 'WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED').Count) |"
+            "| suite runs that passed | $((& $note 'WATCH_UI_ALL_PASSED').Count) |"
+          )
+          $summary += ''
+          $summary += & $note 'WATCH_WINDOW_VISUAL_EQUIVALENCE_ACCEPTED|Window baseline mismatch for' |
+            ForEach-Object { '    ' + $_.Line }
+          $summary | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append | Write-Output
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: golden-renderer-${{ inputs.mode }}
+          path: artifacts/
+          if-no-files-found: warn
