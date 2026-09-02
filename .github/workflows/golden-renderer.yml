@@ -15,7 +15,10 @@ name: golden-renderer
 #                 candidates leave here as a build artifact, and turning them
 #                 into baselines is a commit a human makes.
 #
-# `verify` also runs nightly. It deliberately does NOT run on push.
+# `verify` also runs nightly. It deliberately does NOT run on push. The nightly
+# additionally runs `watch-vm-tests` — the rest of MesIngest.Watch.UiTests — in
+# its own job ahead of the rendering; see that job for why it is here and not on
+# the commit path.
 #
 # The baselines are 11 screenshots that nothing validates on its own. Promoted
 # 2026-08-28, they were invalidated the next day by 614cc6a — which replaced the
@@ -28,9 +31,7 @@ name: golden-renderer
 # expected is a red nobody reads, which is the failure this is meant to fix
 # rather than reproduce. So it runs at 03:00 China time: off the commit path, out
 # of the way of the single desktop during the day, and one day late in the worst
-# case instead of five. The non-pixel half of MesIngest.Watch.UiTests does block
-# on push, in desktop-tests.yml, precisely because it reads no baseline and so
-# has no false reds.
+# case instead of five.
 #
 # A red here means one of exactly two things, and the log says which:
 #   - the environment gate failed   -> the machine drifted. Fix the machine; the
@@ -75,7 +76,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Everything in MesIngest.Watch.UiTests except the journey: 170 tests that
+  # need a desktop but neither start MesIngest.Watch.exe nor compare a pixel.
+  # Among them are WatchWindowVisualEquivalenceTests and WatchWindowTextMaskTests
+  # — the predicate and the mask that `render` below uses to tell a real
+  # regression from renderer noise. Nothing else runs this project, so a broken
+  # predicate would leave verify green while it silently stopped checking
+  # anything.
+  #
+  # Reading no baseline, it has no false reds, and on 2026-09-02 that argument
+  # put it in desktop-tests.yml as a blocking gate. It was moved back here the
+  # same day. Measured on this guest: alone it is 64 s and passes; appended to
+  # the 163 desktop tests in that job it is 90 s and fails
+  # Overview_drill_loads_host_exact_audit_facets_then_same_snapshot_detail on
+  # that test's 15-second CancelAfter — 3 failures in 4 runs, one of them with
+  # the machine to itself, so the cause is state the preceding step leaves
+  # behind and not contention. Undiagnosed. Hence: nightly, its own job, and
+  # first, which is the only condition it has ever been measured green in.
+  #
+  # A separate job rather than a step so that a red here cannot skip the
+  # rendering below. The two answer different questions and either verdict is
+  # worth having without the other.
+  vm-tests:
+    if: github.event_name == 'schedule'
+    runs-on: [self-hosted, golden-renderer]
+    timeout-minutes: 30
+
+    env:
+      MesIngestWatch__RenderingMode: SoftwareOnly
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Watch UI test project
+        shell: pwsh
+        run: |
+          ./Invoke-WatchUiTests.ps1 `
+            -Configuration Release `
+            -Suite watch-vm-tests `
+            -ArtifactsDirectory artifacts/watch-vm-tests
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: watch-vm-tests
+          path: artifacts/
+          if-no-files-found: warn
+
   render:
+    # Ordering only. `needs` makes this wait for vm-tests, and !cancelled() lets
+    # it run whether that job passed, failed, or — on a manual dispatch — never
+    # ran at all. Two jobs would otherwise serialise on the single desktop
+    # runner in an order nobody chose, and the order is the whole point.
+    needs: vm-tests
+    if: ${{ !cancelled() }}
     runs-on: [self-hosted, golden-renderer]
     timeout-minutes: 180
 

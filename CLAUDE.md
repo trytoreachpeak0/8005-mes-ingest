@@ -102,12 +102,23 @@ work whose timing is load-bearing.
 **All four share `concurrency: group: win11-01` with `cancel-in-progress: false`,
 and that is not tidiness.** The group used to be per-workflow, so a single push
 touching `MesIngest.Watch/**` started `test.yml` and `desktop-tests.yml` at the
-same second on the same guest. Measured 2026-09-02: `watch-vm-tests` takes 62-65 s
-when it has the machine and 94 s when it does not, and at 94 s the 15-second
-per-test budgets in `MesIngest.Watch.UiTests` start expiring —
-`Overview_drill_loads_host_exact_audit_facets_then_same_snapshot_detail` failed
-with `OperationCanceledException`, which reads like a product defect and is not
-one. Two runners on one VM are one machine, not two.
+same second on the same guest. Two runners on one VM are one machine, not two,
+and golden-renderer timing is load-bearing.
+
+Do not use `watch-vm-tests` timing as the evidence for this. It was, on
+2026-09-02, and the attribution was wrong: that suite took 64 s alone and 94 s
+when appended to `desktop-tests.yml`, which looked like contention until it took
+91 s and failed again with the guest to itself. What actually slows it is state
+the preceding step in the same job leaves behind, still undiagnosed, and the fix
+was to move it off that job entirely rather than to change the group. The group
+is right for its own reason; it just never proved this.
+
+One caveat with the shared group: **three or more queued jobs do not queue, they
+cancel.** GitHub keeps one pending run per group, so a new pending run cancels
+the older pending one — observed with `repo-scan` running and `test` then
+`desktop-tests` arriving behind it, which ended with `test` `cancelled`. Not yet
+solved. A `cancelled` conclusion on a workflow that never started is this, not a
+test failure.
 
 `cancel-in-progress` must stay `false` in every one of them. A `true` anywhere in
 a shared group lets an ordinary push cancel a running golden-renderer job
@@ -123,7 +134,7 @@ server and the protocol.
 | `test.yml` | `headless` | any push **except** `.github/**`, `docs/**`, `.claude/**`, root `*.md` |
 | `repo-scan.yml` | `headless` | `docs/**`, `.claude/**`, root `*.md` |
 | `desktop-tests.yml` | `golden-renderer` | `MesIngest.Watch/**`, `MesIngest.Tests/Watch*`, `**/*.xaml` |
-| `golden-renderer.yml` | `golden-renderer` | nightly 03:00, and manual dispatch |
+| `golden-renderer.yml` | `golden-renderer` | nightly 03:00 (`watch-vm-tests`, then the pixel `verify`), and manual dispatch |
 
 **A documentation change is not exempt from testing, it is routed.** Several
 tests read the repository as data — `RetiredContractAndCutoverSafetyTests` walks
@@ -170,9 +181,16 @@ is images for the user to judge. Read `docs/agents/golden-renderer.md` and
   either the machine drifted (environment gate failed) or the baselines are stale
   (gate passed, `received > 0`); `docs/agents/golden-renderer.md` has both.
 - The non-pixel half of `MesIngest.Watch.UiTests` (`watch-vm-tests`, 170 tests,
-  64 s) **does** block, in `desktop-tests.yml`. It reads no baseline, so it has
-  no false reds — and it covers the visual-equivalence predicate and the text
-  mask, without which `verify` could stay green while checking nothing.
+  64 s) covers the visual-equivalence predicate and the text mask, without which
+  `verify` could stay green while checking nothing. It reads no baseline, so it
+  has no false reds — which on 2026-09-02 made it a blocking gate in
+  `desktop-tests.yml`. That lasted a day. **It now runs in the nightly**, in its
+  own job ahead of the rendering, because in that job it failed 3 runs out of 4
+  on a 15-second per-test budget while passing every time it ran alone. The
+  trigger is state the preceding step leaves on the desktop, not load: one of
+  the failures had the guest to itself. Nothing on the commit path runs
+  `MesIngest.Watch.UiTests` any more; changing that project is checked at 03:00,
+  not on push.
 - Validation is deliberately narrow. Its one irreplaceable job is catching
   intermittent defects — the Ticket 23 antialiasing flip appeared in ~12% of
   runs, which 3 runs miss about a third of the time — and that job does not arise

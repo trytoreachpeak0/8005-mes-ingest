@@ -77,8 +77,9 @@ desktop they are what you type from the repository root:
 implementation-train preview entry point: it does not run either baseline
 comparison suite and does not create, promote, or approve a baseline.
 
-For the baseline work, dispatch `.github/workflows/golden-renderer.yml`. It is
-`workflow_dispatch`-only and takes two modes:
+For the baseline work, dispatch `.github/workflows/golden-renderer.yml`. Its two
+modes are dispatch-only; the nightly schedule runs `watch-vm-tests` and then a
+`verify` on its own.
 
 ```bash
 gh workflow run golden-renderer.yml --ref main -f mode=verify     -f runs=3
@@ -105,29 +106,50 @@ Three layers, and which one a check belongs to is decided by a single question:
 | --- | --- | --- | --- |
 | Logic — presentation, text catalog, localization | `test.yml`, headless runner | every push and PR | no |
 | Behaviour — real WPF windows, UIA assertions | `desktop-tests.yml`, this runner | push touching `MesIngest.Watch/**`, `MesIngest.Tests/Watch*`, `**/*.xaml` | no |
-| Behaviour — `MesIngest.Watch.UiTests` minus the journey (`watch-vm-tests`) | `desktop-tests.yml`, this runner | same | no |
+| Behaviour — `MesIngest.Watch.UiTests` minus the journey (`watch-vm-tests`) | `golden-renderer.yml`, this runner | **nightly at 03:00 China time** | no |
 | Pixels — the 11 baselines | `golden-renderer.yml`, this runner | **nightly at 03:00 China time**, plus manual | **yes, always** |
 
-The first three block a push. The pixel comparison does not, and must not: an
-intentional UI change is indistinguishable from a regression to a pixel
-comparison, so putting it on the commit path would turn main red every time the
-UI legitimately changed. A red that is usually expected is a red nobody reads.
+The first two block a push. The last two do not. For the pixel comparison that
+is a rule and not a schedule: an intentional UI change is indistinguishable from
+a regression to a pixel comparison, so putting it on the commit path would turn
+main red every time the UI legitimately changed, and a red that is usually
+expected is a red nobody reads. For `watch-vm-tests` it is the opposite — it
+belongs on the commit path on its merits and is off it because of the machine.
 
 The nightly closes the gap instead. The 2026-08-28 baselines were invalidated the
 next day by `614cc6a` and nobody noticed for five days, because asking was the
 only way to find out. One day late is not zero, but it is the price of keeping
 the signal worth reading.
 
-`watch-vm-tests` — 170 tests, 64 s — is in `desktop-tests.yml` because it reads
-no baseline. It carries `WatchWindowVisualEquivalenceTests` and
-`WatchWindowTextMaskTests`: the predicate and the mask that the pixel comparison
-uses to tell a real regression from renderer noise. Until 2026-09-02 nothing ran
-that project at all — both test workflows run `MesIngest.Tests`, a different
-project — so a broken predicate would have left `verify` green while it silently
-stopped checking anything. Six of its tests skip by name
+`watch-vm-tests` — 170 tests, 64 s — carries `WatchWindowVisualEquivalenceTests`
+and `WatchWindowTextMaskTests`: the predicate and the mask that the pixel
+comparison uses to tell a real regression from renderer noise. Until 2026-09-02
+nothing ran that project at all — both test workflows run `MesIngest.Tests`, a
+different project — so a broken predicate would have left `verify` green while it
+silently stopped checking anything. Six of its tests skip by name
 (`WatchWindowVisualEquivalenceGoldenFixtureTests` needs real captures under
 `.artifacts`, and `WatchWindowCandidateEquivalenceTests` is the stability gate's
 own entry point). That is by design, not an omission.
+
+It reads no baseline, so it has no false reds, and on 2026-09-02 that put it in
+`desktop-tests.yml` as a blocking gate. **It was moved to the nightly the same
+day**, into its own job that runs before the rendering. Reading no baseline made
+it safe to block on; it turned out not to be *stable* enough to block on in that
+position. Appended to the 163 desktop tests in that job it ran 90 s instead of
+64 s and failed 3 of 4 runs, always
+`Overview_drill_loads_host_exact_audit_facets_then_same_snapshot_detail` hitting
+that test's 15-second `CancelAfter`. One of those failures had the guest
+entirely to itself, so contention is ruled out and the cause is state the
+preceding step leaves behind. **That is undiagnosed.** Running first, alone, in
+its own job is the only condition the suite has ever been measured green in —
+so if you add anything to `golden-renderer.yml`, do not put it ahead of this
+job, and if you are tempted to fold the job back into a step, that is the exact
+change that was just reverted.
+
+The cost is real and accepted: no automation touches `MesIngest.Watch.UiTests`
+on a push any more. A predicate broken at 10:00 is found at 03:00 the next day.
+Run `.\Invoke-WatchUiTests.ps1 -Configuration Release -Suite watch-vm-tests` on
+the guest when a change touches that project and you do not want to wait.
 
 ### Reading a red nightly
 
