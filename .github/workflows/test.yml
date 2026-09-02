@@ -36,9 +36,16 @@ jobs:
 
       # Never assert on dotnet's console output: the guest's locale is zh-CN and
       # it prints 已通过! rather than Passed!. The exit code is the contract.
+      # The desktop-dependent classes are excluded here and run in
+      # desktop-tests.yml on the interactive runner instead. Running them on a
+      # session-0 runner fails them every time, for a reason that has nothing to
+      # do with the code. The two workflows partition the suite; neither skips it.
       - name: Test
         shell: pwsh
-        run: dotnet test MesIngest.Tests --logger "trx;LogFileName=test-results.trx"
+        run: |
+          dotnet test MesIngest.Tests `
+            --filter 'FullyQualifiedName!~WatchAreaProfileAppliedSnapshotTests&FullyQualifiedName!~WatchAreaProfileAutoSaveTests' `
+            --logger 'trx;LogFileName=test-results.trx'
 
       - name: Upload test results
         if: always()
