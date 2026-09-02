@@ -1,0 +1,49 @@
+name: test
+
+# Runs on the self-hosted runner on win11-01 (factory server Hyper-V guest).
+# There is no hosted-runner fallback — this suite is exactly why: it asserts on a
+# real desktop, an Oracle client and wall-clock timing that a hosted machine
+# cannot provide. See the workspace root CLAUDE.md.
+#
+# **This workflow does not run the golden renderer.** It runs the repository's
+# default test command and nothing else. The golden-renderer Preview and
+# Validation stages are a visual approval process whose output is images for the
+# user to judge; per CLAUDE.md an agent never enters either stage on its own
+# initiative, and Validation produces candidate baselines. When they are added
+# they go in a separate workflow: Preview filtered to MesIngest.Watch/** and
+# **/*.xaml, Validation on workflow_dispatch only. Do not fold them in here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: [self-hosted, win11-01]
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: dotnet --info
+        shell: pwsh
+        run: dotnet --info
+
+      # Never assert on dotnet's console output: the guest's locale is zh-CN and
+      # it prints 已通过! rather than Passed!. The exit code is the contract.
+      - name: Test
+        shell: pwsh
+        run: dotnet test MesIngest.Tests --logger "trx;LogFileName=test-results.trx"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: warn
