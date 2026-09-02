@@ -15,6 +15,16 @@ name: golden-renderer
 #                 candidates leave here as a build artifact, and turning them
 #                 into baselines is a commit a human makes.
 #
+#   vm-tests    - the rest of MesIngest.Watch.UiTests: everything that needs a
+#                 desktop but neither starts MesIngest.Watch.exe nor compares a
+#                 pixel. Among them are the tests for the visual-equivalence
+#                 predicate and the text mask — the logic the two modes above
+#                 rely on to tell a regression from renderer noise. Nothing
+#                 automatic runs this project today, so a broken predicate would
+#                 leave `verify` green while it silently stopped checking
+#                 anything. This mode needs no baseline, so unlike `verify` it
+#                 cannot go red merely because the UI intentionally changed.
+#
 # Manual trigger only. Either mode occupies the machine's single desktop for
 # tens of minutes, and the result is a judgement someone asked for rather than
 # something a push should start on its own.
@@ -24,10 +34,10 @@ on:
       mode:
         description: What to render
         type: choice
-        options: [verify, candidates]
+        options: [verify, candidates, vm-tests]
         default: verify
       runs:
-        description: Consecutive runs that must agree
+        description: Consecutive runs that must agree (ignored by vm-tests)
         type: number
         default: 3
 
@@ -66,12 +76,19 @@ jobs:
           MODE: ${{ inputs.mode }}
           RUNS: ${{ inputs.runs }}
         run: |
-          $mode = if ($env:MODE -eq 'candidates') { 'Candidate' } else { 'Promoted' }
-          ./Test-WatchWindowBaselineStability.ps1 `
-            -Configuration Release `
-            -Mode $mode `
-            -Runs ([int]$env:RUNS) `
-            -ArtifactsDirectory artifacts/watch-window-visual
+          if ($env:MODE -eq 'vm-tests') {
+            ./Invoke-WatchUiTests.ps1 `
+              -Configuration Release `
+              -Suite watch-vm-tests `
+              -ArtifactsDirectory artifacts/watch-vm-tests
+          } else {
+            $mode = if ($env:MODE -eq 'candidates') { 'Candidate' } else { 'Promoted' }
+            ./Test-WatchWindowBaselineStability.ps1 `
+              -Configuration Release `
+              -Mode $mode `
+              -Runs ([int]$env:RUNS) `
+              -ArtifactsDirectory artifacts/watch-window-visual
+          }
 
       # The point of the run. Three outcomes carry very different costs, and
       # they are distinguished by what the evidence directory holds, not by the
@@ -80,7 +97,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $root = 'artifacts/watch-window-visual'
+          $root = 'artifacts'
           $find = { param($pattern) @(Get-ChildItem -Path $root -Recurse -Filter $pattern -File -ErrorAction SilentlyContinue) }
           $log = & $find '*.runner.log'
           $note = { param($pattern) @($log | Select-String -Pattern $pattern) }
