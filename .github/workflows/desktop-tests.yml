@@ -54,13 +54,14 @@ jobs:
           Write-Output "AppsUseLightTheme  $((Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' -EA SilentlyContinue).AppsUseLightTheme)"
           Write-Output "Explorer sessions  $((Get-Process explorer -EA SilentlyContinue | Select-Object -ExpandProperty SessionId) -join ',')"
 
-      # Exit code is the contract — the guest is zh-CN and prints 已通过! not Passed!.
+      # The same source-derived partition test.yml uses, inverted. Exit code is
+      # the contract — the guest is zh-CN and prints 已通过! not Passed!.
       - name: Desktop-dependent tests
         shell: pwsh
         run: |
-          dotnet test MesIngest.Tests `
-            --filter 'FullyQualifiedName~WatchAreaProfileAppliedSnapshotTests|FullyQualifiedName~WatchAreaProfileAutoSaveTests' `
-            --logger 'trx;LogFileName=desktop-results.trx'
+          $filter = ./Get-WpfDesktopTestFilter.ps1 -Mode Include
+          Write-Output "Desktop classes: $filter"
+          dotnet test MesIngest.Tests --filter $filter --logger 'trx;LogFileName=desktop-results.trx'
 
       - name: Upload test results
         if: always()
