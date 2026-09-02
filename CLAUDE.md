@@ -12,6 +12,38 @@ This repository is writable. Elsewhere in the workspace:
 `8005-agv-protocol` is writable but every push there must be announced to Kun
 Wang in an issue that `@SocialKKKK`.
 
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues. See `docs/agents/issue-tracker.md`.
+External pull requests are treated as a request surface and run through the same
+triage labels — that flag is on.
+
+### Triage labels
+
+The five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`,
+`ready-for-human`, `wontfix`), created in this repository. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+`CONTEXT.md` at the repository root plus `docs/adr/`. See `docs/agents/domain.md`.
+
+### Matt Pocock's skills
+
+Installed as the `mattpocock-skills` plugin (user-level). Invoke them namespaced:
+`/mattpocock-skills:<name>`. They are explicit-only — use one when the user names
+it. `code-review` collides with the bundled `/code-review`; use
+`/mattpocock-skills:code-review` for the Standards+Spec review.
+
+### Deciding what to work on
+
+The workspace ships a `w2g-next` skill. When the next step is unclear, it reads
+the real state — working tree, the slice board issue, `integration-slices/index.json`,
+open issues, gate evidence — and applies a fixed priority ladder to name one
+action. Prefer it over guessing.
+
 ## Language
 
 Agent instruction files — this one, `.claude/rules/`, `docs/agents/` — are
