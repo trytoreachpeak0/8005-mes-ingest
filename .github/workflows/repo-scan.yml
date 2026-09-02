@@ -1,0 +1,70 @@
+name: repo-scan
+
+# The fast half of test.yml, for changes that only touch documentation.
+#
+# `RetiredContractAndCutoverSafetyTests` reads the repository as data: it walks
+# every file outside bin/obj/dist/TestResults/.artifacts/.git/.vs and fails if a
+# retired contract name reaches a shipped artifact, if an unattended script can
+# drop a database, or — the one that matters here — if anything that looks like a
+# real credential appears in a `.md`. Operator documentation is exactly where a
+# password gets pasted, so that scan has to keep running on documentation.
+#
+# It does not need the other 900 tests to do it. Measured 2026-09-02: 2 classes,
+# 25 tests, 18 s — the cost of a docs-only push becomes the build, not the suite.
+# That is why test.yml can ignore these paths: they are not skipped, they are
+# routed here.
+#
+# The class list is derived from the source, not written here. Naming them in
+# this file would repeat the mistake Get-WpfDesktopTestFilter.ps1 exists to
+# prevent, and worse: a forgotten desktop class fails loudly on the wrong runner,
+# while a forgotten scanner would keep passing and simply never run on the
+# changes it exists to check. The first hand-written attempt at this list named
+# one class; the derivation found two.
+#
+# `.github/**` is deliberately absent. A workflow file is `.yml`, which appears
+# in neither extension list the scans use, and no test opens one — so a
+# workflow-only change legitimately runs nothing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.claude/**'
+      - '*.md'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.claude/**'
+      - '*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: [self-hosted, headless]
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Never assert on dotnet's console output: the guest's locale is zh-CN and
+      # it prints 已通过! rather than Passed!. The exit code is the contract.
+      - name: Repository-wide safety scans
+        shell: pwsh
+        run: |
+          $filter = ./Get-RepositoryScanTestFilter.ps1
+          Write-Output "Repository-scanning classes: $filter"
+          dotnet test MesIngest.Tests `
+            --filter $filter `
+            --logger 'trx;LogFileName=repo-scan.trx'
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repo-scan-results
+          path: MesIngest.Tests/TestResults/repo-scan.trx
+          if-no-files-found: warn

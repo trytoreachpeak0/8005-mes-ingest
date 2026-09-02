@@ -12,10 +12,38 @@ name: test
 # initiative, and Validation produces candidate baselines. When they are added
 # they go in a separate workflow: Preview filtered to MesIngest.Watch/** and
 # **/*.xaml, Validation on workflow_dispatch only. Do not fold them in here.
+# The ignore list is narrow on purpose, and adding to it needs proof rather than
+# intuition. Tests here read repository files as data — `pack/**`, `queries/**`,
+# every root `.ps1`, `appsettings*.json`, `.gitignore` — so "it is only a doc" or
+# "it is only a script" is not a reason to skip them. What is listed below is
+# what no test in MesIngest.Tests reads, verified against the source:
+#
+#   .github/**  - .yml appears in neither ExecutableExtensions nor
+#                 CredentialBearingExtensions in RetiredContractAndCutoverSafetyTests,
+#                 and no test opens a workflow file.
+#   docs/**, .claude/**, root *.md
+#               - these ARE scanned, by the credential scan, which reads every
+#                 .md in the tree. They are not skipped: repo-scan.yml picks them
+#                 up and runs exactly that scan in seconds instead of the whole
+#                 suite here. Never move them out of one list without adding them
+#                 to the other.
+# The two lists below are duplicated because GitHub Actions does not support YAML
+# anchors. Keep them identical, and identical to the `paths` in repo-scan.yml
+# minus '.github/**'.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '.claude/**'
+      - '*.md'
   pull_request:
+    paths-ignore:
+      - '.github/**'
+      - 'docs/**'
+      - '.claude/**'
+      - '*.md'
   workflow_dispatch:
 
 concurrency:
