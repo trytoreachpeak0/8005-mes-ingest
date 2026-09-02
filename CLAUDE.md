@@ -68,10 +68,17 @@ It never means the golden renderer:
 dotnet test MesIngest.Tests
 ```
 
-Roughly 50 s of tests plus ~2.5 min of cold build, and no VM. Run it once before
-handing off a completed production-code change; do not repeat it unless
-production code, tests, or build inputs changed after that run. Documentation and
-agent-configuration changes do not need it.
+Roughly 6 minutes, and no VM. Run it once before handing off a completed
+production-code change; do not repeat it unless production code, tests, or build
+inputs changed after that run. Documentation and agent-configuration changes do
+not need it.
+
+Most of those 6 minutes are three tests. `ScaleAndQueryEvidenceGateTests` is 71%
+of the suite's measured time (314 s of 441 s, 2026-09-02) because three of its
+`[Fact]`s loop over a table of fixture mutations — 59, 14 and 17 cases — and each
+case launches a fresh `powershell.exe` to run a 5,486-line validation script.
+90 process launches, all independent, all serial. Nobody has fixed it; if the
+suite's runtime starts to matter, that is where it is.
 
 Test authorization is scoped to the current task. A request to inspect, tidy,
 commit, or push an already-dirty worktree does **not** authorize a test run.
@@ -84,6 +91,41 @@ on purpose), `MES_INGEST_TICKET01_EXPECTED_PRODUCT_MAJOR`, and
 reports `Failed: 0` while skipping 88 tests, so a change to any SQL in
 `SqlServerMesIngestProjection.*.cs` is not covered. **Check the skip count, not
 just the failure count.**
+
+## What CI runs, and on which push
+
+Four workflows, all on `win11-01`. Which one fires is decided by what a push
+touches, and the partition is not arbitrary — it exists because both runners live
+on the same 20-vCPU guest, so a pointless full suite competes with golden-renderer
+work whose timing is load-bearing.
+
+| Workflow | Runner | Fires on |
+| --- | --- | --- |
+| `test.yml` | `headless` | any push **except** `.github/**`, `docs/**`, `.claude/**`, root `*.md` |
+| `repo-scan.yml` | `headless` | `docs/**`, `.claude/**`, root `*.md` |
+| `desktop-tests.yml` | `golden-renderer` | `MesIngest.Watch/**`, `MesIngest.Tests/Watch*`, `**/*.xaml` |
+| `golden-renderer.yml` | `golden-renderer` | nightly 03:00, and manual dispatch |
+
+**A documentation change is not exempt from testing, it is routed.** Several
+tests read the repository as data — `RetiredContractAndCutoverSafetyTests` walks
+every file outside the build directories, and its credential scan reads every
+`.md`, because operator documentation is exactly where a password gets pasted.
+`repo-scan.yml` runs those and only those: 25 tests, 18 s, instead of 6 minutes.
+`.github/**` is genuinely exempt: `.yml` is in neither extension list those scans
+use, and no test opens a workflow file.
+
+**Never add a path to `test.yml`'s `paths-ignore` without checking what reads
+it.** `pack/**`, `queries/**`, every root `.ps1`, `appsettings*.json` and
+`.gitignore` are all read by tests as data. "It is only a script" and "it is only
+a doc" are both wrong here.
+
+Two filters are derived from the source rather than written down, and for the
+same reason: a hand-written list is a list someone forgets to update.
+`Get-WpfDesktopTestFilter.ps1` partitions the desktop classes;
+`Get-RepositoryScanTestFilter.ps1` finds the repository-walking ones. The second
+matters more than it looks — a forgotten desktop class fails loudly on the wrong
+runner, while a forgotten scanner keeps passing and simply stops running on the
+changes it exists to check.
 
 ## Golden WPF renderer
 
