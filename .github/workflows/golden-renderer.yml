@@ -15,29 +15,45 @@ name: golden-renderer
 #                 candidates leave here as a build artifact, and turning them
 #                 into baselines is a commit a human makes.
 #
-#   vm-tests    - the rest of MesIngest.Watch.UiTests: everything that needs a
-#                 desktop but neither starts MesIngest.Watch.exe nor compares a
-#                 pixel. Among them are the tests for the visual-equivalence
-#                 predicate and the text mask — the logic the two modes above
-#                 rely on to tell a regression from renderer noise. Nothing
-#                 automatic runs this project today, so a broken predicate would
-#                 leave `verify` green while it silently stopped checking
-#                 anything. This mode needs no baseline, so unlike `verify` it
-#                 cannot go red merely because the UI intentionally changed.
+# `verify` also runs nightly. It deliberately does NOT run on push.
 #
-# Manual trigger only. Either mode occupies the machine's single desktop for
-# tens of minutes, and the result is a judgement someone asked for rather than
-# something a push should start on its own.
+# The baselines are 11 screenshots that nothing validates on its own. Promoted
+# 2026-08-28, they were invalidated the next day by 614cc6a — which replaced the
+# bilingual UI labels with Chinese ones, on purpose — and nobody noticed for five
+# days, because the only way to find out was for a person to ask.
+#
+# Running the comparison on push would catch that same-day, and would also turn
+# main red on every intentional UI change, because that is exactly what an
+# intentional UI change looks like to a pixel comparison. A red that is usually
+# expected is a red nobody reads, which is the failure this is meant to fix
+# rather than reproduce. So it runs at 03:00 China time: off the commit path, out
+# of the way of the single desktop during the day, and one day late in the worst
+# case instead of five. The non-pixel half of MesIngest.Watch.UiTests does block
+# on push, in desktop-tests.yml, precisely because it reads no baseline and so
+# has no false reds.
+#
+# A red here means one of exactly two things, and the log says which:
+#   - the environment gate failed   -> the machine drifted. Fix the machine; the
+#     baselines are fine.
+#   - gate passed, received > 0     -> the baselines are stale. Run
+#     `mode=candidates`, promote run-01, verify.
+#
+# It doubles as a liveness check. The desktop runner is started by a
+# logon-triggered task and does not restart itself, so without a scheduled run
+# nothing would notice it had died until someone needed it.
 on:
+  schedule:
+    # 19:00 UTC is 03:00 the next day in China Standard Time.
+    - cron: '0 19 * * *'
   workflow_dispatch:
     inputs:
       mode:
         description: What to render
         type: choice
-        options: [verify, candidates, vm-tests]
+        options: [verify, candidates]
         default: verify
       runs:
-        description: Consecutive runs that must agree (ignored by vm-tests)
+        description: Consecutive runs that must agree
         type: number
         default: 3
 
@@ -70,25 +86,25 @@ jobs:
 
       # The dispatch inputs reach PowerShell through the environment rather than
       # ${{ }} interpolation, so they stay data instead of becoming script.
+      #
+      # A schedule event carries no inputs, so both arrive empty and the defaults
+      # below are what the nightly actually runs: Promoted, one run. One run
+      # answers "do the baselines still reproduce"; three is for proving a fresh
+      # candidate matrix stable, which is a promotion concern, not this one.
       - name: Render
         shell: pwsh
         env:
           MODE: ${{ inputs.mode }}
           RUNS: ${{ inputs.runs }}
         run: |
-          if ($env:MODE -eq 'vm-tests') {
-            ./Invoke-WatchUiTests.ps1 `
-              -Configuration Release `
-              -Suite watch-vm-tests `
-              -ArtifactsDirectory artifacts/watch-vm-tests
-          } else {
-            $mode = if ($env:MODE -eq 'candidates') { 'Candidate' } else { 'Promoted' }
-            ./Test-WatchWindowBaselineStability.ps1 `
-              -Configuration Release `
-              -Mode $mode `
-              -Runs ([int]$env:RUNS) `
-              -ArtifactsDirectory artifacts/watch-window-visual
-          }
+          $mode = if ($env:MODE -eq 'candidates') { 'Candidate' } else { 'Promoted' }
+          $runs = if ([string]::IsNullOrWhiteSpace($env:RUNS)) { 1 } else { [int]$env:RUNS }
+          Write-Output "mode=$mode runs=$runs trigger=$env:GITHUB_EVENT_NAME"
+          ./Test-WatchWindowBaselineStability.ps1 `
+            -Configuration Release `
+            -Mode $mode `
+            -Runs $runs `
+            -ArtifactsDirectory artifacts/watch-window-visual
 
       # The point of the run. Three outcomes carry very different costs, and
       # they are distinguished by what the evidence directory holds, not by the
@@ -123,6 +139,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: golden-renderer-${{ inputs.mode }}
+          # A schedule event carries no inputs; that run is a verify.
+          name: golden-renderer-${{ inputs.mode || 'verify' }}
           path: artifacts/
           if-no-files-found: warn

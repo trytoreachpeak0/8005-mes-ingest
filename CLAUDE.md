@@ -98,10 +98,20 @@ is images for the user to judge. Read `docs/agents/golden-renderer.md` and
 | Preview | `gh workflow run golden-renderer.yml -f mode=verify` | The change touches `MesIngest.Watch` UI. Under ten minutes; proves the baselines still reproduce (`0 received`). |
 | Validation | `gh workflow run golden-renderer.yml -f mode=candidates`, `Invoke-PackagedReleaseGate.ps1` | **Only when cutting a release candidate, or on an explicit request to promote a visual baseline.** Tens of minutes, and `candidates` produces images someone must judge. |
 
-- **Never enter either stage on your own initiative.** Say which suite, what it
-  costs and what it proves, then ask.
+- **Never enter Validation on your own initiative.** Say what it costs and what
+  it proves, then ask. `verify` is different — it reads a number and changes
+  nothing, and it already runs nightly on its own.
 - Both run on the `golden-renderer` runner in session 1 of `win11-01`. `ssh vm01`
   lands in session 0, where WPF cannot render and the suite refuses to start.
+- **`verify` runs nightly at 03:00, and is deliberately not on the commit path.**
+  A pixel comparison cannot tell an intentional UI change from a regression, so
+  blocking pushes with it would make red the normal state. A red nightly means
+  either the machine drifted (environment gate failed) or the baselines are stale
+  (gate passed, `received > 0`); `docs/agents/golden-renderer.md` has both.
+- The non-pixel half of `MesIngest.Watch.UiTests` (`watch-vm-tests`, 170 tests,
+  64 s) **does** block, in `desktop-tests.yml`. It reads no baseline, so it has
+  no false reds — and it covers the visual-equivalence predicate and the text
+  mask, without which `verify` could stay green while checking nothing.
 - Validation is deliberately narrow. Its one irreplaceable job is catching
   intermittent defects — the Ticket 23 antialiasing flip appeared in ~12% of
   runs, which 3 runs miss about a third of the time — and that job does not arise

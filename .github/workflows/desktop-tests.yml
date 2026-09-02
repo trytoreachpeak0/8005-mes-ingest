@@ -63,10 +63,33 @@ jobs:
           Write-Output "Desktop classes: $filter"
           dotnet test MesIngest.Tests --filter $filter --logger 'trx;LogFileName=desktop-results.trx'
 
+      # MesIngest.Watch.UiTests is a separate project, and until 2026-09-02 no
+      # workflow ran it at all — both test workflows run MesIngest.Tests. That
+      # left the visual-equivalence predicate and the text mask with no coverage
+      # in CI: the logic golden-renderer.yml relies on to tell a real regression
+      # from renderer noise. A broken predicate would have left that workflow
+      # green while it silently stopped checking anything.
+      #
+      # This suite reads no baseline, so it cannot go red merely because the UI
+      # intentionally changed. That is what makes it safe to block on, and it is
+      # why the pixel comparison is not here but on a schedule. Measured
+      # 2026-09-02: 170 tests, 64 s of tests, 1m34s including restore and build.
+      - name: Watch UI test project
+        shell: pwsh
+        env:
+          MesIngestWatch__RenderingMode: SoftwareOnly
+        run: |
+          ./Invoke-WatchUiTests.ps1 `
+            -Configuration Release `
+            -Suite watch-vm-tests `
+            -ArtifactsDirectory artifacts/watch-vm-tests
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: desktop-results
-          path: MesIngest.Tests/TestResults/desktop-results.trx
+          path: |
+            MesIngest.Tests/TestResults/desktop-results.trx
+            artifacts/
           if-no-files-found: warn

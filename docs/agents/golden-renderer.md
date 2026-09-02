@@ -96,6 +96,56 @@ Neither mode promotes anything, and neither can: the runner has no write access
 to the repository. Candidates leave the machine as a build artifact, and turning
 them into baselines is a commit a human makes.
 
+## What runs automatically, and what does not
+
+Three layers, and which one a check belongs to is decided by a single question:
+**can it go red because the UI changed on purpose?**
+
+| Layer | Where | Trigger | False reds on an intentional UI change |
+| --- | --- | --- | --- |
+| Logic — presentation, text catalog, localization | `test.yml`, headless runner | every push and PR | no |
+| Behaviour — real WPF windows, UIA assertions | `desktop-tests.yml`, this runner | push touching `MesIngest.Watch/**`, `MesIngest.Tests/Watch*`, `**/*.xaml` | no |
+| Behaviour — `MesIngest.Watch.UiTests` minus the journey (`watch-vm-tests`) | `desktop-tests.yml`, this runner | same | no |
+| Pixels — the 11 baselines | `golden-renderer.yml`, this runner | **nightly at 03:00 China time**, plus manual | **yes, always** |
+
+The first three block a push. The pixel comparison does not, and must not: an
+intentional UI change is indistinguishable from a regression to a pixel
+comparison, so putting it on the commit path would turn main red every time the
+UI legitimately changed. A red that is usually expected is a red nobody reads.
+
+The nightly closes the gap instead. The 2026-08-28 baselines were invalidated the
+next day by `614cc6a` and nobody noticed for five days, because asking was the
+only way to find out. One day late is not zero, but it is the price of keeping
+the signal worth reading.
+
+`watch-vm-tests` — 170 tests, 64 s — is in `desktop-tests.yml` because it reads
+no baseline. It carries `WatchWindowVisualEquivalenceTests` and
+`WatchWindowTextMaskTests`: the predicate and the mask that the pixel comparison
+uses to tell a real regression from renderer noise. Until 2026-09-02 nothing ran
+that project at all — both test workflows run `MesIngest.Tests`, a different
+project — so a broken predicate would have left `verify` green while it silently
+stopped checking anything. Six of its tests skip by name
+(`WatchWindowVisualEquivalenceGoldenFixtureTests` needs real captures under
+`.artifacts`, and `WatchWindowCandidateEquivalenceTests` is the stability gate's
+own entry point). That is by design, not an omission.
+
+### Reading a red nightly
+
+It means one of exactly two things, and the log separates them:
+
+- **The environment gate failed.** The machine drifted — resolution, DPI, theme,
+  timezone, locale. Fix the machine. The baselines are fine, and no pixel was
+  produced.
+- **The gate passed and `received > 0`.** The baselines are stale, almost always
+  because a `MesIngest.Watch` UI change landed. Follow "Baseline order" below:
+  `mode=candidates`, promote `run-01`, `mode=verify`. Roughly 15 minutes, mostly
+  unattended.
+
+A third, quieter case: the workflow does not run at all. The desktop runner is
+started by a logon-triggered scheduled task and does not restart itself, so the
+nightly is also its liveness check — see
+`remote-ops/factory-server/docs/USAGE.md` section 8.
+
 ## Packaged release gate
 
 `Invoke-PackagedReleaseGate.ps1` is a different gate that happens to need the same
@@ -195,10 +245,11 @@ person can tell an intentional change from a drifted machine.
 A later UI change invalidates an earlier visual approval — and that is not
 hypothetical. The baselines promoted on 2026-08-28 were invalidated the next day
 by `614cc6a`, which deliberately replaced the bilingual UI labels with Chinese
-ones, and nobody re-ran the renderer for five days. Nothing detects this on its
-own: `verify` is manual, and until someone dispatches it the repository holds
-baselines that match no machine's output. Re-run it after any commit that touches
-`MesIngest.Watch` UI.
+ones, and nobody re-ran the renderer for five days. The nightly `verify` exists
+because of that: it now surfaces within a day instead of waiting to be asked. It
+is a backstop, not a substitute — after a commit that changes `MesIngest.Watch`
+UI on purpose, expect the next nightly to be red and re-promote rather than
+letting it sit.
 
 Test-only normalization may reuse approval only when all approved PNG SHA-256
 hashes remain identical; record that comparison in evidence.
