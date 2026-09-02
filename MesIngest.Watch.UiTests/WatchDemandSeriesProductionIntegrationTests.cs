@@ -358,9 +358,9 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
                 Assert.Equal(
                     "DemandSeriesInspectorGenerationList",
                     AutomationProperties.GetAutomationId(generationList));
-                AssertInspectorBodyIsPainted(
-                    WatchWindowNative.CaptureClientAreaAtCurrentSize(
-                        new WindowInteropHelper(inspectorWindow).Handle));
+                await AssertInspectorBodyIsPaintedAsync(
+                    new WindowInteropHelper(inspectorWindow).Handle,
+                    timeout.Token);
                 Assert.Equal(
                     "DemandSeriesInspectorFormationReason",
                     AutomationProperties.GetAutomationId(Assert.IsAssignableFrom<TextBlock>(
@@ -1605,7 +1605,46 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
         }
     }
 
-    private static void AssertInspectorBodyIsPainted(byte[] capture)
+    /// <summary>
+    /// <c>PrintWindow</c> reads the window's render surface, which WPF only fills once it
+    /// has completed a render pass. Capturing once and asserting on that made this test a
+    /// race with the renderer: it passed on an idle machine for as long as the suite was
+    /// only ever run by hand, and failed the first time CI ran it directly behind the
+    /// desktop suite, reporting zero dark samples on a window that does paint.
+    ///
+    /// Every other capture in this project settles first — the journey helper moves the
+    /// pointer off the window and sleeps 250 ms. This call site cannot sleep: it runs on
+    /// the STA dispatcher thread, and that thread's message pump is what performs the
+    /// render, so blocking it guarantees the blank frame it is trying to avoid. Awaiting
+    /// instead lets the pump run.
+    ///
+    /// The assertion is unchanged; only the moment it is evaluated is. A body that never
+    /// paints still fails, with the same message and the same threshold.
+    /// </summary>
+    private static async Task AssertInspectorBodyIsPaintedAsync(
+        IntPtr handle,
+        CancellationToken cancellationToken)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        int darkBodySamples;
+        while (true)
+        {
+            darkBodySamples = CountDarkBodySamples(
+                WatchWindowNative.CaptureClientAreaAtCurrentSize(handle));
+            if (darkBodySamples >= 25 || DateTime.UtcNow >= deadline)
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+        }
+
+        Assert.True(
+            darkBodySamples >= 25,
+            $"DemandSeries Inspector body was not painted; dark body samples: {darkBodySamples}.");
+    }
+
+    private static int CountDarkBodySamples(byte[] capture)
     {
         using var stream = new MemoryStream(capture);
         using var bitmap = new System.Drawing.Bitmap(stream);
@@ -1625,9 +1664,7 @@ public sealed class WatchDemandSeriesProductionIntegrationTests
             }
         }
 
-        Assert.True(
-            darkBodySamples >= 25,
-            $"DemandSeries Inspector body was not painted; dark body samples: {darkBodySamples}.");
+        return darkBodySamples;
     }
 
     private static Task RunInStaDispatcherAsync(Func<Task> action)

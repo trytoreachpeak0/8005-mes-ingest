@@ -20,6 +20,11 @@ on:
       - 'MesIngest.Watch/**'
       - 'MesIngest.Tests/Watch*'
       - '**/*.xaml'
+      # This job now also runs MesIngest.Watch.UiTests, so changes to that
+      # project have to reach it. Without this line the only workflow that runs
+      # those tests would not fire when they change.
+      - 'MesIngest.Watch.UiTests/**'
+      - 'Invoke-WatchUiTests.ps1'
 
 # Only one desktop job at a time — they contend for the single desktop.
 # Note this guarantees nothing across repositories; GitHub's concurrency is
