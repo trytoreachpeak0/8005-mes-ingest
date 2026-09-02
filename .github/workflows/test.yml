@@ -46,9 +46,18 @@ on:
       - '*.md'
   workflow_dispatch:
 
+# One CI job at a time on win11-01. Every runner this repository uses lives on
+# that one 20-vCPU guest, so two workflows firing on the same push are not two
+# machines — they are one machine oversubscribed, and this suite's wall-clock
+# assumptions do not survive it. See "What CI runs, and on which push" in
+# CLAUDE.md for the run that proved it.
+#
+# `cancel-in-progress` must stay false in every workflow sharing this group. A
+# true anywhere lets an ordinary push cancel a running golden-renderer job
+# mid-capture.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: win11-01
+  cancel-in-progress: false
 
 jobs:
   test:

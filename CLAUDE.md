@@ -99,6 +99,25 @@ touches, and the partition is not arbitrary — it exists because both runners l
 on the same 20-vCPU guest, so a pointless full suite competes with golden-renderer
 work whose timing is load-bearing.
 
+**All four share `concurrency: group: win11-01` with `cancel-in-progress: false`,
+and that is not tidiness.** The group used to be per-workflow, so a single push
+touching `MesIngest.Watch/**` started `test.yml` and `desktop-tests.yml` at the
+same second on the same guest. Measured 2026-09-02: `watch-vm-tests` takes 62-65 s
+when it has the machine and 94 s when it does not, and at 94 s the 15-second
+per-test budgets in `MesIngest.Watch.UiTests` start expiring —
+`Overview_drill_loads_host_exact_audit_facets_then_same_snapshot_detail` failed
+with `OperationCanceledException`, which reads like a product defect and is not
+one. Two runners on one VM are one machine, not two.
+
+`cancel-in-progress` must stay `false` in every one of them. A `true` anywhere in
+a shared group lets an ordinary push cancel a running golden-renderer job
+mid-capture, which leaves windows and processes on the desktop for the next run
+to inherit.
+
+This still guarantees nothing across repositories — GitHub's concurrency is
+per-repository, and `win11-01` also hosts runners for `riot-sdk`, the control
+server and the protocol.
+
 | Workflow | Runner | Fires on |
 | --- | --- | --- |
 | `test.yml` | `headless` | any push **except** `.github/**`, `docs/**`, `.claude/**`, root `*.md` |

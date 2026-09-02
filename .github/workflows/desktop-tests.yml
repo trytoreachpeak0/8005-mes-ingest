@@ -26,12 +26,17 @@ on:
       - 'MesIngest.Watch.UiTests/**'
       - 'Invoke-WatchUiTests.ps1'
 
-# Only one desktop job at a time — they contend for the single desktop.
-# Note this guarantees nothing across repositories; GitHub's concurrency is
-# per-repository. Cross-repository desktop exclusion remains the desktop mutex's
-# job.
+# One CI job at a time on win11-01 — not just one desktop job. The group used to
+# be `desktop`, which stopped the two desktop workflows from overlapping but let
+# test.yml run alongside them on the same guest. That is what it was: the same
+# 20-vCPU, 8 GB machine, oversubscribed, and this job's 15-second per-test
+# budgets do not hold there. See test.yml and CLAUDE.md.
+#
+# Still nothing across repositories: GitHub's concurrency is per-repository, and
+# win11-01 also hosts runners for riot-sdk, the control server and the protocol.
+# Cross-repository desktop exclusion remains the desktop mutex's job.
 concurrency:
-  group: desktop
+  group: win11-01
   cancel-in-progress: false
 
 jobs:

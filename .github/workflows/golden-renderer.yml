@@ -57,11 +57,21 @@ on:
         type: number
         default: 3
 
-# Shared with desktop-tests.yml: one desktop, one job. This says nothing about
-# other repositories — GitHub's concurrency is per-repository, and cross-repo
-# desktop exclusion remains the desktop mutex's job.
+# One CI job at a time on win11-01, shared with every other workflow here. Not
+# just the desktop ones: a rendering run competing with an 800-test suite on the
+# same 20-vCPU guest is a rendering run with different timing, and timing is what
+# this workflow measures.
+#
+# `cancel-in-progress: false` is load-bearing here rather than merely tidy. A
+# capture run that is killed halfway leaves windows and processes on the golden
+# desktop, and the next run inherits them.
+#
+# This says nothing about other repositories — GitHub's concurrency is
+# per-repository, and win11-01 also hosts runners for riot-sdk, the control
+# server and the protocol. Cross-repository desktop exclusion remains the desktop
+# mutex's job.
 concurrency:
-  group: desktop
+  group: win11-01
   cancel-in-progress: false
 
 jobs:
