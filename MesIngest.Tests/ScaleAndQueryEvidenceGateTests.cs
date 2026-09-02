@@ -1693,6 +1693,21 @@ public sealed class ScaleAndQueryEvidenceGateTests
         }
     }
 
+    // Windows PowerShell hard-wraps an error message at the host console width,
+    // and that width is not a property of the code under test. Measured 2026-09-02
+    // against the same script with identical input: the control machine wrapped at
+    // word boundaries near column 90, win11-01 wrapped at exactly 119 and split
+    // CURRENT_INGEST_ATTENTION_RAW_HISTORY_READ into RAW_HIST + ORY_READ. The
+    // assertion then failed while its own failure message appeared to show the
+    // string present, because xunit re-wrapped the text again for display.
+    //
+    // Every code asserted against this stream is a single token with no
+    // whitespace, so collapsing whitespace before matching removes the wrapping
+    // and changes nothing else. The literal passed to DoesNotContain has to be
+    // collapsed to match.
+    private static string CollapseWhitespace(string value) =>
+        new(value.Where(static c => !char.IsWhiteSpace(c)).ToArray());
+
     [Theory]
     [InlineData("DemandSeries", "DEMAND_SERIES", true)]
     [InlineData("ExternallyReadableDemandCatalog", "EXTERNALLY_READABLE_DEMAND_CATALOG", true)]
@@ -1768,7 +1783,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
             Assert.NotEqual(0, process.ExitCode);
-            var output = stdout + stderr;
+            var output = CollapseWhitespace(stdout + stderr);
             if (requiresZeroRawHistoryReads)
             {
                 Assert.Contains($"{failurePrefix}_RAW_HISTORY_READ", output, StringComparison.Ordinal);
@@ -1777,7 +1792,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             Assert.Contains($"{failurePrefix}_MEMORY_GRANT_EVIDENCE_INCOMPLETE", output, StringComparison.Ordinal);
             Assert.Contains($"{failurePrefix}_SPILL", output, StringComparison.Ordinal);
             Assert.Contains($"{failurePrefix}_ABNORMAL_MEMORY_GRANT", output, StringComparison.Ordinal);
-            Assert.DoesNotContain("Set MES_INGEST_SCALE_EVIDENCE_SQLSERVER", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("SetMES_INGEST_SCALE_EVIDENCE_SQLSERVER", output, StringComparison.Ordinal);
         }
         finally
         {
