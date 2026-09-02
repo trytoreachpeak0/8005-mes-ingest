@@ -62,7 +62,11 @@ jobs:
             'WatchAreaProfileAppliedSnapshotTests'
             'OracleClientModeConfigurationTests'
           ) | ForEach-Object { "FullyQualifiedName!~$_" }
-          dotnet test MesIngest.Tests --filter ($skip -join '&') --logger "console;verbosity=normal" 2>&1 | Tee-Object -Variable out
+          # HistoryCleanup* 断言"取消必须在 3 秒内返回"，靠挂起的任务做门控。
+          # runner 核数远少于开发机，xunit 满并行时续体排不上，实测跑到 50 秒以上。
+          # 限制并行度是对症的，比排除这两个测试更可取——它们守的是真实的取消语义。
+          dotnet test MesIngest.Tests --filter ($skip -join '&') `
+            -- xunit.maxParallelThreads=2 2>&1 | Tee-Object -Variable out
           $exit = $LASTEXITCODE
           $line = $out | Select-String -Pattern 'Failed:\s*\d+.*Skipped:\s*\d+' | Select-Object -Last 1
           if ($line) { "summary=$($line.Line.Trim())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8 }
