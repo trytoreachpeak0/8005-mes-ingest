@@ -2,17 +2,15 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>MesIngest.Tests</_Parameter1>
     </AssemblyAttribute>
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.9.0" />
-    <PackageReference Include="System.Data.Odbc" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" />
+    <PackageReference Include="System.Data.Odbc" />
   </ItemGroup>
 
 </Project>

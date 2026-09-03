@@ -3,15 +3,13 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <RootNamespace>MesIngest.Watch.FluentPrototype</RootNamespace>
     <AssemblyName>MesIngest.Watch.FluentPrototype</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <PackageReference Include="WPF-UI" />
   </ItemGroup>
 
 </Project>

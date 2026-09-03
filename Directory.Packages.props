@@ -1,0 +1,33 @@
+<Project>
+
+  <!-- Central package management, second of the four enforcement layers in
+       8005-agv-program docs/adr/cross/0056. Every version lives here; a project
+       that declares its own Version= fails restore with NU1008. -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageVersionOverrideEnabled>false</CentralPackageVersionOverrideEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="8.0.2" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="8.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.9.0" />
+    <PackageVersion Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageVersion Include="System.Data.Odbc" Version="8.0.0" />
+    <PackageVersion Include="WPF-UI" Version="4.3.0" />
+  </ItemGroup>
+
+  <!-- Test stack: xunit v3 only. xunit v2 is banned workspace-wide, and
+       Directory.Build.targets fails the build if it comes back. -->
+  <ItemGroup>
+    <PackageVersion Include="FlaUI.UIA3" Version="5.0.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

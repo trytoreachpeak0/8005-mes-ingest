@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
@@ -479,7 +480,10 @@ public sealed class SqlServerMemoryProfileTests
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 internal sealed class Ticket01SqlServerTheoryAttribute : TheoryAttribute
 {
-    public Ticket01SqlServerTheoryAttribute()
+    public Ticket01SqlServerTheoryAttribute(
+        [CallerFilePath] string? sourceFilePath = null,
+        [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (!Ticket01SqlServerDatabase.IsAvailable)
         {

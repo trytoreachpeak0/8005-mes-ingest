@@ -243,22 +243,48 @@ This repository is pinned to the workspace-wide .NET toolchain. The authority is
 | --- | --- | --- |
 | SDK | 8.0.424, `rollForward: disable` | `global.json` |
 | Target framework | `net8.0` and `net8.0-windows` | per project |
-| Test stack | xunit.v3 3.2.2, Microsoft.NET.Test.Sdk 18.8.1, xunit.runner.visualstudio 3.1.5 | `MesIngest.Watch.UiTests` today |
+| Test stack | xunit.v3 3.2.2, Microsoft.NET.Test.Sdk 18.8.1, xunit.runner.visualstudio 3.1.5 | `Directory.Packages.props` |
+| Banned packages | xunit v2, NUnit, MSTest, coverlet.collector | `Directory.Build.targets` |
 
 Unlike the other repositories this one legitimately carries two target
 frameworks — the WPF projects and their tests are `net8.0-windows`, the service
 side is `net8.0`. Do not "unify" that; it is not drift.
 
-**The test stack here is mid-migration.** `MesIngest.Watch.UiTests` is already
-xunit.v3; `MesIngest.Tests` is still xunit 2.4.2 with Microsoft.NET.Test.Sdk
-17.6.0 and an unused `coverlet.collector`. That is a known debt with a plan, not
-a licence to add more xunit v2. Any new test project uses xunit.v3.
+**The migration is done as of 2026-09-04.** `MesIngest.Tests` moved from xunit
+2.4.2 to xunit.v3 3.2.2, `coverlet.collector` is gone, and all four enforcement
+layers are installed. The suite came out identical on both sides of it —
+`Failed: 0, Passed: 961, Skipped: 138, Total: 1099` — and the skip count matters
+as much as the failures here: 138 before and after means the SQL Server tests are
+still skipping for the documented reason and did not turn into a new silent gap.
 
-Central package management and the banned-package build guard land together with
-the `MesIngest.Tests` migration — installing the guard first would simply break
-that project's build, and granting it an exemption would leave a permanent hole.
-Until then, run `check-toolchain.ps1` from the workspace root to see the exact
-remaining gap; it lists those four items and nothing else.
+Three things about those layers are worth knowing before you touch them.
+
+**The second layer has no build-time teeth, and the ADR used to claim it did.**
+An inline `Version=` under central package management is silently ignored, not
+rejected: NuGet strips the metadata during project evaluation, so a project
+asking for `Oracle.ManagedDataAccess.Core 23.6.0` still resolves the central
+`23.9.0` with no NU1008, no warning, and an empty `%(PackageReference.Version)`
+in every MSBuild target. `CentralPackageVersionOverrideEnabled=false` governs the
+`VersionOverride` attribute, not `Version`. The version never actually drifts,
+but whoever wrote the inline one is not told it was ignored. Only
+`check-toolchain.ps1` catches it, by reading the csproj as text. **Do not write
+an MSBuild target for this** — one was written and deleted after it passed every
+case it existed to fail.
+
+**The fourth layer does work, and it is verified.** A deliberate
+`<PackageReference Include="xunit" />` produces `error W2G0056` and fails the
+build, while `xunit.v3` in the same build is untouched: the guard matches item
+identity exactly, and `xunit.v3` is not `xunit`.
+
+**`MesIngest.Tests` carries four suppressions, and they are debt, not a waiver.**
+`CS8631`/`CS8620` come from v3's new `ReadOnlySpan<T>` assert overloads binding
+to `Assert.Equal(["a"], somethingReturningString?[])` at 42 sites — the
+comparisons are correct and `string` does implement `IEquatable<string>`.
+`xUnit1051` (201 sites) and `xUnit2031` (39 sites) are analyzer style advice;
+the first would change what these tests cancel, which is not a toolchain
+change's business. `xUnit3003` was fixed rather than suppressed — it was two
+attributes and it costs source location on failure. Any new test project uses
+xunit.v3 and inherits none of these.
 
 Never raise a version in one repository alone. Change the ADR and every
 repository together.

@@ -1,0 +1,13 @@
+<Project>
+
+  <!-- Toolchain baseline for the workspace. See 8005-agv-program docs/adr/cross/0056.
+       TargetFramework is deliberately NOT set here: this repository legitimately
+       carries both net8.0 (service side) and net8.0-windows (WPF and its tests),
+       so each project states its own. Do not "unify" that. -->
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

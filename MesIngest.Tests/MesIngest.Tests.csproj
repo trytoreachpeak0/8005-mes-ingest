@@ -1,28 +1,42 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- xunit.v3 added Assert.Equal<T>(ReadOnlySpan<T>, T[]) and similar span
+         overloads. `Assert.Equal(["a"], somethingReturningString?[])` binds to
+         them, and `string?` trips their `where T : IEquatable<T>` constraint —
+         42 call sites, 284 warnings, none of them a real defect: the comparison
+         itself is correct and `string` does implement IEquatable<string>.
+         Avoiding the overload would mean rewriting every one of those asserts to
+         keep actual off `T[]`. Suppressed here only, and only these two codes. -->
+    <NoWarn>$(NoWarn);CS8631;CS8620</NoWarn>
+
+    <!-- Two xunit.v3 analyzer rules the migration inherited, both style advice
+         rather than defects, and both too large to fold into a toolchain change:
+         xUnit1051 (201 sites) wants TestContext.Current.CancellationToken passed
+         to every call that accepts one, which changes what these tests cancel;
+         xUnit2031 (39 sites) wants Assert.Single(xs, predicate) instead of
+         Assert.Single(xs.Where(predicate)). Left as tracked debt, not waived
+         forever. xUnit3003 was fixed instead — it was two attributes and it
+         costs source location on failure. -->
+    <NoWarn>$(NoWarn);xUnit1051;xUnit2031</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.6.0" />
-    <PackageReference Include="xunit" Version="2.4.2" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.5">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="coverlet.collector" Version="6.0.0">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+    <PackageReference Include="FlaUI.UIA3" />
   </ItemGroup>
 
   <ItemGroup>

@@ -4,8 +4,8 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>MesIngest.Tests</_Parameter1>
     </AssemblyAttribute>
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" />
+    <PackageReference Include="Swashbuckle.AspNetCore" />
     <ProjectReference Include="..\MesIngest.Core\MesIngest.Core.csproj" />
     <ProjectReference Include="..\MesIngest.Infrastructure\MesIngest.Infrastructure.csproj" />
   </ItemGroup>
@@ -26,8 +26,6 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
 </Project>

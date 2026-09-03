@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Net.Http.Json;
 using System.Net;
 using System.Text;
@@ -12,7 +13,6 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using Xunit.Abstractions;
 
 namespace MesIngest.Tests;
 
@@ -568,7 +568,10 @@ internal sealed class Ticket01ProcessEnvironmentScope : IDisposable
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
 internal sealed class Ticket01SqlServerFactAttribute : FactAttribute
 {
-    public Ticket01SqlServerFactAttribute()
+    public Ticket01SqlServerFactAttribute(
+        [CallerFilePath] string? sourceFilePath = null,
+        [CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (!Ticket01SqlServerDatabase.IsAvailable)
         {
