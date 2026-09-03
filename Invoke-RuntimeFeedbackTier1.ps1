@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Run the exact MesIngest Tier 1 suite against an approved real SQL Server and attest the TRX.

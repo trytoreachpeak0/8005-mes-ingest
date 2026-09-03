@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Capture a read-only MesIngest runtime feedback snapshot.
@@ -80,7 +80,7 @@ function Get-JsonErrorCode {
     param([AllowNull()][AllowEmptyString()][string] $Body)
     if ([string]::IsNullOrWhiteSpace($Body)) { return '' }
     try {
-        $json = $Body | ConvertFrom-Json
+        $json = $Body | ConvertFrom-Json -DateKind String
         foreach ($name in @('code', 'errorCode', 'diagnosticCode')) {
             $property = $json.PSObject.Properties[$name]
             if ($null -ne $property -and -not [string]::IsNullOrWhiteSpace([string]$property.Value)) {
@@ -265,7 +265,7 @@ $openApiPath = Join-Path $resolvedInstallRoot 'openapi\v2.json'
 $mesConfig = $null
 $connectionString = ''
 if (Test-Path -LiteralPath $localConfigPath -PathType Leaf) {
-    $config = Get-Content -Raw -LiteralPath $localConfigPath | ConvertFrom-Json
+    $config = Get-Content -Raw -LiteralPath $localConfigPath | ConvertFrom-Json -DateKind String
     $mesConfig = $config.MesIngest
     if ($null -ne $mesConfig) { $connectionString = [string]$mesConfig.NewSqlServerConnectionString }
 }
@@ -308,10 +308,10 @@ $assemblies = foreach ($relativePath in @('MesIngest.Host.exe', 'MesIngest.Host.
 }
 
 $manifest = if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
-    Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -DateKind String
 } else { $null }
 $packageOpenApi = if (Test-Path -LiteralPath $openApiPath -PathType Leaf) {
-    try { Get-Content -Raw -LiteralPath $openApiPath | ConvertFrom-Json } catch { $null }
+    try { Get-Content -Raw -LiteralPath $openApiPath | ConvertFrom-Json -DateKind String } catch { $null }
 } else { $null }
 $expectedContractVersion = if ($null -ne $manifest -and $null -ne $manifest.openApi) { [string]$manifest.openApi.contractVersion } else { '' }
 $expectedSchemaVersion = if ($null -ne $manifest -and $null -ne $manifest.openApi) { [int]$manifest.openApi.schemaVersion } else { 0 }
@@ -342,7 +342,7 @@ $contractIdentity = [ordered]@{
 }
 if (-not [string]::IsNullOrWhiteSpace($contractBody)) {
     try {
-        $contract = $contractBody | ConvertFrom-Json
+        $contract = $contractBody | ConvertFrom-Json -DateKind String
         $capabilityIdentity = @($contract.capabilities | ForEach-Object { '{0}:{1}' -f $_.id, $_.version } | Sort-Object) -join "`n"
         $contractIdentity.available = $true
         $contractIdentity.contractVersion = [string]$contract.contractVersion
@@ -371,7 +371,7 @@ $openApiBody = if ($openApiProbe.PSObject.Properties['capturedBody']) { [string]
 if ($openApiProbe.PSObject.Properties['capturedBody']) { $openApiProbe.PSObject.Properties.Remove('capturedBody') }
 $runtimeOpenApi = $null
 if (-not [string]::IsNullOrWhiteSpace($openApiBody)) {
-    try { $runtimeOpenApi = $openApiBody | ConvertFrom-Json } catch { }
+    try { $runtimeOpenApi = $openApiBody | ConvertFrom-Json -DateKind String } catch { }
 }
 $openApiIdentity = [ordered]@{
     packageFilePresent = (Test-Path -LiteralPath $openApiPath -PathType Leaf)
@@ -571,7 +571,7 @@ if (-not [string]::IsNullOrWhiteSpace($SqlTestTrxPath)) {
             if ($trxCandidateValid -and -not [string]::IsNullOrWhiteSpace($SqlTestAttestationPath) -and
                 (Test-Path -LiteralPath $SqlTestAttestationPath -PathType Leaf)) {
                 try {
-                    $attestation = Get-Content -Raw -LiteralPath $SqlTestAttestationPath | ConvertFrom-Json
+                    $attestation = Get-Content -Raw -LiteralPath $SqlTestAttestationPath | ConvertFrom-Json -DateKind String
                     $attestedCompletedAt = [DateTimeOffset]::Parse(
                         [string]$attestation.completedAt,
                         [Globalization.CultureInfo]::InvariantCulture)

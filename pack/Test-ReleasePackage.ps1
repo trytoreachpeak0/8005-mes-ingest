@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
@@ -119,7 +119,7 @@ if ($missing.Count -gt 0) {
 $canonicalOpenApiPath = Join-Path $root $canonicalOpenApiRelativePath
 $canonicalOpenApiText = Get-Content -Raw -LiteralPath $canonicalOpenApiPath
 try {
-    $canonicalOpenApi = $canonicalOpenApiText | ConvertFrom-Json
+    $canonicalOpenApi = $canonicalOpenApiText | ConvertFrom-Json -DateKind String
 } catch {
     throw "Canonical V2 OpenAPI is invalid JSON: $canonicalOpenApiRelativePath"
 }
@@ -350,7 +350,7 @@ if ($canonicalQueryActualSha256 -cne $canonicalQuerySha256) {
 
 $canonicalQueryManifestPath = Join-Path $root $canonicalQueryManifestRelativePath
 try {
-    $canonicalQueryDeclaration = (Get-Content -Raw -LiteralPath $canonicalQueryManifestPath) | ConvertFrom-Json
+    $canonicalQueryDeclaration = (Get-Content -Raw -LiteralPath $canonicalQueryManifestPath) | ConvertFrom-Json -DateKind String
 } catch {
     throw "Canonical query manifest is invalid JSON: $canonicalQueryManifestRelativePath"
 }
@@ -373,7 +373,7 @@ if ($sublotBoxCountActualSha256 -cne $sublotBoxCountQuerySha256) {
 }
 $sublotBoxCountQueryManifestPath = Join-Path $root $sublotBoxCountQueryManifestRelativePath
 try {
-    $sublotBoxCountDeclaration = (Get-Content -Raw -LiteralPath $sublotBoxCountQueryManifestPath) | ConvertFrom-Json
+    $sublotBoxCountDeclaration = (Get-Content -Raw -LiteralPath $sublotBoxCountQueryManifestPath) | ConvertFrom-Json -DateKind String
 } catch {
     throw "Canonical SUBLOT_BOX_COUNT query manifest is invalid JSON: $sublotBoxCountQueryManifestRelativePath"
 }
@@ -406,7 +406,7 @@ if ($filledLocal.Count -gt 0) {
 
 $watchTemplatePath = Join-Path $root "templates\watch.appsettings.Local.json.example"
 $watchTemplateText = Get-Content -Raw -LiteralPath $watchTemplatePath
-$watchTemplate = $watchTemplateText | ConvertFrom-Json
+$watchTemplate = $watchTemplateText | ConvertFrom-Json -DateKind String
 if ($watchTemplate.Watch.BaseUrl -ne 'http://127.0.0.1:5088') {
     throw "Watch template must describe exactly one default Host base URL on loopback."
 }
@@ -430,7 +430,7 @@ foreach ($text in @('MesIngestWatch__SharedSecret', 'external-configuration', '%
 }
 
 $hostTemplatePath = Join-Path $root "templates\appsettings.Local.json.example"
-$hostTemplate = (Get-Content -Raw -LiteralPath $hostTemplatePath) | ConvertFrom-Json
+$hostTemplate = (Get-Content -Raw -LiteralPath $hostTemplatePath) | ConvertFrom-Json -DateKind String
 if (-not [string]::IsNullOrEmpty([string]$hostTemplate.MesIngest.SharedSecret)) {
     throw "Host template must not contain a SharedSecret."
 }
@@ -439,7 +439,7 @@ if ([string]::IsNullOrWhiteSpace([string]$hostTemplate.MesIngest.NewSqlServerCon
 }
 
 $releaseEvidencePath = Join-Path $root 'RELEASE-EVIDENCE.json'
-$releaseEvidence = (Get-Content -Raw -LiteralPath $releaseEvidencePath) | ConvertFrom-Json
+$releaseEvidence = (Get-Content -Raw -LiteralPath $releaseEvidencePath) | ConvertFrom-Json -DateKind String
 if ($releaseEvidence.rebuildDecision -ne '2026-08-09' `
     -or $releaseEvidence.oldVisualEvidenceAccepted -ne $false `
     -or $releaseEvidence.tickets.'11'.xamlScenarioCount -ne 19 `

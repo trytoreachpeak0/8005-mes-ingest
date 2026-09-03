@@ -63,7 +63,7 @@ public sealed class SqlServerMemoryProfileTests
                 "Server=127.0.0.1,1;Database=master;User ID=secret-user;Password=secret-password;Encrypt=False;TrustServerCertificate=True";
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Memory profile validator did not finish.");
@@ -398,7 +398,7 @@ public sealed class SqlServerMemoryProfileTests
 
     private static ProcessStartInfo NewPowerShellStart(string script)
     {
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -458,7 +458,7 @@ public sealed class SqlServerMemoryProfileTests
     private static ProcessResult Run(ProcessStartInfo start, TimeSpan timeout)
     {
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(timeout), "Memory profile command did not finish.");

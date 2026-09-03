@@ -7,3 +7,6 @@ appsettings.Local.json
 appsettings.*.Local.json
 dist/
 .artifacts/
+
+# worktree 建在这里，别把它当成待提交的改动
+/.claude/worktrees/

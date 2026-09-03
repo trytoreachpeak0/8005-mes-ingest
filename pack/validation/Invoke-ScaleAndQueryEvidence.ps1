@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Build an owned MesIngest scale database and capture fail-closed query/storage evidence.
@@ -185,7 +185,7 @@ function Get-VerifiedPackageIdentity {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         throw "RELEASE_MANIFEST_MISSING: $manifestPath"
     }
-    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -DateKind String
     if ([string]$manifest.validationStatus -cne 'PASSED' -or
         [string]$manifest.sourceCommit -cne $ExpectedSourceCommit -or
         [bool]$manifest.sourceDirty) {
@@ -2013,7 +2013,7 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateEvidenceFixturePath)) {
     if (-not (Test-Path -LiteralPath $ValidateEvidenceFixturePath -PathType Leaf)) {
         throw "Evidence fixture not found: $ValidateEvidenceFixturePath"
     }
-    $fixture = Get-Content -Raw -LiteralPath $ValidateEvidenceFixturePath | ConvertFrom-Json
+    $fixture = Get-Content -Raw -LiteralPath $ValidateEvidenceFixturePath | ConvertFrom-Json -DateKind String
     $fixtureFailures = @(Get-EvidenceGateFailures `
         -QueryEvidence @($fixture.queries) `
         -ActualPlanCount @($fixture.actualPlans).Count `
@@ -2034,7 +2034,7 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateCapacityFixturePath)) {
     if (-not (Test-Path -LiteralPath $ValidateCapacityFixturePath -PathType Leaf)) {
         throw "Capacity fixture not found: $ValidateCapacityFixturePath"
     }
-    $capacityFixture = Get-Content -Raw -LiteralPath $ValidateCapacityFixturePath | ConvertFrom-Json
+    $capacityFixture = Get-Content -Raw -LiteralPath $ValidateCapacityFixturePath | ConvertFrom-Json -DateKind String
     $capacityResult = Get-FastCapacityProjection $capacityFixture
     Write-Output "MESINGEST_FAST_CAPACITY_FIXTURE: passed=$($capacityResult.passed) escalationRequired=$($capacityResult.escalationRequired) targetDays=$($capacityResult.model.targetDays) targetRawObservationRows=$($capacityResult.model.targetRawObservationRows)"
     Write-Output ("warnings={0}" -f (@($capacityResult.warnings) -join ','))
@@ -2070,7 +2070,7 @@ function Get-DeterministicContractEvidence {
         }
     }
     try {
-        $attestation = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+        $attestation = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -DateKind String
         $trxPath = Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($Path))) ([string]$attestation.trxFile)
         if (-not (Test-Path -LiteralPath $trxPath -PathType Leaf)) { throw 'TRX missing.' }
         [xml]$trx = Get-Content -Raw -LiteralPath $trxPath
@@ -2381,7 +2381,7 @@ function Get-CapacityPrerequisiteEvidence {
         }
     }
     try {
-        $capacity = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+        $capacity = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json -DateKind String
         $failures = New-Object System.Collections.ArrayList
         $warnings = @($capacity.gate.failures | ForEach-Object { [string]$_ })
         $logical = [double]$capacity.model.predictionMb.logicalUsed
@@ -2976,7 +2976,7 @@ function Get-StructuredHttpErrorCode {
     param([AllowEmptyString()][string] $Body)
     if ([string]::IsNullOrWhiteSpace($Body)) { return $null }
     try {
-        $parsed = $Body | ConvertFrom-Json
+        $parsed = $Body | ConvertFrom-Json -DateKind String
         if ($null -ne $parsed.PSObject.Properties['code'] -and
             -not [string]::IsNullOrWhiteSpace([string]$parsed.code)) {
             return [string]$parsed.code
@@ -3078,7 +3078,7 @@ function Invoke-StabilityHttpBatch {
         if ([string]::IsNullOrWhiteSpace($frozenSnapshotReferenceOut) -and
             $CleanupPhase -ceq 'SUCCEEDED' -and
             -not [string]::IsNullOrWhiteSpace($demandBody)) {
-            $list = $demandBody | ConvertFrom-Json
+            $list = $demandBody | ConvertFrom-Json -DateKind String
             if (@($list.items).Count -gt 0 -and
                 -not [string]::IsNullOrWhiteSpace([string]$list.snapshotReference)) {
             $trackingItem = @($list.items | Where-Object { [string]$_.lifecycle -eq 'TRACKING' }) |
@@ -3127,7 +3127,7 @@ function Invoke-StabilityHttpBatch {
                             $httpErrorCount++
                             continue
                         }
-                        $detail = $detailBody | ConvertFrom-Json
+                        $detail = $detailBody | ConvertFrom-Json -DateKind String
                         $frozenReadCount++
                         if ([string]$detail.snapshotReference -cne $frozenSnapshotReferenceOut -or
                             [string]$detail.snapshot.historyEpoch -cne $frozenHistoryEpochOut -or
@@ -3192,7 +3192,7 @@ function Invoke-PackagedWatchProbe {
             -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
             throw "Packaged Watch probe failed with exit code $($process.ExitCode)."
         }
-        $receipt = Get-Content -Raw -LiteralPath $OutputPath | ConvertFrom-Json
+        $receipt = Get-Content -Raw -LiteralPath $OutputPath | ConvertFrom-Json -DateKind String
         if (-not [bool]$receipt.passed -or [int]$receipt.readCount -ne 5) {
             throw 'Packaged Watch probe receipt is incomplete.'
         }
@@ -3241,7 +3241,7 @@ function Invoke-PackagedReferenceConsumerProbe {
         if ($process.ExitCode -ne 0) {
             throw "Packaged Reference Consumer probe failed with exit code $($process.ExitCode) ($([string]$stderr).Length diagnostic characters)."
         }
-        $receipt = $stdout | ConvertFrom-Json
+        $receipt = $stdout | ConvertFrom-Json -DateKind String
         if ([string]$receipt.status -ne 'PASSED' -or
             [string]$receipt.historyEpoch -ne $HistoryEpoch) {
             throw 'Packaged Reference Consumer receipt is incomplete.'
@@ -3254,7 +3254,7 @@ if (-not [string]::IsNullOrWhiteSpace($ValidateStabilityFixturePath)) {
     if (-not (Test-Path -LiteralPath $ValidateStabilityFixturePath -PathType Leaf)) {
         throw "Stability fixture not found: $ValidateStabilityFixturePath"
     }
-    $stabilityFixture = Get-Content -Raw -LiteralPath $ValidateStabilityFixturePath | ConvertFrom-Json
+    $stabilityFixture = Get-Content -Raw -LiteralPath $ValidateStabilityFixturePath | ConvertFrom-Json -DateKind String
     $stabilityResult = Get-AcceleratedStabilityResult $stabilityFixture
     Write-Output "MESINGEST_ACCELERATED_STABILITY_FIXTURE: passed=$($stabilityResult.passed) soakEscalationRequired=$($stabilityResult.soakEscalationRequired)"
     Write-Output ("p95LatencyMs={0} p99LatencyMs={1}" -f `
@@ -3829,7 +3829,7 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
     if ($QuerySurface -in @('All', 'DemandSeries')) {
         $frozenDiscovery = Invoke-HostGet $hostRun $secret 'DemandSeriesFrozenDiscovery' `
             '/api/v2/demand-series?pageSize=100'
-        $frozenDiscoveryBody = $frozenDiscovery.body | ConvertFrom-Json
+        $frozenDiscoveryBody = $frozenDiscovery.body | ConvertFrom-Json -DateKind String
         $frozenDiscoveryItem = @($frozenDiscoveryBody.items | Where-Object {
             [string]$_.lifecycle -eq 'TRACKING'
         }) | Select-Object -First 1
@@ -3856,12 +3856,12 @@ ALTER EVENT SESSION [$escapedSession] ON SERVER STATE = START;
     $measureRawEvidence = @($selectedCatalog | Where-Object { $_.kind -eq 'raw-evidence' }).Count -gt 0
     if ($measureRawEvidence) {
         $errorList = Invoke-HostGet $hostRun $secret 'ErrorSearchDiscovery' '/api/v2/error-search?window=ALL_HISTORY&pageSize=100'
-        $errorJson = $errorList.body | ConvertFrom-Json
+        $errorJson = $errorList.body | ConvertFrom-Json -DateKind String
         if (@($errorJson.items).Count -eq 0) { throw 'ErrorSearch scale seed produced no error item.' }
         $seriesId = [string]$errorJson.items[0].seriesId
         $snapshotReference = [Uri]::EscapeDataString([string]$errorJson.snapshotReference)
         $detail = Invoke-HostGet $hostRun $secret 'ErrorSearchDetail' ("/api/v2/error-search/$seriesId`?snapshot=$snapshotReference")
-        $detailJson = $detail.body | ConvertFrom-Json
+        $detailJson = $detail.body | ConvertFrom-Json -DateKind String
         $evidenceId = [string]$detailJson.periods[0].evidence[0].evidenceId
         $rawPath = "/api/v2/error-search/$seriesId/evidence/$evidenceId/raw-observations?fields=area&maxItems=20&snapshot=$snapshotReference"
         for ($i = 0; $i -lt ($WarmupCount + $MeasurementCount); $i++) {
@@ -3985,7 +3985,7 @@ WHERE Id = 1;
         $earliestIdentityComplete = $true
         if ($surfaceName -eq 'PollTrace') {
             $boundaryIdentities = @($surfaceSamples | ForEach-Object {
-                $body = $_.body | ConvertFrom-Json
+                $body = $_.body | ConvertFrom-Json -DateKind String
                 if ($null -eq $body.historyEpoch -or $null -eq $body.earliestAvailableHostUtc) {
                     return $null
                 }
@@ -4058,7 +4058,7 @@ WHERE Id = 1;
         if (-not (Test-Path -LiteralPath $cleanupDefaultPath -PathType Leaf)) {
             throw "Published cleanup defaults are missing: $cleanupDefaultPath"
         }
-        $publishedDefaults = (Get-Content -Raw -LiteralPath $cleanupDefaultPath | ConvertFrom-Json).MesIngest
+        $publishedDefaults = (Get-Content -Raw -LiteralPath $cleanupDefaultPath | ConvertFrom-Json -DateKind String).MesIngest
         $activeBefore = Get-ActiveSeriesGraphSnapshot $databaseConnectionString
         $cleanupAt = [DateTimeOffset]::UtcNow
         [void](Invoke-SqlNonQuery $databaseConnectionString @"
@@ -4191,7 +4191,7 @@ SELECT (SELECT COUNT_BIG(*) FROM mesingest.DemandRawObservations) AS rawObservat
         if (-not (Test-Path -LiteralPath $publishedDefaultsPath -PathType Leaf)) {
             throw "Published Host defaults are missing: $publishedDefaultsPath"
         }
-        $publishedDefaults = (Get-Content -Raw -LiteralPath $publishedDefaultsPath | ConvertFrom-Json).MesIngest
+        $publishedDefaults = (Get-Content -Raw -LiteralPath $publishedDefaultsPath | ConvertFrom-Json -DateKind String).MesIngest
         $stabilityContext['defaultPollStartIntervalSeconds'] = [int]$publishedDefaults.PollStartIntervalSeconds
         $stabilityContext['defaultCleanupCheckIntervalSeconds'] = `
             [int]$publishedDefaults.HistoryCleanupCheckIntervalSeconds
@@ -4307,7 +4307,7 @@ ALTER EVENT SESSION [$escapedStabilitySession] ON SERVER STATE = START;
                 if (-not $expiryListResponse.IsSuccessStatusCode) {
                     throw "Intentional expiry discovery returned HTTP $([int]$expiryListResponse.StatusCode)."
                 }
-                $expiryList = $expiryListBody | ConvertFrom-Json
+                $expiryList = $expiryListBody | ConvertFrom-Json -DateKind String
                 $expiryItem = @($expiryList.items | Where-Object { [string]$_.lifecycle -eq 'TRACKING' }) |
                     Select-Object -First 1
                 if ($null -eq $expiryItem -or
@@ -5005,7 +5005,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
     }
     if (-not [string]::IsNullOrWhiteSpace($SqlTier1AttestationPath) -and (Test-Path -LiteralPath $SqlTier1AttestationPath -PathType Leaf)) {
         try {
-            $attestation = Get-Content -Raw -LiteralPath $SqlTier1AttestationPath | ConvertFrom-Json
+            $attestation = Get-Content -Raw -LiteralPath $SqlTier1AttestationPath | ConvertFrom-Json -DateKind String
             $tier1.provided = $true
             $tier1.attestationSchemaVersion = [int]$attestation.schemaVersion
             $tier1.failed = [int]$attestation.counts.failed
@@ -5116,7 +5116,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
             if (-not (Test-Path -LiteralPath $BaselineEvidencePath -PathType Leaf)) {
                 throw 'Baseline evidence file does not exist.'
             }
-            $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
+            $baselineReport = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json -DateKind String
             $baselineSelectedSurfaces = @(if ($QuerySurface -eq 'All') {
                 $baselineReport.queries | Where-Object {
                     ($_.name -like 'DemandSeries*' -and $_.name -ne 'DemandSeriesFrozenDetail') -or
@@ -5229,7 +5229,7 @@ WHERE schemaInfo.Id = 1 AND pressure.Id = 1 AND cleanup.Id = 1;
 
     if ($FastCapacityProjection -and $historyRoundCount -gt 0) {
         try {
-            $capacityBaseline = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json
+            $capacityBaseline = Get-Content -Raw -LiteralPath $BaselineEvidencePath | ConvertFrom-Json -DateKind String
             $requiredRawIndexes = @(
                 'PK_MesIngest_DemandRawObservations',
                 'IX_MesIngest_DemandRawObservations_Series',

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Shared SQL helpers for the attended cutover and rollback drills.
@@ -242,7 +242,7 @@ function Invoke-CutoverProvenOldDatabaseDeletion {
         -not (Test-Path -LiteralPath $preDeleteMarkdownPath -PathType Leaf)) {
         throw 'CUTOVER_DELETE_PRE_DELETE_EVIDENCE_MISSING: immutable JSON and Markdown evidence must exist before elevation.'
     }
-    $preDeleteEvidence = Get-Content -LiteralPath $preDeleteJsonPath -Raw | ConvertFrom-Json
+    $preDeleteEvidence = Get-Content -LiteralPath $preDeleteJsonPath -Raw | ConvertFrom-Json -DateKind String
     $preDeleteMarkdown = Get-Content -LiteralPath $preDeleteMarkdownPath -Raw
     if ([string]$preDeleteEvidence.CutoverRunId -cne $CutoverRunId -or
         [string]$preDeleteEvidence.Status -cne 'DELETE_AUTHORIZED_BEFORE_ELEVATION' -or

@@ -1,4 +1,4 @@
-#Requires -Version 7
+#Requires -Version 7.5
 <#
 .SYNOPSIS
     Runs the packaged-release gate on the golden desktop.
@@ -145,7 +145,7 @@ $builder['Connect Timeout'] = 15
 $sqlConnectionString = $builder.ConnectionString
 
 $manualSource = (Resolve-Path -LiteralPath $ManualAcceptancePath -ErrorAction Stop).Path
-$manual = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json
+$manual = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json -DateKind String
 $requiredChecks = @(
     'startup-within-25-seconds',
     'demand-alert-visual-contract',
@@ -169,7 +169,7 @@ $approval = $null
 $sqlSkipApprovalInfo = $null
 if (-not [string]::IsNullOrWhiteSpace($SqlSkipApprovalPath)) {
     $approvalSource = (Resolve-Path -LiteralPath $SqlSkipApprovalPath -ErrorAction Stop).Path
-    $approval = Get-Content -Raw -LiteralPath $approvalSource | ConvertFrom-Json
+    $approval = Get-Content -Raw -LiteralPath $approvalSource | ConvertFrom-Json -DateKind String
     if ([string]::IsNullOrWhiteSpace([string]$approval.approvedBy) `
             -or [string]::IsNullOrWhiteSpace([string]$approval.approvedAt) `
             -or [string]::IsNullOrWhiteSpace([string]$approval.userMessage) `
@@ -417,16 +417,16 @@ try {
         completedAt = [DateTimeOffset]::Now.ToString('O')
         machine = [Environment]::MachineName
         packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash
-        packageManifest = Get-Content -Raw -LiteralPath $packageManifestPath | ConvertFrom-Json
+        packageManifest = Get-Content -Raw -LiteralPath $packageManifestPath | ConvertFrom-Json -DateKind String
         preEnvironment = 'environment.json'
         postEnvironment = 'environment-post.json'
         releaseSmoke = Get-Content -Raw -LiteralPath (
-            Join-Path $artifacts 'release-smoke\release-smoke-result.json') | ConvertFrom-Json
+            Join-Path $artifacts 'release-smoke\release-smoke-result.json') | ConvertFrom-Json -DateKind String
         coreHostHttpSql = Get-Content -Raw -LiteralPath (
-            Join-Path $regressionDirectory 'summary.json') | ConvertFrom-Json
+            Join-Path $regressionDirectory 'summary.json') | ConvertFrom-Json -DateKind String
         packagedWatchAcceptance = Get-Content -Raw -LiteralPath (
-            Join-Path $acceptanceDirectory 'summary.json') | ConvertFrom-Json
-        manualAcceptance = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json
+            Join-Path $acceptanceDirectory 'summary.json') | ConvertFrom-Json -DateKind String
+        manualAcceptance = Get-Content -Raw -LiteralPath $manualSource | ConvertFrom-Json -DateKind String
     } | ConvertTo-Json -Depth 12 |
         Set-Content -LiteralPath (Join-Path $releaseEvidence 'RELEASE-SIGNOFF.json') -Encoding utf8
     Compress-Archive -Path (Join-Path $packagePayload '*') `

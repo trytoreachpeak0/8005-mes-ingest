@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Publish a self-contained MesIngest install directory for factory copy-deploy.

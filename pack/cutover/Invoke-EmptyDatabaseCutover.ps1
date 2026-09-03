@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Empty-database cutover drill: back up, verify, drop, and recreate one confirmed

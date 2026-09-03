@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Run Ticket 28's controlled-time contract tests and attest the exact executed test assembly.
@@ -87,7 +87,7 @@ if ($sourceCommitAfter -cne $sourceCommitBefore -or $sourceStatusAfter.Count -gt
     throw 'Ticket 28 deterministic contract source identity changed during testing.'
 }
 $sourceCommit = $sourceCommitAfter
-$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -DateKind String
 if ([string]$manifest.sourceCommit -cne $sourceCommit -or [bool]$manifest.sourceDirty) {
     throw 'Deterministic contract package is not a clean build of the current source commit.'
 }

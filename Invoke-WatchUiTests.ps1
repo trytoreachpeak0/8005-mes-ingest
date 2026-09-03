@@ -1,3 +1,4 @@
+#Requires -Version 7
 [CmdletBinding()]
 param(
     [ValidateSet("Debug", "Release")]
@@ -53,7 +54,7 @@ function Stop-WatchUiEnvironment {
 function Invoke-DotnetCaptured {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    # Windows PowerShell 5.1 materializes native stderr as ErrorRecord objects and,
+    # PowerShell materializes native stderr as ErrorRecord objects under `2>&1` and,
     # under ErrorActionPreference=Stop, can terminate before $LASTEXITCODE is read.
     # NuGet warnings must remain evidence, while the native exit code stays authoritative.
     $previousErrorActionPreference = $ErrorActionPreference

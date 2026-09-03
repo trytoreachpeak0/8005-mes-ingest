@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Runs the one-time MesIngest cutover and deletes only the exact proven old database.
@@ -133,7 +133,7 @@ function Invoke-CutoverReferenceConsumer {
         throw "CUTOVER_REFERENCE_CONSUMER_FAILED: exitCode=$LASTEXITCODE."
     }
     try {
-        return (($output -join "`n") | ConvertFrom-Json)
+        return (($output -join "`n") | ConvertFrom-Json -DateKind String)
     } catch {
         throw 'CUTOVER_REFERENCE_CONSUMER_INVALID_RESULT: the probe did not return JSON.'
     }
@@ -255,7 +255,7 @@ try {
     }
 
     $contractBody = Invoke-CutoverHttpGet -Client $http -Path '/api/v2/contract'
-    $contract = $contractBody | ConvertFrom-Json
+    $contract = $contractBody | ConvertFrom-Json -DateKind String
     $expectedCapabilities = @(
         'CONTRACT_DISCOVERY/2.0', 'CURRENT_INGEST_ATTENTION/2.0', 'DEMAND_SERIES/2.0',
         'ERROR_SEARCH/2.1', 'EXTERNALLY_READABLE_DEMAND_CATALOG/2.0',

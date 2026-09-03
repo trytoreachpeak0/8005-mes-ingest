@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 [CmdletBinding()]
 param(
     [string] $Configuration = 'Release',
@@ -299,7 +299,7 @@ try {
                 }
                 $json = $line.Substring($prefixIndex + $reportMarkerPrefix.Length).Trim()
                 try {
-                    $rawMarker = $json | ConvertFrom-Json
+                    $rawMarker = $json | ConvertFrom-Json -DateKind String
                     $normalizedMarkers.Add((ConvertTo-NormalizedMarker -Marker $rawMarker))
                 }
                 catch {

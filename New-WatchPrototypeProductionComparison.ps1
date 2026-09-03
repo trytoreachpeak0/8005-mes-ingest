@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 7.5
 
 <#
 .SYNOPSIS
@@ -173,7 +173,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Manifest') {
     $expectedManifestFullPath = Resolve-ComparisonInputFile `
         -Path $expectedManifestFullPath `
         -Role 'ExpectedHashManifest'
-    $expectedManifest = Get-Content -Raw -LiteralPath $expectedManifestFullPath | ConvertFrom-Json
+    $expectedManifest = Get-Content -Raw -LiteralPath $expectedManifestFullPath | ConvertFrom-Json -DateKind String
     $expectedManifestComparisonId = $expectedManifest.PSObject.Properties['comparisonId']
     if ($null -ne $expectedManifestComparisonId `
         -and -not [string]::Equals(

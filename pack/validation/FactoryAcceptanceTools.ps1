@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Decision helpers for the ticket 26 factory acceptance run.
@@ -197,7 +197,7 @@ function Assert-LiveRoundSourceConfiguration {
         throw "LIVE_ORACLE_SETTINGS_MISSING: $SettingsPath"
     }
     try {
-        $settings = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json
+        $settings = Get-Content -Raw -LiteralPath $SettingsPath | ConvertFrom-Json -DateKind String
     } catch {
         throw "LIVE_ORACLE_SETTINGS_INVALID: $SettingsPath"
     }
@@ -313,7 +313,7 @@ function Test-PackageIdentity {
         throw "RELEASE_MANIFEST_MISSING: $manifestPath"
     }
     try {
-        $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+        $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json -DateKind String
     } catch {
         throw "RELEASE_MANIFEST_INVALID: $manifestPath"
     }

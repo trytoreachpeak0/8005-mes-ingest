@@ -111,7 +111,7 @@ public sealed class RuntimeFeedbackLoopTests
                 "pack",
                 "validation",
                 "Invoke-RuntimeFeedbackLoop.ps1");
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -139,7 +139,7 @@ public sealed class RuntimeFeedbackLoopTests
             start.Environment["MES_INGEST_TICKET01_EXPECTED_COMPATIBILITY_LEVEL"] = "160";
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(60_000), "Runtime feedback collector did not finish.");

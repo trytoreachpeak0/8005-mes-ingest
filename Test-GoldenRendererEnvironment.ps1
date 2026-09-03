@@ -1,3 +1,4 @@
+#Requires -Version 7
 [CmdletBinding()]
 param(
     [ValidateSet(96, 120, 144)]

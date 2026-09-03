@@ -768,7 +768,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1");
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -791,7 +791,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "Capacity size guard did not finish.");
@@ -1317,7 +1317,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 "pack",
                 "validation",
                 "Invoke-ScaleAndQueryEvidence.ps1");
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1338,7 +1338,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(
@@ -1359,7 +1359,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1");
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1379,7 +1379,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         }
         start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "XEvent fixture validation did not finish.");
@@ -1490,7 +1490,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1");
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1511,7 +1511,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "Scale evidence gate did not finish.");
@@ -1528,7 +1528,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1");
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1549,7 +1549,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "Scale evidence gate did not finish.");
@@ -1570,7 +1570,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1592,7 +1592,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
                 "Server=127.0.0.1,1;Database=master;User ID=secret-user;Password=secret-password;Encrypt=False;TrustServerCertificate=True";
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Scale evidence gate did not finish.");
@@ -1652,7 +1652,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1673,7 +1673,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
@@ -1693,7 +1693,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         }
     }
 
-    // Windows PowerShell hard-wraps an error message at the host console width,
+    // PowerShell hard-wraps an error message at the host console width,
     // and that width is not a property of the code under test. Measured 2026-09-02
     // against the same script with identical input: the control machine wrapped at
     // word boundaries near column 90, win11-01 wrapped at exactly 119 and split
@@ -1756,7 +1756,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1778,7 +1778,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
@@ -1849,7 +1849,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1871,7 +1871,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "Evidence fixture validation did not finish.");
@@ -1899,7 +1899,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             "pack",
             "validation",
             "Invoke-ScaleAndQueryEvidence.ps1");
-        var start = new ProcessStartInfo("powershell.exe")
+        var start = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -1920,7 +1920,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
         start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
         using var process = Process.Start(start)
-                            ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                            ?? throw new InvalidOperationException("pwsh did not start");
         var stdout = process.StandardOutput.ReadToEnd();
         var stderr = process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(30_000), "Percentile fixture validation did not finish.");
@@ -1957,7 +1957,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -1978,7 +1978,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "ShowPlan fixture validation did not finish.");
@@ -2011,7 +2011,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
 
         try
         {
-            var start = new ProcessStartInfo("powershell.exe")
+            var start = new ProcessStartInfo("pwsh")
             {
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -2032,7 +2032,7 @@ public sealed class ScaleAndQueryEvidenceGateTests
             start.Environment.Remove("MES_INGEST_SCALE_EVIDENCE_SQLSERVER");
 
             using var process = Process.Start(start)
-                                ?? throw new InvalidOperationException("Windows PowerShell did not start");
+                                ?? throw new InvalidOperationException("pwsh did not start");
             var stdout = process.StandardOutput.ReadToEnd();
             var stderr = process.StandardError.ReadToEnd();
             Assert.True(process.WaitForExit(30_000), "ShowPlan fixture validation did not finish.");

@@ -1,4 +1,4 @@
-#Requires -Version 7.0
+#Requires -Version 7.5
 
 [CmdletBinding()]
 param()
@@ -97,7 +97,7 @@ try {
 
     $manifest = Get-Content -Raw -LiteralPath (
         Join-Path $runDirectory 'manifest.json'
-    ) | ConvertFrom-Json
+    ) | ConvertFrom-Json -DateKind String
     if ($manifest.review.state -ne 'PENDING_USER_VISUAL_REVIEW' `
         -or $manifest.review.automaticPass -ne $false `
         -or $manifest.review.thresholdConfigured -ne $false) {

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Collect read-only MesIngest factory validation evidence for logical site A, B, or C.
@@ -199,7 +199,7 @@ function Invoke-ValidationGet {
     $body = ""
     $responseCorrelationId = $null
     try {
-        $response = Invoke-WebRequest -Uri $uri -Method Get -Headers $headers -TimeoutSec $RequestTimeoutSeconds -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $uri -Method Get -Headers $headers -TimeoutSec $RequestTimeoutSeconds
         $statusCode = [int]$response.StatusCode
         $body = [string]$response.Content
         $responseCorrelationId = [string]$response.Headers["X-Correlation-Id"]
@@ -218,7 +218,7 @@ function Invoke-ValidationGet {
     $body = Protect-ValidationText $body
     $json = $null
     if (-not [string]::IsNullOrWhiteSpace($body)) {
-        try { $json = $body | ConvertFrom-Json } catch { $json = $null }
+        try { $json = $body | ConvertFrom-Json -DateKind String } catch { $json = $null }
     }
 
     $rowCount = $null

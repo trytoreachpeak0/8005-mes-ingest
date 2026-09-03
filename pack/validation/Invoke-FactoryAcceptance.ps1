@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Ticket 26 factory acceptance: one live-Oracle, live-SQL Server run of the shipped
@@ -244,7 +244,7 @@ function Get-ContractErrorCode {
 
     if ([string]::IsNullOrWhiteSpace($Body)) { return '' }
     try {
-        $code = [string]($Body | ConvertFrom-Json).code
+        $code = [string]($Body | ConvertFrom-Json -DateKind String).code
     } catch {
         return ''
     }
@@ -263,7 +263,7 @@ function Get-AcceptanceJson {
     if ($response.StatusCode -ne 200) {
         throw "GET $(Split-Path -Leaf $Uri) returned HTTP $($response.StatusCode)$(Get-ContractErrorCode -Body $response.Body)."
     }
-    return ($response.Body | ConvertFrom-Json)
+    return ($response.Body | ConvertFrom-Json -DateKind String)
 }
 
 # ConvertFrom-Json objects also carry PowerShell's intrinsic Count, so a contract field
@@ -391,7 +391,7 @@ function Get-AttentionSnapshot {
     if ($response.StatusCode -ne 200) {
         throw "GET current-ingest-attention returned HTTP $($response.StatusCode)."
     }
-    return ($response.Body | ConvertFrom-Json)
+    return ($response.Body | ConvertFrom-Json -DateKind String)
 }
 
 function Get-PollTraceHighWater {
@@ -1000,7 +1000,7 @@ try {
             if ($first.StatusCode -ne 200) {
                 throw "The catalog first read returned HTTP $($first.StatusCode)."
             }
-            $body = $first.Body | ConvertFrom-Json
+            $body = $first.Body | ConvertFrom-Json -DateKind String
             $declaredCount = [int](Get-JsonProperty -Object $body -Name 'count')
             if ([string]$body.contractVersion -cne $expectedContractVersion -or
                 [long]$body.catalogRevision -le 0 -or
@@ -1046,7 +1046,7 @@ try {
                     throw ("GET $($reads[$name]) returned HTTP $($response.StatusCode)" +
                         "$(Get-ContractErrorCode -Body $response.Body).")
                 }
-                $json = $response.Body | ConvertFrom-Json
+                $json = $response.Body | ConvertFrom-Json -DateKind String
                 $itemCount = if ($null -ne $json.PSObject.Properties['items']) {
                     @($json.items).Count
                 } else {
@@ -1202,7 +1202,7 @@ try {
             if ($afterFirst.StatusCode -ne 200) {
                 throw "The post-restart catalog read returned HTTP $($afterFirst.StatusCode)."
             }
-            $after = $afterFirst.Body | ConvertFrom-Json
+            $after = $afterFirst.Body | ConvertFrom-Json -DateKind String
             $beforeIds = @($catalogBeforeRestart.items | ForEach-Object { [string]$_.demandId } | Sort-Object)
             $afterIds = @($after.items | ForEach-Object { [string]$_.demandId } | Sort-Object)
             $beforeCount = [int](Get-JsonProperty -Object $catalogBeforeRestart -Name 'count')

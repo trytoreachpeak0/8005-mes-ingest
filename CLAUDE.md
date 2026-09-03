@@ -76,7 +76,7 @@ not need it.
 Most of those 6 minutes are three tests. `ScaleAndQueryEvidenceGateTests` is 71%
 of the suite's measured time (314 s of 441 s, 2026-09-02) because three of its
 `[Fact]`s loop over a table of fixture mutations — 59, 14 and 17 cases — and each
-case launches a fresh `powershell.exe` to run a 5,486-line validation script.
+case launches a fresh `pwsh` to run a 5,486-line validation script.
 90 process launches, all independent, all serial. Nobody has fixed it; if the
 suite's runtime starts to matter, that is where it is.
 
@@ -249,6 +249,23 @@ commit packaged runtime binaries.**
 PowerShell 7. Do not write Windows PowerShell 5.1 compatible code, do not add
 version probes or fallbacks, and do not invoke `powershell.exe` — call `pwsh`.
 Every new `.ps1` opens with `#Requires -Version 7`.
+
+Every tracked `.ps1` carries that header as of 2026-09-03; the 31 scripts that
+still declared `5.1` were migrated then, and the C# tests that launched them
+now start `pwsh`. A script that reaches for a 7.5-only cmdlet parameter declares
+`#Requires -Version 7.5` instead — twelve of them do, for the reason below.
+
+**`ConvertFrom-Json` needs `-DateKind String` in every one of these scripts.**
+Windows PowerShell 5.1 left an ISO 8601 string alone; PowerShell 7 turns it into
+a `[DateTime]` and drops the offset, so the `[DateTimeOffset]::Parse([string]$x)`
+these scripts are built on re-reads `00:00Z` as `00:00+08:00` and silently shifts
+every evidence timestamp by eight hours. That is what broke seven
+`ScaleAndQueryEvidenceGateTests` cases during the migration, all of them landing
+on a bounds check far from the actual cause. `-DateKind String` restores the 5.1
+reading exactly; it is a PowerShell 7.5 parameter, hence the header bump. Adding
+a bare `ConvertFrom-Json` to any of these scripts reintroduces the bug.
+`Invoke-RestMethod` has no such parameter — the three call sites read only
+version strings, capability ids and a `[long]` counter, and must stay that way.
 
 The one frozen exception: already-released MES ingest scripts under
 `.artifacts/releases/` keep their `#Requires -Version 5.1` header. They shipped

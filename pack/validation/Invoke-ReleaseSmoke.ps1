@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.5
 <#
 .SYNOPSIS
   Production V2 release smoke for a built MesIngest install package.
@@ -52,7 +52,7 @@ function Get-HttpStatus {
     param([Parameter(Mandatory = $true)][string] $Uri)
 
     try {
-        $response = Invoke-WebRequest -Uri $Uri -TimeoutSec 2 -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $Uri -TimeoutSec 2
         return [int]$response.StatusCode
     } catch {
         if ($null -eq $_.Exception.Response) {
@@ -375,8 +375,8 @@ if ($IncludePackagedWatch) {
 }
 
 try {
-    $releaseManifest = Get-Content -Raw -LiteralPath $releaseManifestPath | ConvertFrom-Json
-    $canonicalOpenApi = Get-Content -Raw -LiteralPath $canonicalOpenApiPath | ConvertFrom-Json
+    $releaseManifest = Get-Content -Raw -LiteralPath $releaseManifestPath | ConvertFrom-Json -DateKind String
+    $canonicalOpenApi = Get-Content -Raw -LiteralPath $canonicalOpenApiPath | ConvertFrom-Json -DateKind String
 } catch {
     throw 'Production V2 release smoke requires valid RELEASE-MANIFEST.json and canonical openapi/v2.json.'
 }
@@ -499,7 +499,7 @@ if ($queryHash -cne $canonicalQuerySha256) {
 }
 $queryFile = Get-Item -LiteralPath $canonicalQueryPath
 try {
-    $queryManifest = Get-Content -Raw -LiteralPath $canonicalQueryManifestPath | ConvertFrom-Json
+    $queryManifest = Get-Content -Raw -LiteralPath $canonicalQueryManifestPath | ConvertFrom-Json -DateKind String
 } catch {
     throw "Canonical query manifest is invalid: $canonicalQueryManifestRelativePath"
 }
@@ -518,7 +518,7 @@ if ($sublotQueryHash -cne $sublotBoxCountQuerySha256) {
 }
 $sublotQueryFile = Get-Item -LiteralPath $sublotBoxCountQueryPath
 try {
-    $sublotQueryManifest = Get-Content -Raw -LiteralPath $sublotBoxCountManifestPath | ConvertFrom-Json
+    $sublotQueryManifest = Get-Content -Raw -LiteralPath $sublotBoxCountManifestPath | ConvertFrom-Json -DateKind String
 } catch {
     throw "Canonical SUBLOT_BOX_COUNT manifest is invalid: $sublotBoxCountManifestRelativePath"
 }
@@ -549,7 +549,7 @@ if (-not (Test-Path -LiteralPath $recordingSourcePath -PathType Leaf)) {
     throw "Packaged release smoke is missing its scripted rounds: $recordingSourcePath"
 }
 try {
-    $recordingSource = Get-Content -Raw -LiteralPath $recordingSourcePath | ConvertFrom-Json
+    $recordingSource = Get-Content -Raw -LiteralPath $recordingSourcePath | ConvertFrom-Json -DateKind String
 } catch {
     throw 'The packaged scripted rounds file is not valid JSON.'
 }
@@ -666,7 +666,7 @@ try {
         "$baseUrl/openapi/v2.json"
     ).GetAwaiter().GetResult()
     try {
-        $liveOpenApi = [Text.Encoding]::UTF8.GetString($liveOpenApiBytes) | ConvertFrom-Json
+        $liveOpenApi = [Text.Encoding]::UTF8.GetString($liveOpenApiBytes) | ConvertFrom-Json -DateKind String
     } catch {
         throw 'Live /openapi/v2.json is not valid JSON.'
     }
@@ -703,7 +703,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($catalogFirst.ETag)) {
         throw 'The externally readable Demand catalog did not return a CatalogRevision ETag.'
     }
-    $catalogBody = $catalogFirst.Body | ConvertFrom-Json
+    $catalogBody = $catalogFirst.Body | ConvertFrom-Json -DateKind String
     $catalogDeclaredCount = [int](Get-JsonProperty -Object $catalogBody -Name 'count')
     if (
         [string]$catalogBody.contractVersion -cne $expectedContractVersion -or
@@ -849,7 +849,7 @@ try {
     }
 
     $catalogBeforeRestart = Wait-SettledCatalog -Client $httpClient -Uri $catalogUri
-    $beforeRestart = $catalogBeforeRestart.Body | ConvertFrom-Json
+    $beforeRestart = $catalogBeforeRestart.Body | ConvertFrom-Json -DateKind String
     $beforeRestartDemandIds = @($beforeRestart.items | ForEach-Object { [string]$_.demandId } | Sort-Object)
 
     # An abrupt stop is the honest restart: a committed projection must survive it.
@@ -875,7 +875,7 @@ try {
     if ($catalogAfterRestart.StatusCode -ne 200) {
         throw "Post-restart catalog read failed (HTTP $($catalogAfterRestart.StatusCode))."
     }
-    $afterRestart = $catalogAfterRestart.Body | ConvertFrom-Json
+    $afterRestart = $catalogAfterRestart.Body | ConvertFrom-Json -DateKind String
     $afterRestartDemandIds = @($afterRestart.items | ForEach-Object { [string]$_.demandId } | Sort-Object)
     $afterRestartCount = [int](Get-JsonProperty -Object $afterRestart -Name 'count')
     $beforeRestartCount = [int](Get-JsonProperty -Object $beforeRestart -Name 'count')

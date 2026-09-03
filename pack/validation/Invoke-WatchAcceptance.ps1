@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Runs the external Watch acceptance harness against the packaged Watch binaries.

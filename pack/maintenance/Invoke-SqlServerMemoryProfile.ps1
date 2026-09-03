@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Apply, verify, and audit the bounded MesIngest SQL Server memory profiles.
@@ -344,7 +344,7 @@ function Invoke-Maintenance {
         $arguments += Quote-ChildArgument ([string]$item)
     }
     $start = New-Object System.Diagnostics.ProcessStartInfo
-    $start.FileName = 'powershell.exe'
+    $start.FileName = 'pwsh'
     $start.UseShellExecute = $false
     $start.CreateNoWindow = $true
     $start.Arguments = $arguments -join ' '

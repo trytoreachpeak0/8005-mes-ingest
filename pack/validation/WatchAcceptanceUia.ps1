@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   UI Automation helpers for the ticket 26 Watch verification on the plant desktop.

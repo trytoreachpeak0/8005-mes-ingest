@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 <#
 .SYNOPSIS
   Whole-deployment rollback drill: stop the new Service, attest that the old programs

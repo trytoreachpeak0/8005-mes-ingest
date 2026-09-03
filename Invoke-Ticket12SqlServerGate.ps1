@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7
 [CmdletBinding()]
 param(
     [string] $Configuration = 'Release',
