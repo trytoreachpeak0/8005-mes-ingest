@@ -69,8 +69,9 @@ on:
 #
 # This says nothing about other repositories — GitHub's concurrency is
 # per-repository, and win11-01 also hosts runners for riot-sdk, the control
-# server and the protocol. Cross-repository desktop exclusion remains the desktop
-# mutex's job.
+# server and the protocol. Cross-repository desktop exclusion is the machine-wide
+# mutex's job: Invoke-WatchUiTests.ps1 takes it below, desktop-tests.yml takes it
+# too as of 2026-09-03, and Invoke-WithDesktopLock.ps1 owns the name both use.
 concurrency:
   group: win11-01
   cancel-in-progress: false

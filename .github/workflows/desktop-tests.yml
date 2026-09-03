@@ -29,7 +29,9 @@ on:
 #
 # Still nothing across repositories: GitHub's concurrency is per-repository, and
 # win11-01 also hosts runners for riot-sdk, the control server and the protocol.
-# Cross-repository desktop exclusion remains the desktop mutex's job.
+# Cross-repository desktop exclusion is the machine-wide mutex's job, and as of
+# 2026-09-03 this workflow actually takes it — see the test step below and
+# Invoke-WithDesktopLock.ps1, which owns the name.
 concurrency:
   group: win11-01
   cancel-in-progress: false
@@ -61,12 +63,23 @@ jobs:
 
       # The same source-derived partition test.yml uses, inverted. Exit code is
       # the contract — the guest is zh-CN and prints 已通过! not Passed!.
+      #
+      # Under Invoke-WithDesktopLock.ps1, and that is the point of this wrapper
+      # rather than tidiness. Until 2026-09-03 this step took no machine-wide
+      # lock at all: the only thing keeping it off golden-renderer.yml's desktop
+      # was `concurrency: group: win11-01`, which is per-repository. Both
+      # workflows carried a comment saying cross-repository exclusion was "the
+      # desktop mutex's job" while this half of it held no mutex, so the first
+      # desktop job in any other repository on win11-01 would have run straight
+      # through it.
       - name: Desktop-dependent tests
         shell: pwsh
         run: |
           $filter = ./Get-WpfDesktopTestFilter.ps1 -Mode Include
           Write-Output "Desktop classes: $filter"
-          dotnet test MesIngest.Tests --filter $filter --logger 'trx;LogFileName=desktop-results.trx'
+          ./Invoke-WithDesktopLock.ps1 -Command {
+              dotnet test MesIngest.Tests --filter $filter --logger 'trx;LogFileName=desktop-results.trx'
+          }
 
       # MesIngest.Watch.UiTests is deliberately NOT here. It was, from
       # 2026-09-02 until later the same day: 170 tests that read no baseline,

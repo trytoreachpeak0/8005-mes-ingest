@@ -125,9 +125,35 @@ a shared group lets an ordinary push cancel a running golden-renderer job
 mid-capture, which leaves windows and processes on the desktop for the next run
 to inherit.
 
-This still guarantees nothing across repositories — GitHub's concurrency is
-per-repository, and `win11-01` also hosts runners for `riot-sdk`, the control
-server and the protocol.
+This still guarantees nothing across repositories on its own — GitHub's
+concurrency is per-repository, and `win11-01` also hosts runners for `riot-sdk`,
+the control server and the protocol. **That part is a machine-wide named mutex's
+job, and `Invoke-WithDesktopLock.ps1` owns its name.**
+
+Two things to know before touching it:
+
+- **Both desktop paths take it as of 2026-09-03, and one of them did not
+  before.** `golden-renderer.yml` always had a mutex via
+  `Invoke-WatchUiTests.ps1`, but under the repository-scoped name
+  `Global\MesIngestWatchUiTests`, which serialised that script against itself and
+  nothing else. `desktop-tests.yml` took no machine-wide lock at all — it ran
+  `dotnet test` directly, and the only thing keeping it off the golden desktop
+  was the shared `concurrency` group. Both comments nonetheless claimed
+  cross-repository exclusion was "the desktop mutex's job". The first desktop job
+  in any other repository would have walked straight through `desktop-tests.yml`.
+- **The name is the contract, not the code.** Repositories here are independent
+  clones with no shared package, so a second repository that needs the lock gets
+  its own copy of the helper. What must match is
+  `Global\W2G-InteractiveDesktop`. `Invoke-WatchUiTests.ps1` keeps its own
+  acquire/release — it also guards direct manual invocation, which no workflow
+  wrapper covers — but reads the name from the helper with `-NameOnly` rather
+  than spelling it again.
+
+Acquisition is fail-fast (`-TimeoutSeconds 0`, exit 3). That is right while this
+repository is the only holder: contention can then only mean a human is running a
+desktop suite on the guest, and failing loudly beats waiting silently. **A second
+repository joining needs a real timeout instead** — a CI job must queue, not turn
+red because it collided with another repository's schedule.
 
 | Workflow | Runner | Fires on |
 | --- | --- | --- |

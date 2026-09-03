@@ -161,13 +161,26 @@ if ($ReuseBuild.IsPresent) {
     }
 }
 
-$mutex = [Threading.Mutex]::new($false, "Global\MesIngestWatchUiTests")
+# The name comes from Invoke-WithDesktopLock.ps1 rather than being spelled again here. It used to
+# be "Global\MesIngestWatchUiTests", which serialised this script against itself and nothing else --
+# a repository-scoped name cannot express a machine-scoped resource, and win11-01 hosts runners for
+# four repositories. This script keeps its own acquire/release because it also guards direct manual
+# invocation, which no workflow wrapper would cover.
+$desktopLockName = & (Join-Path $PSScriptRoot 'Invoke-WithDesktopLock.ps1') -NameOnly
+$mutex = [Threading.Mutex]::new($false, $desktopLockName)
 $hasMutex = $false
 try {
-    $hasMutex = $mutex.WaitOne(0)
+    try {
+        $hasMutex = $mutex.WaitOne(0)
+    } catch [Threading.AbandonedMutexException] {
+        # The previous holder died without releasing. The wait succeeded and the mutex is ours;
+        # treating this as failure would let one killed run poison the lock permanently.
+        Write-Warning "WATCH_UI_LOCK_ABANDONED: previous desktop holder exited without releasing."
+        $hasMutex = $true
+    }
     if (-not $hasMutex) {
         [Console]::Error.WriteLine(
-            "WATCH_UI_SERIALIZATION_BUSY: another Watch UI suite owns the interactive desktop gate.")
+            "WATCH_UI_SERIALIZATION_BUSY: another process owns this machine's interactive desktop.")
         exit 3
     }
 
