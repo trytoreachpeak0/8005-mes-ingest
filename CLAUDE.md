@@ -149,11 +149,32 @@ Two things to know before touching it:
   wrapper covers — but reads the name from the helper with `-NameOnly` rather
   than spelling it again.
 
-Acquisition is fail-fast (`-TimeoutSeconds 0`, exit 3). That is right while this
-repository is the only holder: contention can then only mean a human is running a
-desktop suite on the guest, and failing loudly beats waiting silently. **A second
-repository joining needs a real timeout instead** — a CI job must queue, not turn
-red because it collided with another repository's schedule.
+**That second repository arrived on 2026-09-08, and acquisition now queues.**
+`8005-agv-control-server` takes the same name from `scripts/DesktopLock.psm1`
+(a module, not a wrapper script, because all four of its holders acquire inside
+the script rather than around it). Both paths here default to
+`-TimeoutSeconds 1800` and still exit 3 on timeout — what changed is how long
+they wait, not what failure looks like. Three consequences worth knowing:
+
+- **A job's `timeout-minutes` must cover the wait plus its own work.** Otherwise
+  queueing just turns one colour of red into another. `desktop-tests.yml` and
+  the `vm-tests` job went 30 → 60 for exactly this. The `render` job stayed at
+  180 because `Test-WatchWindowBaselineStability.ps1` calls
+  `Invoke-WatchUiTests.ps1` once per iteration, so the lock is taken and
+  released per iteration rather than held across the loop.
+- **The `AbandonedMutexException` branch is now reachable.** It was dead code
+  under `-TimeoutSeconds 0`: with nobody waiting, a killed holder's mutex simply
+  ceased to exist. With a real waiter blocked on it, the object survives and
+  comes back marked abandoned, and treating that as failure would let one killed
+  run poison the lock.
+- **`Test-DesktopLockQueueing.ps1` is the evidence.** It starts real competing
+  processes and asserts five things: the name literal, that
+  `-TimeoutSeconds 0` still fails fast, that a second holder queues (with a time
+  lower bound, so a "returns 0 without the lock" implementation cannot pass),
+  that a queued run says so in its log, and that an abandoned lock is inherited.
+  `8005-agv-control-server` has its own copy of that script asserting the same
+  literal — two independent assertions are what keep the name from drifting into
+  two locks that never meet.
 
 | Workflow | Runner | Fires on |
 | --- | --- | --- |

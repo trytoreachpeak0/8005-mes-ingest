@@ -27,7 +27,14 @@ param(
     # costs ~7.3 min, of which xUnit reports 38.6 s of tests and ~6 min is the test process
     # sitting between its last written capture and process exit - see the note in
     # Test-WatchWindowBaselineStability.ps1.
-    [switch]$ReuseBuild
+    [switch]$ReuseBuild,
+
+    # How long to queue for the machine-wide desktop lock before giving up. Default and rationale
+    # both belong to Invoke-WithDesktopLock.ps1; this parameter exists so a caller can override it
+    # and so the two acquisition paths cannot drift apart in behaviour the way they once drifted
+    # apart in name. 0 restores the pre-2026-09-08 fail-fast.
+    [ValidateRange(0, 86400)]
+    [int]$DesktopLockTimeoutSeconds = 1800
 )
 
 Set-StrictMode -Version Latest
@@ -166,21 +173,44 @@ if ($ReuseBuild.IsPresent) {
 # a repository-scoped name cannot express a machine-scoped resource, and win11-01 hosts runners for
 # four repositories. This script keeps its own acquire/release because it also guards direct manual
 # invocation, which no workflow wrapper would cover.
+#
+# Waiting rather than failing fast as of 2026-09-08, matching the helper's new default.
+# 8005-agv-control-server now takes the same lock for its L2 real-onboard scenarios and staged G3,
+# and neither repository's scheduler can see the other's, so a collision must queue. Note that
+# Test-WatchWindowBaselineStability.ps1 calls this script once per stability iteration: the lock is
+# acquired and released per iteration, not held across the loop, so a 3-run stability job yields the
+# desktop twice in the middle rather than blocking another repository for 20+ minutes.
 $desktopLockName = & (Join-Path $PSScriptRoot 'Invoke-WithDesktopLock.ps1') -NameOnly
 $mutex = [Threading.Mutex]::new($false, $desktopLockName)
 $hasMutex = $false
-try {
+function Request-WatchUiDesktopLock {
+    param([Parameter(Mandatory)][Threading.Mutex]$Mutex, [Parameter(Mandatory)][int]$Seconds)
+
     try {
-        $hasMutex = $mutex.WaitOne(0)
+        return $Mutex.WaitOne([TimeSpan]::FromSeconds($Seconds))
     } catch [Threading.AbandonedMutexException] {
         # The previous holder died without releasing. The wait succeeded and the mutex is ours;
         # treating this as failure would let one killed run poison the lock permanently.
         Write-Warning "WATCH_UI_LOCK_ABANDONED: previous desktop holder exited without releasing."
-        $hasMutex = $true
+        return $true
+    }
+}
+try {
+    # Zero-wait first, purely so a queued run says so. A silent twenty-minute gap in a CI log is
+    # indistinguishable from a hang, and that misdiagnosis is the main cost of queueing at all.
+    $hasMutex = Request-WatchUiDesktopLock -Mutex $mutex -Seconds 0
+    if (-not $hasMutex -and $DesktopLockTimeoutSeconds -gt 0) {
+        Write-Host ("WATCH_UI_SERIALIZATION_WAITING: another process owns this machine's " +
+            "interactive desktop; queueing for up to ${DesktopLockTimeoutSeconds}s.")
+        $hasMutex = Request-WatchUiDesktopLock -Mutex $mutex -Seconds $DesktopLockTimeoutSeconds
+        if ($hasMutex) {
+            Write-Host "WATCH_UI_SERIALIZATION_ACQUIRED: the interactive desktop is now ours."
+        }
     }
     if (-not $hasMutex) {
         [Console]::Error.WriteLine(
-            "WATCH_UI_SERIALIZATION_BUSY: another process owns this machine's interactive desktop.")
+            "WATCH_UI_SERIALIZATION_BUSY: another process owns this machine's interactive desktop; " +
+            "waited ${DesktopLockTimeoutSeconds}s.")
         exit 3
     }
 

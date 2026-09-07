@@ -72,6 +72,15 @@ on:
 # server and the protocol. Cross-repository desktop exclusion is the machine-wide
 # mutex's job: Invoke-WatchUiTests.ps1 takes it below, desktop-tests.yml takes it
 # too as of 2026-09-03, and Invoke-WithDesktopLock.ps1 owns the name both use.
+#
+# 8005-agv-control-server holds the same name as of 2026-09-08, so acquisition
+# queues (1800 s) rather than failing fast. Note where the lock sits in the
+# render job: Test-WatchWindowBaselineStability.ps1 calls Invoke-WatchUiTests.ps1
+# once per stability iteration, so the desktop is acquired and released per
+# iteration rather than held across the loop. A 3-run job therefore yields twice
+# in the middle — deliberately, because holding it for 22 minutes would make the
+# other repository's queueing pointless — and its worst case is 3 × (30 min wait
+# + 7.3 min work), which is why 180 minutes below still covers it.
 concurrency:
   group: win11-01
   cancel-in-progress: false
@@ -101,7 +110,9 @@ jobs:
   vm-tests:
     if: github.event_name == 'schedule'
     runs-on: [self-hosted, golden-renderer]
-    timeout-minutes: 30
+    # 30 -> 60 on 2026-09-08: one desktop-lock wait (up to 30 min) now fits inside the budget
+    # alongside the suite itself.
+    timeout-minutes: 60
 
     env:
       MesIngestWatch__RenderingMode: SoftwareOnly

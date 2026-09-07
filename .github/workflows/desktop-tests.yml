@@ -32,6 +32,11 @@ on:
 # Cross-repository desktop exclusion is the machine-wide mutex's job, and as of
 # 2026-09-03 this workflow actually takes it — see the test step below and
 # Invoke-WithDesktopLock.ps1, which owns the name.
+#
+# That mutex has a second repository in it as of 2026-09-08:
+# 8005-agv-control-server takes the same name for its L2 real-onboard scenarios
+# and staged G3. Acquisition therefore queues (1800 s) instead of failing fast,
+# and this job's timeout-minutes was raised to cover the wait.
 concurrency:
   group: win11-01
   cancel-in-progress: false
@@ -39,7 +44,11 @@ concurrency:
 jobs:
   desktop:
     runs-on: [self-hosted, golden-renderer]
-    timeout-minutes: 30
+    # 30 -> 60 on 2026-09-08, because the desktop lock now queues instead of failing fast: this job
+    # may spend up to 30 minutes waiting for 8005-agv-control-server to finish with the desktop
+    # before its own few minutes of work start. A budget that only covers the work turns queueing
+    # into a different colour of red rather than into a green wait.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v7
