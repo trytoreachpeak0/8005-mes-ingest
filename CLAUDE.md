@@ -92,6 +92,32 @@ reports `Failed: 0` while skipping 88 tests, so a change to any SQL in
 `SqlServerMesIngestProjection.*.cs` is not covered. **Check the skip count, not
 just the failure count.**
 
+Three things about turning them on, each learned the hard way on 2026-09-15:
+
+- **`MES_INGEST_TICKET01_SQLSERVER` must name `Database=master`.**
+  `SqlServerMemoryProfileTests` runs `pack/maintenance/Invoke-SqlServerMemoryProfile.ps1`,
+  which throws `MASTER_CONNECTION_REQUIRED` without it; the class's other cases
+  then fail with `DirectoryNotFoundException` because the script exits before it
+  creates its output folder, which looks like an unrelated bug. A string that
+  works on the control host:
+  `Server=localhost;Database=master;Integrated Security=true;TrustServerCertificate=true;Encrypt=true`.
+- **Point it at a disposable instance, never a shared or production one.**
+  Every test creates and drops its own `MesIngest_Ticket01_*` database, and
+  `SqlServerMemoryProfileTests` changes the instance-wide `max server memory`
+  (it restores it afterwards). After a run, confirm the setting is back and no
+  `MesIngest_Ticket01_*` database is left.
+- **A SQL-backed test with absolute fixture dates must pin the host clock.**
+  The product keeps raw evidence readable for 15 days
+  (`HistoryRetentionPolicy.RawObservationAvailabilityWindow`) against its
+  `TimeProvider`. On the real clock such a test passes for two weeks and then
+  fails with `410 (Gone)` or empty results — 35 of them did (#3, fixed in #4). Use
+  `UseProductionSqlApiTestHost(TimeProvider)` with a fixed "now" inside the
+  window, and pass the same `timeProvider:` to any `SqlServerMesIngestProjection`
+  a test builds itself.
+
+CI sets none of these variables, so CI never runs these tests (#5). With them
+set, the suite took 12 m 44 s on 2026-09-15: `Failed: 0, Passed: 1105, Skipped: 0`.
+
 ## What CI runs, and on which push
 
 Four workflows, all on `win11-01`. Which one fires is decided by what a push
