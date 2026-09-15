@@ -917,8 +917,15 @@ public sealed class TaskTypeProtectionTests : IClassFixture<WebApplicationFactor
             series.GetProperty("currentDemand").GetProperty("goneConfirmedAt").GetDateTimeOffset());
     }
 
+    // Every round in this class is dated 2026-08-13 or early 2026-08-14. The host
+    // must judge their availability at a fixed instant after them and inside the
+    // raw-evidence window, not at the wall clock.
+    private static readonly DateTimeOffset FixtureUtcNow =
+        new(2026, 8, 15, 0, 0, 0, TimeSpan.Zero);
+
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseProductionSqlApiTestHost());
+        _factory.WithWebHostBuilder(builder =>
+            builder.UseProductionSqlApiTestHost(new AdjustableTimeProvider(FixtureUtcNow)));
 
     private void AssertDatabaseEvidence(Ticket01SqlServerDatabase database)
     {

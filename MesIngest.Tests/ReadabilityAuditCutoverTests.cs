@@ -287,11 +287,17 @@ public sealed class ReadabilityAuditCutoverTests : IClassFixture<WebApplicationF
         return body;
     }
 
+    // Every round in this class is dated 2026-08-24. The host must judge their
+    // availability at a fixed instant after them and inside the raw-evidence
+    // window, not at the wall clock.
+    private static readonly DateTimeOffset FixtureUtcNow =
+        new(2026, 8, 25, 0, 0, 0, TimeSpan.Zero);
+
     private WebApplicationFactory<Program> CreateFactory(
         IProjectionReadBoundaryObserver? readBoundaryObserver = null) =>
         _factory.WithWebHostBuilder(builder =>
         {
-            builder.UseProductionSqlApiTestHost();
+            builder.UseProductionSqlApiTestHost(new AdjustableTimeProvider(FixtureUtcNow));
             if (readBoundaryObserver is not null)
             {
                 builder.ConfigureTestServices(services =>
