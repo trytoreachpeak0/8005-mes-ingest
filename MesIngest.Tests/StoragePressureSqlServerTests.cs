@@ -22,7 +22,13 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
     public async Task Below_ten_percent_pauses_before_external_reads_and_restart_cannot_auto_resume()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
-        var projection = new SqlServerMesIngestProjection(database.ConnectionString);
+        // The round below is dated 2026-08-24 and is read back as poll evidence, so
+        // every projection and host here must share a clock inside its
+        // raw-evidence window rather than the wall clock.
+        var clock = new AdjustableTimeProvider(new DateTimeOffset(2026, 8, 25, 0, 0, 0, TimeSpan.Zero));
+        var projection = new SqlServerMesIngestProjection(
+            database.ConnectionString,
+            timeProvider: clock);
         await projection.CommitRoundAsync(SuccessRound("poll-storage-pressure"));
         var volume = await projection.ResolveDatabaseVolumeAsync();
         var warning = await projection.ObserveStoragePressureAsync(
@@ -62,7 +68,9 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
             await command.ExecuteNonQueryAsync();
         }
 
-        var restarted = new SqlServerMesIngestProjection(database.ConnectionString);
+        var restarted = new SqlServerMesIngestProjection(
+            database.ConnectionString,
+            timeProvider: clock);
         Assert.True((await restarted.ReadStoragePressureStateAsync()).IsPaused);
         var afterSpaceRecovered = await restarted.ObserveStoragePressureAsync(
             volume,
@@ -74,7 +82,7 @@ public sealed class StoragePressureSqlServerTests : IClassFixture<WebApplication
 
         using var environment = ConfigureProductionV2Environment(database.ConnectionString);
         await using var factory = _factory.WithWebHostBuilder(
-            builder => builder.UseProductionSqlApiTestHost());
+            builder => builder.UseProductionSqlApiTestHost(clock));
         using var client = factory.CreateClient();
         using var response = await client.GetAsync("/api/v2/externally-readable-demand-catalog");
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());

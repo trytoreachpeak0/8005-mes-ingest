@@ -254,7 +254,9 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
     public async Task Current_detail_does_not_wait_for_raw_history()
     {
         await using var database = await Ticket01SqlServerDatabase.CreateAsync();
-        var projection = new SqlServerMesIngestProjection(database.ConnectionString);
+        var projection = new SqlServerMesIngestProjection(
+            database.ConnectionString,
+            timeProvider: new AdjustableTimeProvider(FixtureUtcNow));
         await projection.BeginHostSessionAsync();
         var completedAt = new DateTimeOffset(2026, 8, 23, 12, 15, 0, TimeSpan.Zero);
         var receipt = await projection.CommitRoundAsync(CreateRound(
@@ -1274,8 +1276,15 @@ public sealed class DemandSeriesFrozenSnapshotTests : IClassFixture<WebApplicati
         return Assert.IsType<byte[]>(await command.ExecuteScalarAsync());
     }
 
+    // Rounds in this class are dated between 2026-08-13 and 2026-08-23. The host
+    // must judge their availability at a fixed instant after all of them and
+    // inside the raw-evidence window of the earliest, not at the wall clock.
+    private static readonly DateTimeOffset FixtureUtcNow =
+        new(2026, 8, 24, 0, 0, 0, TimeSpan.Zero);
+
     private WebApplicationFactory<Program> CreateFactory() =>
-        _factory.WithWebHostBuilder(builder => builder.UseProductionSqlApiTestHost());
+        _factory.WithWebHostBuilder(builder =>
+            builder.UseProductionSqlApiTestHost(new AdjustableTimeProvider(FixtureUtcNow)));
 
     private static IDisposable ConfigureProductionV2Environment(string connectionString) =>
         new Ticket01ProcessEnvironmentScope(new Dictionary<string, string?>
