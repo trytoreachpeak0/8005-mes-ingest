@@ -37,13 +37,6 @@ Installed as the `mattpocock-skills` plugin (user-level). Invoke them namespaced
 it. `code-review` collides with the bundled `/code-review`; use
 `/mattpocock-skills:code-review` for the Standards+Spec review.
 
-### Deciding what to work on
-
-The workspace ships a `w2g-next` skill. When the next step is unclear, it reads
-the real state — working tree, the slice board issue, `integration-slices/index.json`,
-open issues, gate evidence — and applies a fixed priority ladder to name one
-action. Prefer it over guessing.
-
 ## Language
 
 Agent instruction files — this one, `.claude/rules/`, `docs/agents/` — are
