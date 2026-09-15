@@ -528,7 +528,9 @@ public sealed partial class SqlServerMesIngestProjection :
                 connection,
                 transaction,
                 round.CompletedAt,
+                round.PollTraceId,
                 projectionCommitId,
+                seriesIds,
                 cancellationToken).ConfigureAwait(false);
             await UpdateOverviewErrorSummaryAsync(
                 connection,

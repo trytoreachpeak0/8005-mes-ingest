@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net;
 using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
@@ -328,18 +329,21 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         var stillEligible = await ReadRetentionStateAsync(database.ConnectionString, seriesId);
         Assert.Equal(archiveAt, stillEligible.EligibilityAt);
 
-        var eventOnlyAt = archiveAt.AddMinutes(2);
-        eventObserver.Arm("poll-ticket13-event-only-activity", seriesId, eventOnlyAt);
+        // The round projects nothing for this Series; only the test checkpoint writes an
+        // event for it. Eligibility is refreshed for the Series a round projects, so
+        // activity that no projection path produces does not restart the clock.
+        var foreignActivityAt = archiveAt.AddMinutes(2);
+        eventObserver.Arm("poll-ticket13-event-only-activity", seriesId, foreignActivityAt);
         await ingestor.IngestAsync(SuccessRound(
             "poll-ticket13-event-only-activity",
-            eventOnlyAt));
-        var eligibleAfterEvent = await ReadRetentionStateAsync(
+            foreignActivityAt));
+        var eligibleAfterForeignEvent = await ReadRetentionStateAsync(
             database.ConnectionString,
             seriesId);
-        Assert.Equal(eventOnlyAt, eligibleAfterEvent.EligibilityAt);
-        Assert.True(eligibleAfterEvent.EventCount > stillEligible.EventCount);
-        Assert.Equal(0, eligibleAfterEvent.CurrentConditionCount);
-        Assert.Equal(0, eligibleAfterEvent.OpenErrorPeriodCount);
+        Assert.Equal(archiveAt, eligibleAfterForeignEvent.EligibilityAt);
+        Assert.True(eligibleAfterForeignEvent.EventCount > stillEligible.EventCount);
+        Assert.Equal(0, eligibleAfterForeignEvent.CurrentConditionCount);
+        Assert.Equal(0, eligibleAfterForeignEvent.OpenErrorPeriodCount);
 
         var reappearedAt = archiveAt.AddHours(1);
         await ingestor.IngestAsync(SuccessRound(
@@ -364,6 +368,128 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
         Assert.NotEqual(eligible.EligibilityAt, eligibleAgain.EligibilityAt);
         Assert.Equal(0, eligibleAgain.CurrentConditionCount);
         Assert.Equal(0, eligibleAgain.OpenErrorPeriodCount);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Retention_eligibility_refresh_reevaluates_only_the_Series_the_round_projected()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var firstSeenAt = new DateTimeOffset(2026, 8, 3, 0, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(firstSeenAt);
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var anchor = ValidObservation("SL-SCOPE-ANCHOR", firstSeenAt.AddYears(-1));
+
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-scope-seed",
+            firstSeenAt,
+            anchor,
+            ValidObservation("SL-SCOPE-ARCHIVED", firstSeenAt.AddYears(-1))));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-scope-normal",
+            firstSeenAt.AddMinutes(1),
+            anchor,
+            ValidObservation("SL-SCOPE-ARCHIVED", firstSeenAt.AddYears(-1))));
+        var goneAt = firstSeenAt.AddMinutes(2);
+        await ingestor.IngestAsync(SuccessRound("poll-scope-gone", goneAt, anchor));
+        var archiveAt = goneAt.Add(DemandSeriesArchivePolicy.MinimumGoneDuration);
+        await ingestor.IngestAsync(SuccessRound("poll-scope-archive", archiveAt, anchor));
+
+        var archivedSeriesId = (await ReadSeriesAsync(client, "SL-SCOPE-ARCHIVED"))
+            .GetProperty("seriesId").GetString()!;
+        var anchorSeriesId = (await ReadSeriesAsync(client, "SL-SCOPE-ANCHOR"))
+            .GetProperty("seriesId").GetString()!;
+        Assert.Equal(archiveAt, (await ReadRetentionStateAsync(
+            database.ConnectionString,
+            archivedSeriesId)).EligibilityAt);
+        Assert.Null((await ReadRetentionStateAsync(
+            database.ConnectionString,
+            anchorSeriesId)).EligibilityAt);
+
+        // Drift both Series out of band. The next round projects only the anchor.
+        await SetRetentionEligibilityAtAsync(database.ConnectionString, archivedSeriesId, null);
+        await SetRetentionEligibilityAtAsync(
+            database.ConnectionString,
+            anchorSeriesId,
+            archiveAt.AddDays(-30));
+        await ingestor.IngestAsync(SuccessRound(
+            "poll-scope-anchor-only",
+            archiveAt.AddMinutes(1),
+            anchor));
+
+        var untouched = await ReadRetentionStateAsync(database.ConnectionString, archivedSeriesId);
+        Assert.Equal(DemandSeriesLifecycleContract.Archived, untouched.Lifecycle);
+        Assert.Equal(DemandSeriesLifecycleContract.Gone, untouched.CurrentPresence);
+        Assert.Null(untouched.EligibilityAt);
+        var projected = await ReadRetentionStateAsync(database.ConnectionString, anchorSeriesId);
+        Assert.Equal(DemandSeriesLifecycleContract.Tracking, projected.Lifecycle);
+        Assert.Null(projected.EligibilityAt);
+    }
+
+    [Ticket01SqlServerFact]
+    public async Task Round_scoped_eligibility_refresh_leaves_nothing_for_the_legacy_full_scan_to_change()
+    {
+        await using var database = await Ticket01SqlServerDatabase.CreateAsync();
+        using var environment = ConfigureProductionV2Environment(database.ConnectionString);
+        var t0 = new DateTimeOffset(2026, 8, 4, 0, 0, 0, TimeSpan.Zero);
+        var clock = new AdjustableTimeProvider(t0);
+        await using var factory = CreateFactory(clock);
+        using var client = factory.CreateClient();
+        var ingestor = factory.Services.GetRequiredService<RoundIngestor>();
+        var anchor = ValidObservation("SL-EQ-ANCHOR", t0.AddYears(-1));
+        var valid = ValidObservation("SL-EQ-VALID", t0.AddYears(-1));
+        var invalid = InvalidObservation("SL-EQ-INVALID");
+        var duplicate = ValidObservation("SL-EQ-DUPLICATE", t0.AddYears(-1));
+        var late = ValidObservation("SL-EQ-LATE", t0.AddYears(-1));
+
+        async Task IngestAndCompareAsync(
+            string pollTraceId,
+            DateTimeOffset completedAt,
+            params MesTaskUnionObservation[] observations)
+        {
+            var receipt = await ingestor.IngestAsync(
+                SuccessRound(pollTraceId, completedAt, observations));
+            await AssertLegacyFullScanRefreshChangesNothingAsync(
+                database.ConnectionString,
+                receipt,
+                completedAt);
+        }
+
+        await IngestAndCompareAsync("poll-eq-1", t0,
+            anchor, valid, invalid, duplicate, duplicate, late);
+        await IngestAndCompareAsync("poll-eq-2", t0.AddMinutes(1),
+            anchor, ValidObservation("SL-EQ-VALID", t0.AddYears(2)), invalid,
+            duplicate, duplicate, late);
+        var goneAt = t0.AddMinutes(2);
+        await IngestAndCompareAsync("poll-eq-3-gone", goneAt, anchor, late);
+        var archiveAt = goneAt.Add(DemandSeriesArchivePolicy.MinimumGoneDuration);
+        await IngestAndCompareAsync("poll-eq-4-archive", archiveAt, anchor, late);
+        await IngestAndCompareAsync("poll-eq-5-quiet", archiveAt.AddMinutes(1), anchor, late);
+        var reappearedAt = archiveAt.AddHours(1);
+        await IngestAndCompareAsync("poll-eq-6-reappear", reappearedAt, anchor, invalid);
+        var invalidGoneAgainAt = reappearedAt.AddMinutes(1);
+        await IngestAndCompareAsync("poll-eq-7-gone-again", invalidGoneAgainAt, anchor);
+        var lateArchiveAt = reappearedAt.Add(DemandSeriesArchivePolicy.MinimumGoneDuration);
+        await IngestAndCompareAsync("poll-eq-8-late-archive", lateArchiveAt, anchor);
+
+        async Task<RetentionState> ReadBySublotAsync(string sublot) =>
+            await ReadRetentionStateAsync(
+                database.ConnectionString,
+                (await ReadSeriesAsync(client, sublot)).GetProperty("seriesId").GetString()!);
+
+        // The dataset must actually walk every eligibility transition, or the
+        // comparison above proves nothing.
+        Assert.Null((await ReadBySublotAsync("SL-EQ-ANCHOR")).EligibilityAt);
+        Assert.Equal(archiveAt, (await ReadBySublotAsync("SL-EQ-VALID")).EligibilityAt);
+        Assert.Equal(archiveAt, (await ReadBySublotAsync("SL-EQ-DUPLICATE")).EligibilityAt);
+        var invalidState = await ReadBySublotAsync("SL-EQ-INVALID");
+        Assert.Equal(DemandSeriesLifecycleContract.Archived, invalidState.Lifecycle);
+        Assert.Equal(invalidGoneAgainAt, invalidState.EligibilityAt);
+        var lateState = await ReadBySublotAsync("SL-EQ-LATE");
+        Assert.Equal(DemandSeriesLifecycleContract.Archived, lateState.Lifecycle);
+        Assert.Equal(lateArchiveAt, lateState.EligibilityAt);
     }
 
     [Ticket01SqlServerFact]
@@ -575,6 +701,139 @@ public sealed class HistoryRetentionStateTests : IClassFixture<WebApplicationFac
             reader.GetInt32(1),
             reader.GetInt32(2),
             reader.GetInt32(3));
+    }
+
+    // The whole-table statement every commit ran before eligibility refresh was scoped
+    // to the round's projected Series. Kept verbatim as the equivalence oracle.
+    private const string LegacyFullScanRetentionEligibilityRefreshSql = """
+        ;WITH RetentionState AS
+        (
+            SELECT
+                series.SeriesId,
+                CONVERT(BIT, CASE
+                    WHEN series.Lifecycle = N'ARCHIVED'
+                         AND series.CurrentPresence NOT IN (N'VISIBLE', N'LONG_GONE_BUT_VISIBLE')
+                         AND demand.Status NOT IN (N'VISIBLE', N'LONG_GONE_BUT_VISIBLE')
+                         AND NOT EXISTS
+                         (
+                             SELECT 1
+                             FROM mesingest.DemandSeriesCurrentConditions AS currentCondition
+                             WHERE currentCondition.SeriesId = series.SeriesId
+                         )
+                         AND NOT EXISTS
+                         (
+                             SELECT 1
+                             FROM mesingest.DemandSeriesErrorPeriods AS errorPeriod
+                             WHERE errorPeriod.SeriesId = series.SeriesId
+                               AND errorPeriod.EndedAt IS NULL
+                         )
+                    THEN 1
+                    ELSE 0
+                END) AS IsEligible,
+                CONVERT(BIT, CASE
+                    WHEN EXISTS
+                         (
+                             SELECT 1
+                             FROM mesingest.DemandRawObservations AS observation
+                             WHERE observation.SeriesId = series.SeriesId
+                               AND observation.ProjectionCommitId = @projectionCommitId
+                         )
+                         OR EXISTS
+                         (
+                             SELECT 1
+                             FROM mesingest.DemandSeriesEvents AS seriesEvent
+                             WHERE seriesEvent.SeriesId = series.SeriesId
+                               AND seriesEvent.ProjectionCommitId = @projectionCommitId
+                         )
+                    THEN 1
+                    ELSE 0
+                END) AS HadActivityThisCommit
+            FROM mesingest.DemandSeries AS series
+            INNER JOIN mesingest.TransportDemands AS demand
+                ON demand.DemandId = series.CurrentDemandId
+        )
+        UPDATE series
+        SET RetentionEligibilityAt =
+            CASE
+                WHEN state.IsEligible = 1 THEN @eligibilityAt
+                ELSE NULL
+            END
+        FROM mesingest.DemandSeries AS series
+        INNER JOIN RetentionState AS state ON state.SeriesId = series.SeriesId
+        WHERE (state.IsEligible = 1
+               AND (series.RetentionEligibilityAt IS NULL
+                    OR state.HadActivityThisCommit = 1))
+           OR (state.IsEligible = 0 AND series.RetentionEligibilityAt IS NOT NULL);
+        """;
+
+    private static async Task AssertLegacyFullScanRefreshChangesNothingAsync(
+        string connectionString,
+        RoundCommitReceipt receipt,
+        DateTimeOffset completedAt)
+    {
+        Assert.NotNull(receipt.ProjectionCommitId);
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable);
+        var committed = await ReadAllRetentionEligibilityAsync(connection, transaction);
+        await using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = LegacyFullScanRetentionEligibilityRefreshSql;
+            command.Parameters.Add("@eligibilityAt", SqlDbType.DateTimeOffset).Value =
+                completedAt.ToUniversalTime();
+            command.Parameters.Add("@projectionCommitId", SqlDbType.NVarChar, 64).Value =
+                receipt.ProjectionCommitId;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var legacy = await ReadAllRetentionEligibilityAsync(connection, transaction);
+        await transaction.RollbackAsync();
+        Assert.Equal(legacy, committed);
+    }
+
+    private static async Task<string> ReadAllRetentionEligibilityAsync(
+        SqlConnection connection,
+        SqlTransaction transaction)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT SeriesId, RetentionEligibilityAt
+            FROM mesingest.DemandSeries
+            ORDER BY SeriesId;
+            """;
+        var rows = new List<string>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(reader.GetString(0) + "="
+                + (reader.IsDBNull(1)
+                    ? "NULL"
+                    : reader.GetFieldValue<DateTimeOffset>(1).ToString("O")));
+        }
+
+        return string.Join(Environment.NewLine, rows);
+    }
+
+    private static async Task SetRetentionEligibilityAtAsync(
+        string connectionString,
+        string seriesId,
+        DateTimeOffset? eligibilityAt)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE mesingest.DemandSeries
+            SET RetentionEligibilityAt = @eligibilityAt
+            WHERE SeriesId = @seriesId;
+            """;
+        command.Parameters.Add("@eligibilityAt", SqlDbType.DateTimeOffset).Value =
+            (object?)eligibilityAt ?? DBNull.Value;
+        command.Parameters.AddWithValue("@seriesId", seriesId);
+        Assert.Equal(1, await command.ExecuteNonQueryAsync());
     }
 
     private sealed record RetentionState(
