@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using MesIngest.Core.SeriesProjection;
 using Microsoft.Data.SqlClient;
 
@@ -788,16 +789,42 @@ public sealed partial class SqlServerMesIngestProjection
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    // Re-evaluates eligibility for the Series this commit projected, and only those.
+    // The eligibility predicate reads persisted state alone -- no clock -- and every
+    // writer of that state inside a commit adds its Series to projectedSeriesIds before
+    // this runs; outside a commit only Series cleanup writes it, and that deletes the
+    // Series. Every other Series was therefore left consistent by the commit that last
+    // projected it, and re-evaluating it is a no-op. Doing that no-op for the whole
+    // table cost time proportional to total history and, under Serializable, held range
+    // locks over it until commit.
     private static async Task RefreshSeriesRetentionEligibilityAsync(
         SqlConnection connection,
         SqlTransaction transaction,
         DateTimeOffset eligibilityAt,
+        string pollTraceId,
         string projectionCommitId,
+        IReadOnlyList<string> projectedSeriesIds,
         CancellationToken cancellationToken)
     {
+        var seriesIds = StableDistinct(projectedSeriesIds);
+        if (seriesIds.Count == 0)
+        {
+            return;
+        }
+
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
+            DECLARE @projectedSeries TABLE
+            (
+                SeriesId NVARCHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL PRIMARY KEY
+            );
+
+            INSERT INTO @projectedSeries (SeriesId)
+            SELECT [value] COLLATE Latin1_General_100_BIN2
+            FROM OPENJSON(@projectedSeriesIdsJson);
+
+            /* MESINGEST_QUERY:REFRESH_PROJECTED_SERIES_RETENTION_ELIGIBILITY */
             ;WITH RetentionState AS
             (
                 SELECT
@@ -828,6 +855,7 @@ public sealed partial class SqlServerMesIngestProjection
                                  SELECT 1
                                  FROM mesingest.DemandRawObservations AS observation
                                  WHERE observation.SeriesId = series.SeriesId
+                                   AND observation.PollTraceId = @pollTraceId
                                    AND observation.ProjectionCommitId = @projectionCommitId
                              )
                              OR EXISTS
@@ -840,7 +868,9 @@ public sealed partial class SqlServerMesIngestProjection
                         THEN 1
                         ELSE 0
                     END) AS HadActivityThisCommit
-                FROM mesingest.DemandSeries AS series
+                FROM @projectedSeries AS projected
+                INNER JOIN mesingest.DemandSeries AS series
+                    ON series.SeriesId = projected.SeriesId
                 INNER JOIN mesingest.TransportDemands AS demand
                     ON demand.DemandId = series.CurrentDemandId
             )
@@ -858,7 +888,9 @@ public sealed partial class SqlServerMesIngestProjection
                OR (state.IsEligible = 0 AND series.RetentionEligibilityAt IS NOT NULL);
             """;
         AddDateTimeOffset(command, "@eligibilityAt", eligibilityAt.ToUniversalTime());
+        AddNVarChar(command, "@pollTraceId", 128, pollTraceId);
         AddNVarChar(command, "@projectionCommitId", 64, projectionCommitId);
+        AddNVarChar(command, "@projectedSeriesIdsJson", -1, JsonSerializer.Serialize(seriesIds));
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
