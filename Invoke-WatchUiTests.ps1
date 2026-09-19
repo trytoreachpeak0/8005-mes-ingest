@@ -27,7 +27,15 @@ param(
     # costs ~7.3 min, of which xUnit reports 38.6 s of tests and ~6 min is the test process
     # sitting between its last written capture and process exit - see the note in
     # Test-WatchWindowBaselineStability.ps1.
-    [switch]$ReuseBuild
+    [switch]$ReuseBuild,
+
+    # Seconds to wait for the machine-wide desktop mutex. 0 (the default) fails at once with
+    # WATCH_UI_SERIALIZATION_BUSY, which is right for a human at the guest. CI passes a real
+    # timeout: since 2026-09-19 the control server's real-rig L2 holds the same mutex on
+    # win11-01, and a scheduled job must queue behind it rather than turn red.
+    # See Invoke-WithDesktopLock.ps1.
+    [ValidateRange(0, 86400)]
+    [int]$DesktopLockTimeoutSeconds = 0
 )
 
 Set-StrictMode -Version Latest
@@ -171,7 +179,7 @@ $mutex = [Threading.Mutex]::new($false, $desktopLockName)
 $hasMutex = $false
 try {
     try {
-        $hasMutex = $mutex.WaitOne(0)
+        $hasMutex = $mutex.WaitOne([TimeSpan]::FromSeconds($DesktopLockTimeoutSeconds))
     } catch [Threading.AbandonedMutexException] {
         # The previous holder died without releasing. The wait succeeded and the mutex is ours;
         # treating this as failure would let one killed run poison the lock permanently.
@@ -180,7 +188,8 @@ try {
     }
     if (-not $hasMutex) {
         [Console]::Error.WriteLine(
-            "WATCH_UI_SERIALIZATION_BUSY: another process owns this machine's interactive desktop.")
+            "WATCH_UI_SERIALIZATION_BUSY: another process owns this machine's interactive desktop " +
+            "(waited ${DesktopLockTimeoutSeconds}s).")
         exit 3
     }
 

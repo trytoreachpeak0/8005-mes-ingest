@@ -168,11 +168,15 @@ Two things to know before touching it:
   wrapper covers — but reads the name from the helper with `-NameOnly` rather
   than spelling it again.
 
-Acquisition is fail-fast (`-TimeoutSeconds 0`, exit 3). That is right while this
-repository is the only holder: contention can then only mean a human is running a
-desktop suite on the guest, and failing loudly beats waiting silently. **A second
-repository joining needs a real timeout instead** — a CI job must queue, not turn
-red because it collided with another repository's schedule.
+**Since 2026-09-19 CI queues for it; manual runs still fail fast.** A second
+repository joined that day: `8005-agv-control-server` runs its real-rig L2 on this
+desktop from an interactive runner of its own, and takes the same mutex once per
+scenario. So `desktop-tests.yml` passes `-TimeoutSeconds 1800` and both
+`golden-renderer.yml` jobs pass `-DesktopLockTimeoutSeconds 1800` — a CI job must
+queue, not turn red because it collided with another repository's schedule. The
+job timeouts were raised to cover that wait, because a timeout-cancel can wedge
+the runner. The scripts' own default stays `0` (exit 3): a human at the guest who
+collides with someone is better told at once.
 
 | Workflow | Runner | Fires on |
 | --- | --- | --- |

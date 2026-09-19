@@ -72,6 +72,10 @@ on:
 # server and the protocol. Cross-repository desktop exclusion is the machine-wide
 # mutex's job: Invoke-WatchUiTests.ps1 takes it below, desktop-tests.yml takes it
 # too as of 2026-09-03, and Invoke-WithDesktopLock.ps1 owns the name both use.
+# Since 2026-09-19 both jobs here queue for it (up to 30 minutes per acquisition)
+# rather than failing fast, because the control server's real-rig L2 holds the
+# same mutex on this desktop. The scheduled verify is the usual collision: it
+# fires at 03:00 CST but has been starting nearer 05:30.
 concurrency:
   group: win11-01
   cancel-in-progress: false
@@ -101,7 +105,8 @@ jobs:
   vm-tests:
     if: github.event_name == 'schedule'
     runs-on: [self-hosted, golden-renderer]
-    timeout-minutes: 30
+    # 30 minutes of possible desktop-mutex queueing on top of the run itself.
+    timeout-minutes: 60
 
     env:
       MesIngestWatch__RenderingMode: SoftwareOnly
@@ -115,7 +120,8 @@ jobs:
           ./Invoke-WatchUiTests.ps1 `
             -Configuration Release `
             -Suite watch-vm-tests `
-            -ArtifactsDirectory artifacts/watch-vm-tests
+            -ArtifactsDirectory artifacts/watch-vm-tests `
+            -DesktopLockTimeoutSeconds 1800
 
       - name: Upload results
         if: always()
@@ -170,7 +176,8 @@ jobs:
             -Configuration Release `
             -Mode $mode `
             -Runs $runs `
-            -ArtifactsDirectory artifacts/watch-window-visual
+            -ArtifactsDirectory artifacts/watch-window-visual `
+            -DesktopLockTimeoutSeconds 1800
 
       # The point of the run. Three outcomes carry very different costs, and
       # they are distinguished by what the evidence directory holds, not by the

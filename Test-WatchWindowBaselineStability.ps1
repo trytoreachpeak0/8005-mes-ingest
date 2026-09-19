@@ -11,7 +11,11 @@ param(
     [string]$Mode = "Candidate",
 
     [Parameter(Mandatory = $true)]
-    [string]$ArtifactsDirectory
+    [string]$ArtifactsDirectory,
+
+    # Passed through to every Invoke-WatchUiTests.ps1 call; see its parameter of the same name.
+    [ValidateRange(0, 86400)]
+    [int]$DesktopLockTimeoutSeconds = 0
 )
 
 Set-StrictMode -Version Latest
@@ -35,7 +39,7 @@ try {
         $(if ($Mode -eq "Candidate") { "1" } else { $null }))
     for ($run = 1; $run -le $Runs; $run++) {
         $runDirectory = Join-Path $root ("run-{0:D2}" -f $run)
-        & $runner -Configuration $Configuration -Suite watch-window-visual -ArtifactsDirectory $runDirectory
+        & $runner -Configuration $Configuration -Suite watch-window-visual -ArtifactsDirectory $runDirectory -DesktopLockTimeoutSeconds $DesktopLockTimeoutSeconds
         if ($LASTEXITCODE -ne 0) {
             throw "watch-window-visual failed on stability run $run; first failure retained at $runDirectory"
         }
@@ -66,7 +70,7 @@ try {
                 try {
                     [Environment]::SetEnvironmentVariable("MESINGEST_WATCH_CANDIDATE_REFERENCE", $referenceDirectory)
                     [Environment]::SetEnvironmentVariable("MESINGEST_WATCH_CANDIDATE_ACTUAL", $runDirectory)
-                    & $runner -Configuration $Configuration -Suite watch-window-candidate-equivalence -ArtifactsDirectory (Join-Path $runDirectory "equivalence")
+                    & $runner -Configuration $Configuration -Suite watch-window-candidate-equivalence -ArtifactsDirectory (Join-Path $runDirectory "equivalence") -DesktopLockTimeoutSeconds $DesktopLockTimeoutSeconds
                     $equivalenceExitCode = $LASTEXITCODE
                 } finally {
                     [Environment]::SetEnvironmentVariable("MESINGEST_WATCH_CANDIDATE_REFERENCE", $previousReference)
