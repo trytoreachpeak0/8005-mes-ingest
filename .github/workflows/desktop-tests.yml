@@ -31,7 +31,9 @@ on:
 # win11-01 also hosts runners for riot-sdk, the control server and the protocol.
 # Cross-repository desktop exclusion is the machine-wide mutex's job, and as of
 # 2026-09-03 this workflow actually takes it — see the test step below and
-# Invoke-WithDesktopLock.ps1, which owns the name.
+# Invoke-WithDesktopLock.ps1, which owns the name. Since 2026-09-19 it queues for
+# it (up to 30 minutes) instead of failing fast: the control server's real-rig
+# L2 now holds the same mutex on this desktop, one scenario at a time.
 concurrency:
   group: win11-01
   cancel-in-progress: false
@@ -39,7 +41,10 @@ concurrency:
 jobs:
   desktop:
     runs-on: [self-hosted, golden-renderer]
-    timeout-minutes: 30
+    # 30 minutes of possible queueing for the desktop mutex plus the ~5 minute
+    # run. Never let the timeout be what ends a wait: a timeout-cancel on this
+    # runner can wedge its broker session, as a manual cancel did on 2026-09-03.
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v7
@@ -77,7 +82,7 @@ jobs:
         run: |
           $filter = ./Get-WpfDesktopTestFilter.ps1 -Mode Include
           Write-Output "Desktop classes: $filter"
-          ./Invoke-WithDesktopLock.ps1 -Command {
+          ./Invoke-WithDesktopLock.ps1 -TimeoutSeconds 1800 -Command {
               dotnet test MesIngest.Tests --filter $filter --logger 'trx;LogFileName=desktop-results.trx'
           }
 
