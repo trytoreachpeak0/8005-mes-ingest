@@ -13,10 +13,10 @@ namespace MesIngest.Tests;
 public sealed class FactoryAcceptanceToolsTests
 {
     private const string CanonicalQueryVersion =
-        "MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
+        "MES_TASK_UNION/sha256:793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c";
 
     private const string CanonicalQuerySha256 =
-        "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
+        "793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c";
 
     /// <summary>An offline or simulated probe cannot become a live plant pass.</summary>
     [Fact]
@@ -37,7 +37,7 @@ public sealed class FactoryAcceptanceToolsTests
 
     /// <summary>
     /// A live round that executed some other statement is a failure, not a pass: the
-    /// acceptance claim is about one approved six-branch UNION ALL, by hash.
+    /// acceptance claim is about one approved seven-branch UNION ALL, by hash.
     /// </summary>
     [Fact]
     public void Probe_state_fails_when_the_executed_query_is_not_the_canonical_artifact()
@@ -121,7 +121,7 @@ public sealed class FactoryAcceptanceToolsTests
     /// execute, so it is measured on the shipped SQL rather than asserted in prose.
     /// </summary>
     [Fact]
-    public void Canonical_statement_is_one_read_only_six_branch_union_all()
+    public void Canonical_statement_is_one_read_only_seven_branch_union_all()
     {
         var query = Path.Combine(
             RepositoryPaths.CSharpRoot, "queries", "mes-task-union", "query.sql");
@@ -135,7 +135,7 @@ public sealed class FactoryAcceptanceToolsTests
             "writes=$($r.WriteKeywordsFound.Count)\"");
 
         Assert.Contains(
-            "readOnly=True branches=6 unionAll=5 statements=1 approved=True writes=0",
+            "readOnly=True branches=7 unionAll=6 statements=1 approved=True writes=0",
             output,
             StringComparison.Ordinal);
     }
