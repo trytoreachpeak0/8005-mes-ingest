@@ -1,6 +1,6 @@
 # MES_SCHEMA_INTROSPECTION
 
-以单条只读查询核验六类运输任务涉及的 Oracle Schema、字段类型和声明长度。正式 SQL 见 [`query.sql`](query.sql)，机器可读契约见 [`query.toml`](query.toml)。
+以单条只读查询核验七类运输任务涉及的 Oracle Schema、字段类型和声明长度。正式 SQL 见 [`query.sql`](query.sql)，机器可读契约见 [`query.toml`](query.toml)。
 
 ## 契约
 

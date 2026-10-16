@@ -7,7 +7,7 @@
 ```
 MesIngest/
   service/                 # Windows Service（MesIngest.Host）自包含发布
-    queries/mes-task-union/query.sql  # 六类任务轮询的固定 Oracle 查询稿
+    queries/mes-task-union/query.sql  # 七类任务轮询的固定 Oracle 查询稿
     queries/mes-task-union/query.manifest.json # 查询版本、长度与原始 SHA-256
     queries/sublot-box-count/query.sql # SUBLOT_BOX_COUNT 固定只读查询稿
     queries/sublot-box-count/query.manifest.json # 查询版本、长度与原始 SHA-256

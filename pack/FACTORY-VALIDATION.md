@@ -3,7 +3,7 @@
 本清单随安装包发布，用于工厂机验证 **MesIngest Service + Oracle 探针 + SQL Server + 远程 WPF**。
 现场执行由人工完成；**本仓库交付「验证包已就绪」不等于「工厂已签字通过」**。
 
-> 2026-08-03 当前任务范围覆盖本机 Host/Watch（远程 Oracle/SQL Server）、SharedSecret、SQL 兼容与 SQL-backed poll/write。下文六类 DATES/STEP 人工业务确认和 A/B/C 三地点采集仍保留为将来完整工厂签字流程，但**不再是当前任务的关闭条件**；未执行时也不得声称已经完成。
+> 2026-08-03 当前任务范围覆盖本机 Host/Watch（远程 Oracle/SQL Server）、SharedSecret、SQL 兼容与 SQL-backed poll/write。下文七类 DATES/STEP 人工业务确认和 A/B/C 三地点采集仍保留为将来完整工厂签字流程，但**不再是当前任务的关闭条件**；未执行时也不得声称已经完成。
 
 与 meslab `MES_TASK_UNION` SQL 实验清单（`mes/docs/工厂首轮执行与回传清单.md`）分开：本清单不跑 Python runner。
 
@@ -51,7 +51,7 @@
 
 - [ ] 复制 `templates/appsettings.Local.json.example` → `service/appsettings.Local.json`
 - [ ] 填写 SQL Server、Oracle 占位符；`SnapshotSource=Oracle`；默认 `OracleMode=Thin`
-- [ ] `RELEASE-MANIFEST.json.canonicalQuery` 与 `service/queries/mes-task-union/query.manifest.json` 都绑定 `MES_TASK_UNION/sha256:54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae`；`supplementalReadQueries` 与 `service/queries/sublot-box-count/query.manifest.json` 都绑定 `SUBLOT_BOX_COUNT/sha256:9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24`
+- [ ] `RELEASE-MANIFEST.json.canonicalQuery` 与 `service/queries/mes-task-union/query.manifest.json` 都绑定 `MES_TASK_UNION/sha256:793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c`；`supplementalReadQueries` 与 `service/queries/sublot-box-count/query.manifest.json` 都绑定 `SUBLOT_BOX_COUNT/sha256:9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24`
 - [ ] 确认 `Urls` 仍为 `http://127.0.0.1:5088`（或已按 `INSTALL.md` 配置 `SharedSecret`）
 - [ ] **不要**把已填配置拷回仓库或放进回传包
 - [ ] 远程调用需鉴权时，把 SharedSecret 放入执行进程环境变量 `MES_INGEST_SHARED_SECRET`；不要作为脚本参数或命令历史明文传入

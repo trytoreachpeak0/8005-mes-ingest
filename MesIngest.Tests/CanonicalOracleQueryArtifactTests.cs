@@ -68,10 +68,35 @@ public sealed class CanonicalOracleQueryArtifactTests
         var executableSql = StripCommentsAndQuotedLiterals(artifact.Sql);
 
         Assert.Matches("^\\s*SELECT\\b", executableSql);
-        Assert.Equal(5, Regex.Matches(executableSql, "\\bUNION\\s+ALL\\b", RegexOptions.IgnoreCase).Count);
+        Assert.Equal(6, Regex.Matches(executableSql, "\\bUNION\\s+ALL\\b", RegexOptions.IgnoreCase).Count);
         Assert.DoesNotMatch(
             "\\b(INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE|CALL|BEGIN|COMMIT|ROLLBACK|SET)\\b",
             executableSql);
+    }
+
+    [Fact]
+    public void Seventh_branch_selects_wire_to_full_inspection_from_the_full_inspection_step_on_wire_and_bonding_machines()
+    {
+        var artifact = CanonicalMesTaskUnionQuery.Load(FindRepositoryQuery());
+        var branches = Regex.Split(
+            Regex.Replace(
+                Regex.Replace(artifact.Sql, @"/\*.*?\*/", " ", RegexOptions.Singleline),
+                @"--[^\r\n]*",
+                " "),
+            "\\bUNION\\s+ALL\\b",
+            RegexOptions.IgnoreCase);
+
+        Assert.Equal(7, branches.Length);
+        var seventh = Regex.Replace(branches[6], "\\s+", " ").Trim();
+        Assert.StartsWith("SELECT 'WIRE_TO_FULL_INSPECTION' AS TASK_TYPE,", seventh, StringComparison.Ordinal);
+        Assert.Single(
+            Regex.Matches(artifact.Sql, "'WIRE_TO_FULL_INSPECTION' AS TASK_TYPE").Cast<Match>());
+        Assert.Contains("FROM v_fw_wip_sublot t WHERE step = '焊线全检' AND state <> '关闭' AND task = '完工' )", seventh, StringComparison.Ordinal);
+        Assert.Contains("t.wgdate AS DATES", seventh, StringComparison.Ordinal);
+        Assert.EndsWith(
+            "WHERE t.eqp = tt.eqpno AND t.workorder = ttt.workorder AND tt.step IN ('焊线', '键合')",
+            seventh,
+            StringComparison.Ordinal);
     }
 
     [Fact]

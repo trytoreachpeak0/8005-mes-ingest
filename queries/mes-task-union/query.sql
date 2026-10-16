@@ -1,9 +1,9 @@
 /*
-用途：一次性查询6类MES运输任务。
+用途：一次性查询7类MES运输任务。
 
 重要约定：
 1. 使用UNION ALL保留原始重复行，由应用按TASK_TYPE + SUBLOT幂等处理。
-2. 6个分支位于同一条Oracle SQL中，使用同一语句级一致性快照。
+2. 7个分支位于同一条Oracle SQL中，使用同一语句级一致性快照。
 3. 统一输出顺序：TASK_TYPE, SUBLOT, AREA, EQP, STEP, DATES, PACKAGE。
 4. 不在SQL中增加上线时间过滤；应用层按2026-08-01 00:00:00（UTC+8）过滤。
 5. 本SQL只允许以只读方式执行，严禁对MES执行INSERT、UPDATE、DELETE或DDL。
@@ -230,3 +230,44 @@ FROM   (
 WHERE  t.eqp = tt.eqpno
        AND t.workorder = ttt.workorder
        AND tt.step = '焊线'
+
+UNION ALL
+
+-- 7. 焊线/键合机台 → 全检区
+SELECT 'WIRE_TO_FULL_INSPECTION' AS TASK_TYPE,
+       t.lot AS SUBLOT,
+       tt.area AS AREA,
+       t.eqp AS EQP,
+       t.step AS STEP,
+       t.wgdate AS DATES,
+       ttt.PACKAGE AS PACKAGE
+FROM   (
+        SELECT t.*,
+               (
+                SELECT MAX(t1.eqp)
+                FROM   fw_wip_trans t1
+                WHERE  t1.lot = t.lot
+                       AND t1.dates = t.wgdate
+                       AND t1.task = '完工'
+               ) eqp
+        FROM   (
+                SELECT lot,
+                       workorder,
+                       step,
+                       (
+                        SELECT MAX(dates)
+                        FROM   fw_wip_trans tt
+                        WHERE  tt.lot = t.lot
+                               AND tt.task = '完工'
+                       ) wgdate
+                FROM   v_fw_wip_sublot t
+                WHERE  step = '焊线全检'
+                       AND state <> '关闭'
+                       AND task = '完工'
+               ) t
+       ) t,
+       fw_eqpres_eqpinformation tt,
+       v_fw_pc_workorder ttt
+WHERE  t.eqp = tt.eqpno
+       AND t.workorder = ttt.workorder
+       AND tt.step IN ('焊线', '键合')

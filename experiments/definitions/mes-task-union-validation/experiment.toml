@@ -6,4 +6,5 @@ source_manifests = [
   "../../../sources/customer/2026-07-16/mes-task-original-queries/04_WIRE_TO_OPTICAL.toml",
   "../../../sources/customer/2026-07-16/mes-task-original-queries/05_STAGING_TO_WIRE.toml",
   "../../../sources/customer/2026-07-24/mes-task-original-queries/06_WIRE_TO_NITROGEN.toml",
+  "../../../sources/customer/2026-10-16/mes-task-original-queries/07_WIRE_TO_FULL_INSPECTION.toml",
 ]

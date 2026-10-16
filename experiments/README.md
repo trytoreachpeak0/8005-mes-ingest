@@ -4,7 +4,7 @@
 
 ## 定义索引
 
-- [`mes-task-union-validation`](definitions/mes-task-union-validation/plan.md)：验证六类任务合并查询的 7 字段契约、质量、等价性和性能。
+- [`mes-task-union-validation`](definitions/mes-task-union-validation/plan.md)：验证七类任务合并查询的 7 字段契约、质量、等价性和性能。
 - [`active-package-coverage`](definitions/active-package-coverage/plan.md)：评估活跃任务样本对容量对照表的当前覆盖率。
 - [`package-universe-discovery`](definitions/package-universe-discovery/plan.md)：在客户 IT 批准范围内发现 PACKAGE 候选集合。
 - [`toll-prefix-boundary`](definitions/toll-prefix-boundary/plan.md)：验证 `TOLL-` 前缀容量规则的匹配边界。

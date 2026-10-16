@@ -9,7 +9,7 @@ public sealed class OracleMesTaskUnionRoundSourceTests
         new(2026, 8, 14, 1, 2, 3, TimeSpan.Zero);
 
     [Fact]
-    public async Task One_round_passes_the_complete_six_branch_artifact_to_exactly_one_executor_call_and_one_result()
+    public async Task One_round_passes_the_complete_seven_branch_artifact_to_exactly_one_executor_call_and_one_result()
     {
         var executor = new RecordingOracleStatementExecutor(CompleteResult(
         [
@@ -51,7 +51,7 @@ public sealed class OracleMesTaskUnionRoundSourceTests
                 System.Text.RegularExpressions.RegexOptions.Singleline),
             @"--[^\r\n]*",
             " ");
-        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(
+        Assert.Equal(6, System.Text.RegularExpressions.Regex.Matches(
             executableSql,
             "UNION\\s+ALL",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase).Count);

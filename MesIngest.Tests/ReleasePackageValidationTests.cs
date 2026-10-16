@@ -11,7 +11,7 @@ public sealed class ReleasePackageValidationTests
     private const int ContractSchemaVersion = 29;
     private const string CanonicalOpenApiRelativePath = "openapi/v2.json";
     private const string CanonicalQueryId = "MES_TASK_UNION";
-    private const string CanonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
+    private const string CanonicalQuerySha256 = "793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c";
     private const string CanonicalQueryRelativePath = "service/queries/mes-task-union/query.sql";
     private const string SublotBoxCountQueryId = "SUBLOT_BOX_COUNT";
     private const string SublotBoxCountQuerySha256 = "9aaee872311ee0c7a68e5722f8e7c97cf52e404d2d7c21c28794a599fafe6a24";
