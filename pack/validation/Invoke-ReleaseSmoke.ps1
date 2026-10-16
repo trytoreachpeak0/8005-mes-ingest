@@ -341,7 +341,7 @@ $expectedOpenApiPaths = @(
 )
 $canonicalQueryRelativePath = 'service/queries/mes-task-union/query.sql'
 $canonicalQueryManifestRelativePath = 'service/queries/mes-task-union/query.manifest.json'
-$canonicalQuerySha256 = '54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae'
+$canonicalQuerySha256 = '793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c'
 $canonicalQueryVersion = "MES_TASK_UNION/sha256:$canonicalQuerySha256"
 $canonicalQueryPath = Join-Path $packageRoot $canonicalQueryRelativePath
 $canonicalQueryManifestPath = Join-Path $packageRoot $canonicalQueryManifestRelativePath

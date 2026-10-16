@@ -58,7 +58,7 @@ $metrics = New-Object System.Collections.ArrayList
 $requestSequence = 0
 $sharedSecret = [Environment]::GetEnvironmentVariable($SharedSecretEnvironmentVariable)
 $canonicalQueryId = "MES_TASK_UNION"
-$canonicalQuerySha256 = "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae"
+$canonicalQuerySha256 = "793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c"
 $canonicalQueryVersion = "$canonicalQueryId/sha256:$canonicalQuerySha256"
 
 function Protect-ValidationText {

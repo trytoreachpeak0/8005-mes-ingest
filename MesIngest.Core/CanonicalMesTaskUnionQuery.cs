@@ -41,7 +41,7 @@ public static class CanonicalMesTaskUnionQuery
 {
     public const string Id = "MES_TASK_UNION";
     public const string ExpectedSha256 =
-        "54a140ad2ca6e67413b24d0566991adcd665f6514a742b417b4ed818fbe439ae";
+        "793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c";
     public const string QueryVersion = Id + "/sha256:" + ExpectedSha256;
 
     private static readonly UTF8Encoding StrictUtf8 = new(

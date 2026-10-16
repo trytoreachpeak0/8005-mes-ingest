@@ -1,5 +1,5 @@
 id = "MES_TASK_UNION"
-title = "MES 六类运输任务合并查询"
+title = "MES 七类运输任务合并查询"
 sql = "query.sql"
 readonly = true
 requires_approval = false

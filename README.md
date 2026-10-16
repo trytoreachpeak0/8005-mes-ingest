@@ -13,7 +13,7 @@ description.
 
 ## Ticket 15 — Production Oracle round source
 
-Production V2 runs the one approved `MES_TASK_UNION` statement from `service/queries/mes-task-union/query.sql`. Its raw-byte SHA-256 is compiled into Host and repeated in the adjacent query manifest and release manifest. A missing, empty, moved, duplicated, or modified SQL artifact is rejected before Oracle is called. Each successful read is one command / one result set covering all six branches and becomes one `MesTaskUnionRound` with PollTraceId, canonical query version, normalized content digest, row count, and outcome. The Oracle operation is read-only and bounded by `QueryTimeoutSeconds`; timeout, cancellation, execution, or result-shape failures produce safe failure evidence and never project partial rows.
+Production V2 runs the one approved `MES_TASK_UNION` statement from `service/queries/mes-task-union/query.sql`. Its raw-byte SHA-256 is compiled into Host and repeated in the adjacent query manifest and release manifest. A missing, empty, moved, duplicated, or modified SQL artifact is rejected before Oracle is called. Each successful read is one command / one result set covering all seven branches and becomes one `MesTaskUnionRound` with PollTraceId, canonical query version, normalized content digest, row count, and outcome. The Oracle operation is read-only and bounded by `QueryTimeoutSeconds`; timeout, cancellation, execution, or result-shape failures produce safe failure evidence and never project partial rows.
 
 Default **Thin** uses managed `Oracle.ManagedDataAccess.Core`. **Thick** is a separate Oracle ODBC/OCI adapter and requires both `OracleInstantClientDir` and the registered `OracleThickOdbcDriver`. Selecting Thick never falls back to Thin, and a bad mode or incomplete Thick configuration fails closed. Credentials stay in `appsettings.Local.json` / environment variables—never commit them.
 
@@ -80,7 +80,7 @@ Representative read-only endpoints are:
 `GET /api/v2/sublot-box-count` executes only the SHA-256-pinned
 `queries/sublot-box-count/query.sql` with one exact bound `sublot`. It returns one fresh
 `SUBLOT_BOX_COUNT` identity and positive `maxBoxCount`; missing, non-positive, malformed,
-unavailable, or timed-out results fail closed. It never participates in the six-work-type poll
+unavailable, or timed-out results fail closed. It never participates in the seven-work-type poll
 and never performs an Oracle write.
 
 ## Ticket 19–22 — production Watch client
