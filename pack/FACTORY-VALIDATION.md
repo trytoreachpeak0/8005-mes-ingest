@@ -3,7 +3,7 @@
 本清单随安装包发布，用于工厂机验证 **MesIngest Service + Oracle 探针 + SQL Server + 远程 WPF**。
 现场执行由人工完成；**本仓库交付「验证包已就绪」不等于「工厂已签字通过」**。
 
-> 2026-08-03 当前任务范围覆盖本机 Host/Watch（远程 Oracle/SQL Server）、SharedSecret、SQL 兼容与 SQL-backed poll/write。下文六类 DATES/STEP 人工业务确认和 A/B/C 三地点采集仍保留为将来完整工厂签字流程，但**不再是当前任务的关闭条件**；未执行时也不得声称已经完成。
+> 2026-08-03 当前任务范围覆盖本机 Host/Watch（远程 Oracle/SQL Server）、SharedSecret、SQL 兼容与 SQL-backed poll/write。下文七类 DATES/STEP 人工业务确认和 A/B/C 三地点采集仍保留为将来完整工厂签字流程，但**不再是当前任务的关闭条件**；未执行时也不得声称已经完成。
 
 与 meslab `MES_TASK_UNION` SQL 实验清单（`mes/docs/工厂首轮执行与回传清单.md`）分开：本清单不跑 Python runner。
 

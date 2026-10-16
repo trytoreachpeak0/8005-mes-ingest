@@ -17,6 +17,6 @@
 
 - 前五类：[`../../sources/customer/2026-07-16/mes-task-original-queries/`](../../sources/customer/2026-07-16/mes-task-original-queries/)
 - 第六类：[`../../sources/customer/2026-07-24/mes-task-original-queries/`](../../sources/customer/2026-07-24/mes-task-original-queries/)
-- 第七类：用户 2026-10-16 提供、客户已在 MES 上实跑过的原稿，归档于 `trytoreachpeak0/8005-agv-program#196`，`trytoreachpeak0/8005-mes-ingest#10` 票面末尾有同一份
+- 第七类：[`../../sources/customer/2026-10-16/mes-task-original-queries/`](../../sources/customer/2026-10-16/mes-task-original-queries/)
 
 不得作为运行时依赖。
