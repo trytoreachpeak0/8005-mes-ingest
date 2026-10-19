@@ -201,6 +201,18 @@ function Wait-PackagedHostContract {
     return $contract
 }
 
+# The weak catalog ETag names both HistoryEpoch and CatalogRevision; the Host formats
+# it in ExternallyReadableDemandCatalogEtagCodec. ReleaseScriptHostContractTests runs
+# this function against that codec, so the two cannot drift apart unnoticed again.
+function Get-ExpectedCatalogEtag {
+    param(
+        [Parameter(Mandatory = $true)][string] $HistoryEpoch,
+        [Parameter(Mandatory = $true)][long] $CatalogRevision
+    )
+
+    return "W/`"catalog-h$(([guid]$HistoryEpoch).ToString('N'))-r$CatalogRevision`""
+}
+
 # The poll loop keeps committing while the smoke reads. The recording repeats its
 # final round, so the catalog stops changing once every recorded round is projected;
 # waiting for that quiet period is what makes the conditional read below a real 304
@@ -723,7 +735,10 @@ try {
             "projectionCommitId=$(if ([string]::IsNullOrWhiteSpace([string]$catalogBody.projectionCommitId)) { 'ABSENT' } else { 'PRESENT' }). " +
             'An empty catalog with a committed projection means the recorded rows did not qualify as externally readable.')
     }
-    if ($catalogFirst.ETag -cne "W/`"catalog-r$([long]$catalogBody.catalogRevision)`"") {
+    $expectedCatalogEtag = Get-ExpectedCatalogEtag `
+        -HistoryEpoch ([string]$catalogBody.historyEpoch) `
+        -CatalogRevision ([long]$catalogBody.catalogRevision)
+    if ($catalogFirst.ETag -cne $expectedCatalogEtag) {
         throw 'The catalog ETag does not identify the CatalogRevision in the body.'
     }
     $catalogConditional = Invoke-SmokeRequest `
@@ -858,11 +873,16 @@ try {
 
     $restartPort = Get-FreeLoopbackPort
     $restartBaseUrl = "http://127.0.0.1:$restartPort"
+    # A production Host refuses to start without an explicit producer mode
+    # (ProductionHostStartupPolicy). The recording is that mode here: with neither
+    # poll switch on, no round runs, so the restarted Host still serves only what
+    # the previous session committed.
     $restartedHostProcess = Start-PackagedHostProcess `
         -Executable $serviceExecutable `
         -BaseUrl $restartBaseUrl `
         -SqlConnectionString $sqlConnectionString `
         -SharedSecret $sharedSecret `
+        -RecordingPath $recordingPath `
         -ContinuousPoll $false `
         -OneShotOnStartup $false
     Wait-PackagedHostContract `

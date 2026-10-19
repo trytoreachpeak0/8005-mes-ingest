@@ -195,6 +195,18 @@ function Get-FreeLoopbackPort {
     }
 }
 
+# The weak catalog ETag names both HistoryEpoch and CatalogRevision; the Host formats
+# it in ExternallyReadableDemandCatalogEtagCodec. ReleaseScriptHostContractTests runs
+# this function against that codec, so the two cannot drift apart unnoticed again.
+function Get-ExpectedCatalogEtag {
+    param(
+        [Parameter(Mandatory = $true)][string] $HistoryEpoch,
+        [Parameter(Mandatory = $true)][long] $CatalogRevision
+    )
+
+    return "W/`"catalog-h$(([guid]$HistoryEpoch).ToString('N'))-r$CatalogRevision`""
+}
+
 # One GET with explicit conditional and authorization headers; Invoke-WebRequest cannot
 # read a 304 with its ETag, which the catalog contract requires.
 function Invoke-AcceptanceRequest {
@@ -1010,7 +1022,10 @@ try {
                     "revision=$([long]$body.catalogRevision) count=$declaredCount " +
                     "items=$(@($body.items).Count).")
             }
-            if ($first.ETag -cne "W/`"catalog-r$([long]$body.catalogRevision)`"") {
+            $expectedEtag = Get-ExpectedCatalogEtag `
+                -HistoryEpoch ([string]$body.historyEpoch) `
+                -CatalogRevision ([long]$body.catalogRevision)
+            if ($first.ETag -cne $expectedEtag) {
                 throw 'The catalog ETag does not identify the CatalogRevision in the body.'
             }
             $conditional = Invoke-AcceptanceRequest -Client $httpClient -Uri $catalogUri -IfNoneMatch $first.ETag
