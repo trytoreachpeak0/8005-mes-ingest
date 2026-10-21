@@ -186,7 +186,7 @@ FROM   v_fw_wip_sublot t,
        v_fw_pc_workorder ttt
 WHERE  t.eqp = tt.eqpno
        AND t.workorder = ttt.workorder
-       AND t.step IN ('焊线', '键合')
+       AND t.step IN ('焊线', '键合', '焊线2')
        AND t.task = '入站'
        AND t.state <> '关闭'
 

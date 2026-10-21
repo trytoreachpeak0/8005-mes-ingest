@@ -56,7 +56,7 @@
       "captured_at": "<ISO8601_TIMESTAMP>",
       "poll_trace_id": "<POLL_TRACE_ID>",
       "poll_trace_high_water": 0,
-      "query_version": "MES_TASK_UNION/sha256:793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c",
+      "query_version": "MES_TASK_UNION/sha256:b2c5e6e6bc43e1af8436cd59ff102bec820f9fafbbcc90287dab92bf4fab61db",
       "content_digest": "<64_LOWERCASE_HEX_DIGEST>",
       "duration_ms": 0,
       "row_count": 0,

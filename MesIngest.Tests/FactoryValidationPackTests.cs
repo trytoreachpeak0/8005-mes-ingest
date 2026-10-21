@@ -197,7 +197,7 @@ public class FactoryValidationPackTests
         Assert.True(first.TryGetProperty("row_count", out _));
         Assert.True(first.TryGetProperty("success", out _));
         Assert.Equal(
-            "MES_TASK_UNION/sha256:793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c",
+            "MES_TASK_UNION/sha256:b2c5e6e6bc43e1af8436cd59ff102bec820f9fafbbcc90287dab92bf4fab61db",
             first.GetProperty("query_version").GetString());
         Assert.True(first.TryGetProperty("content_digest", out _));
         Assert.True(first.TryGetProperty("poll_trace_id", out _));
