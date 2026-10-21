@@ -9,7 +9,7 @@
 - `TASK_TYPE` 取值：`DIE_TO_WIRE_STAGING`、`DIE_TO_OVEN`、`WIRE_TO_GATE`、`WIRE_TO_OPTICAL`、`STAGING_TO_WIRE`、`WIRE_TO_NITROGEN`、`WIRE_TO_FULL_INSPECTION`。
 - 使用 `UNION ALL`，不得用 `UNION` 静默去重；重复候选也是语句级一致快照中的原始证据，必须保留进 `SUCCESS` 轮次，再由投影层按确定性规则处理冲突。
 - 查询只读，不在 SQL 中增加上线时间过滤；上线时间及异常骤降保护由应用层处理。
-- 发布、部署和运行时只承认 `service/queries/mes-task-union/query.sql` 这一份原始字节稿；批准版本为 `MES_TASK_UNION/sha256:793452f171ce70520b187fc6411c771e731b3307906215422909d1814687847c`。发布脚本会生成邻接 `query.manifest.json`，任何缺失、空文件、篡改或第二份 `.sql` 都必须拒绝。
+- 发布、部署和运行时只承认 `service/queries/mes-task-union/query.sql` 这一份原始字节稿；批准版本为 `MES_TASK_UNION/sha256:b2c5e6e6bc43e1af8436cd59ff102bec820f9fafbbcc90287dab92bf4fab61db`。发布脚本会生成邻接 `query.manifest.json`，任何缺失、空文件、篡改或第二份 `.sql` 都必须拒绝。
 
 ## 实验与证据关系
 
