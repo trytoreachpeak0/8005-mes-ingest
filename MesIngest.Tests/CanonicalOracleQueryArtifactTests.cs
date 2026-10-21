@@ -100,6 +100,29 @@ public sealed class CanonicalOracleQueryArtifactTests
     }
 
     [Fact]
+    public void Fifth_branch_selects_staging_to_wire_from_the_wire_bonding_and_wire2_steps()
+    {
+        var artifact = CanonicalMesTaskUnionQuery.Load(FindRepositoryQuery());
+        var branches = Regex.Split(
+            Regex.Replace(
+                Regex.Replace(artifact.Sql, @"/\*.*?\*/", " ", RegexOptions.Singleline),
+                @"--[^\r\n]*",
+                " "),
+            "\\bUNION\\s+ALL\\b",
+            RegexOptions.IgnoreCase);
+
+        Assert.Equal(7, branches.Length);
+        var fifth = Regex.Replace(branches[4], "\\s+", " ").Trim();
+        Assert.StartsWith("SELECT 'STAGING_TO_WIRE' AS TASK_TYPE,", fifth, StringComparison.Ordinal);
+        Assert.Single(
+            Regex.Matches(artifact.Sql, "'STAGING_TO_WIRE' AS TASK_TYPE").Cast<Match>());
+        Assert.EndsWith(
+            "WHERE t.eqp = tt.eqpno AND t.workorder = ttt.workorder AND t.step IN ('焊线', '键合', '焊线2') AND t.task = '入站' AND t.state <> '关闭'",
+            fifth,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Missing_empty_or_digest_mismatched_artifact_is_rejected()
     {
         var root = Path.Combine(Path.GetTempPath(), $"mes-query-artifact-{Guid.NewGuid():N}");
